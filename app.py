@@ -234,6 +234,29 @@ def _cover_url(g):
 def igdb_cover(title): return _cover_url(igdb_game(title))
 def igdb_desc(title):  return (igdb_game(title) or {}).get("summary", "")
 
+def igdb_rich(title):
+    key = "rich:" + norm(title)
+    if key in IGDB["cache"]: return IGDB["cache"][key]
+    d = igdb_query("games", f'search "{title[:60]}"; fields name,summary,rating,aggregated_rating,'
+        f'genres.name,first_release_date,involved_companies.company.name,involved_companies.developer,'
+        f'screenshots.image_id,similar_games.name; limit 1;')
+    g = d[0] if isinstance(d, list) and d else {}
+    rating = g.get("aggregated_rating") or g.get("rating")
+    year = ""
+    if g.get("first_release_date"):
+        try: year = datetime.utcfromtimestamp(g["first_release_date"]).year
+        except Exception: pass
+    dev = ""
+    for ic in g.get("involved_companies", []) or []:
+        if ic.get("developer") and ic.get("company"): dev = ic["company"].get("name",""); break
+    out = {"summary": g.get("summary",""), "rating": round(rating) if rating else None, "year": year,
+           "developer": dev, "genres": [x.get("name") for x in g.get("genres",[]) or [] if x.get("name")],
+           "screenshots": [f"https://images.igdb.com/igdb/image/upload/t_screenshot_med/{s['image_id']}.jpg"
+                           for s in (g.get("screenshots",[]) or [])[:6] if s.get("image_id")],
+           "similar": [x.get("name") for x in (g.get("similar_games",[]) or [])[:8] if x.get("name")]}
+    IGDB["cache"][key] = out
+    return out
+
 def clean_query(t):
     # Verrauschte Release-/Usenet-Titel auf den Spielnamen kürzen (für IGDB-Cover-Suche)
     t = re.sub(r'[\._]+', ' ', t or "")
@@ -766,6 +789,12 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;backg
 #modal .row button:disabled{background:#2a2f37;color:var(--mut);cursor:default}
 .flist{font-size:12px;color:var(--mut);max-height:170px;overflow:auto}
 .flist div{padding:3px 0;border-bottom:1px solid #20242b}
+.meta2{margin:8px 0 2px;display:flex;flex-wrap:wrap;gap:5px}
+.badge{display:inline-block;padding:3px 8px;border-radius:6px;background:#1e2229;border:1px solid #2c323b;color:var(--txt);font-size:12px}
+.badge.g{color:var(--mut)}
+.shots{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+.shots img{height:110px;border-radius:6px;flex:0 0 auto}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
 #grid.disc{display:block}
 .drow{margin-bottom:20px}
 .rowh{font-size:16px;margin:4px 2px 10px}
@@ -820,7 +849,7 @@ const I18N={de:{
  search_ph:'Spiel suchen … (Enter)',platforms:'Plattformen',all:'Alle',selected:'gewählt',
  hint_type:'Tippe einen Titel und drücke Enter.',loading_home:'Lade Startseite …',popular_on:'Beliebt auf',click_search:'klick zum Suchen',
  searching:'Suche läuft …',no_results:'Keine Treffer.',results:'Treffer',in_library:'✓ in Bibliothek',download:'⬇ Download',requested:'✓ angefragt',collection:'Sammlung',
- versions:'Versionen / Quellen',files:'Dateien',no_desc:'Keine Beschreibung verfügbar.',
+ versions:'Versionen / Quellen',files:'Dateien',no_desc:'Keine Beschreibung verfügbar.',screenshots:'Screenshots',similar:'Ähnliche Spiele',
  no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',reset:'Alle zurücksetzen',
  users:'Benutzer',new_user:'Neuen Benutzer anlegen',create:'Anlegen',del:'Löschen',autoapprove:'Auto-Freigabe',role_user:'Nutzer',role_admin:'Admin',username:'Benutzername',password:'Passwort',
  notif_discord:'Benachrichtigungen — Discord',active:'aktiv',test:'Test',save:'Speichern',saved:'gespeichert ✓',test_sent:'Test gesendet ✓',webhook_ph:'Discord Webhook-URL',
@@ -834,7 +863,7 @@ const I18N={de:{
  search_ph:'Search a game … (Enter)',platforms:'Platforms',all:'All',selected:'selected',
  hint_type:'Type a title and press Enter.',loading_home:'Loading home …',popular_on:'Popular on',click_search:'click to search',
  searching:'Searching …',no_results:'No results.',results:'results',in_library:'✓ in library',download:'⬇ Download',requested:'✓ requested',collection:'Collection',
- versions:'Versions / sources',files:'Files',no_desc:'No description available.',
+ versions:'Versions / sources',files:'Files',no_desc:'No description available.',screenshots:'Screenshots',similar:'Similar games',
  no_requests:'No requests yet.',approve:'Approve',deny:'Deny',reset:'Reset all',
  users:'Users',new_user:'Create new user',create:'Create',del:'Delete',autoapprove:'Auto-approve',role_user:'User',role_admin:'Admin',username:'Username',password:'Password',
  notif_discord:'Notifications — Discord',active:'enabled',test:'Test',save:'Save',saved:'saved ✓',test_sent:'test sent ✓',webhook_ph:'Discord webhook URL',
@@ -921,10 +950,13 @@ async function openDetail(it){let m=document.getElementById('modal');m.style.dis
   <div class=top><div class=mc style="${it.cover?`background-image:url('${it.cover}')`:''}"></div>
    <div><h2>${it.title.replace(/</g,'&lt;')}</h2>
     <div class=meta>${it.platform_slug||'?'} · ${it.source=='usenet'?'📡 Usenet':'🗄 Archive'} · ${sz(it.size)}${it.is_set?' · 📦 Sammlung':''}</div>
+    <div class=meta2 id=mrich></div>
     <button onclick="reportFromDetail()" style="margin-top:8px;background:#2a2f37;border:none;color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px">🐞 ${t('report_issue')}</button>
     <div class=desc id=mdesc>…</div></div></div>
+  <div class=sec id=mshots style="display:none"><h3>${t('screenshots')}</h3><div class=shots id=mshotsw></div></div>
   <div class=sec><h3>${t('versions')} (${vars.length})</h3><div id=mvar></div></div>
-  <div class=sec id=mfiles></div></div>`;
+  <div class=sec id=mfiles></div>
+  <div class=sec id=msim style="display:none"><h3>${t('similar')}</h3><div class=chips id=msimw></div></div></div>`;
  let mv=document.getElementById('mvar');
  vars.forEach(v=>{let row=document.createElement('div');row.className='row';
   let s=document.createElement('span');s.textContent=`${v.source=='usenet'?'📡':'🗄'} ${sz(v.size)} · ${v.platform_slug} · ${v.title.slice(0,48)}`;
@@ -934,8 +966,19 @@ async function openDetail(it){let m=document.getElementById('modal');m.style.dis
  let r=await fetch('/api/detail?source='+encodeURIComponent(it.source)+'&ref='+encodeURIComponent(it.ref||'')+'&title='+encodeURIComponent(it.title));
  let d=await r.json();
  document.getElementById('mdesc').textContent=d.description||t('no_desc');
+ let rb=[];
+ if(d.rating)rb.push(`<span class=badge>★ ${d.rating}</span>`);
+ if(d.year)rb.push(`<span class=badge>${d.year}</span>`);
+ if(d.developer)rb.push(`<span class=badge>${d.developer.replace(/</g,'&lt;')}</span>`);
+ (d.genres||[]).slice(0,4).forEach(g=>rb.push(`<span class="badge g">${g.replace(/</g,'&lt;')}</span>`));
+ document.getElementById('mrich').innerHTML=rb.join(' ');
+ if(d.screenshots&&d.screenshots.length){document.getElementById('mshots').style.display='';
+   document.getElementById('mshotsw').innerHTML=d.screenshots.map(s=>`<img src="${s}" loading=lazy>`).join('');}
+ if(d.similar&&d.similar.length){document.getElementById('msim').style.display='';
+   document.getElementById('msimw').innerHTML=d.similar.map(n=>`<button class=chip onclick="simSearch(this.dataset.n)" data-n="${n.replace(/"/g,'&quot;')}">${n.replace(/</g,'&lt;')}</button>`).join('');}
  if(d.files&&d.files.length)document.getElementById('mfiles').innerHTML='<h3>'+t('files')+'</h3><div class=flist>'+
    d.files.map(f=>`<div>${f.name.replace(/</g,'&lt;')} — ${sz(f.size)}</div>`).join('')+'</div>';}
+function simSearch(n){closeModal();document.getElementById('q').value=n;show('s');search();}
 function closeModal(){document.getElementById('modal').style.display='none';}
 // --- Discover / Startseite: beliebte Spiele je Konsole ---
 async function loadDiscover(){let hint=document.getElementById('hint');hint.style.display='';hint.textContent=t('loading_home');
@@ -1262,7 +1305,10 @@ def api_platforms():
 @app.route("/api/detail")
 def api_detail():
     source = request.args.get("source",""); ref = request.args.get("ref",""); title = request.args.get("title","")
-    out = {"description": igdb_desc(title) if title else "", "files": []}
+    rich = igdb_rich(title) if title else {}
+    out = {"description": rich.get("summary","") or "", "files": [],
+           "rating": rich.get("rating"), "year": rich.get("year",""), "developer": rich.get("developer",""),
+           "genres": rich.get("genres", []), "screenshots": rich.get("screenshots", []), "similar": rich.get("similar", [])}
     if source == "archive" and ref:
         try:
             m = requests.get(f"https://archive.org/metadata/{ref}", timeout=15).json()

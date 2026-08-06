@@ -7,6 +7,12 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Detailseite-Tiefe** — die Detailansicht zeigt jetzt **Wertung, Erscheinungsjahr,
+  Entwickler und Genres** (Badges), einen **Screenshot-Streifen** und **ähnliche Spiele**
+  (anklickbar → neue Suche), alles via IGDB. /
+  **Detail depth** — the detail view now shows **rating, release year, developer and
+  genres** (badges), a **screenshot strip** and **similar games** (clickable → new search),
+  all via IGDB.
 - **Discover-Tiefe** — zusätzlich zu „beliebt je Konsole" jetzt **Genre-Reihen** (RPG,
   Jump 'n' Run, Shooter, Racing … via IGDB) und **anpassbares Discover**: Reihen
   ein-/ausblenden (pro Browser gespeichert). /
