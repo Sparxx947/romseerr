@@ -7,6 +7,14 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Logs & Wartung (Admin)** — neuer Einstellungs-Unterbereich: **Protokollansicht**
+  (letzte Log-Zeilen), **Statistik** (Anfragen aktiv/fertig, Bibliotheksgröße, Cache),
+  und Wartungsknöpfe **Cache leeren**, **neu indexieren**, **fertige Anfragen entfernen**.
+  `GET /api/logs`, `GET /api/admin/stats`, `POST /api/admin/cache/clear`,
+  `POST /api/admin/reindex`, `POST /api/jobs/clear-finished`. /
+  **Logs & maintenance (admin)** — new settings section: **log view**, **stats**
+  (active/finished requests, library size, cache), and maintenance buttons
+  **clear cache**, **reindex**, **clear finished requests**.
 - **Issue-Kommentare** — Problemmeldungen haben jetzt einen **Kommentar-Verlauf**;
   der Melder und Bearbeiter (Recht `manage_issues`) schreiben Antworten, Staff-Kommentare
   sind markiert (🛠). Fremde ohne Recht werden abgewiesen (403). `POST /api/issues/<id>/comment`. /
