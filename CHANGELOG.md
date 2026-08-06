@@ -7,6 +7,11 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Issue-Kommentare** — Problemmeldungen haben jetzt einen **Kommentar-Verlauf**;
+  der Melder und Bearbeiter (Recht `manage_issues`) schreiben Antworten, Staff-Kommentare
+  sind markiert (🛠). Fremde ohne Recht werden abgewiesen (403). `POST /api/issues/<id>/comment`. /
+  **Issue comments** — issues now have a **comment thread**; the reporter and staff
+  (`manage_issues`) can reply, staff comments are marked (🛠); others are refused (403).
 - **Detailseite-Tiefe** — die Detailansicht zeigt jetzt **Wertung, Erscheinungsjahr,
   Entwickler und Genres** (Badges), einen **Screenshot-Streifen** und **ähnliche Spiele**
   (anklickbar → neue Suche), alles via IGDB. /
