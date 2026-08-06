@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # rom-suche — Seerr-artige ROM-Suche & Auto-Download (Archive.org + Usenet/SAB), Dedup gegen Bibliothek.
-import os, re, json, time, threading, queue, subprocess, urllib.parse, html
+import os, re, json, time, threading, queue, subprocess, urllib.parse, html, secrets
 from datetime import datetime
+from functools import wraps
 import requests
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response, session, redirect
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # ---------- Konfiguration ----------
 SAB_URL      = os.environ.get("SAB_URL", "").rstrip("/")
@@ -27,6 +29,8 @@ JD_DL_BASE = os.environ.get("JD_DL_BASE","/output/rom-suche")  # Sicht des JD-Co
 STAGING    = "/config/staging"
 JOBDB      = "/config/jobs.json"
 LOGFILE    = "/config/rom-suche.log"
+USERS_FILE = "/config/users.json"
+SECRET_FILE= "/config/secret.key"
 
 ROM_EXT = {"sfc","smc","nes","fds","gb","gba","gbc","n64","z64","v64","ndd","md","gen","smd","sms",
            "gg","32x","pce","sgx","ngp","ngc","ws","wsc","iso","bin","cue","chd","img","cdi","gdi",
@@ -64,6 +68,14 @@ PLATFORMS = [
    ("lynx","Lynx"),("jaguar","Jaguar"),("3do","3DO"),("amiga","Amiga"),("c64","C64"),
    ("dos","DOS"),("arcade","Arcade")]),
 ]
+SLUG_NAME = {s:n for _g,items in PLATFORMS for s,n in items}
+# IGDB-Plattform-IDs (für „beliebt pro Konsole")
+IGDB_PLAT = {"snes":19,"nes":18,"n64":4,"gb":33,"gbc":22,"gba":24,"nds":20,"3ds":37,"ngc":21,
+ "wii":5,"switch":130,"genesis":29,"sms":64,"gamegear":35,"saturn":32,"dreamcast":23,
+ "psx":7,"ps2":8,"ps3":9,"psp":38,"xbox":11,"xbox360":12,"arcade":52,"turbografx16":86,
+ "atari2600":59,"neogeo":80}
+# Startseite: Reihenfolge der wichtigsten Konsolen
+DISCOVER_ORDER = ["snes","nes","n64","gb","gba","genesis","psx","ps2","nds","ngc","dreamcast","arcade","switch"]
 # Schlüsselwort -> bevorzugter Slug (für Archive.org-Titel/Sammlung und Fallback)
 KW = [
  (r"super\s*nintendo|snes|super\s*famicom", "snes"),
@@ -183,29 +195,80 @@ def resolve_slug(slug):
         if slug in LIB["slugs"]: return slug
     return slug   # neuer Plattform-Ordner ist ok
 
-# ---------- IGDB Cover (optional, best effort) ----------
+# ---------- IGDB (optional, best effort): Cover, Beschreibung, Beliebt ----------
 IGDB = {"token": "", "exp": 0, "cache": {}}
-def igdb_cover(title):
+def igdb_token():
     if not (IGDB_ID and IGDB_SECRET): return ""
+    if time.time() > IGDB["exp"]:
+        r = requests.post("https://id.twitch.tv/oauth2/token", params={
+            "client_id": IGDB_ID, "client_secret": IGDB_SECRET,
+            "grant_type": "client_credentials"}, timeout=8)
+        j = r.json(); IGDB["token"] = j["access_token"]; IGDB["exp"] = time.time()+j.get("expires_in",3600)-60
+    return IGDB["token"]
+
+def igdb_query(endpoint, body):
+    tok = igdb_token()
+    if not tok: return []
+    try:
+        h = {"Client-ID": IGDB_ID, "Authorization": f"Bearer {tok}"}
+        return requests.post(f"https://api.igdb.com/v4/{endpoint}", headers=h, data=body, timeout=8).json()
+    except Exception:
+        return []
+
+def igdb_game(title):
     key = norm(title)
     if key in IGDB["cache"]: return IGDB["cache"][key]
+    d = igdb_query("games", f'search "{title[:60]}"; fields name,cover.image_id,summary; limit 1;')
+    g = d[0] if d else {}
+    IGDB["cache"][key] = g
+    return g
+
+def _cover_url(g):
+    return f"https://images.igdb.com/igdb/image/upload/t_cover_big/{g['cover']['image_id']}.jpg" if g.get("cover") else ""
+
+def igdb_cover(title): return _cover_url(igdb_game(title))
+def igdb_desc(title):  return (igdb_game(title) or {}).get("summary", "")
+
+def igdb_popular(limit=40):
+    d = igdb_query("games", f'fields name,cover.image_id; '
+        f'where cover != null & total_rating_count > 80; '
+        f'sort total_rating_count desc; limit {limit};')
+    if not isinstance(d, list): return []
+    return [{"title": g.get("name",""), "cover": _cover_url(g)}
+            for g in d if isinstance(g, dict) and g.get("cover")]
+
+def igdb_popular_platform(pid, limit=20):
+    d = igdb_query("games", f'fields name,cover.image_id; '
+        f'where platforms=({pid}) & cover != null & total_rating_count > 12; '
+        f'sort total_rating_count desc; limit {limit};')
+    if not isinstance(d, list): return []
+    return [{"title": g.get("name",""), "cover": _cover_url(g)}
+            for g in d if isinstance(g, dict) and g.get("cover")]
+
+DISCOVER_CACHE = {"ts": 0, "rows": []}
+def discover_rows():
+    if time.time()-DISCOVER_CACHE["ts"] < 3600 and DISCOVER_CACHE["rows"]:
+        rows = DISCOVER_CACHE["rows"]
+    else:
+        rows = []
+        for slug in DISCOVER_ORDER:
+            pid = IGDB_PLAT.get(slug)
+            games = igdb_popular_platform(pid, 20) if pid else []
+            if games:
+                rows.append({"slug": slug, "console": SLUG_NAME.get(slug, slug), "games": games})
+        DISCOVER_CACHE["rows"], DISCOVER_CACHE["ts"] = rows, time.time()
+    # Bibliotheks-Markierung je Spiel frisch (nicht cachen)
+    return [{"slug": r["slug"], "console": r["console"],
+             "games": [{**g, "in_library": in_library(g["title"], r["slug"])} for g in r["games"]]}
+            for r in rows]
+
+def notify_available(title, platform):
+    wh = os.environ.get("DISCORD_WEBHOOK", "")
+    if not wh: return
     try:
-        if time.time() > IGDB["exp"]:
-            r = requests.post("https://id.twitch.tv/oauth2/token", params={
-                "client_id": IGDB_ID, "client_secret": IGDB_SECRET,
-                "grant_type": "client_credentials"}, timeout=8)
-            j = r.json(); IGDB["token"] = j["access_token"]; IGDB["exp"] = time.time()+j.get("expires_in",3600)-60
-        h = {"Client-ID": IGDB_ID, "Authorization": f"Bearer {IGDB['token']}"}
-        q = f'search "{title[:60]}"; fields cover.image_id; limit 1;'
-        r = requests.post("https://api.igdb.com/v4/games", headers=h, data=q, timeout=8)
-        d = r.json()
-        url = ""
-        if d and d[0].get("cover"):
-            url = f"https://images.igdb.com/igdb/image/upload/t_cover_big/{d[0]['cover']['image_id']}.jpg"
-        IGDB["cache"][key] = url
-        return url
-    except Exception:
-        return ""
+        requests.post(wh, json={"content": f"🎮 **{title}** ist jetzt verfügbar ({platform})"}, timeout=8)
+    except Exception as e:
+        log(f"Notify-Fehler: {e}")
 
 # ---------- Suche ----------
 def search_archive(q, limit=30):
@@ -277,6 +340,7 @@ def do_search(q, platforms=None):
         r["platform_slug"] = resolve_slug(r["platform"])
         r["in_library"] = in_library(r["title"], r["platform"])
         r["is_set"] = is_set(r["title"], r["size"])
+        r["gkey"] = norm(r["title"])          # zum Gruppieren gleicher Titel (Versionen)
         r["_rank"] = idx
         if not r["cover"] and r["source"]=="usenet":
             r["cover"] = igdb_cover(re.sub(r'[\._]', ' ', r["title"]))
@@ -429,6 +493,7 @@ def import_folder(jid, folder):
     where = ", ".join(f"{v}×{k}" for k,v in by_plat.items()) or "nichts (schon vorhanden?)"
     set_state(jid, state="done", msg=f"{moved} Datei(en) → {where}")
     log(f"Job {jid} fertig: {moved} Dateien → {where}")
+    if moved: notify_available(job.get("title",""), where)
 
 # ---------- Worker: fertige SAB/JD-Downloads einsortieren ----------
 def romm_scan():
@@ -468,19 +533,58 @@ def folder_stable(path, wait=6):
         return a==b
     except Exception: return False
 
+# ---------- Benutzerverwaltung / Auth ----------
+def load_users():
+    try:
+        with open(USERS_FILE) as f: return json.load(f)
+    except Exception: return {}
+def save_users(u):
+    with open(USERS_FILE, "w") as f: json.dump(u, f)
+def app_secret():
+    try: return open(SECRET_FILE).read().strip()
+    except Exception:
+        s = secrets.token_hex(32)
+        try: open(SECRET_FILE, "w").write(s)
+        except Exception: pass
+        return s
+def login_required(f):
+    @wraps(f)
+    def w(*a, **k):
+        if not session.get("user"):
+            if request.path.startswith("/api/"): return jsonify({"error": "auth"}), 401
+            return redirect("/login")
+        return f(*a, **k)
+    return w
+def admin_required(f):
+    @wraps(f)
+    def w(*a, **k):
+        if session.get("role") != "admin": return jsonify({"error": "admin"}), 403
+        return f(*a, **k)
+    return w
+
 # ---------- Web-UI ----------
 app = Flask(__name__)
+app.secret_key = app_secret()
+app.config["PERMANENT_SESSION_LIFETIME"] = 60*60*24*30
 
 PAGE = """<!doctype html><html lang=de><head><meta charset=utf-8>
-<meta name=viewport content="width=device-width,initial-scale=1"><title>rom-suche</title>
+<meta name=viewport content="width=device-width,initial-scale=1"><title>Romseerr</title>
 <style>
 :root{--bg:#14161a;--card:#1e2229;--acc:#7c5cff;--ok:#2ecc71;--txt:#e6e8ec;--mut:#8b929e}
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--txt)}
-header{position:sticky;top:0;background:#0f1114;padding:14px 18px;display:flex;gap:12px;align-items:center;border-bottom:1px solid #262b33;z-index:5}
-h1{font-size:18px;margin:0;color:var(--acc)}
+#side{position:fixed;top:0;left:0;bottom:0;width:210px;background:#0f1114;border-right:1px solid #262b33;display:flex;flex-direction:column;padding:16px 12px;z-index:6}
+#side .logo{font-size:20px;font-weight:700;margin:4px 8px 18px;background:linear-gradient(90deg,#8a7bff,#6c5ce7);-webkit-background-clip:text;background-clip:text;color:transparent}
+.nav{display:block;padding:10px 12px;border-radius:10px;color:var(--mut);font-size:14px;cursor:pointer;text-decoration:none;margin-bottom:4px}
+.nav:hover{background:#1a1e25;color:var(--txt)}
+.nav.on{background:var(--acc);color:#fff}
+#side .grow{flex:1}
+#side .ubox{border-top:1px solid #262b33;padding-top:10px}
+#side .ubox #who{padding:4px 12px 8px;font-size:12px;color:var(--mut)}
+main{margin-left:210px}
+#topbar{position:sticky;top:0;background:#0f1114;padding:14px 18px;display:flex;gap:12px;align-items:center;border-bottom:1px solid #262b33;z-index:5}
 input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;background:#0b0d10;color:var(--txt);font-size:15px}
-button.tab{background:none;border:none;color:var(--mut);font-size:14px;cursor:pointer;padding:8px}
-button.tab.on{color:var(--txt);border-bottom:2px solid var(--acc)}
+.fbtn{background:#1e2229;border:1px solid #2c323b;color:var(--txt);font-size:13px;cursor:pointer;padding:10px 12px;border-radius:10px;white-space:nowrap}
+@media(max-width:680px){#side{position:static;width:auto;flex-direction:row;flex-wrap:wrap;align-items:center;padding:10px}#side .logo{margin:0 12px 0 4px}#side .grow{display:none}#side .ubox{border:none;padding:0}main{margin-left:0}.nav{padding:8px 10px;margin:0}}
 #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;padding:18px}
 .card{background:var(--card);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;border:1px solid #262b33}
 .cover{aspect-ratio:3/4;background:#0b0d10 center/cover no-repeat;position:relative}
@@ -493,6 +597,7 @@ button.tab.on{color:var(--txt);border-bottom:2px solid var(--acc)}
 .dl:disabled{background:#2a2f37;color:var(--mut);cursor:default}
 .have{color:var(--ok);font-size:12px;text-align:center;padding:8px}
 #jobs{padding:18px;display:none}
+.card .cover{cursor:pointer}
 .job{background:var(--card);border:1px solid #262b33;border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;gap:10px}
 .st{font-size:12px;padding:2px 8px;border-radius:6px;background:#2a2f37}
 .st.done{background:#1e5e3a}.st.error{background:#6e2a2a}.st.downloading,.st.importing{background:#5a4a1e}
@@ -504,47 +609,124 @@ button.tab.on{color:var(--txt);border-bottom:2px solid var(--acc)}
 .chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
 #filter .fbtns{margin-top:8px}
 #filter .fbtns button{background:#2a2f37;border:none;color:var(--txt);padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;margin-right:6px}
+#modal{display:none;position:fixed;inset:0;background:#000b;z-index:20;overflow:auto}
+#modal .box{max-width:760px;margin:24px auto;background:var(--card);border:1px solid #262b33;border-radius:14px;overflow:hidden}
+#modal .x{float:right;background:#2a2f37;border:none;color:#fff;width:32px;height:32px;border-radius:16px;font-size:18px;cursor:pointer;margin:8px}
+#modal .top{display:flex;gap:16px;padding:16px;clear:both}
+#modal .mc{width:150px;flex:0 0 150px;aspect-ratio:3/4;border-radius:8px;background:#0b0d10 center/cover no-repeat}
+#modal h2{margin:0 0 6px;font-size:20px}
+#modal .desc{color:var(--mut);font-size:13px;line-height:1.5;margin:8px 0;max-height:10em;overflow:auto}
+#modal .sec{padding:0 16px 16px}
+#modal .sec h3{font-size:12px;text-transform:uppercase;color:var(--mut);letter-spacing:.05em;margin:12px 0 6px}
+#modal .row{display:flex;justify-content:space-between;gap:10px;padding:7px 10px;background:#171a20;border-radius:8px;margin-bottom:5px;font-size:13px;align-items:center}
+#modal .row button{background:var(--acc);border:none;color:#fff;padding:6px 12px;border-radius:6px;font-size:13px;cursor:pointer}
+#modal .row button:disabled{background:#2a2f37;color:var(--mut);cursor:default}
+.flist{font-size:12px;color:var(--mut);max-height:170px;overflow:auto}
+.flist div{padding:3px 0;border-bottom:1px solid #20242b}
+#grid.disc{display:block}
+.drow{margin-bottom:20px}
+.rowh{font-size:16px;margin:4px 2px 10px}
+.rowh span{color:var(--mut);font-weight:400;font-size:12px}
+.strip{display:flex;gap:12px;overflow-x:auto;padding-bottom:8px}
+.pcard{flex:0 0 128px;cursor:pointer}
+.pcover{aspect-ratio:3/4;border-radius:10px;background:#0b0d10 center/cover no-repeat;position:relative;border:1px solid #262b33;transition:border-color .15s,transform .15s}
+.pcard:hover .pcover{border-color:var(--acc);transform:translateY(-3px)}
+.pcover .have2{position:absolute;top:6px;right:6px;background:#1e5e3a;color:#fff;border-radius:10px;padding:1px 7px;font-size:12px}
+.pt{font-size:12px;margin-top:6px;line-height:1.2;max-height:2.4em;overflow:hidden}
 </style></head><body>
-<header><h1>🎮 rom-suche</h1>
-<input id=q placeholder="Spiel suchen … (Enter)" autofocus>
-<button class="tab" id=tF onclick="toggleFilter()">🎛 Plattformen: Alle ▾</button>
-<button class="tab on" id=tS onclick="show('s')">Suche</button>
-<button class="tab" id=tJ onclick="show('j')">Downloads</button></header>
-<div id=filter></div>
-<div id=grid></div><div class=hint id=hint>Tippe einen Titel und drücke Enter.</div>
-<div id=jobs></div>
+<div id=side>
+ <div class=logo>🎮 Romseerr</div>
+ <a class="nav on" id=nS onclick="show('s')">🔍 Entdecken</a>
+ <a class=nav id=nJ onclick="show('j')">📥 Anfragen</a>
+ <a class=nav id=nU onclick="openUsers()" style="display:none">👤 Benutzer</a>
+ <div class=grow></div>
+ <div class=ubox><div id=who></div><a class=nav onclick="logout()">🚪 Abmelden</a></div>
+</div>
+<main>
+ <div id=topbar>
+  <input id=q placeholder="Spiel suchen … (Enter)" autofocus>
+  <button class=fbtn id=tF onclick="toggleFilter()">🎛 Plattformen: Alle</button>
+ </div>
+ <div id=filter></div>
+ <div id=discview><div id=grid></div><div class=hint id=hint>Tippe einen Titel und drücke Enter.</div></div>
+ <div id=jobs></div>
+</main>
+<div id=modal></div>
 <script>
 let cur='s';
-function show(v){cur=v;document.getElementById('grid').style.display=v=='s'?'grid':'none';
- document.getElementById('hint').style.display=v=='s'?'block':'none';
+function show(v){cur=v;
+ document.getElementById('discview').style.display=v=='s'?'':'none';
  document.getElementById('jobs').style.display=v=='j'?'block':'none';
- document.getElementById('tS').className='tab'+(v=='s'?' on':'');document.getElementById('tJ').className='tab'+(v=='j'?' on':'');
+ document.getElementById('nS').classList.toggle('on',v=='s');
+ document.getElementById('nJ').classList.toggle('on',v=='j');
  if(v=='j')loadJobs();}
 function sz(b){if(!b)return'';let u=['B','KB','MB','GB','TB'],i=0;while(b>=1024&&i<4){b/=1024;i++}return b.toFixed(1)+' '+u[i];}
-async function search(){let q=document.getElementById('q').value.trim();if(!q)return;
- document.getElementById('hint').textContent='Suche läuft …';
+function renderCard(it){let c=document.createElement('div');c.className='card';
+ let cov=it.cover?`background-image:url('${it.cover}')`:'';
+ let src=it.source=='usenet'?'📡 Usenet':'🗄 Archive';
+ let settag=it.is_set?' · 📦 Sammlung':'';
+ c.innerHTML=`<div class=cover style="${cov}"><span class=badge>${it.platform_slug||'?'}</span><span class=src>${src}</span></div>
+  <div class=body><div class=t>${it.title.replace(/</g,'&lt;')}</div><div class=meta>${sz(it.size)}${settag}</div><div class=act></div></div>`;
+ c.querySelector('.cover').onclick=()=>openDetail(it);
+ let tt=c.querySelector('.t');tt.style.cursor='pointer';tt.onclick=()=>openDetail(it);
+ let act=c.querySelector('.act');
+ if(it.in_library)act.innerHTML='<div class=have>✓ in Bibliothek</div>';
+ else{let b=document.createElement('button');b.className='dl';b.textContent='⬇ Download';b.onclick=()=>dl(b,it);act.appendChild(b);}
+ return c;}
+async function search(){let q=document.getElementById('q').value.trim();if(!q){loadDiscover();return;}
+ let hint=document.getElementById('hint');hint.style.display='';hint.textContent='Suche läuft …';
  let r=await fetch('/api/search?q='+encodeURIComponent(q)+'&platforms='+[...SELP].join(','));let d=await r.json();
- let g=document.getElementById('grid');g.innerHTML='';
+ window.LASTRES=d;let g=document.getElementById('grid');g.className='';g.innerHTML='';
  if(!d.length){document.getElementById('hint').textContent='Keine Treffer.';return;}
  document.getElementById('hint').textContent=d.length+' Treffer';
- d.forEach(it=>{let c=document.createElement('div');c.className='card';
-  let cov=it.cover?`background-image:url('${it.cover}')`:'';
-  let src=it.source=='usenet'?'📡 Usenet':'🗄 Archive';
-  let btn=it.in_library?`<div class=have>✓ in Bibliothek</div>`:
-    `<button class=dl onclick='dl(this,${JSON.stringify(JSON.stringify(it))})'>⬇ Download</button>`;
-  let settag=it.is_set?' · 📦 Sammlung':'';
-  c.innerHTML=`<div class=cover style="${cov}"><span class=badge>${it.platform_slug||'?'}</span><span class=src>${src}</span></div>
-   <div class=body><div class=t>${it.title.replace(/</g,'&lt;')}</div><div class=meta>${sz(it.size)}${settag}</div>${btn}</div>`;
-  g.appendChild(c);});}
-async function dl(btn,js){btn.disabled=true;btn.textContent='…';
- let it=JSON.parse(js);
+ d.forEach(it=>g.appendChild(renderCard(it)));}
+async function dl(btn,it){btn.disabled=true;btn.textContent='…';
  let r=await fetch('/api/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(it)});
- let d=await r.json();btn.textContent=d.ok?'✓ in Warteschlange':'Fehler';}
+ let d=await r.json();btn.textContent=d.ok?'✓ angefragt':(d.msg||'Fehler');}
+// --- Detail-Ansicht (Seerr-Detailseite) ---
+async function openDetail(it){let m=document.getElementById('modal');m.style.display='block';
+ let vars=(window.LASTRES||[]).filter(x=>x.gkey&&x.gkey===it.gkey);
+ m.innerHTML=`<div class=box><button class=x onclick="closeModal()">×</button>
+  <div class=top><div class=mc style="${it.cover?`background-image:url('${it.cover}')`:''}"></div>
+   <div><h2>${it.title.replace(/</g,'&lt;')}</h2>
+    <div class=meta>${it.platform_slug||'?'} · ${it.source=='usenet'?'📡 Usenet':'🗄 Archive'} · ${sz(it.size)}${it.is_set?' · 📦 Sammlung':''}</div>
+    <div class=desc id=mdesc>…</div></div></div>
+  <div class=sec><h3>Versionen / Quellen (${vars.length})</h3><div id=mvar></div></div>
+  <div class=sec id=mfiles></div></div>`;
+ let mv=document.getElementById('mvar');
+ vars.forEach(v=>{let row=document.createElement('div');row.className='row';
+  let s=document.createElement('span');s.textContent=`${v.source=='usenet'?'📡':'🗄'} ${sz(v.size)} · ${v.platform_slug} · ${v.title.slice(0,48)}`;
+  row.appendChild(s);let b=document.createElement('button');
+  if(v.in_library){b.textContent='✓ vorhanden';b.disabled=true;}else{b.textContent='⬇ Download';b.onclick=()=>dl(b,v);}
+  row.appendChild(b);mv.appendChild(row);});
+ let r=await fetch('/api/detail?source='+encodeURIComponent(it.source)+'&ref='+encodeURIComponent(it.ref||'')+'&title='+encodeURIComponent(it.title));
+ let d=await r.json();
+ document.getElementById('mdesc').textContent=d.description||'Keine Beschreibung verfügbar.';
+ if(d.files&&d.files.length)document.getElementById('mfiles').innerHTML='<h3>Dateien</h3><div class=flist>'+
+   d.files.map(f=>`<div>${f.name.replace(/</g,'&lt;')} — ${sz(f.size)}</div>`).join('')+'</div>';}
+function closeModal(){document.getElementById('modal').style.display='none';}
+// --- Discover / Startseite: beliebte Spiele je Konsole ---
+async function loadDiscover(){let hint=document.getElementById('hint');hint.style.display='';hint.textContent='Lade Startseite …';
+ let g=document.getElementById('grid');
+ let rows=await(await fetch('/api/discover/rows')).json();
+ if(!rows.length){hint.textContent='Tippe einen Titel und drücke Enter.';g.className='';g.innerHTML='';return;}
+ hint.style.display='none';g.className='disc';g.innerHTML='';
+ rows.forEach(r=>{let sec=document.createElement('div');sec.className='drow';
+  sec.innerHTML=`<div class=rowh>Beliebt auf <b>${r.console}</b> <span>· klick zum Suchen</span></div><div class=strip></div>`;
+  let strip=sec.querySelector('.strip');
+  r.games.forEach(it=>{let c=document.createElement('div');c.className='pcard';
+   c.innerHTML=`<div class=pcover style="${it.cover?`background-image:url('${it.cover}')`:''}">${it.in_library?'<span class=have2>✓</span>':''}</div><div class=pt>${it.title.replace(/</g,'&lt;')}</div>`;
+   c.onclick=()=>{SELP=new Set([r.slug]);localStorage.setItem('romp',JSON.stringify([r.slug]));updateFLabel();
+    document.querySelectorAll('.chip').forEach(e=>e.classList.toggle('on',e.dataset.s==r.slug));
+    document.getElementById('q').value=it.title;search();};
+   strip.appendChild(c);});
+  g.appendChild(sec);});}
+const STLAB={queued:['Angefragt',''],downloading:['Lädt…','downloading'],importing:['Wird verarbeitet','importing'],done:['✅ Verfügbar','done'],error:['Fehler','error'],exists:['vorhanden','']};
 async function loadJobs(){let r=await fetch('/api/jobs');let d=await r.json();let j=document.getElementById('jobs');
- j.innerHTML=d.length?'':'<div class=hint>Noch keine Downloads.</div>';
- d.forEach(o=>{let e=document.createElement('div');e.className='job';
+ j.innerHTML=d.length?'':'<div class=hint>Noch keine Anfragen.</div>';
+ d.forEach(o=>{let e=document.createElement('div');e.className='job';let L=STLAB[o.state]||[o.state,''];
   e.innerHTML=`<div><div>${o.title.replace(/</g,'&lt;')}</div><div class=meta style="color:#8b929e;font-size:11px">${o.platform} · ${o.source} · ${o.msg||''}</div></div>
-   <span class="st ${o.state}">${o.state}</span>`;j.appendChild(e);});}
+   <span class="st ${L[1]}">${L[0]}</span>`;j.appendChild(e);});}
 // --- Plattform-Vorauswahl ---
 let SELP=new Set(JSON.parse(localStorage.getItem('romp')||'[]'));
 async function loadPlatforms(){
@@ -561,15 +743,76 @@ function clearP(){SELP.clear();localStorage.setItem('romp','[]');
  document.querySelectorAll('.chip').forEach(e=>e.classList.remove('on'));updateFLabel();}
 function updateFLabel(){document.getElementById('tF').textContent='🎛 Plattformen: '+(SELP.size?SELP.size+' gewählt':'Alle')+' ▾';}
 function toggleFilter(){let f=document.getElementById('filter');f.style.display=f.style.display=='block'?'none':'block';}
-loadPlatforms();
+// --- Benutzerverwaltung ---
+async function loadAuth(){let d=await(await fetch('/api/auth/status')).json();
+ document.getElementById('who').textContent=d.user?('👋 '+d.user):'';
+ if(d.role=='admin')document.getElementById('nU').style.display='';}
+async function openUsers(){let m=document.getElementById('modal');m.style.display='block';
+ let list=await(await fetch('/api/users')).json();
+ let inp='style="flex:1;min-width:90px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px"';
+ m.innerHTML=`<div class=box><button class=x onclick="closeModal()">×</button>
+  <div class=sec><h3>Benutzer</h3><div id=ulist></div></div>
+  <div class=sec><h3>Neuen Benutzer anlegen</h3>
+   <div class=row><input id=nu placeholder=Benutzername ${inp}>
+    <input id=np type=password placeholder=Passwort ${inp}>
+    <select id=nr ${inp}><option value=user>Nutzer</option><option value=admin>Admin</option></select>
+    <button onclick="addUser()">Anlegen</button></div>
+   <div id=uerr style="color:#ff6b6b;font-size:12px;margin-top:6px"></div></div></div>`;
+ renderUsers(list);}
+function renderUsers(list){let ul=document.getElementById('ulist');ul.innerHTML='';
+ list.forEach(u=>{let row=document.createElement('div');row.className='row';
+  let s=document.createElement('span');s.textContent=(u.role=='admin'?'👑 ':'👤 ')+u.username;row.appendChild(s);
+  let b=document.createElement('button');b.textContent='Löschen';
+  b.onclick=async()=>{let d=await(await fetch('/api/users/'+encodeURIComponent(u.username),{method:'DELETE'})).json();
+   if(d.ok)openUsers();else alert(d.msg||'Fehler');};
+  row.appendChild(b);ul.appendChild(row);});}
+async function addUser(){let u=document.getElementById('nu').value.trim(),p=document.getElementById('np').value,r=document.getElementById('nr').value;
+ let d=await(await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({username:u,password:p,role:r})})).json();
+ if(d.ok)openUsers();else document.getElementById('uerr').textContent=d.msg||'Fehler';}
+async function logout(){await fetch('/api/logout',{method:'POST'});location.href='/login';}
+loadAuth();loadPlatforms();loadDiscover();
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key=='Enter')search();});
 setInterval(()=>{if(cur=='j')loadJobs();},4000);
 </script></body></html>"""
 
+LOGIN_PAGE = """<!doctype html><html lang=de><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1"><title>Romseerr — Anmelden</title>
+<style>
+:root{--acc:#6c5ce7}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+ font-family:system-ui,sans-serif;background:radial-gradient(1100px 550px at 50% -10%,#2a2350,#0b0d10);color:#e6e8ec}
+.card{background:#171a21;border:1px solid #262b33;border-radius:16px;padding:30px;width:340px;box-shadow:0 20px 60px #0008}
+h1{margin:0 0 2px;font-size:28px;text-align:center;background:linear-gradient(90deg,#8a7bff,#6c5ce7);-webkit-background-clip:text;background-clip:text;color:transparent}
+p.sub{margin:0 0 18px;text-align:center;color:#8b929e;font-size:13px}
+input{width:100%;padding:11px 13px;margin:6px 0;border-radius:10px;border:1px solid #2c323b;background:#0b0d10;color:#e6e8ec;font-size:15px}
+button{width:100%;padding:12px;margin-top:10px;border:none;border-radius:10px;background:var(--acc);color:#fff;font-weight:600;font-size:15px;cursor:pointer}
+.err{color:#ff6b6b;font-size:13px;min-height:18px;text-align:center;margin-top:8px}
+</style></head><body>
+<form class=card onsubmit="go(event)">
+<h1>🎮 Romseerr</h1><p class=sub id=sub>Anmelden</p>
+<input id=u placeholder=Benutzername autofocus autocomplete=username>
+<input id=p type=password placeholder=Passwort autocomplete=current-password>
+<button id=btn>Anmelden</button><div class=err id=err></div>
+</form>
+<script>
+let setup=false;
+fetch('/api/auth/status').then(r=>r.json()).then(d=>{if(d.user){location.href='/';return;}
+ setup=d.setup;if(setup){document.getElementById('sub').textContent='Ersteinrichtung — Administrator anlegen';
+ document.getElementById('btn').textContent='Administrator anlegen';}});
+async function go(e){e.preventDefault();
+ let u=document.getElementById('u').value.trim(),p=document.getElementById('p').value;
+ let r=await fetch(setup?'/api/setup':'/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({username:u,password:p})});
+ let d=await r.json();if(d.ok)location.href='/';else document.getElementById('err').textContent=d.msg||'Fehler';}
+</script></body></html>"""
+
 @app.route("/")
+@login_required
 def index(): return Response(PAGE, mimetype="text/html")
 
 @app.route("/api/search")
+@login_required
 def api_search():
     q = request.args.get("q","").strip()
     if not q: return jsonify([])
@@ -580,6 +823,34 @@ def api_search():
 def api_platforms():
     return jsonify([{"group":g, "items":[{"slug":s,"name":n,"usenet":bool(SLUG2USE.get(s))}
                     for s,n in items]} for g,items in PLATFORMS])
+
+@app.route("/api/detail")
+def api_detail():
+    source = request.args.get("source",""); ref = request.args.get("ref",""); title = request.args.get("title","")
+    out = {"description": igdb_desc(title) if title else "", "files": []}
+    if source == "archive" and ref:
+        try:
+            m = requests.get(f"https://archive.org/metadata/{ref}", timeout=15).json()
+            fs = []
+            for fo in m.get("files", []):
+                nm = fo.get("name","")
+                if SKIP_FILES.search(nm): continue
+                fs.append({"name": nm, "size": int(fo.get("size") or 0)})
+            out["files"] = sorted(fs, key=lambda x:-x["size"])[:60]
+        except Exception as e:
+            out["error"] = str(e)[:150]
+    return jsonify(out)
+
+@app.route("/api/discover")
+def api_discover():
+    items = igdb_popular(40)
+    for it in items:
+        it["in_library"] = in_library(it["title"], None)
+    return jsonify(items)
+
+@app.route("/api/discover/rows")
+def api_discover_rows():
+    return jsonify(discover_rows())
 
 @app.route("/api/download", methods=["POST"])
 def api_download():
@@ -596,6 +867,75 @@ def api_jobs():
 
 @app.route("/health")
 def health(): return jsonify({"ok":True,"lib_titles":len(LIB['all']),"jobs":len(JOBS)})
+
+# ---------- Auth-Routen ----------
+PUBLIC = {"/login","/api/login","/api/setup","/api/auth/status","/health"}
+@app.before_request
+def _guard():
+    p = request.path
+    if p in PUBLIC: return
+    u = session.get("user")
+    if not u or u not in load_users():
+        session.clear()
+        if p.startswith("/api/"): return jsonify({"error":"auth"}), 401
+        return redirect("/login")
+
+@app.route("/login")
+def login_page(): return Response(LOGIN_PAGE, mimetype="text/html")
+
+@app.route("/api/auth/status")
+def auth_status():
+    return jsonify({"user":session.get("user"), "role":session.get("role"),
+                    "setup": len(load_users())==0})
+
+@app.route("/api/setup", methods=["POST"])
+def api_setup():
+    if load_users(): return jsonify({"ok":False,"msg":"bereits eingerichtet"}), 400
+    d = request.get_json(force=True); u=(d.get("username") or "").strip(); p=d.get("password") or ""
+    if not u or len(p)<6: return jsonify({"ok":False,"msg":"Benutzername + Passwort (min. 6 Zeichen)"}), 400
+    save_users({u: {"pw":generate_password_hash(p), "role":"admin"}})
+    session.permanent=True; session["user"]=u; session["role"]="admin"
+    return jsonify({"ok":True})
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    d = request.get_json(force=True); u=(d.get("username") or "").strip(); p=d.get("password") or ""
+    usr = load_users().get(u)
+    if usr and check_password_hash(usr["pw"], p):
+        session.permanent=True; session["user"]=u; session["role"]=usr.get("role","user")
+        return jsonify({"ok":True,"role":session["role"]})
+    return jsonify({"ok":False,"msg":"Falsche Zugangsdaten"}), 401
+
+@app.route("/api/logout", methods=["POST"])
+def api_logout():
+    session.clear(); return jsonify({"ok":True})
+
+@app.route("/api/users", methods=["GET"])
+@admin_required
+def api_users_list():
+    return jsonify([{"username":u,"role":v.get("role","user")} for u,v in load_users().items()])
+
+@app.route("/api/users", methods=["POST"])
+@admin_required
+def api_users_add():
+    d = request.get_json(force=True); u=(d.get("username") or "").strip(); p=d.get("password") or ""
+    role = "admin" if d.get("role")=="admin" else "user"
+    if not u or len(p)<6: return jsonify({"ok":False,"msg":"Benutzername + Passwort (min. 6 Zeichen)"}), 400
+    users = load_users()
+    if u in users: return jsonify({"ok":False,"msg":"Benutzer existiert bereits"}), 400
+    users[u] = {"pw":generate_password_hash(p), "role":role}; save_users(users)
+    return jsonify({"ok":True})
+
+@app.route("/api/users/<u>", methods=["DELETE"])
+@admin_required
+def api_users_del(u):
+    users = load_users()
+    if u not in users: return jsonify({"ok":False,"msg":"unbekannt"}), 404
+    if u == session.get("user"): return jsonify({"ok":False,"msg":"nicht sich selbst"}), 400
+    admins = [x for x,v in users.items() if v.get("role")=="admin"]
+    if users[u].get("role")=="admin" and len(admins)<=1:
+        return jsonify({"ok":False,"msg":"letzter Admin"}), 400
+    users.pop(u,None); save_users(users); return jsonify({"ok":True})
 
 # ---------- Start ----------
 def periodic_index():
