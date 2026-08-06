@@ -20,6 +20,7 @@ ROMM_URL     = os.environ.get("ROMM_URL", "").rstrip("/")
 ROMM_USER    = os.environ.get("ROMM_USER", "")
 ROMM_PASS    = os.environ.get("ROMM_PASS", "")
 PORT         = int(os.environ.get("PORT", "8770"))
+VERSION      = "0.1.0"
 
 ROMS       = "/roms"
 SAB_DONE   = "/sab-complete"
@@ -659,13 +660,25 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;backg
 .pcard:hover .pcover{border-color:var(--acc);transform:translateY(-3px)}
 .pcover .have2{position:absolute;top:6px;right:6px;background:#1e5e3a;color:#fff;border-radius:10px;padding:1px 7px;font-size:12px}
 .pt{font-size:12px;margin-top:6px;line-height:1.2;max-height:2.4em;overflow:hidden}
+#settings{display:none}
+.setwrap{display:flex;gap:20px;padding:18px}
+.setnav{flex:0 0 170px;display:flex;flex-direction:column;gap:4px}
+.snav{padding:9px 12px;border-radius:8px;color:var(--mut);cursor:pointer;font-size:14px}
+.snav.on{background:var(--acc);color:#fff}
+#setcontent{flex:1;max-width:620px}
+#setcontent h3{font-size:12px;text-transform:uppercase;color:var(--mut);letter-spacing:.05em;margin:0 0 10px}
+.frow{display:flex;gap:10px;align-items:center;margin:8px 0;justify-content:space-between}
+.frow>label:first-child{min-width:130px;color:var(--mut);font-size:13px;flex:0 0 auto}
+.frow input,.frow select{background:#0b0d10;border:1px solid #2c323b;color:var(--txt);padding:8px;border-radius:6px;flex:1;min-width:60px}
+.frow input[type=checkbox]{flex:0 0 auto}
+#setcontent button{background:var(--acc);border:none;color:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:13px;margin-top:6px}
+@media(max-width:680px){.setwrap{flex-direction:column}.setnav{flex-direction:row;flex-wrap:wrap}}
 </style></head><body>
 <div id=side>
  <div class=logo>🎮 Romseerr</div>
  <a class="nav on" id=nS data-i18n=nav_discover onclick="show('s')">🔍 Entdecken</a>
  <a class=nav id=nJ data-i18n=nav_requests onclick="show('j')">📥 Anfragen</a>
- <a class=nav id=nU data-i18n=nav_users onclick="openUsers()" style="display:none">👤 Benutzer</a>
- <a class=nav id=nSet data-i18n=nav_settings onclick="openSettings()" style="display:none">⚙️ Einstellungen</a>
+ <a class=nav id=nSet data-i18n=nav_settings onclick="show('set')" style="display:none">⚙️ Einstellungen</a>
  <div class=grow></div>
  <div id=langsw><b data-l=de class=on onclick="setLang('de')">DE</b><b data-l=en onclick="setLang('en')">EN</b></div>
  <div class=ubox><div id=who></div><a class=nav data-i18n=logout onclick="logout()">🚪 Abmelden</a></div>
@@ -678,6 +691,7 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;backg
  <div id=filter></div>
  <div id=discview><div id=grid></div><div class=hint id=hint data-i18n=hint_type>Tippe einen Titel und drücke Enter.</div></div>
  <div id=jobs></div>
+ <div id=settings></div>
 </main>
 <div id=modal></div>
 <script>
@@ -690,7 +704,8 @@ const I18N={de:{
  no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',reset:'Alle zurücksetzen',
  users:'Benutzer',new_user:'Neuen Benutzer anlegen',create:'Anlegen',del:'Löschen',autoapprove:'Auto-Freigabe',role_user:'Nutzer',role_admin:'Admin',username:'Benutzername',password:'Passwort',
  notif_discord:'Benachrichtigungen — Discord',active:'aktiv',test:'Test',save:'Speichern',saved:'gespeichert ✓',test_sent:'Test gesendet ✓',webhook_ph:'Discord Webhook-URL',
- st_pending:'⏳ Wartet auf Freigabe',st_queued:'Angefragt',st_downloading:'Lädt…',st_importing:'Wird verarbeitet',st_done:'✅ Verfügbar',st_error:'Fehler',st_denied:'Abgelehnt',st_exists:'vorhanden'
+ st_pending:'⏳ Wartet auf Freigabe',st_queued:'Angefragt',st_downloading:'Lädt…',st_importing:'Wird verarbeitet',st_done:'✅ Verfügbar',st_error:'Fehler',st_denied:'Abgelehnt',st_exists:'vorhanden',
+ settings:'Einstellungen',sec_general:'Allgemein',sec_notif:'Benachrichtigungen',sec_users:'Benutzer',sec_services:'Dienste',sec_about:'Über',app_name:'App-Name',default_lang:'Standardsprache',refresh:'Aktualisieren',version:'Version',about_txt:'Selbstgebauter Seerr-Klon für ROMs.'
 },en:{
  nav_discover:'🔍 Discover',nav_requests:'📥 Requests',nav_users:'👤 Users',nav_settings:'⚙️ Settings',logout:'🚪 Sign out',
  search_ph:'Search a game … (Enter)',platforms:'Platforms',all:'All',selected:'selected',
@@ -700,7 +715,8 @@ const I18N={de:{
  no_requests:'No requests yet.',approve:'Approve',deny:'Deny',reset:'Reset all',
  users:'Users',new_user:'Create new user',create:'Create',del:'Delete',autoapprove:'Auto-approve',role_user:'User',role_admin:'Admin',username:'Username',password:'Password',
  notif_discord:'Notifications — Discord',active:'enabled',test:'Test',save:'Save',saved:'saved ✓',test_sent:'test sent ✓',webhook_ph:'Discord webhook URL',
- st_pending:'⏳ Awaiting approval',st_queued:'Requested',st_downloading:'Downloading…',st_importing:'Processing',st_done:'✅ Available',st_error:'Error',st_denied:'Denied',st_exists:'in library'
+ st_pending:'⏳ Awaiting approval',st_queued:'Requested',st_downloading:'Downloading…',st_importing:'Processing',st_done:'✅ Available',st_error:'Error',st_denied:'Denied',st_exists:'in library',
+ settings:'Settings',sec_general:'General',sec_notif:'Notifications',sec_users:'Users',sec_services:'Services',sec_about:'About',app_name:'App name',default_lang:'Default language',refresh:'Refresh',version:'Version',about_txt:'Self-built Seerr clone for ROMs.'
 }};
 let LANG=localStorage.getItem('lang')||'de';
 function t(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.de[k]||k;}
@@ -715,9 +731,11 @@ let cur='s';
 function show(v){cur=v;
  document.getElementById('discview').style.display=v=='s'?'':'none';
  document.getElementById('jobs').style.display=v=='j'?'block':'none';
+ document.getElementById('settings').style.display=v=='set'?'block':'none';
  document.getElementById('nS').classList.toggle('on',v=='s');
  document.getElementById('nJ').classList.toggle('on',v=='j');
- if(v=='j')loadJobs();}
+ document.getElementById('nSet').classList.toggle('on',v=='set');
+ if(v=='j')loadJobs();if(v=='set')openSettingsView();}
 function sz(b){if(!b)return'';let u=['B','KB','MB','GB','TB'],i=0;while(b>=1024&&i<4){b/=1024;i++}return b.toFixed(1)+' '+u[i];}
 function renderCard(it){let c=document.createElement('div');c.className='card';
  let cov=it.cover?`background-image:url('${it.cover}')`:'';
@@ -810,17 +828,49 @@ function updateFLabel(){let e=document.getElementById('tF');if(e)e.textContent='
 function toggleFilter(){let f=document.getElementById('filter');f.style.display=f.style.display=='block'?'none':'block';}
 // --- Benutzerverwaltung ---
 async function loadAuth(){let d=await(await fetch('/api/auth/status')).json();
- window.ROLE=d.role;document.getElementById('who').textContent=d.user?('👋 '+d.user):'';
- if(d.role=='admin'){document.getElementById('nU').style.display='';document.getElementById('nSet').style.display='';}}
-async function openSettings(){let m=document.getElementById('modal');m.style.display='block';
- let s=await(await fetch('/api/settings')).json();let dc=s.discord||{};
- let inp='style="flex:1;min-width:120px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px"';
- m.innerHTML=`<div class=box><button class=x onclick="closeModal()">×</button>
-  <div class=sec><h3>${t('notif_discord')}</h3>
-   <div class=row><label style="display:flex;gap:8px;align-items:center"><input type=checkbox id=dcen ${dc.enabled?'checked':''}> ${t('active')}</label></div>
-   <div class=row><input id=dcurl ${inp} placeholder="${t('webhook_ph')}" value="${(dc.url||'').replace(/"/g,'&quot;')}"><button onclick="testNotify()">${t('test')}</button></div>
-   <div class=row><button onclick="saveSettings()">${t('save')}</button><span id=serr style="color:#8b929e;font-size:12px"></span></div>
-  </div></div>`;}
+ window.ROLE=d.role;window.VERSION=d.version||'';
+ if(!localStorage.getItem('lang')&&d.default_lang){LANG=d.default_lang;setLang(LANG);}
+ document.getElementById('who').textContent=d.user?('👋 '+d.user):'';
+ if(d.role=='admin')document.getElementById('nSet').style.display='';}
+// --- Admin-Bereich / Einstellungen (Seite mit Unterbereichen) ---
+let SETSEC='general';
+function openSettingsView(){
+ let secs=[['general',t('sec_general')],['notif',t('sec_notif')],['users',t('sec_users')],['services',t('sec_services')],['about',t('sec_about')]];
+ document.getElementById('settings').innerHTML='<div class=setwrap><div class=setnav>'+
+  secs.map(x=>`<a class=snav data-sec="${x[0]}" onclick="setSection('${x[0]}')">${x[1]}</a>`).join('')+
+  '</div><div id=setcontent></div></div>';
+ setSection(SETSEC);}
+function setSection(sec){SETSEC=sec;
+ document.querySelectorAll('.snav').forEach(e=>e.classList.toggle('on',e.dataset.sec==sec));
+ let c=document.getElementById('setcontent');
+ ({general:secGeneral,notif:secNotif,users:secUsers,services:secServices,about:secAbout}[sec]||secGeneral)(c);}
+async function secGeneral(c){let g=(await(await fetch('/api/settings')).json()).general||{};
+ c.innerHTML=`<h3>${t('sec_general')}</h3>
+  <div class=frow><label>${t('app_name')}</label><input id=gname value="${(g.app_name||'Romseerr').replace(/"/g,'&quot;')}"></div>
+  <div class=frow><label>${t('default_lang')}</label><select id=glang><option value=de ${g.default_lang!='en'?'selected':''}>Deutsch</option><option value=en ${g.default_lang=='en'?'selected':''}>English</option></select></div>
+  <button onclick="saveGeneral()">${t('save')}</button> <span id=gmsg class=meta></span>`;}
+async function saveGeneral(){let d={general:{app_name:document.getElementById('gname').value.trim(),default_lang:document.getElementById('glang').value}};
+ let r=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
+ document.getElementById('gmsg').textContent=r.ok?t('saved'):t('st_error');}
+async function secNotif(c){let dc=(await(await fetch('/api/settings')).json()).discord||{};
+ c.innerHTML=`<h3>${t('notif_discord')}</h3>
+  <div class=frow><label style="min-width:auto"><input type=checkbox id=dcen ${dc.enabled?'checked':''}> ${t('active')}</label><span></span></div>
+  <div class=frow><input id=dcurl placeholder="${t('webhook_ph')}" value="${(dc.url||'').replace(/"/g,'&quot;')}"><button onclick="testNotify()">${t('test')}</button></div>
+  <button onclick="saveSettings()">${t('save')}</button> <span id=serr class=meta></span>`;}
+async function secUsers(c){let list=await(await fetch('/api/users')).json();
+ c.innerHTML=`<h3>${t('users')}</h3><div id=ulist></div>
+  <h3 style="margin-top:18px">${t('new_user')}</h3>
+  <div class=frow><input id=nu placeholder="${t('username')}"><input id=np type=password placeholder="${t('password')}">
+   <select id=nr><option value=user>${t('role_user')}</option><option value=admin>${t('role_admin')}</option></select>
+   <label style="min-width:auto;flex:0 0 auto"><input type=checkbox id=naa> ${t('autoapprove')}</label><button onclick="addUser()">${t('create')}</button></div>
+  <div id=uerr class=meta style="color:#ff6b6b"></div>`;
+ renderUsers(list);}
+async function secServices(c){c.innerHTML=`<h3>${t('sec_services')}</h3><button onclick="setSection('services')">${t('refresh')}</button><div id=svc style="margin-top:12px">…</div>`;
+ let list=await(await fetch('/api/services/status')).json();
+ document.getElementById('svc').innerHTML=list.map(s=>`<div class=frow><span>${s.ok?'🟢':'🔴'} <b>${s.name}</b></span><span class=meta>${(''+ (s.info||'')).replace(/</g,'&lt;')}</span></div>`).join('');}
+function secAbout(c){c.innerHTML=`<h3>Romseerr — ${t('sec_about')}</h3>
+  <div class=frow><span>${t('version')}</span><span class=meta>${window.VERSION||''}</span></div>
+  <p class=meta>${t('about_txt')}</p>`;}
 async function saveSettings(){let d={discord:{enabled:document.getElementById('dcen').checked,url:document.getElementById('dcurl').value.trim()}};
  let r=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
  document.getElementById('serr').textContent=r.ok?t('saved'):t('st_error');}
@@ -852,12 +902,12 @@ function renderUsers(list){let ul=document.getElementById('ulist');ul.innerHTML=
   lbl.appendChild(cb);lbl.appendChild(document.createTextNode(t('autoapprove')));right.appendChild(lbl);
   let b=document.createElement('button');b.textContent=t('del');
   b.onclick=async()=>{let d=await(await fetch('/api/users/'+encodeURIComponent(u.username),{method:'DELETE'})).json();
-   if(d.ok)openUsers();else alert(d.msg||'Fehler');};
+   if(d.ok)setSection('users');else alert(d.msg||'Fehler');};
   right.appendChild(b);row.appendChild(right);ul.appendChild(row);});}
 async function addUser(){let u=document.getElementById('nu').value.trim(),p=document.getElementById('np').value,r=document.getElementById('nr').value,aa=document.getElementById('naa').checked;
  let d=await(await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({username:u,password:p,role:r,autoapprove:aa})})).json();
- if(d.ok)openUsers();else document.getElementById('uerr').textContent=d.msg||'Fehler';}
+ if(d.ok)setSection('users');else document.getElementById('uerr').textContent=d.msg||'Fehler';}
 async function logout(){await fetch('/api/logout',{method:'POST'});location.href='/login';}
 document.querySelectorAll('#langsw b').forEach(e=>e.classList.toggle('on',e.dataset.l==LANG));
 applyI18n();loadAuth();loadPlatforms();loadDiscover();
@@ -983,8 +1033,12 @@ def login_page(): return Response(LOGIN_PAGE, mimetype="text/html")
 
 @app.route("/api/auth/status")
 def auth_status():
+    g = load_settings().get("general", {})
     return jsonify({"user":session.get("user"), "role":session.get("role"),
-                    "setup": len(load_users())==0})
+                    "setup": len(load_users())==0,
+                    "default_lang": g.get("default_lang","de"),
+                    "app_name": g.get("app_name","Romseerr"),
+                    "version": VERSION})
 
 @app.route("/api/setup", methods=["POST"])
 def api_setup():
@@ -1045,15 +1099,40 @@ def api_users_patch(u):
 @admin_required
 def api_settings_get():
     s = load_settings()
-    return jsonify({"discord": s.get("discord", {"enabled": False, "url": ""})})
+    return jsonify({"discord": s.get("discord", {"enabled": False, "url": ""}),
+                    "general": s.get("general", {"app_name": "Romseerr", "default_lang": "de"})})
 
 @app.route("/api/settings", methods=["POST"])
 @admin_required
 def api_settings_set():
-    d = request.get_json(force=True); dc = d.get("discord", {})
-    s = load_settings()
-    s["discord"] = {"enabled": bool(dc.get("enabled")), "url": (dc.get("url") or "").strip()}
+    d = request.get_json(force=True); s = load_settings()
+    if "discord" in d:
+        dc = d["discord"]; s["discord"] = {"enabled": bool(dc.get("enabled")), "url": (dc.get("url") or "").strip()}
+    if "general" in d:
+        g = d["general"]
+        s["general"] = {"app_name": (g.get("app_name") or "Romseerr")[:40],
+                        "default_lang": "en" if g.get("default_lang") == "en" else "de"}
     save_settings(s); return jsonify({"ok": True})
+
+@app.route("/api/services/status")
+@admin_required
+def api_services_status():
+    out = []
+    try:
+        j = requests.get(f"{SAB_URL}/api", params={"mode":"version","output":"json","apikey":SAB_APIKEY}, timeout=6).json()
+        out.append({"name":"SABnzbd","ok":True,"info":"v"+str(j.get("version",""))})
+    except Exception as e: out.append({"name":"SABnzbd","ok":False,"info":str(e)[:40]})
+    try:
+        r = requests.get(f"{PROW_URL}/api/v1/system/status", headers={"X-Api-Key":PROW_KEY}, timeout=6)
+        out.append({"name":"Prowlarr","ok":r.ok,"info":"v"+str(r.json().get("version",""))})
+    except Exception as e: out.append({"name":"Prowlarr","ok":False,"info":str(e)[:40]})
+    try:
+        r = requests.get(f"{ROMM_URL}/api/heartbeat", timeout=6)
+        out.append({"name":"RomM","ok":r.ok,"info":"erreichbar"})
+    except Exception as e: out.append({"name":"RomM","ok":False,"info":str(e)[:40]})
+    out.append({"name":"IGDB","ok":bool(igdb_token()),"info":"Cover / Discover"})
+    out.append({"name":"Archive.org","ok":True,"info":"public API"})
+    return jsonify(out)
 
 @app.route("/api/settings/notify-test", methods=["POST"])
 @admin_required
