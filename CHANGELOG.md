@@ -7,6 +7,11 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Discover-Tiefe** — zusätzlich zu „beliebt je Konsole" jetzt **Genre-Reihen** (RPG,
+  Jump 'n' Run, Shooter, Racing … via IGDB) und **anpassbares Discover**: Reihen
+  ein-/ausblenden (pro Browser gespeichert). /
+  **Discover depth** — genre rows (RPG, platform, shooter, racing …) in addition to
+  per-console, plus customizable discover (show/hide rows).
 - **Anfrage-Kontingente (Quotas)** — Admin setzt X Anfragen pro Y Tage; Nutzer ohne
   „kein Limit"-Recht (`quota_exempt`) werden bei Überschreitung abgelehnt; Rest-Kontingent
   im Profil. /
