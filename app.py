@@ -31,6 +31,7 @@ JOBDB      = "/config/jobs.json"
 LOGFILE    = "/config/rom-suche.log"
 USERS_FILE = "/config/users.json"
 SECRET_FILE= "/config/secret.key"
+SETTINGS_FILE = "/config/settings.json"
 
 ROM_EXT = {"sfc","smc","nes","fds","gb","gba","gbc","n64","z64","v64","ndd","md","gen","smd","sms",
            "gg","32x","pce","sgx","ngp","ngc","ws","wsc","iso","bin","cue","chd","img","cdi","gdi",
@@ -229,6 +230,15 @@ def _cover_url(g):
 def igdb_cover(title): return _cover_url(igdb_game(title))
 def igdb_desc(title):  return (igdb_game(title) or {}).get("summary", "")
 
+def clean_query(t):
+    # Verrauschte Release-/Usenet-Titel auf den Spielnamen kürzen (für IGDB-Cover-Suche)
+    t = re.sub(r'[\._]+', ' ', t or "")
+    t = re.split(r'\b(update|dlc|proper|repack|multi\d*|nsw|xci|nsp|wbfs|rvz|ps[1-5]|psp|psvita|'
+                 r'wiiu?|xbox\w*|switch|eur|usa|jpn|europe|japan|v\d+(\.\d+)*)\b', t, 1, flags=re.I)[0]
+    t = re.sub(r'\([^)]*\)|\[[^\]]*\]', ' ', t)
+    t = re.sub(r'-\s*\w+$', '', t)          # -GROUP am Ende
+    return re.sub(r'\s+', ' ', t).strip()
+
 def igdb_popular(limit=40):
     d = igdb_query("games", f'fields name,cover.image_id; '
         f'where cover != null & total_rating_count > 80; '
@@ -262,13 +272,17 @@ def discover_rows():
              "games": [{**g, "in_library": in_library(g["title"], r["slug"])} for g in r["games"]]}
             for r in rows]
 
-def notify_available(title, platform):
-    wh = os.environ.get("DISCORD_WEBHOOK", "")
-    if not wh: return
+def notify_send(text):
+    s = load_settings().get("discord", {})
+    wh = s.get("url") if s.get("enabled") else os.environ.get("DISCORD_WEBHOOK", "")
+    if not wh: return False
     try:
-        requests.post(wh, json={"content": f"🎮 **{title}** ist jetzt verfügbar ({platform})"}, timeout=8)
+        requests.post(wh, json={"content": text}, timeout=8); return True
     except Exception as e:
-        log(f"Notify-Fehler: {e}")
+        log(f"Notify-Fehler: {e}"); return False
+
+def notify_available(title, platform):
+    notify_send(f"🎮 **{title}** ist jetzt verfügbar / now available ({platform})")
 
 # ---------- Suche ----------
 def search_archive(q, limit=30):
@@ -342,8 +356,7 @@ def do_search(q, platforms=None):
         r["is_set"] = is_set(r["title"], r["size"])
         r["gkey"] = norm(r["title"])          # zum Gruppieren gleicher Titel (Versionen)
         r["_rank"] = idx
-        if not r["cover"] and r["source"]=="usenet":
-            r["cover"] = igdb_cover(re.sub(r'[\._]', ' ', r["title"]))
+        # Cover für Usenet-Treffer werden im Frontend lazy über /api/cover geladen
         res.append(r)
     # Einzeltitel zuerst, dann Sets; Vorhandene ans Ende; sonst Relevanz-Reihenfolge
     res.sort(key=lambda x:(x["in_library"], x["is_set"], x["_rank"]))
@@ -369,13 +382,14 @@ def set_state(jid, **kw):
             if j["id"]==jid: j.update(kw); j["updated"]=datetime.now().strftime("%H:%M:%S")
         save_jobs()
 
-def new_job(item):
+def new_job(item, user="", approved=True):
     jid = f"{int(time.time())}{len(JOBS)%1000:03d}"
     job = {"id":jid,"title":item["title"],"source":item["source"],"ref":item["ref"],
            "platform":item.get("platform_slug") or "Mixed","size":item.get("size",0),
-           "state":"queued","updated":datetime.now().strftime("%H:%M:%S"),"msg":""}
+           "user":user,"state":"queued" if approved else "pending",
+           "updated":datetime.now().strftime("%H:%M:%S"),"msg":"" if approved else "wartet auf Freigabe"}
     with JOBS_LOCK: JOBS.append(job); save_jobs()
-    Q.put(jid)
+    if approved: Q.put(jid)
     return job
 
 def get_job(jid):
@@ -540,6 +554,15 @@ def load_users():
     except Exception: return {}
 def save_users(u):
     with open(USERS_FILE, "w") as f: json.dump(u, f)
+def load_settings():
+    try:
+        with open(SETTINGS_FILE) as f: return json.load(f)
+    except Exception: return {}
+def save_settings(s):
+    with open(SETTINGS_FILE, "w") as f: json.dump(s, f)
+def may_autoapprove(username):
+    usr = load_users().get(username, {})
+    return usr.get("role") == "admin" or bool(usr.get("autoapprove"))
 def app_secret():
     try: return open(SECRET_FILE).read().strip()
     except Exception:
@@ -639,6 +662,7 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;backg
  <a class="nav on" id=nS onclick="show('s')">🔍 Entdecken</a>
  <a class=nav id=nJ onclick="show('j')">📥 Anfragen</a>
  <a class=nav id=nU onclick="openUsers()" style="display:none">👤 Benutzer</a>
+ <a class=nav id=nSet onclick="openSettings()" style="display:none">⚙️ Einstellungen</a>
  <div class=grow></div>
  <div class=ubox><div id=who></div><a class=nav onclick="logout()">🚪 Abmelden</a></div>
 </div>
@@ -672,7 +696,10 @@ function renderCard(it){let c=document.createElement('div');c.className='card';
  let act=c.querySelector('.act');
  if(it.in_library)act.innerHTML='<div class=have>✓ in Bibliothek</div>';
  else{let b=document.createElement('button');b.className='dl';b.textContent='⬇ Download';b.onclick=()=>dl(b,it);act.appendChild(b);}
+ if(!it.cover)fetch('/api/cover?title='+encodeURIComponent(it.title)).then(r=>r.json()).then(d=>{
+  if(d.cover){it.cover=d.cover;c.querySelector('.cover').style.backgroundImage="url('"+d.cover+"')";}});
  return c;}
+
 async function search(){let q=document.getElementById('q').value.trim();if(!q){loadDiscover();return;}
  let hint=document.getElementById('hint');hint.style.display='';hint.textContent='Suche läuft …';
  let r=await fetch('/api/search?q='+encodeURIComponent(q)+'&platforms='+[...SELP].join(','));let d=await r.json();
@@ -721,12 +748,16 @@ async function loadDiscover(){let hint=document.getElementById('hint');hint.styl
     document.getElementById('q').value=it.title;search();};
    strip.appendChild(c);});
   g.appendChild(sec);});}
-const STLAB={queued:['Angefragt',''],downloading:['Lädt…','downloading'],importing:['Wird verarbeitet','importing'],done:['✅ Verfügbar','done'],error:['Fehler','error'],exists:['vorhanden','']};
+const STLAB={pending:['⏳ Wartet auf Freigabe',''],queued:['Angefragt',''],downloading:['Lädt…','downloading'],importing:['Wird verarbeitet','importing'],done:['✅ Verfügbar','done'],error:['Fehler','error'],denied:['Abgelehnt','error'],exists:['vorhanden','']};
 async function loadJobs(){let r=await fetch('/api/jobs');let d=await r.json();let j=document.getElementById('jobs');
  j.innerHTML=d.length?'':'<div class=hint>Noch keine Anfragen.</div>';
  d.forEach(o=>{let e=document.createElement('div');e.className='job';let L=STLAB[o.state]||[o.state,''];
-  e.innerHTML=`<div><div>${o.title.replace(/</g,'&lt;')}</div><div class=meta style="color:#8b929e;font-size:11px">${o.platform} · ${o.source} · ${o.msg||''}</div></div>
-   <span class="st ${L[1]}">${L[0]}</span>`;j.appendChild(e);});}
+  let by=o.user?(' · '+o.user):'';let right;
+  if(o.state=='pending'&&window.ROLE=='admin'){
+   right=`<button onclick="approveJob('${o.id}')" style="background:#1e5e3a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;margin-right:6px">Freigeben</button><button onclick="denyJob('${o.id}')" style="background:#6e2a2a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer">Ablehnen</button>`;
+  }else{right=`<span class="st ${L[1]}">${L[0]}</span>`;}
+  e.innerHTML=`<div><div>${o.title.replace(/</g,'&lt;')}</div><div class=meta style="color:#8b929e;font-size:11px">${o.platform} · ${o.source}${by} · ${o.msg||''}</div></div><div>${right}</div>`;
+  j.appendChild(e);});}
 // --- Plattform-Vorauswahl ---
 let SELP=new Set(JSON.parse(localStorage.getItem('romp')||'[]'));
 async function loadPlatforms(){
@@ -745,8 +776,25 @@ function updateFLabel(){document.getElementById('tF').textContent='🎛 Plattfor
 function toggleFilter(){let f=document.getElementById('filter');f.style.display=f.style.display=='block'?'none':'block';}
 // --- Benutzerverwaltung ---
 async function loadAuth(){let d=await(await fetch('/api/auth/status')).json();
- document.getElementById('who').textContent=d.user?('👋 '+d.user):'';
- if(d.role=='admin')document.getElementById('nU').style.display='';}
+ window.ROLE=d.role;document.getElementById('who').textContent=d.user?('👋 '+d.user):'';
+ if(d.role=='admin'){document.getElementById('nU').style.display='';document.getElementById('nSet').style.display='';}}
+async function openSettings(){let m=document.getElementById('modal');m.style.display='block';
+ let s=await(await fetch('/api/settings')).json();let dc=s.discord||{};
+ let inp='style="flex:1;min-width:120px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px"';
+ m.innerHTML=`<div class=box><button class=x onclick="closeModal()">×</button>
+  <div class=sec><h3>Benachrichtigungen — Discord</h3>
+   <div class=row><label style="display:flex;gap:8px;align-items:center"><input type=checkbox id=dcen ${dc.enabled?'checked':''}> aktiv</label></div>
+   <div class=row><input id=dcurl ${inp} placeholder="Discord Webhook-URL" value="${(dc.url||'').replace(/"/g,'&quot;')}"><button onclick="testNotify()">Test</button></div>
+   <div class=row><button onclick="saveSettings()">Speichern</button><span id=serr style="color:#8b929e;font-size:12px"></span></div>
+  </div></div>`;}
+async function saveSettings(){let d={discord:{enabled:document.getElementById('dcen').checked,url:document.getElementById('dcurl').value.trim()}};
+ let r=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
+ document.getElementById('serr').textContent=r.ok?'gespeichert ✓':'Fehler';}
+async function testNotify(){let d={discord:{url:document.getElementById('dcurl').value.trim()}};
+ let r=await(await fetch('/api/settings/notify-test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
+ document.getElementById('serr').textContent=r.ok?'Test gesendet ✓':(r.msg||'Fehler');}
+async function approveJob(id){await fetch('/api/jobs/'+id+'/approve',{method:'POST'});loadJobs();}
+async function denyJob(id){await fetch('/api/jobs/'+id+'/deny',{method:'POST'});loadJobs();}
 async function openUsers(){let m=document.getElementById('modal');m.style.display='block';
  let list=await(await fetch('/api/users')).json();
  let inp='style="flex:1;min-width:90px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px"';
@@ -756,19 +804,25 @@ async function openUsers(){let m=document.getElementById('modal');m.style.displa
    <div class=row><input id=nu placeholder=Benutzername ${inp}>
     <input id=np type=password placeholder=Passwort ${inp}>
     <select id=nr ${inp}><option value=user>Nutzer</option><option value=admin>Admin</option></select>
+    <label style="font-size:12px;color:#8b929e;display:flex;gap:5px;align-items:center"><input type=checkbox id=naa> Auto-Freigabe</label>
     <button onclick="addUser()">Anlegen</button></div>
    <div id=uerr style="color:#ff6b6b;font-size:12px;margin-top:6px"></div></div></div>`;
  renderUsers(list);}
 function renderUsers(list){let ul=document.getElementById('ulist');ul.innerHTML='';
  list.forEach(u=>{let row=document.createElement('div');row.className='row';
   let s=document.createElement('span');s.textContent=(u.role=='admin'?'👑 ':'👤 ')+u.username;row.appendChild(s);
+  let right=document.createElement('div');right.style.cssText='display:flex;gap:10px;align-items:center';
+  let lbl=document.createElement('label');lbl.style.cssText='font-size:12px;color:#8b929e;display:flex;gap:5px;align-items:center';
+  let cb=document.createElement('input');cb.type='checkbox';cb.checked=u.autoapprove;cb.disabled=(u.role=='admin');
+  cb.onchange=()=>fetch('/api/users/'+encodeURIComponent(u.username),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({autoapprove:cb.checked})});
+  lbl.appendChild(cb);lbl.appendChild(document.createTextNode('Auto-Freigabe'));right.appendChild(lbl);
   let b=document.createElement('button');b.textContent='Löschen';
   b.onclick=async()=>{let d=await(await fetch('/api/users/'+encodeURIComponent(u.username),{method:'DELETE'})).json();
    if(d.ok)openUsers();else alert(d.msg||'Fehler');};
-  row.appendChild(b);ul.appendChild(row);});}
-async function addUser(){let u=document.getElementById('nu').value.trim(),p=document.getElementById('np').value,r=document.getElementById('nr').value;
+  right.appendChild(b);row.appendChild(right);ul.appendChild(row);});}
+async function addUser(){let u=document.getElementById('nu').value.trim(),p=document.getElementById('np').value,r=document.getElementById('nr').value,aa=document.getElementById('naa').checked;
  let d=await(await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({username:u,password:p,role:r})})).json();
+   body:JSON.stringify({username:u,password:p,role:r,autoapprove:aa})})).json();
  if(d.ok)openUsers();else document.getElementById('uerr').textContent=d.msg||'Fehler';}
 async function logout(){await fetch('/api/logout',{method:'POST'});location.href='/login';}
 loadAuth();loadPlatforms();loadDiscover();
@@ -841,6 +895,11 @@ def api_detail():
             out["error"] = str(e)[:150]
     return jsonify(out)
 
+@app.route("/api/cover")
+def api_cover():
+    title = request.args.get("title", "")
+    return jsonify({"cover": igdb_cover(clean_query(title)) if title else ""})
+
 @app.route("/api/discover")
 def api_discover():
     items = igdb_popular(40)
@@ -858,8 +917,12 @@ def api_download():
     # Server-seitige Dedup-Sperre
     if in_library(it.get("title",""), it.get("platform")):
         return jsonify({"ok":False,"msg":"bereits in Bibliothek"})
-    job = new_job(it)
-    return jsonify({"ok":True,"id":job["id"]})
+    user = session.get("user","")
+    auto = may_autoapprove(user)
+    job = new_job(it, user=user, approved=auto)
+    if not auto:
+        notify_send(f"🔔 Neue Anfrage / new request: **{it.get('title','')}** von {user} — Freigabe nötig")
+    return jsonify({"ok":True,"id":job["id"],"pending": not auto})
 
 @app.route("/api/jobs")
 def api_jobs():
@@ -913,7 +976,8 @@ def api_logout():
 @app.route("/api/users", methods=["GET"])
 @admin_required
 def api_users_list():
-    return jsonify([{"username":u,"role":v.get("role","user")} for u,v in load_users().items()])
+    return jsonify([{"username":u,"role":v.get("role","user"),"autoapprove":bool(v.get("autoapprove"))}
+                    for u,v in load_users().items()])
 
 @app.route("/api/users", methods=["POST"])
 @admin_required
@@ -923,8 +987,67 @@ def api_users_add():
     if not u or len(p)<6: return jsonify({"ok":False,"msg":"Benutzername + Passwort (min. 6 Zeichen)"}), 400
     users = load_users()
     if u in users: return jsonify({"ok":False,"msg":"Benutzer existiert bereits"}), 400
-    users[u] = {"pw":generate_password_hash(p), "role":role}; save_users(users)
+    users[u] = {"pw":generate_password_hash(p), "role":role, "autoapprove":bool(d.get("autoapprove"))}
+    save_users(users)
     return jsonify({"ok":True})
+
+@app.route("/api/users/<u>", methods=["PATCH"])
+@admin_required
+def api_users_patch(u):
+    users = load_users()
+    if u not in users: return jsonify({"ok":False}), 404
+    d = request.get_json(force=True)
+    if "autoapprove" in d: users[u]["autoapprove"] = bool(d["autoapprove"])
+    if d.get("role") in ("admin","user"):
+        admins = [x for x,v in users.items() if v.get("role")=="admin"]
+        if users[u].get("role")=="admin" and d["role"]!="admin" and len(admins)<=1:
+            return jsonify({"ok":False,"msg":"letzter Admin"}), 400
+        users[u]["role"] = d["role"]
+    save_users(users); return jsonify({"ok":True})
+
+# ---- Einstellungen (Benachrichtigungen) ----
+@app.route("/api/settings", methods=["GET"])
+@admin_required
+def api_settings_get():
+    s = load_settings()
+    return jsonify({"discord": s.get("discord", {"enabled": False, "url": ""})})
+
+@app.route("/api/settings", methods=["POST"])
+@admin_required
+def api_settings_set():
+    d = request.get_json(force=True); dc = d.get("discord", {})
+    s = load_settings()
+    s["discord"] = {"enabled": bool(dc.get("enabled")), "url": (dc.get("url") or "").strip()}
+    save_settings(s); return jsonify({"ok": True})
+
+@app.route("/api/settings/notify-test", methods=["POST"])
+@admin_required
+def api_settings_test():
+    d = request.get_json(silent=True) or {}; dc = d.get("discord") or {}
+    if dc.get("url"):
+        try:
+            requests.post(dc["url"], json={"content":"✅ Romseerr — Testbenachrichtigung / test notification"}, timeout=8)
+            return jsonify({"ok": True})
+        except Exception as e:
+            return jsonify({"ok": False, "msg": str(e)[:120]}), 400
+    ok = notify_send("✅ Romseerr — Testbenachrichtigung / test notification")
+    return jsonify({"ok": ok, "msg": "" if ok else "kein Webhook konfiguriert"})
+
+# ---- Freigabe-Workflow ----
+@app.route("/api/jobs/<jid>/approve", methods=["POST"])
+@admin_required
+def api_job_approve(jid):
+    j = get_job(jid)
+    if not j or j.get("state") != "pending": return jsonify({"ok": False}), 400
+    set_state(jid, state="queued", msg="freigegeben"); Q.put(jid)
+    return jsonify({"ok": True})
+
+@app.route("/api/jobs/<jid>/deny", methods=["POST"])
+@admin_required
+def api_job_deny(jid):
+    if not get_job(jid): return jsonify({"ok": False}), 404
+    set_state(jid, state="denied", msg="abgelehnt")
+    return jsonify({"ok": True})
 
 @app.route("/api/users/<u>", methods=["DELETE"])
 @admin_required

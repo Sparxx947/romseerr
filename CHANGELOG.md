@@ -11,6 +11,14 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 - **Seerr-Layout:** feste Sidebar (Entdecken / Anfragen / Benutzer / Abmelden) statt Tab-Leiste.
 
 ### Hinzugefügt
+- **Einstellungen → Benachrichtigungen:** Discord-Webhook in der Oberfläche konfigurierbar
+  (aktiv/URL) mit Test-Knopf; `notify_send` nutzt Einstellungen, fällt auf `DISCORD_WEBHOOK` zurück.
+- **Berechtigungen & Freigabe-Workflow:** je Benutzer „Auto-Freigabe"; Anfragen von
+  Nutzern ohne Auto-Freigabe landen als **pending** und müssen vom Admin freigegeben
+  (oder abgelehnt) werden. Endpunkte `/api/settings`, `/api/users/<u>` (PATCH),
+  `/api/jobs/<id>/approve|deny`.
+- **Usenet-Cover:** werden lazy über IGDB nachgeladen (`/api/cover`), Release-Titel
+  vorher auf den Spielnamen bereinigt.
 - **Benutzerverwaltung / Login:** Session-Auth, Ersteinrichtung (Admin anlegen),
   Rollen (admin/user), Admin kann Benutzer anlegen/löschen. Alle Routen geschützt.
   Endpunkte `/api/auth/status`, `/api/login`, `/api/setup`, `/api/logout`, `/api/users`.
