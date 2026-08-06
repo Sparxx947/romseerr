@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 # rom-suche — Seerr-artige ROM-Suche & Auto-Download (Archive.org + Usenet/SAB), Dedup gegen Bibliothek.
-import os, re, json, time, threading, queue, subprocess, urllib.parse, html, secrets, smtplib
+import os, re, json, time, threading, queue, subprocess, urllib.parse, html, secrets, smtplib, base64
 from datetime import datetime
 from functools import wraps
 from email.message import EmailMessage
 import requests
+try:
+    from pywebpush import webpush, WebPushException
+    from py_vapid import Vapid
+    from cryptography.hazmat.primitives import serialization
+    PUSH_OK = True
+except Exception:
+    PUSH_OK = False
 from flask import Flask, request, jsonify, Response, session, redirect, g
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -36,6 +43,8 @@ SECRET_FILE= "/config/secret.key"
 SETTINGS_FILE = "/config/settings.json"
 MAILLOG_FILE  = "/config/maillog.json"
 ISSUES_FILE   = "/config/issues.json"
+PUSH_FILE     = "/config/push_subs.json"
+VAPID_FILE    = "/config/vapid.json"
 
 ROM_EXT = {"sfc","smc","nes","fds","gb","gba","gbc","n64","z64","v64","ndd","md","gen","smd","sms",
            "gg","32x","pce","sgx","ngp","ngc","ws","wsc","iso","bin","cue","chd","img","cdi","gdi",
@@ -585,6 +594,8 @@ def import_folder(jid, folder):
     log(f"Job {jid} fertig: {moved} Dateien → {where}")
     if moved:
         notify_available(job.get("title",""), where)
+        send_push_to_user(job.get("user",""), "Romseerr",
+                          f"🎮 {job.get('title','')} verfügbar / available ({where})")
         wh = load_users().get(job.get("user",""), {}).get("webhook","")
         if wh:
             try: requests.post(wh, json={"content": f"🎮 **{job.get('title','')}** ist jetzt verfügbar / now available ({where})"}, timeout=8)
@@ -674,6 +685,54 @@ def send_mail(to, subject, body):
     except Exception as e:
         log(f"Mail-Fehler: {e}"); mail_log_add(to, subject, False, str(e)); return False
 
+# ---------- Web-Push (VAPID) ----------
+VAPID_CACHE = {}
+def ensure_vapid():
+    """VAPID-Schlüsselpaar laden/erzeugen; gibt {'priv_pem','pub_b64'} oder None."""
+    if not PUSH_OK: return None
+    if VAPID_CACHE: return VAPID_CACHE
+    try:
+        d = json.load(open(VAPID_FILE)); VAPID_CACHE.update(d); return VAPID_CACHE
+    except Exception: pass
+    try:
+        v = Vapid(); v.generate_keys()
+        priv_pem = v.private_pem().decode()
+        raw = v.public_key.public_bytes(serialization.Encoding.X962,
+                                        serialization.PublicFormat.UncompressedPoint)
+        pub_b64 = base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+        d = {"priv_pem": priv_pem, "pub_b64": pub_b64}
+        json.dump(d, open(VAPID_FILE, "w")); VAPID_CACHE.update(d)
+        log("VAPID-Schlüssel erzeugt")
+        return VAPID_CACHE
+    except Exception as e:
+        log(f"VAPID-Fehler: {e}"); return None
+
+def load_push():
+    try: return json.load(open(PUSH_FILE))
+    except Exception: return {}
+def save_push(d):
+    try: json.dump(d, open(PUSH_FILE, "w"))
+    except Exception: pass
+
+def send_push_to_user(user, title, body):
+    if not PUSH_OK or not user: return
+    vp = ensure_vapid()
+    if not vp: return
+    subs = load_push().get(user, []); keep = []
+    for s in subs:
+        try:
+            webpush(subscription_info=s, data=json.dumps({"title": title, "body": body}),
+                    vapid_private_key=vp["priv_pem"], vapid_claims={"sub": "mailto:romseerr@localhost"})
+            keep.append(s)
+        except WebPushException as e:
+            code = getattr(getattr(e, "response", None), "status_code", None)
+            if code in (404, 410): pass   # Abo abgelaufen -> verwerfen
+            else: keep.append(s); log(f"Push-Fehler: {e}")
+        except Exception as e:
+            keep.append(s); log(f"Push-Fehler: {e}")
+    if len(keep) != len(subs):
+        d = load_push(); d[user] = keep; save_push(d)
+
 RESET_TOKENS = {}
 def gen_reset(user):
     tok = secrets.token_urlsafe(24); RESET_TOKENS[tok] = {"user": user, "exp": time.time()+3600}; return tok
@@ -730,6 +789,7 @@ app.config["PERMANENT_SESSION_LIFETIME"] = 60*60*24*30
 
 PAGE = """<!doctype html><html lang=de><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1"><title>Romseerr</title>
+<link rel=manifest href="/manifest.webmanifest"><meta name=theme-color content="#0b0d10"><link rel=icon href="/icon.svg">
 <style>
 :root{--bg:#14161a;--card:#1e2229;--acc:#7c5cff;--ok:#2ecc71;--txt:#e6e8ec;--mut:#8b929e}
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--txt)}
@@ -862,7 +922,7 @@ const I18N={de:{
  settings:'Einstellungen',sec_general:'Allgemein',sec_notif:'Benachrichtigungen',sec_users:'Benutzer',sec_services:'Dienste',sec_about:'Über',app_name:'App-Name',default_lang:'Standardsprache',refresh:'Aktualisieren',version:'Version',about_txt:'Selbstgebauter Seerr-Klon für ROMs.',sec_maint:'Logs & Wartung',logs:'Protokoll',clear_cache:'Cache leeren',reindex:'Neu indexieren',clear_finished:'Fertige entfernen',done_word:'Erledigt',lbl_jobs:'Anfragen',lbl_lib:'Bibliothek',
  profile:'Profil',display_name:'Anzeigename',email:'E-Mail',language:'Sprache',avatar:'Avatar',pwebhook:'Persönlicher Discord-Webhook',change_pw:'Passwort ändern',cur_pw:'Aktuelles Passwort',new_pw:'Neues Passwort',choose_img:'Bild wählen',saved_ok:'gespeichert ✓',
  blocklist:'Sperrliste',add_btn:'Hinzufügen',pattern_ph:'Stichwort/Muster im Titel',
- nav_issues:'🐞 Probleme',issues:'Probleme',report_issue:'Problem melden',issue_msg:'Beschreibung',close_btn:'Schließen',st_open:'offen',st_closed:'geschlossen',submit:'Absenden',issue_type:'Art',comment_ph:'Kommentar schreiben …',comment_send:'Senden'
+ nav_issues:'🐞 Probleme',issues:'Probleme',report_issue:'Problem melden',issue_msg:'Beschreibung',close_btn:'Schließen',st_open:'offen',st_closed:'geschlossen',submit:'Absenden',issue_type:'Art',comment_ph:'Kommentar schreiben …',comment_send:'Senden',push_enable:'🔔 Push aktivieren',push_disable:'🔕 Push deaktivieren',push_unsupported:'Push nicht verfügbar (HTTPS nötig)',push_denied:'Erlaubnis verweigert',push_on:'Push aktiviert ✓',push_off:'Push deaktiviert'
 },en:{
  nav_discover:'🔍 Discover',nav_requests:'📥 Requests',nav_users:'👤 Users',nav_settings:'⚙️ Settings',logout:'🚪 Sign out',
  search_ph:'Search a game … (Enter)',platforms:'Platforms',all:'All',selected:'selected',
@@ -876,7 +936,7 @@ const I18N={de:{
  settings:'Settings',sec_general:'General',sec_notif:'Notifications',sec_users:'Users',sec_services:'Services',sec_about:'About',app_name:'App name',default_lang:'Default language',refresh:'Refresh',version:'Version',about_txt:'Self-built Seerr clone for ROMs.',sec_maint:'Logs & maintenance',logs:'Log',clear_cache:'Clear cache',reindex:'Reindex',clear_finished:'Clear finished',done_word:'Done',lbl_jobs:'Requests',lbl_lib:'Library',
  profile:'Profile',display_name:'Display name',email:'Email',language:'Language',avatar:'Avatar',pwebhook:'Personal Discord webhook',change_pw:'Change password',cur_pw:'Current password',new_pw:'New password',choose_img:'Choose image',saved_ok:'saved ✓',
  blocklist:'Blocklist',add_btn:'Add',pattern_ph:'Keyword/pattern in title',
- nav_issues:'🐞 Issues',issues:'Issues',report_issue:'Report issue',issue_msg:'Message',close_btn:'Close',st_open:'open',st_closed:'closed',submit:'Submit',issue_type:'Type',comment_ph:'Write a comment …',comment_send:'Send'
+ nav_issues:'🐞 Issues',issues:'Issues',report_issue:'Report issue',issue_msg:'Message',close_btn:'Close',st_open:'open',st_closed:'closed',submit:'Submit',issue_type:'Type',comment_ph:'Write a comment …',comment_send:'Send',push_enable:'🔔 Enable push',push_disable:'🔕 Disable push',push_unsupported:'Push unavailable (needs HTTPS)',push_denied:'Permission denied',push_on:'Push enabled ✓',push_off:'Push disabled'
 },fr:{
  nav_discover:'🔍 Découvrir',nav_requests:'📥 Demandes',nav_users:'👤 Utilisateurs',nav_settings:'⚙️ Paramètres',logout:'🚪 Déconnexion',
  search_ph:'Rechercher un jeu … (Entrée)',platforms:'Plateformes',all:'Toutes',selected:'sélectionné',
@@ -890,7 +950,7 @@ const I18N={de:{
  settings:'Paramètres',sec_general:'Général',sec_notif:'Notifications',sec_users:'Utilisateurs',sec_services:'Services',sec_about:'À propos',app_name:"Nom de l'app",default_lang:'Langue par défaut',refresh:'Actualiser',version:'Version',about_txt:'Clone de Seerr pour ROMs, fait maison.',sec_maint:'Journaux & maintenance',logs:'Journal',clear_cache:'Vider le cache',reindex:'Réindexer',clear_finished:'Effacer terminés',done_word:'Terminé',lbl_jobs:'Demandes',lbl_lib:'Bibliothèque',
  profile:'Profil',display_name:'Nom affiché',email:'E-mail',language:'Langue',avatar:'Avatar',pwebhook:'Webhook Discord personnel',change_pw:'Changer le mot de passe',cur_pw:'Mot de passe actuel',new_pw:'Nouveau mot de passe',choose_img:'Choisir une image',saved_ok:'enregistré ✓',
  blocklist:'Liste de blocage',add_btn:'Ajouter',pattern_ph:'Mot-clé/motif dans le titre',
- nav_issues:'🐞 Problèmes',issues:'Problèmes',report_issue:'Signaler un problème',issue_msg:'Message',close_btn:'Fermer',st_open:'ouvert',st_closed:'fermé',submit:'Envoyer',issue_type:'Type',comment_ph:'Écrire un commentaire …',comment_send:'Envoyer'
+ nav_issues:'🐞 Problèmes',issues:'Problèmes',report_issue:'Signaler un problème',issue_msg:'Message',close_btn:'Fermer',st_open:'ouvert',st_closed:'fermé',submit:'Envoyer',issue_type:'Type',comment_ph:'Écrire un commentaire …',comment_send:'Envoyer',push_enable:'🔔 Activer push',push_disable:'🔕 Désactiver push',push_unsupported:'Push indisponible (HTTPS requis)',push_denied:'Permission refusée',push_on:'Push activé ✓',push_off:'Push désactivé'
 },es:{
  nav_discover:'🔍 Descubrir',nav_requests:'📥 Solicitudes',nav_users:'👤 Usuarios',nav_settings:'⚙️ Ajustes',logout:'🚪 Salir',
  search_ph:'Buscar un juego … (Intro)',platforms:'Plataformas',all:'Todas',selected:'seleccionado',
@@ -904,7 +964,7 @@ const I18N={de:{
  settings:'Ajustes',sec_general:'General',sec_notif:'Notificaciones',sec_users:'Usuarios',sec_services:'Servicios',sec_about:'Acerca de',app_name:'Nombre de la app',default_lang:'Idioma predeterminado',refresh:'Actualizar',version:'Versión',about_txt:'Clon de Seerr para ROMs, hecho en casa.',sec_maint:'Registros y mantenimiento',logs:'Registro',clear_cache:'Vaciar caché',reindex:'Reindexar',clear_finished:'Borrar terminados',done_word:'Hecho',lbl_jobs:'Solicitudes',lbl_lib:'Biblioteca',
  profile:'Perfil',display_name:'Nombre visible',email:'Correo',language:'Idioma',avatar:'Avatar',pwebhook:'Webhook de Discord personal',change_pw:'Cambiar contraseña',cur_pw:'Contraseña actual',new_pw:'Nueva contraseña',choose_img:'Elegir imagen',saved_ok:'guardado ✓',
  blocklist:'Lista de bloqueo',add_btn:'Añadir',pattern_ph:'Palabra clave/patrón en el título',
- nav_issues:'🐞 Problemas',issues:'Problemas',report_issue:'Informar problema',issue_msg:'Mensaje',close_btn:'Cerrar',st_open:'abierto',st_closed:'cerrado',submit:'Enviar',issue_type:'Tipo',comment_ph:'Escribe un comentario …',comment_send:'Enviar'
+ nav_issues:'🐞 Problemas',issues:'Problemas',report_issue:'Informar problema',issue_msg:'Mensaje',close_btn:'Cerrar',st_open:'abierto',st_closed:'cerrado',submit:'Enviar',issue_type:'Tipo',comment_ph:'Escribe un comentario …',comment_send:'Enviar',push_enable:'🔔 Activar push',push_disable:'🔕 Desactivar push',push_unsupported:'Push no disponible (requiere HTTPS)',push_denied:'Permiso denegado',push_on:'Push activado ✓',push_off:'Push desactivado'
 }};
 let LANG=localStorage.getItem('lang')||'de';
 function t(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.de[k]||k;}
@@ -1098,10 +1158,29 @@ async function openProfile(){let m=document.getElementById('modal');m.style.disp
    <div class=row><label style="color:#8b929e;font-size:13px">${t('language')}</label><select id=plang ${inp}><option value="">—</option><option value=de ${p.lang=='de'?'selected':''}>Deutsch</option><option value=en ${p.lang=='en'?'selected':''}>English</option><option value=fr ${p.lang=='fr'?'selected':''}>Français</option><option value=es ${p.lang=='es'?'selected':''}>Español</option></select></div>
    <div class=row><input id=pwh ${inp} placeholder="${t('pwebhook')}" value="${(p.webhook||'').replace(/"/g,'&quot;')}"><button onclick="testPWebhook()">${t('test')}</button></div>
    <div class=row><button onclick="saveProfile()">${t('save')}</button><span id=pmsg class=meta></span></div>
+   <div class=row><button onclick="togglePush()" id=pushbtn>${t('push_enable')}</button><span id=pushmsg class=meta></span></div>
    <div class=row><span class=meta>Kontingent / Quota</span><span class=meta>${p.quota&&p.quota.enabled?(p.quota.remaining+' / '+p.quota.count+' ('+p.quota.days+'d)'):'—'}</span></div></div>
   <div class=sec><h3>${t('change_pw')}</h3>
    <div class=row><input id=pold type=password ${inp} placeholder="${t('cur_pw')}"><input id=pnew type=password ${inp} placeholder="${t('new_pw')}"></div>
-   <div class=row><button onclick="changePw()">${t('change_pw')}</button><span id=pwmsg class=meta></span></div></div></div>`;}
+   <div class=row><button onclick="changePw()">${t('change_pw')}</button><span id=pwmsg class=meta></span></div></div></div>`;
+ refreshPushBtn();}
+function urlB64ToU8(s){let pad='='.repeat((4-s.length%4)%4);let b=(s+pad).replace(/-/g,'+').replace(/_/g,'/');let raw=atob(b);let a=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)a[i]=raw.charCodeAt(i);return a;}
+async function pushState(){if(!('serviceWorker'in navigator)||!('PushManager'in window)||!('Notification'in window))return 'unsupported';
+ try{let reg=await navigator.serviceWorker.ready;let sub=await reg.pushManager.getSubscription();return sub?'on':'off';}catch(_){return 'unsupported';}}
+async function refreshPushBtn(){let b=document.getElementById('pushbtn');if(!b)return;let st=await pushState();
+ if(st=='unsupported'){b.textContent=t('push_unsupported');b.disabled=true;return;}
+ b.disabled=false;b.textContent=st=='on'?t('push_disable'):t('push_enable');}
+async function togglePush(){let msg=document.getElementById('pushmsg');let st=await pushState();
+ if(st=='unsupported'){msg.textContent=t('push_unsupported');return;}
+ let reg=await navigator.serviceWorker.ready;
+ if(st=='on'){let sub=await reg.pushManager.getSubscription();
+  if(sub){await fetch('/api/push/unsubscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({endpoint:sub.endpoint})});await sub.unsubscribe();}
+  msg.textContent=t('push_off');refreshPushBtn();return;}
+ let perm=await Notification.requestPermission();if(perm!='granted'){msg.textContent=t('push_denied');return;}
+ let pk=await(await fetch('/api/push/pubkey')).json();if(!pk.enabled||!pk.key){msg.textContent=t('push_unsupported');return;}
+ try{let sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlB64ToU8(pk.key)});
+  await fetch('/api/push/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(sub)});
+  msg.textContent=t('push_on');refreshPushBtn();}catch(e){msg.textContent=t('push_denied');}}
 function pickAvatar(e){let f=e.target.files[0];if(!f)return;
  if(f.size>280000){document.getElementById('pmsg').textContent='max ~280 KB';return;}
  let r=new FileReader();r.onload=()=>{PAV=r.result;document.getElementById('pav').style.backgroundImage="url('"+PAV+"')";};r.readAsDataURL(f);}
@@ -1276,6 +1355,7 @@ async function addUser(){let u=document.getElementById('nu').value.trim(),p=docu
 async function logout(){await fetch('/api/logout',{method:'POST'});location.href='/login';}
 document.querySelectorAll('#langsw b').forEach(e=>e.classList.toggle('on',e.dataset.l==LANG));
 applyI18n();loadAuth();loadPlatforms();loadDiscover();
+if('serviceWorker'in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key=='Enter')search();});
 setInterval(()=>{if(cur=='j')loadJobs();},4000);
 </script></body></html>"""
@@ -1419,7 +1499,8 @@ def api_jobs():
 def health(): return jsonify({"ok":True,"lib_titles":len(LIB['all']),"jobs":len(JOBS)})
 
 # ---------- Auth-Routen ----------
-PUBLIC = {"/login","/api/login","/api/setup","/api/auth/status","/health","/reset","/api/forgot","/api/reset"}
+PUBLIC = {"/login","/api/login","/api/setup","/api/auth/status","/health","/reset","/api/forgot","/api/reset",
+          "/manifest.webmanifest","/sw.js","/icon.svg"}
 @app.before_request
 def _guard():
     p = request.path
@@ -1648,6 +1729,61 @@ def api_jobs_clear_finished():
         removed = before - len(JOBS)
     log(f"{removed} abgeschlossene Anfragen entfernt (Admin)")
     return jsonify({"ok": True, "removed": removed})
+
+# ---------- PWA + Web-Push ----------
+MANIFEST = {"name":"Romseerr","short_name":"Romseerr","start_url":"/","scope":"/",
+    "display":"standalone","background_color":"#0b0d10","theme_color":"#0b0d10",
+    "icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}
+ICON_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">'
+    '<rect width="192" height="192" rx="36" fill="#5b8cff"/>'
+    '<text x="96" y="132" font-size="104" text-anchor="middle" font-family="sans-serif">🎮</text></svg>')
+SW_JS = """self.addEventListener('install',e=>self.skipWaiting());
+self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
+self.addEventListener('push',function(e){let d={title:'Romseerr',body:''};
+ try{d=e.data.json()}catch(_){if(e.data)d.body=e.data.text()}
+ e.waitUntil(self.registration.showNotification(d.title||'Romseerr',{body:d.body||'',icon:'/icon.svg',badge:'/icon.svg'}));});
+self.addEventListener('notificationclick',function(e){e.notification.close();
+ e.waitUntil(clients.matchAll({type:'window'}).then(cs=>{for(const c of cs){if('focus'in c)return c.focus();}if(clients.openWindow)return clients.openWindow('/');}));});
+"""
+
+@app.route("/manifest.webmanifest")
+def pwa_manifest(): return Response(json.dumps(MANIFEST), mimetype="application/manifest+json")
+
+@app.route("/icon.svg")
+def pwa_icon(): return Response(ICON_SVG, mimetype="image/svg+xml")
+
+@app.route("/sw.js")
+def pwa_sw(): return Response(SW_JS, mimetype="application/javascript")
+
+@app.route("/api/push/pubkey")
+@login_required
+def api_push_pubkey():
+    vp = ensure_vapid()
+    return jsonify({"enabled": bool(vp), "key": (vp or {}).get("pub_b64", "")})
+
+@app.route("/api/push/subscribe", methods=["POST"])
+@login_required
+def api_push_subscribe():
+    sub = request.get_json(force=True)
+    if not sub or not sub.get("endpoint"): return jsonify({"error": "bad"}), 400
+    u = session.get("user", ""); d = load_push(); lst = d.get(u, [])
+    if not any(x.get("endpoint") == sub["endpoint"] for x in lst): lst.append(sub)
+    d[u] = lst; save_push(d)
+    return jsonify({"ok": True})
+
+@app.route("/api/push/unsubscribe", methods=["POST"])
+@login_required
+def api_push_unsubscribe():
+    ep = (request.get_json(force=True) or {}).get("endpoint", "")
+    u = session.get("user", ""); d = load_push()
+    d[u] = [x for x in d.get(u, []) if x.get("endpoint") != ep]; save_push(d)
+    return jsonify({"ok": True})
+
+@app.route("/api/push/test", methods=["POST"])
+@login_required
+def api_push_test():
+    send_push_to_user(session.get("user", ""), "Romseerr", "Test-Benachrichtigung / test notification")
+    return jsonify({"ok": True})
 
 @app.route("/api/apikey", methods=["GET"])
 @admin_required
