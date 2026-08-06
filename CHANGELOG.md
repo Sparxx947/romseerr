@@ -7,6 +7,11 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Weitere Benachrichtigungs-Agenten** — neben Discord jetzt **Telegram**, **generischer
+  Webhook** (Slack/Gotify/Pushover-kompatibel) und **E-Mail bei Verfügbarkeit** (an den
+  anfragenden Nutzer). `notify_send` sendet an alle aktiven Agenten. /
+  **More notification agents** — besides Discord: Telegram, a generic webhook
+  (Slack/Gotify/Pushover-compatible) and email on availability (to the requesting user).
 - **API-Key** — programmatischer API-Zugriff ohne Session-Login (Header `X-Api-Key` oder
   `?apikey=`); Key im Admin-Bereich (Allgemein) anzeigen/kopieren/regenerieren.
   `GET /api/apikey`, `POST /api/apikey/regenerate`. /
