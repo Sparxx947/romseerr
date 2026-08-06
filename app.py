@@ -279,13 +279,23 @@ def discover_rows():
             for r in rows]
 
 def notify_send(text):
-    s = load_settings().get("discord", {})
-    wh = s.get("url") if s.get("enabled") else os.environ.get("DISCORD_WEBHOOK", "")
-    if not wh: return False
-    try:
-        requests.post(wh, json={"content": text}, timeout=8); return True
-    except Exception as e:
-        log(f"Notify-Fehler: {e}"); return False
+    s = load_settings(); sent = False
+    dc = s.get("discord", {})
+    wh = dc.get("url") if dc.get("enabled") else os.environ.get("DISCORD_WEBHOOK", "")
+    if wh:
+        try: requests.post(wh, json={"content": text}, timeout=8); sent = True
+        except Exception as e: log(f"Discord-Fehler: {e}")
+    ag = s.get("agents", {})
+    tg = ag.get("telegram", {})
+    if tg.get("enabled") and tg.get("token") and tg.get("chat"):
+        try: requests.post(f"https://api.telegram.org/bot{tg['token']}/sendMessage",
+                           json={"chat_id": tg["chat"], "text": text}, timeout=8); sent = True
+        except Exception as e: log(f"Telegram-Fehler: {e}")
+    gw = ag.get("webhook", {})
+    if gw.get("enabled") and gw.get("url"):
+        try: requests.post(gw["url"], json={"content": text, "text": text}, timeout=8); sent = True
+        except Exception as e: log(f"Webhook-Fehler: {e}")
+    return sent
 
 def notify_available(title, platform):
     notify_send(f"🎮 **{title}** ist jetzt verfügbar / now available ({platform})")
@@ -527,6 +537,10 @@ def import_folder(jid, folder):
         if wh:
             try: requests.post(wh, json={"content": f"🎮 **{job.get('title','')}** ist jetzt verfügbar / now available ({where})"}, timeout=8)
             except Exception as e: log(f"Personal-Notify-Fehler: {e}")
+        if load_settings().get("agents", {}).get("email", {}).get("enabled"):
+            em = load_users().get(job.get("user",""), {}).get("email","")
+            if em: send_mail(em, "Romseerr — verfügbar / available",
+                             f"{job.get('title','')} ({where}) ist jetzt verfügbar / is now available.")
 
 # ---------- Worker: fertige SAB/JD-Downloads einsortieren ----------
 def romm_scan():
@@ -987,7 +1001,7 @@ function copyKey(){let e=document.getElementById('akey');e.select();if(navigator
 async function saveGeneral(){let d={general:{app_name:document.getElementById('gname').value.trim(),default_lang:document.getElementById('glang').value}};
  let r=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
  document.getElementById('gmsg').textContent=r.ok?t('saved'):t('st_error');}
-async function secNotif(c){let s=await(await fetch('/api/settings')).json();let dc=s.discord||{};let sm=s.smtp||{};
+async function secNotif(c){let s=await(await fetch('/api/settings')).json();let dc=s.discord||{};let sm=s.smtp||{};let ag=s.agents||{};
  c.innerHTML=`<h3>${t('notif_discord')}</h3>
   <div class=frow><label style="min-width:auto"><input type=checkbox id=dcen ${dc.enabled?'checked':''}> ${t('active')}</label><span></span></div>
   <div class=frow><input id=dcurl placeholder="${t('webhook_ph')}" value="${(dc.url||'').replace(/"/g,'&quot;')}"><button onclick="testNotify()">${t('test')}</button></div>
@@ -999,6 +1013,13 @@ async function secNotif(c){let s=await(await fetch('/api/settings')).json();let 
   <div class=frow><input id=smfrom placeholder="Absender / From" value="${(sm.from||'').replace(/"/g,'&quot;')}"><select id=smtls style="flex:0 0 120px"><option value=starttls ${sm.tls=='starttls'?'selected':''}>STARTTLS</option><option value=ssl ${sm.tls=='ssl'?'selected':''}>SSL</option><option value=none ${sm.tls=='none'?'selected':''}>none</option></select></div>
   <div class=frow><input id=smto placeholder="Test an / to"><button onclick="mailTest()">${t('test')}</button></div>
   <div class=frow><button onclick="saveSmtp()">${t('save')}</button><span id=smmsg class=meta></span></div>
+  <h3 style="margin-top:20px">Weitere Agenten / More agents</h3>
+  <div class=frow><label style="min-width:auto"><input type=checkbox id=agem ${(ag.email||{}).enabled?'checked':''}> E-Mail bei Verfügbarkeit / email on availability</label><span></span></div>
+  <div class=frow><label style="min-width:auto"><input type=checkbox id=agtgen ${(ag.telegram||{}).enabled?'checked':''}> Telegram</label><span></span></div>
+  <div class=frow><input id=agtgtok type=password placeholder="${(ag.telegram||{}).has_token?'•••• Token gesetzt':'Bot-Token'}"><input id=agtgchat placeholder="Chat-ID" value="${((ag.telegram||{}).chat||'').replace(/"/g,'&quot;')}"></div>
+  <div class=frow><label style="min-width:auto"><input type=checkbox id=agwhen ${(ag.webhook||{}).enabled?'checked':''}> Webhook (Slack/Gotify/Pushover…)</label><span></span></div>
+  <div class=frow><input id=agwhurl placeholder="Webhook-URL" value="${((ag.webhook||{}).url||'').replace(/"/g,'&quot;')}"><button onclick="testAgents()">${t('test')}</button></div>
+  <div class=frow><button onclick="saveAgents()">${t('save')}</button><span id=agmsg class=meta></span></div>
   <h3 style="margin-top:20px">Mail-Protokoll / Mail log</h3><div id=mlog class=meta>…</div>`;
  let ml=await(await fetch('/api/maillog')).json();
  document.getElementById('mlog').innerHTML=ml.length?ml.map(m=>`<div class=frow><span>${m.ok?'🟢':'🔴'} ${m.ts} → ${(''+(m.to||'')).replace(/</g,'&lt;')}</span><span class=meta>${(''+(m.subject||'')).replace(/</g,'&lt;')}${m.err?(' · '+(''+m.err).replace(/</g,'&lt;')):''}</span></div>`).join(''):'—';}
@@ -1009,6 +1030,15 @@ async function saveSmtp(){let d={smtp:{enabled:document.getElementById('smen').c
 async function mailTest(){let to=document.getElementById('smto').value.trim();if(!to)return;await saveSmtp();
  let r=await(await fetch('/api/settings/mail-test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:to})})).json();
  document.getElementById('smmsg').textContent=r.ok?t('test_sent'):(r.msg||t('st_error'));}
+async function saveAgents(){let d={agents:{email:{enabled:document.getElementById('agem').checked},
+  telegram:{enabled:document.getElementById('agtgen').checked,chat:document.getElementById('agtgchat').value},
+  webhook:{enabled:document.getElementById('agwhen').checked,url:document.getElementById('agwhurl').value}}};
+ let tok=document.getElementById('agtgtok').value;if(tok)d.agents.telegram.token=tok;
+ let r=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
+ document.getElementById('agmsg').textContent=r.ok?t('saved_ok'):t('st_error');return r.ok;}
+async function testAgents(){await saveAgents();
+ let r=await(await fetch('/api/settings/notify-test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})).json();
+ document.getElementById('agmsg').textContent=r.ok?t('test_sent'):(r.msg||t('st_error'));}
 async function secUsers(c){let list=await(await fetch('/api/users')).json();
  c.innerHTML=`<h3>${t('users')}</h3><div id=ulist></div>
   <h3 style="margin-top:18px">${t('new_user')}</h3>
@@ -1452,7 +1482,14 @@ def api_settings_get():
                     "smtp": {"enabled": bool(sm.get("enabled")), "host": sm.get("host",""),
                              "port": sm.get("port","587"), "user": sm.get("user",""),
                              "from": sm.get("from",""), "tls": sm.get("tls","starttls"),
-                             "has_pass": bool(sm.get("pass"))}})
+                             "has_pass": bool(sm.get("pass"))},
+                    "agents": {
+                        "telegram": {"enabled": bool(s.get("agents",{}).get("telegram",{}).get("enabled")),
+                                     "chat": s.get("agents",{}).get("telegram",{}).get("chat",""),
+                                     "has_token": bool(s.get("agents",{}).get("telegram",{}).get("token"))},
+                        "webhook": {"enabled": bool(s.get("agents",{}).get("webhook",{}).get("enabled")),
+                                    "url": s.get("agents",{}).get("webhook",{}).get("url","")},
+                        "email": {"enabled": bool(s.get("agents",{}).get("email",{}).get("enabled"))}}})
 
 @app.route("/api/settings", methods=["POST"])
 @admin_required
@@ -1470,6 +1507,17 @@ def api_settings_set():
                      "port": str(m.get("port") or "587"), "user": (m.get("user") or "").strip(),
                      "from": (m.get("from") or "").strip(), "tls": m.get("tls") or "starttls",
                      "pass": m.get("pass") if m.get("pass") else cur.get("pass", "")}
+    if "agents" in d:
+        a = d["agents"]; cur = s.get("agents", {}); s.setdefault("agents", {})
+        if "telegram" in a:
+            tg = a["telegram"]
+            s["agents"]["telegram"] = {"enabled": bool(tg.get("enabled")), "chat": (tg.get("chat") or "").strip(),
+                "token": tg.get("token") if tg.get("token") else cur.get("telegram",{}).get("token","")}
+        if "webhook" in a:
+            gw = a["webhook"]
+            s["agents"]["webhook"] = {"enabled": bool(gw.get("enabled")), "url": (gw.get("url") or "").strip()}
+        if "email" in a:
+            s["agents"]["email"] = {"enabled": bool(a["email"].get("enabled"))}
     save_settings(s); return jsonify({"ok": True})
 
 @app.route("/api/services/status")
