@@ -799,6 +799,7 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;backg
 .cmt{background:#12151a;border:1px solid #20242b;border-radius:6px;padding:5px 8px;font-size:12px;color:var(--txt)}
 .cmt .cu{font-weight:600}
 .cmt .cu.staff{color:#5bbf8a}
+.logbox{background:#0b0d10;border:1px solid #20242b;border-radius:6px;padding:10px;font:11px/1.5 ui-monospace,monospace;color:#b7c0cc;max-height:340px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin:6px 0}
 #grid.disc{display:block}
 .drow{margin-bottom:20px}
 .rowh{font-size:16px;margin:4px 2px 10px}
@@ -858,7 +859,7 @@ const I18N={de:{
  users:'Benutzer',new_user:'Neuen Benutzer anlegen',create:'Anlegen',del:'Löschen',autoapprove:'Auto-Freigabe',role_user:'Nutzer',role_admin:'Admin',username:'Benutzername',password:'Passwort',
  notif_discord:'Benachrichtigungen — Discord',active:'aktiv',test:'Test',save:'Speichern',saved:'gespeichert ✓',test_sent:'Test gesendet ✓',webhook_ph:'Discord Webhook-URL',
  st_pending:'⏳ Wartet auf Freigabe',st_queued:'Angefragt',st_downloading:'Lädt…',st_importing:'Wird verarbeitet',st_done:'✅ Verfügbar',st_error:'Fehler',st_denied:'Abgelehnt',st_exists:'vorhanden',
- settings:'Einstellungen',sec_general:'Allgemein',sec_notif:'Benachrichtigungen',sec_users:'Benutzer',sec_services:'Dienste',sec_about:'Über',app_name:'App-Name',default_lang:'Standardsprache',refresh:'Aktualisieren',version:'Version',about_txt:'Selbstgebauter Seerr-Klon für ROMs.',
+ settings:'Einstellungen',sec_general:'Allgemein',sec_notif:'Benachrichtigungen',sec_users:'Benutzer',sec_services:'Dienste',sec_about:'Über',app_name:'App-Name',default_lang:'Standardsprache',refresh:'Aktualisieren',version:'Version',about_txt:'Selbstgebauter Seerr-Klon für ROMs.',sec_maint:'Logs & Wartung',logs:'Protokoll',clear_cache:'Cache leeren',reindex:'Neu indexieren',clear_finished:'Fertige entfernen',done_word:'Erledigt',lbl_jobs:'Anfragen',lbl_lib:'Bibliothek',
  profile:'Profil',display_name:'Anzeigename',email:'E-Mail',language:'Sprache',avatar:'Avatar',pwebhook:'Persönlicher Discord-Webhook',change_pw:'Passwort ändern',cur_pw:'Aktuelles Passwort',new_pw:'Neues Passwort',choose_img:'Bild wählen',saved_ok:'gespeichert ✓',
  blocklist:'Sperrliste',add_btn:'Hinzufügen',pattern_ph:'Stichwort/Muster im Titel',
  nav_issues:'🐞 Probleme',issues:'Probleme',report_issue:'Problem melden',issue_msg:'Beschreibung',close_btn:'Schließen',st_open:'offen',st_closed:'geschlossen',submit:'Absenden',issue_type:'Art',comment_ph:'Kommentar schreiben …',comment_send:'Senden'
@@ -872,7 +873,7 @@ const I18N={de:{
  users:'Users',new_user:'Create new user',create:'Create',del:'Delete',autoapprove:'Auto-approve',role_user:'User',role_admin:'Admin',username:'Username',password:'Password',
  notif_discord:'Notifications — Discord',active:'enabled',test:'Test',save:'Save',saved:'saved ✓',test_sent:'test sent ✓',webhook_ph:'Discord webhook URL',
  st_pending:'⏳ Awaiting approval',st_queued:'Requested',st_downloading:'Downloading…',st_importing:'Processing',st_done:'✅ Available',st_error:'Error',st_denied:'Denied',st_exists:'in library',
- settings:'Settings',sec_general:'General',sec_notif:'Notifications',sec_users:'Users',sec_services:'Services',sec_about:'About',app_name:'App name',default_lang:'Default language',refresh:'Refresh',version:'Version',about_txt:'Self-built Seerr clone for ROMs.',
+ settings:'Settings',sec_general:'General',sec_notif:'Notifications',sec_users:'Users',sec_services:'Services',sec_about:'About',app_name:'App name',default_lang:'Default language',refresh:'Refresh',version:'Version',about_txt:'Self-built Seerr clone for ROMs.',sec_maint:'Logs & maintenance',logs:'Log',clear_cache:'Clear cache',reindex:'Reindex',clear_finished:'Clear finished',done_word:'Done',lbl_jobs:'Requests',lbl_lib:'Library',
  profile:'Profile',display_name:'Display name',email:'Email',language:'Language',avatar:'Avatar',pwebhook:'Personal Discord webhook',change_pw:'Change password',cur_pw:'Current password',new_pw:'New password',choose_img:'Choose image',saved_ok:'saved ✓',
  blocklist:'Blocklist',add_btn:'Add',pattern_ph:'Keyword/pattern in title',
  nav_issues:'🐞 Issues',issues:'Issues',report_issue:'Report issue',issue_msg:'Message',close_btn:'Close',st_open:'open',st_closed:'closed',submit:'Submit',issue_type:'Type',comment_ph:'Write a comment …',comment_send:'Send'
@@ -1090,7 +1091,7 @@ async function testPWebhook(){let wh=document.getElementById('pwh').value.trim()
 // --- Admin-Bereich / Einstellungen (Seite mit Unterbereichen) ---
 let SETSEC='general';
 function openSettingsView(){
- let secs=[['general',t('sec_general')],['notif',t('sec_notif')],['users',t('sec_users')],['blocklist',t('blocklist')],['services',t('sec_services')],['about',t('sec_about')]];
+ let secs=[['general',t('sec_general')],['notif',t('sec_notif')],['users',t('sec_users')],['blocklist',t('blocklist')],['services',t('sec_services')],['maint',t('sec_maint')],['about',t('sec_about')]];
  document.getElementById('settings').innerHTML='<div class=setwrap><div class=setnav>'+
   secs.map(x=>`<a class=snav data-sec="${x[0]}" onclick="setSection('${x[0]}')">${x[1]}</a>`).join('')+
   '</div><div id=setcontent></div></div>';
@@ -1098,7 +1099,23 @@ function openSettingsView(){
 function setSection(sec){SETSEC=sec;
  document.querySelectorAll('.snav').forEach(e=>e.classList.toggle('on',e.dataset.sec==sec));
  let c=document.getElementById('setcontent');
- ({general:secGeneral,notif:secNotif,users:secUsers,blocklist:secBlocklist,services:secServices,about:secAbout}[sec]||secGeneral)(c);}
+ ({general:secGeneral,notif:secNotif,users:secUsers,blocklist:secBlocklist,services:secServices,maint:secMaint,about:secAbout}[sec]||secGeneral)(c);}
+async function secMaint(c){
+ c.innerHTML=`<h3>${t('sec_maint')}</h3><div id=mstats class=meta>…</div>
+  <div style="margin:10px 0;display:flex;gap:8px;flex-wrap:wrap">
+   <button onclick="admCache()">${t('clear_cache')}</button>
+   <button onclick="admReindex()">${t('reindex')}</button>
+   <button onclick="admClearJobs()">${t('clear_finished')}</button>
+   <button onclick="loadLogs()">${t('refresh')}</button>
+   <span id=mmsg class=meta></span></div>
+  <h3 style="margin-top:16px">${t('logs')}</h3><pre id=logbox class=logbox>…</pre>`;
+ loadMStats();loadLogs();}
+async function loadMStats(){let s=await(await fetch('/api/admin/stats')).json();
+ document.getElementById('mstats').textContent=`${t('lbl_jobs')}: ${s.jobs_total} (${s.jobs_active} / ${s.jobs_finished}) · ${t('lbl_lib')}: ${s.lib_titles} (${s.lib_platforms}) · IGDB-Cache: ${s.igdb_cache}`;}
+async function loadLogs(){let d=await(await fetch('/api/logs')).json();let b=document.getElementById('logbox');if(!b)return;b.textContent=(d.lines||[]).join('\n');b.scrollTop=b.scrollHeight;}
+async function admCache(){await fetch('/api/admin/cache/clear',{method:'POST'});document.getElementById('mmsg').textContent=t('done_word');loadMStats();}
+async function admReindex(){await fetch('/api/admin/reindex',{method:'POST'});document.getElementById('mmsg').textContent=t('done_word');setTimeout(()=>{loadMStats();loadLogs();},1800);}
+async function admClearJobs(){let r=await(await fetch('/api/jobs/clear-finished',{method:'POST'})).json();document.getElementById('mmsg').textContent=t('done_word')+' ('+(r.removed||0)+')';loadMStats();}
 async function secGeneral(c){let s=await(await fetch('/api/settings')).json();let gg=s.general||{};let qo=s.quota||{};
  c.innerHTML=`<h3>${t('sec_general')}</h3>
   <div class=frow><label>${t('app_name')}</label><input id=gname value="${(gg.app_name||'Romseerr').replace(/"/g,'&quot;')}"></div>
@@ -1556,6 +1573,53 @@ def api_issues_comment(iid):
 @perm_required("manage_issues")
 def api_issues_del(iid):
     save_issues([i for i in load_issues() if i["id"] != iid]); return jsonify({"ok":True})
+
+# ---------- Admin: Logs, Statistik, Wartung ----------
+JOB_FINISHED = {"done", "error", "denied"}
+
+@app.route("/api/logs")
+@admin_required
+def api_logs():
+    n = min(int(request.args.get("n", 200) or 200), 1000)
+    try:
+        with open(LOGFILE) as f: lines = f.readlines()
+    except Exception: lines = []
+    return jsonify({"lines": [l.rstrip("\n") for l in lines[-n:]]})
+
+@app.route("/api/admin/stats")
+@admin_required
+def api_admin_stats():
+    with JOBS_LOCK: js = list(JOBS)
+    with LIB_LOCK: plat, titles = len(LIB["slugs"]), len(LIB["all"])
+    return jsonify({"jobs_total": len(js),
+        "jobs_active": sum(1 for j in js if j.get("state") not in JOB_FINISHED),
+        "jobs_finished": sum(1 for j in js if j.get("state") in JOB_FINISHED),
+        "lib_platforms": plat, "lib_titles": titles, "igdb_cache": len(IGDB["cache"]),
+        "discover_age": int(time.time()-DISCOVER_CACHE["ts"]) if DISCOVER_CACHE["ts"] else None})
+
+@app.route("/api/admin/cache/clear", methods=["POST"])
+@admin_required
+def api_admin_cache_clear():
+    IGDB["cache"].clear(); DISCOVER_CACHE["rows"] = []; DISCOVER_CACHE["ts"] = 0
+    log("Cache geleert (Admin)")
+    return jsonify({"ok": True})
+
+@app.route("/api/admin/reindex", methods=["POST"])
+@admin_required
+def api_admin_reindex():
+    threading.Thread(target=build_index, daemon=True).start()
+    log("Bibliotheks-Reindex angestoßen (Admin)")
+    return jsonify({"ok": True})
+
+@app.route("/api/jobs/clear-finished", methods=["POST"])
+@perm_required("manage_requests")
+def api_jobs_clear_finished():
+    global JOBS
+    with JOBS_LOCK:
+        before = len(JOBS); JOBS = [j for j in JOBS if j.get("state") not in JOB_FINISHED]; save_jobs()
+        removed = before - len(JOBS)
+    log(f"{removed} abgeschlossene Anfragen entfernt (Admin)")
+    return jsonify({"ok": True, "removed": removed})
 
 @app.route("/api/apikey", methods=["GET"])
 @admin_required
