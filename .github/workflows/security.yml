@@ -1,6 +1,7 @@
 # Security-Scans / security scans: SAST, Abhängigkeiten, Secrets, Container.
 name: Security
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:

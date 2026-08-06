@@ -1,6 +1,7 @@
 # CI: Lint, Compile, Dockerfile-Lint, Build / lint, compile, dockerfile lint, build
 name: CI
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
