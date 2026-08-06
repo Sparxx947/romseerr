@@ -34,6 +34,7 @@ LOGFILE    = "/config/rom-suche.log"
 USERS_FILE = "/config/users.json"
 SECRET_FILE= "/config/secret.key"
 SETTINGS_FILE = "/config/settings.json"
+MAILLOG_FILE  = "/config/maillog.json"
 
 ROM_EXT = {"sfc","smc","nes","fds","gb","gba","gbc","n64","z64","v64","ndd","md","gen","smd","sms",
            "gg","32x","pce","sgx","ngp","ngc","ws","wsc","iso","bin","cue","chd","img","cdi","gdi",
@@ -581,6 +582,15 @@ def may_autoapprove(username):
     usr = load_users().get(username, {})
     return usr.get("role") == "admin" or bool(usr.get("autoapprove"))
 
+def mail_log_add(to, subject, ok, err=""):
+    try:
+        try: entries = json.load(open(MAILLOG_FILE))
+        except Exception: entries = []
+        entries.insert(0, {"ts": datetime.now().strftime("%Y-%m-%d %H:%M"), "to": to,
+                           "subject": subject, "ok": bool(ok), "err": (err or "")[:120]})
+        json.dump(entries[:100], open(MAILLOG_FILE, "w"))
+    except Exception: pass
+
 def send_mail(to, subject, body):
     s = load_settings().get("smtp", {})
     if not (s.get("enabled") and s.get("host") and to): return False
@@ -593,9 +603,9 @@ def send_mail(to, subject, body):
               else smtplib.SMTP(s["host"], port, timeout=15)
         if not (mode == "ssl" or port == 465) and mode != "none": srv.starttls()
         if s.get("user"): srv.login(s["user"], s.get("pass", ""))
-        srv.send_message(msg); srv.quit(); return True
+        srv.send_message(msg); srv.quit(); mail_log_add(to, subject, True); return True
     except Exception as e:
-        log(f"Mail-Fehler: {e}"); return False
+        log(f"Mail-Fehler: {e}"); mail_log_add(to, subject, False, str(e)); return False
 
 RESET_TOKENS = {}
 def gen_reset(user):
@@ -945,7 +955,10 @@ async function secNotif(c){let s=await(await fetch('/api/settings')).json();let 
   <div class=frow><input id=smuser placeholder="User" value="${(sm.user||'').replace(/"/g,'&quot;')}"><input id=smpass type=password placeholder="${sm.has_pass?'•••• gesetzt':'Passwort'}"></div>
   <div class=frow><input id=smfrom placeholder="Absender / From" value="${(sm.from||'').replace(/"/g,'&quot;')}"><select id=smtls style="flex:0 0 120px"><option value=starttls ${sm.tls=='starttls'?'selected':''}>STARTTLS</option><option value=ssl ${sm.tls=='ssl'?'selected':''}>SSL</option><option value=none ${sm.tls=='none'?'selected':''}>none</option></select></div>
   <div class=frow><input id=smto placeholder="Test an / to"><button onclick="mailTest()">${t('test')}</button></div>
-  <div class=frow><button onclick="saveSmtp()">${t('save')}</button><span id=smmsg class=meta></span></div>`;}
+  <div class=frow><button onclick="saveSmtp()">${t('save')}</button><span id=smmsg class=meta></span></div>
+  <h3 style="margin-top:20px">Mail-Protokoll / Mail log</h3><div id=mlog class=meta>…</div>`;
+ let ml=await(await fetch('/api/maillog')).json();
+ document.getElementById('mlog').innerHTML=ml.length?ml.map(m=>`<div class=frow><span>${m.ok?'🟢':'🔴'} ${m.ts} → ${(''+(m.to||'')).replace(/</g,'&lt;')}</span><span class=meta>${(''+(m.subject||'')).replace(/</g,'&lt;')}${m.err?(' · '+(''+m.err).replace(/</g,'&lt;')):''}</span></div>`).join(''):'—';}
 async function saveSmtp(){let d={smtp:{enabled:document.getElementById('smen').checked,host:document.getElementById('smhost').value,port:document.getElementById('smport').value,user:document.getElementById('smuser').value,from:document.getElementById('smfrom').value,tls:document.getElementById('smtls').value}};
  let pw=document.getElementById('smpass').value;if(pw)d.smtp.pass=pw;
  let r=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
@@ -1271,6 +1284,12 @@ def api_blocklist_set():
     pats = [str(p).strip()[:80] for p in pats if str(p).strip()][:200]
     s = load_settings(); s["blocklist"] = pats; save_settings(s)
     return jsonify({"ok": True})
+
+@app.route("/api/maillog")
+@admin_required
+def api_maillog():
+    try: return jsonify(json.load(open(MAILLOG_FILE)))
+    except Exception: return jsonify([])
 
 @app.route("/api/setup", methods=["POST"])
 def api_setup():

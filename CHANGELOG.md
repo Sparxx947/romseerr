@@ -7,6 +7,10 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Mail-Protokoll** — Versand-Log (Zeit, Empfänger, Betreff, Erfolg/Fehler) im Admin-Bereich
+  (Benachrichtigungen), persistiert, auf 100 gekappt. `GET /api/maillog`. /
+  **Mail log** — send log (time, recipient, subject, success/error) in the admin
+  notifications section, persisted, capped at 100.
 - **Sperrliste (Blocklist)** — Admin pflegt Stichwörter; passende Titel werden aus Suche
   und Startseite gefiltert und können nicht angefragt werden. `GET/POST /api/blocklist`. /
   **Blocklist** — admins maintain keywords; matching titles are filtered from search and
