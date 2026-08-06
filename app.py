@@ -595,7 +595,7 @@ def save_settings(s):
     with open(SETTINGS_FILE, "w") as f: json.dump(s, f)
 def may_autoapprove(username):
     usr = load_users().get(username, {})
-    return usr.get("role") == "admin" or bool(usr.get("autoapprove"))
+    return usr.get("role") == "admin" or "autoapprove" in (usr.get("perms") or []) or bool(usr.get("autoapprove"))
 
 def mail_log_add(to, subject, ok, err=""):
     try:
@@ -653,6 +653,23 @@ def get_apikey():
     if not k:
         k = secrets.token_hex(16); s["apikey"] = k; save_settings(s)
     return k
+
+# Granulare Rechte (Admin hat implizit alle)
+PERMS = ["request", "autoapprove", "manage_requests", "manage_users", "manage_issues",
+         "manage_settings", "quota_exempt"]
+def has_perm(perm, user=None):
+    if g.get("api_auth"): return True
+    usr = load_users().get(user or session.get("user"), {})
+    if usr.get("role") == "admin": return True
+    return perm in (usr.get("perms") or [])
+def perm_required(perm):
+    def deco(f):
+        @wraps(f)
+        def w(*a, **k):
+            if has_perm(perm): return f(*a, **k)
+            return jsonify({"error": "forbidden", "need": perm}), 403
+        return w
+    return deco
 
 # ---------- Web-UI ----------
 app = Flask(__name__)
@@ -833,7 +850,7 @@ async function loadIssues(pref){let box=document.getElementById('issues');
 function renderIssues(items){let d=document.getElementById('ilist');d.innerHTML=items.length?'':'<div class=meta>—</div>';
  items.forEach(i=>{let e=document.createElement('div');e.className='job';
   let st=i.status=='closed'?t('st_closed'):t('st_open');
-  let right=(window.ROLE=='admin'&&i.status!='closed')?`<button onclick="closeIssue('${i.id}')" style="background:#1e5e3a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer">${t('close_btn')}</button>`:`<span class="st ${i.status=='closed'?'done':''}">${st}</span>`;
+  let right=(canDo('manage_issues')&&i.status!='closed')?`<button onclick="closeIssue('${i.id}')" style="background:#1e5e3a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer">${t('close_btn')}</button>`:`<span class="st ${i.status=='closed'?'done':''}">${st}</span>`;
   e.innerHTML=`<div><div>${(''+(i.title||'')).replace(/</g,'&lt;')} <span class=meta>(${i.type})</span></div><div class=meta style="font-size:11px">👤 ${(''+(i.user||'')).replace(/</g,'&lt;')} · ${i.platform||''} · ${i.ts||''} · ${(''+(i.message||'')).replace(/</g,'&lt;').slice(0,90)}</div></div><div>${right}</div>`;
   d.appendChild(e);});}
 async function submitIssue(){let d={title:document.getElementById('itit').value,platform:document.getElementById('iplat').value,type:document.getElementById('ityp').value,message:document.getElementById('imsg').value};
@@ -912,7 +929,7 @@ function stlab(s){return [t('st_'+s)||s, STCLS[s]||''];}
 async function loadJobs(){let r=await fetch('/api/jobs');let d=await r.json();let j=document.getElementById('jobs');
  j.innerHTML=d.length?'':('<div class=hint>'+t('no_requests')+'</div>');
  d.forEach(o=>{let e=document.createElement('div');e.className='job';let L=stlab(o.state);let right;
-  if(o.state=='pending'&&window.ROLE=='admin'){
+  if(o.state=='pending'&&canDo('manage_requests')){
    right=`<button onclick="approveJob('${o.id}')" style="background:#1e5e3a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;margin-right:6px">${t('approve')}</button><button onclick="denyJob('${o.id}')" style="background:#6e2a2a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer">${t('deny')}</button>`;
   }else{right=`<span class="st ${L[1]}">${L[0]}</span>`;}
   e.innerHTML=`<div><div>${o.title.replace(/</g,'&lt;')}</div><div class=meta style="color:#8b929e;font-size:11px">👤 <b style="color:#b9c0cc">${(o.user||'—').replace(/</g,'&lt;')}</b> · ${o.platform} · ${o.source} · ${o.msg||''}</div></div><div>${right}</div>`;
@@ -934,8 +951,9 @@ function clearP(){SELP.clear();localStorage.setItem('romp','[]');
 function updateFLabel(){let e=document.getElementById('tF');if(e)e.textContent='🎛 '+t('platforms')+': '+(SELP.size?SELP.size+' '+t('selected'):t('all'));}
 function toggleFilter(){let f=document.getElementById('filter');f.style.display=f.style.display=='block'?'none':'block';}
 // --- Benutzerverwaltung ---
+function canDo(perm){return window.ROLE=='admin'||(window.PERMS||[]).includes(perm);}
 async function loadAuth(){let d=await(await fetch('/api/auth/status')).json();
- window.ROLE=d.role;window.VERSION=d.version||'';
+ window.ROLE=d.role;window.VERSION=d.version||'';window.PERMS=d.perms||[];
  let lang=d.user_lang||localStorage.getItem('lang')||d.default_lang||'de';
  if(lang!=LANG){LANG=lang;localStorage.setItem('lang',lang);setLang(lang);}
  let who=document.getElementById('who');
@@ -1044,7 +1062,7 @@ async function secUsers(c){let list=await(await fetch('/api/users')).json();
   <h3 style="margin-top:18px">${t('new_user')}</h3>
   <div class=frow><input id=nu placeholder="${t('username')}"><input id=np type=password placeholder="${t('password')}">
    <select id=nr><option value=user>${t('role_user')}</option><option value=admin>${t('role_admin')}</option></select>
-   <label style="min-width:auto;flex:0 0 auto"><input type=checkbox id=naa> ${t('autoapprove')}</label><button onclick="addUser()">${t('create')}</button></div>
+   <button onclick="addUser()">${t('create')}</button></div>
   <div id=uerr class=meta style="color:#ff6b6b"></div>`;
  renderUsers(list);}
 async function secServices(c){c.innerHTML=`<h3>${t('sec_services')}</h3><button onclick="setSection('services')">${t('refresh')}</button><div id=svc style="margin-top:12px">…</div>`;
@@ -1086,21 +1104,27 @@ async function openUsers(){let m=document.getElementById('modal');m.style.displa
     <button onclick="addUser()">${t('create')}</button></div>
    <div id=uerr style="color:#ff6b6b;font-size:12px;margin-top:6px"></div></div></div>`;
  renderUsers(list);}
+const PERM_KEYS=['request','autoapprove','manage_requests','manage_users','manage_issues','manage_settings','quota_exempt'];
+const PERM_LBL={request:'Anfragen',autoapprove:'Auto-Freigabe',manage_requests:'Anfr. verwalten',manage_users:'Benutzer',manage_issues:'Probleme',manage_settings:'Einstellungen',quota_exempt:'kein Limit'};
 function renderUsers(list){let ul=document.getElementById('ulist');ul.innerHTML='';
- list.forEach(u=>{let row=document.createElement('div');row.className='row';
-  let s=document.createElement('span');s.textContent=(u.role=='admin'?'👑 ':'👤 ')+u.username;row.appendChild(s);
-  let right=document.createElement('div');right.style.cssText='display:flex;gap:10px;align-items:center';
-  let lbl=document.createElement('label');lbl.style.cssText='font-size:12px;color:#8b929e;display:flex;gap:5px;align-items:center';
-  let cb=document.createElement('input');cb.type='checkbox';cb.checked=u.autoapprove;cb.disabled=(u.role=='admin');
-  cb.onchange=()=>fetch('/api/users/'+encodeURIComponent(u.username),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({autoapprove:cb.checked})});
-  lbl.appendChild(cb);lbl.appendChild(document.createTextNode(t('autoapprove')));right.appendChild(lbl);
-  let b=document.createElement('button');b.textContent=t('del');
-  b.onclick=async()=>{let d=await(await fetch('/api/users/'+encodeURIComponent(u.username),{method:'DELETE'})).json();
-   if(d.ok)setSection('users');else alert(d.msg||'Fehler');};
-  right.appendChild(b);row.appendChild(right);ul.appendChild(row);});}
-async function addUser(){let u=document.getElementById('nu').value.trim(),p=document.getElementById('np').value,r=document.getElementById('nr').value,aa=document.getElementById('naa').checked;
+ list.forEach(u=>{let row=document.createElement('div');row.style.cssText='background:#171a20;border-radius:8px;padding:10px;margin-bottom:8px';
+  let head=document.createElement('div');head.style.cssText='display:flex;justify-content:space-between;align-items:center';
+  head.innerHTML=`<b>${u.role=='admin'?'👑 ':'👤 '}${(''+u.username).replace(/</g,'&lt;')}</b>`;
+  let del=document.createElement('button');del.textContent=t('del');del.style.cssText='background:#6e2a2a;border:none;color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer';
+  del.onclick=async()=>{let d=await(await fetch('/api/users/'+encodeURIComponent(u.username),{method:'DELETE'})).json();if(d.ok)setSection('users');else alert(d.msg||'Fehler');};
+  head.appendChild(del);row.appendChild(head);
+  if(u.role=='admin'){let a=document.createElement('div');a.className='meta';a.style.marginTop='6px';a.textContent='alle Rechte / all permissions';row.appendChild(a);}
+  else{let pg=document.createElement('div');pg.style.cssText='display:flex;flex-wrap:wrap;gap:10px;margin-top:8px';
+   PERM_KEYS.forEach(pk=>{let lbl=document.createElement('label');lbl.style.cssText='font-size:11px;color:#8b929e;display:flex;gap:4px;align-items:center';
+    let cb=document.createElement('input');cb.type='checkbox';cb.checked=(u.perms||[]).includes(pk);
+    cb.onchange=()=>{let np=(u.perms||[]).filter(x=>x!=pk);if(cb.checked)np.push(pk);u.perms=np;
+     fetch('/api/users/'+encodeURIComponent(u.username),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({perms:np})});};
+    lbl.appendChild(cb);lbl.appendChild(document.createTextNode(PERM_LBL[pk]));pg.appendChild(lbl);});
+   row.appendChild(pg);}
+  ul.appendChild(row);});}
+async function addUser(){let u=document.getElementById('nu').value.trim(),p=document.getElementById('np').value,r=document.getElementById('nr').value;
  let d=await(await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({username:u,password:p,role:r,autoapprove:aa})})).json();
+   body:JSON.stringify({username:u,password:p,role:r})})).json();
  if(d.ok)setSection('users');else document.getElementById('uerr').textContent=d.msg||'Fehler';}
 async function logout(){await fetch('/api/logout',{method:'POST'});location.href='/login';}
 document.querySelectorAll('#langsw b').forEach(e=>e.classList.toggle('on',e.dataset.l==LANG));
@@ -1270,7 +1294,8 @@ def auth_status():
                     "version": VERSION,
                     "avatar": usr.get("avatar",""),
                     "display_name": usr.get("display_name",""),
-                    "user_lang": usr.get("lang","")})
+                    "user_lang": usr.get("lang",""),
+                    "perms": usr.get("perms", [])})
 
 @app.route("/api/profile", methods=["GET"])
 def api_profile_get():
@@ -1395,7 +1420,7 @@ def api_issues_add():
     return jsonify({"ok":True, "id":iid})
 
 @app.route("/api/issues/<iid>/close", methods=["POST"])
-@admin_required
+@perm_required("manage_issues")
 def api_issues_close(iid):
     items = load_issues()
     for i in items:
@@ -1403,7 +1428,7 @@ def api_issues_close(iid):
     save_issues(items); return jsonify({"ok":True})
 
 @app.route("/api/issues/<iid>", methods=["DELETE"])
-@admin_required
+@perm_required("manage_issues")
 def api_issues_del(iid):
     save_issues([i for i in load_issues() if i["id"] != iid]); return jsonify({"ok":True})
 
@@ -1441,29 +1466,31 @@ def api_logout():
     session.clear(); return jsonify({"ok":True})
 
 @app.route("/api/users", methods=["GET"])
-@admin_required
+@perm_required("manage_users")
 def api_users_list():
-    return jsonify([{"username":u,"role":v.get("role","user"),"autoapprove":bool(v.get("autoapprove"))}
+    return jsonify([{"username":u,"role":v.get("role","user"),"perms":v.get("perms",[])}
                     for u,v in load_users().items()])
 
 @app.route("/api/users", methods=["POST"])
-@admin_required
+@perm_required("manage_users")
 def api_users_add():
     d = request.get_json(force=True); u=(d.get("username") or "").strip(); p=d.get("password") or ""
     role = "admin" if d.get("role")=="admin" else "user"
     if not u or len(p)<6: return jsonify({"ok":False,"msg":"Benutzername + Passwort (min. 6 Zeichen)"}), 400
     users = load_users()
     if u in users: return jsonify({"ok":False,"msg":"Benutzer existiert bereits"}), 400
-    users[u] = {"pw":generate_password_hash(p), "role":role, "autoapprove":bool(d.get("autoapprove"))}
+    perms = [x for x in (d.get("perms") or ["request"]) if x in PERMS]
+    users[u] = {"pw":generate_password_hash(p), "role":role, "perms":perms}
     save_users(users)
     return jsonify({"ok":True})
 
 @app.route("/api/users/<u>", methods=["PATCH"])
-@admin_required
+@perm_required("manage_users")
 def api_users_patch(u):
     users = load_users()
     if u not in users: return jsonify({"ok":False}), 404
     d = request.get_json(force=True)
+    if "perms" in d: users[u]["perms"] = [x for x in (d.get("perms") or []) if x in PERMS]
     if "autoapprove" in d: users[u]["autoapprove"] = bool(d["autoapprove"])
     if d.get("role") in ("admin","user"):
         admins = [x for x,v in users.items() if v.get("role")=="admin"]
@@ -1555,7 +1582,7 @@ def api_settings_test():
 
 # ---- Freigabe-Workflow ----
 @app.route("/api/jobs/<jid>/approve", methods=["POST"])
-@admin_required
+@perm_required("manage_requests")
 def api_job_approve(jid):
     j = get_job(jid)
     if not j or j.get("state") != "pending": return jsonify({"ok": False}), 400
@@ -1563,14 +1590,14 @@ def api_job_approve(jid):
     return jsonify({"ok": True})
 
 @app.route("/api/jobs/<jid>/deny", methods=["POST"])
-@admin_required
+@perm_required("manage_requests")
 def api_job_deny(jid):
     if not get_job(jid): return jsonify({"ok": False}), 404
     set_state(jid, state="denied", msg="abgelehnt")
     return jsonify({"ok": True})
 
 @app.route("/api/users/<u>", methods=["DELETE"])
-@admin_required
+@perm_required("manage_users")
 def api_users_del(u):
     users = load_users()
     if u not in users: return jsonify({"ok":False,"msg":"unbekannt"}), 404
