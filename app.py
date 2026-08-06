@@ -35,6 +35,7 @@ USERS_FILE = "/config/users.json"
 SECRET_FILE= "/config/secret.key"
 SETTINGS_FILE = "/config/settings.json"
 MAILLOG_FILE  = "/config/maillog.json"
+ISSUES_FILE   = "/config/issues.json"
 
 ROM_EXT = {"sfc","smc","nes","fds","gb","gba","gbc","n64","z64","v64","ndd","md","gen","smd","sms",
            "gg","32x","pce","sgx","ngp","ngc","ws","wsc","iso","bin","cue","chd","img","cdi","gdi",
@@ -729,6 +730,7 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;backg
  <div class=logo>🎮 Romseerr</div>
  <a class="nav on" id=nS data-i18n=nav_discover onclick="show('s')">🔍 Entdecken</a>
  <a class=nav id=nJ data-i18n=nav_requests onclick="show('j')">📥 Anfragen</a>
+ <a class=nav id=nI data-i18n=nav_issues onclick="show('issues')">🐞 Probleme</a>
  <a class=nav id=nSet data-i18n=nav_settings onclick="show('set')" style="display:none">⚙️ Einstellungen</a>
  <div class=grow></div>
  <div id=langsw><b data-l=de class=on onclick="setLang('de')">DE</b><b data-l=en onclick="setLang('en')">EN</b></div>
@@ -745,6 +747,7 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;backg
  <div id=discview><div id=grid></div><div class=hint id=hint data-i18n=hint_type>Tippe einen Titel und drücke Enter.</div></div>
  <div id=jobs></div>
  <div id=settings></div>
+ <div id=issues></div>
 </main>
 <div id=modal></div>
 <script>
@@ -760,7 +763,8 @@ const I18N={de:{
  st_pending:'⏳ Wartet auf Freigabe',st_queued:'Angefragt',st_downloading:'Lädt…',st_importing:'Wird verarbeitet',st_done:'✅ Verfügbar',st_error:'Fehler',st_denied:'Abgelehnt',st_exists:'vorhanden',
  settings:'Einstellungen',sec_general:'Allgemein',sec_notif:'Benachrichtigungen',sec_users:'Benutzer',sec_services:'Dienste',sec_about:'Über',app_name:'App-Name',default_lang:'Standardsprache',refresh:'Aktualisieren',version:'Version',about_txt:'Selbstgebauter Seerr-Klon für ROMs.',
  profile:'Profil',display_name:'Anzeigename',email:'E-Mail',language:'Sprache',avatar:'Avatar',pwebhook:'Persönlicher Discord-Webhook',change_pw:'Passwort ändern',cur_pw:'Aktuelles Passwort',new_pw:'Neues Passwort',choose_img:'Bild wählen',saved_ok:'gespeichert ✓',
- blocklist:'Sperrliste',add_btn:'Hinzufügen',pattern_ph:'Stichwort/Muster im Titel'
+ blocklist:'Sperrliste',add_btn:'Hinzufügen',pattern_ph:'Stichwort/Muster im Titel',
+ nav_issues:'🐞 Probleme',issues:'Probleme',report_issue:'Problem melden',issue_msg:'Beschreibung',close_btn:'Schließen',st_open:'offen',st_closed:'geschlossen',submit:'Absenden',issue_type:'Art'
 },en:{
  nav_discover:'🔍 Discover',nav_requests:'📥 Requests',nav_users:'👤 Users',nav_settings:'⚙️ Settings',logout:'🚪 Sign out',
  search_ph:'Search a game … (Enter)',platforms:'Platforms',all:'All',selected:'selected',
@@ -773,7 +777,8 @@ const I18N={de:{
  st_pending:'⏳ Awaiting approval',st_queued:'Requested',st_downloading:'Downloading…',st_importing:'Processing',st_done:'✅ Available',st_error:'Error',st_denied:'Denied',st_exists:'in library',
  settings:'Settings',sec_general:'General',sec_notif:'Notifications',sec_users:'Users',sec_services:'Services',sec_about:'About',app_name:'App name',default_lang:'Default language',refresh:'Refresh',version:'Version',about_txt:'Self-built Seerr clone for ROMs.',
  profile:'Profile',display_name:'Display name',email:'Email',language:'Language',avatar:'Avatar',pwebhook:'Personal Discord webhook',change_pw:'Change password',cur_pw:'Current password',new_pw:'New password',choose_img:'Choose image',saved_ok:'saved ✓',
- blocklist:'Blocklist',add_btn:'Add',pattern_ph:'Keyword/pattern in title'
+ blocklist:'Blocklist',add_btn:'Add',pattern_ph:'Keyword/pattern in title',
+ nav_issues:'🐞 Issues',issues:'Issues',report_issue:'Report issue',issue_msg:'Message',close_btn:'Close',st_open:'open',st_closed:'closed',submit:'Submit',issue_type:'Type'
 }};
 let LANG=localStorage.getItem('lang')||'de';
 function t(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.de[k]||k;}
@@ -789,10 +794,36 @@ function show(v){cur=v;
  document.getElementById('discview').style.display=v=='s'?'':'none';
  document.getElementById('jobs').style.display=v=='j'?'block':'none';
  document.getElementById('settings').style.display=v=='set'?'block':'none';
+ document.getElementById('issues').style.display=v=='issues'?'block':'none';
  document.getElementById('nS').classList.toggle('on',v=='s');
  document.getElementById('nJ').classList.toggle('on',v=='j');
+ document.getElementById('nI').classList.toggle('on',v=='issues');
  document.getElementById('nSet').classList.toggle('on',v=='set');
- if(v=='j')loadJobs();if(v=='set')openSettingsView();}
+ if(v=='j')loadJobs();if(v=='set')openSettingsView();
+ if(v=='issues'){loadIssues(window._ipref);window._ipref=null;}}
+async function loadIssues(pref){let box=document.getElementById('issues');
+ let items=await(await fetch('/api/issues')).json();
+ let types=['broken','wrong_region','wrong_platform','other'];
+ box.innerHTML=`<div style="padding:18px;max-width:640px">
+  <h3 style="text-transform:uppercase;color:#8b929e;font-size:12px">${t('report_issue')}</h3>
+  <div class=frow><input id=itit placeholder="Titel / title" value="${((pref&&pref.title)||'').replace(/"/g,'&quot;')}"></div>
+  <div class=frow><input id=iplat placeholder="Plattform" style="flex:0 0 140px" value="${((pref&&pref.platform)||'').replace(/"/g,'&quot;')}"><select id=ityp>${types.map(x=>'<option>'+x+'</option>').join('')}</select></div>
+  <div class=frow><textarea id=imsg placeholder="${t('issue_msg')}" style="flex:1;min-height:60px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px"></textarea></div>
+  <div class=frow><button onclick="submitIssue()">${t('submit')}</button><span id=imm class=meta></span></div>
+  <h3 style="text-transform:uppercase;color:#8b929e;font-size:12px;margin-top:20px">${t('issues')}</h3><div id=ilist></div></div>`;
+ renderIssues(items);}
+function renderIssues(items){let d=document.getElementById('ilist');d.innerHTML=items.length?'':'<div class=meta>—</div>';
+ items.forEach(i=>{let e=document.createElement('div');e.className='job';
+  let st=i.status=='closed'?t('st_closed'):t('st_open');
+  let right=(window.ROLE=='admin'&&i.status!='closed')?`<button onclick="closeIssue('${i.id}')" style="background:#1e5e3a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer">${t('close_btn')}</button>`:`<span class="st ${i.status=='closed'?'done':''}">${st}</span>`;
+  e.innerHTML=`<div><div>${(''+(i.title||'')).replace(/</g,'&lt;')} <span class=meta>(${i.type})</span></div><div class=meta style="font-size:11px">👤 ${(''+(i.user||'')).replace(/</g,'&lt;')} · ${i.platform||''} · ${i.ts||''} · ${(''+(i.message||'')).replace(/</g,'&lt;').slice(0,90)}</div></div><div>${right}</div>`;
+  d.appendChild(e);});}
+async function submitIssue(){let d={title:document.getElementById('itit').value,platform:document.getElementById('iplat').value,type:document.getElementById('ityp').value,message:document.getElementById('imsg').value};
+ if(!d.title.trim()){document.getElementById('imm').textContent='Titel fehlt / title missing';return;}
+ let r=await(await fetch('/api/issues',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
+ if(r.ok)loadIssues();}
+async function closeIssue(id){await fetch('/api/issues/'+id+'/close',{method:'POST'});loadIssues();}
+function reportFromDetail(){let it=window._detit;if(!it)return;closeModal();window._ipref={title:it.title,platform:it.platform_slug};show('issues');}
 function sz(b){if(!b)return'';let u=['B','KB','MB','GB','TB'],i=0;while(b>=1024&&i<4){b/=1024;i++}return b.toFixed(1)+' '+u[i];}
 function renderCard(it){let c=document.createElement('div');c.className='card';
  let cov=it.cover?`background-image:url('${it.cover}')`:'';
@@ -820,12 +851,13 @@ async function dl(btn,it){btn.disabled=true;btn.textContent='…';
  let r=await fetch('/api/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(it)});
  let d=await r.json();btn.textContent=d.ok?t('requested'):(d.msg||t('st_error'));}
 // --- Detail-Ansicht (Seerr-Detailseite) ---
-async function openDetail(it){let m=document.getElementById('modal');m.style.display='block';
+async function openDetail(it){let m=document.getElementById('modal');m.style.display='block';window._detit=it;
  let vars=(window.LASTRES||[]).filter(x=>x.gkey&&x.gkey===it.gkey);
  m.innerHTML=`<div class=box><button class=x onclick="closeModal()">×</button>
   <div class=top><div class=mc style="${it.cover?`background-image:url('${it.cover}')`:''}"></div>
    <div><h2>${it.title.replace(/</g,'&lt;')}</h2>
     <div class=meta>${it.platform_slug||'?'} · ${it.source=='usenet'?'📡 Usenet':'🗄 Archive'} · ${sz(it.size)}${it.is_set?' · 📦 Sammlung':''}</div>
+    <button onclick="reportFromDetail()" style="margin-top:8px;background:#2a2f37;border:none;color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px">🐞 ${t('report_issue')}</button>
     <div class=desc id=mdesc>…</div></div></div>
   <div class=sec><h3>${t('versions')} (${vars.length})</h3><div id=mvar></div></div>
   <div class=sec id=mfiles></div></div>`;
@@ -1290,6 +1322,46 @@ def api_blocklist_set():
 def api_maillog():
     try: return jsonify(json.load(open(MAILLOG_FILE)))
     except Exception: return jsonify([])
+
+# ---- Probleme / Issues ----
+def load_issues():
+    try: return json.load(open(ISSUES_FILE))
+    except Exception: return []
+def save_issues(x):
+    try: json.dump(x, open(ISSUES_FILE, "w"))
+    except Exception: pass
+
+@app.route("/api/issues", methods=["GET"])
+def api_issues_get():
+    items = load_issues()
+    if session.get("role") != "admin":
+        items = [i for i in items if i.get("user") == session.get("user")]
+    return jsonify(sorted(items, key=lambda i: i.get("created", 0), reverse=True))
+
+@app.route("/api/issues", methods=["POST"])
+def api_issues_add():
+    d = request.get_json(force=True); items = load_issues()
+    iid = f"{int(time.time())}{len(items)%1000:03d}"
+    items.append({"id":iid, "user":session.get("user",""), "title":(d.get("title") or "")[:140],
+                  "platform":(d.get("platform") or "")[:40], "type":(d.get("type") or "other")[:30],
+                  "message":(d.get("message") or "")[:1000], "status":"open",
+                  "created":int(time.time()), "ts":datetime.now().strftime("%Y-%m-%d %H:%M")})
+    save_issues(items)
+    notify_send(f"🐞 Neues Problem / new issue: {(d.get('title') or '')[:80]} ({session.get('user','')})")
+    return jsonify({"ok":True, "id":iid})
+
+@app.route("/api/issues/<iid>/close", methods=["POST"])
+@admin_required
+def api_issues_close(iid):
+    items = load_issues()
+    for i in items:
+        if i["id"] == iid: i["status"] = "closed"
+    save_issues(items); return jsonify({"ok":True})
+
+@app.route("/api/issues/<iid>", methods=["DELETE"])
+@admin_required
+def api_issues_del(iid):
+    save_issues([i for i in load_issues() if i["id"] != iid]); return jsonify({"ok":True})
 
 @app.route("/api/setup", methods=["POST"])
 def api_setup():

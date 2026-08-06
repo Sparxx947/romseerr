@@ -7,6 +7,11 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Probleme/Issues** — Nutzer melden Probleme zu einem ROM (defekt, falsche Region/Plattform,
+  sonstiges); Admin sieht alle und schließt/löscht, Nutzer sehen eigene; „Problem melden" auch
+  aus der Detailansicht. `/api/issues` (GET/POST), `/api/issues/<id>/close` + DELETE. /
+  **Issues** — users report problems about a ROM; admins see/close/delete all, users see their
+  own; "report issue" also from the detail view.
 - **Mail-Protokoll** — Versand-Log (Zeit, Empfänger, Betreff, Erfolg/Fehler) im Admin-Bereich
   (Benachrichtigungen), persistiert, auf 100 gekappt. `GET /api/maillog`. /
   **Mail log** — send log (time, recipient, subject, success/error) in the admin
