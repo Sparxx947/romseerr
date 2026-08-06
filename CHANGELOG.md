@@ -7,6 +7,18 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **PWA + Web-Push** — Romseerr ist jetzt eine **installierbare PWA** (Manifest, Icon,
+  Service-Worker) und kann **Web-Push-Benachrichtigungen** senden, wenn ein ROM verfügbar
+  wird. Aktivierung pro Nutzer im Profil (🔔). VAPID-Schlüssel werden beim ersten Start
+  erzeugt (`/config/vapid.json`), Abos je Nutzer gespeichert. **Hinweis:** Service-Worker
+  und Push funktionieren im Browser nur über **HTTPS** (oder localhost) — hinter einem
+  TLS-Reverse-Proxy betreiben. Endpunkte `GET /api/push/pubkey`, `POST /api/push/subscribe`,
+  `/api/push/unsubscribe`, `/api/push/test`. Neue Abhängigkeit `pywebpush`. /
+  **PWA + web push** — Romseerr is now an **installable PWA** (manifest, icon, service
+  worker) and sends **web-push notifications** when a ROM becomes available. Per-user
+  opt-in in the profile (🔔). VAPID keys generated on first start; subscriptions stored
+  per user. **Note:** service workers and push only work over **HTTPS** (or localhost) —
+  run behind a TLS reverse proxy. New dependency `pywebpush`.
 - **Mehr Sprachen** — Oberfläche jetzt auch auf **Französisch und Spanisch** (zusätzlich
   zu Deutsch/Englisch); Umschalter in der Sidebar (DE/EN/FR/ES), Profil- und
   Standardsprache-Auswahl erweitert. Alle vier Sprachen vollständig (97 Schlüssel je Sprache). /
