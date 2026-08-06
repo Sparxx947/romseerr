@@ -259,6 +259,19 @@ def igdb_popular_platform(pid, limit=20):
     return [{"title": g.get("name",""), "cover": _cover_url(g)}
             for g in d if isinstance(g, dict) and g.get("cover")]
 
+# IGDB-Genre-ID -> Anzeigename (für Genre-Reihen im Discover)
+IGDB_GENRES = [("rpg",12,"Rollenspiele / RPG"), ("platform",8,"Jump 'n' Run"),
+               ("shooter",5,"Shooter"), ("fighting",4,"Beat 'em up"),
+               ("racing",10,"Rennspiele / Racing"), ("adventure",31,"Adventure"),
+               ("puzzle",9,"Puzzle"), ("sport",14,"Sport"), ("strategy",15,"Strategie / Strategy")]
+def igdb_popular_genre(gid, limit=20):
+    d = igdb_query("games", f'fields name,cover.image_id; '
+        f'where genres=({gid}) & cover != null & total_rating_count > 30; '
+        f'sort total_rating_count desc; limit {limit};')
+    if not isinstance(d, list): return []
+    return [{"title": g.get("name",""), "cover": _cover_url(g)}
+            for g in d if isinstance(g, dict) and g.get("cover")]
+
 DISCOVER_CACHE = {"ts": 0, "rows": []}
 def discover_rows():
     if time.time()-DISCOVER_CACHE["ts"] < 3600 and DISCOVER_CACHE["rows"]:
@@ -269,12 +282,16 @@ def discover_rows():
             pid = IGDB_PLAT.get(slug)
             games = igdb_popular_platform(pid, 20) if pid else []
             if games:
-                rows.append({"slug": slug, "console": SLUG_NAME.get(slug, slug), "games": games})
+                rows.append({"slug": slug, "key": "c:"+slug, "console": SLUG_NAME.get(slug, slug), "games": games})
+        for key, gid, name in IGDB_GENRES:
+            games = igdb_popular_genre(gid, 20)
+            if games:
+                rows.append({"slug": "", "key": "genre:"+key, "console": name, "games": games})
         DISCOVER_CACHE["rows"], DISCOVER_CACHE["ts"] = rows, time.time()
     # Bibliotheks-Markierung je Spiel frisch (nicht cachen)
     bl = [str(p).strip().lower() for p in load_settings().get("blocklist", []) if str(p).strip()]
-    return [{"slug": r["slug"], "console": r["console"],
-             "games": [{**g, "in_library": in_library(g["title"], r["slug"])}
+    return [{"slug": r["slug"], "key": r.get("key", r["console"]), "console": r["console"],
+             "games": [{**g, "in_library": in_library(g["title"], r["slug"] or None)}
                        for g in r["games"] if not is_blocked(g["title"], bl)]}
             for r in rows]
 
@@ -923,19 +940,31 @@ function closeModal(){document.getElementById('modal').style.display='none';}
 // --- Discover / Startseite: beliebte Spiele je Konsole ---
 async function loadDiscover(){let hint=document.getElementById('hint');hint.style.display='';hint.textContent=t('loading_home');
  let g=document.getElementById('grid');
- let rows=await(await fetch('/api/discover/rows')).json();
+ let rows=await(await fetch('/api/discover/rows')).json();window.DROWS=rows;
  if(!rows.length){hint.textContent=t('hint_type');g.className='';g.innerHTML='';return;}
  hint.style.display='none';g.className='disc';g.innerHTML='';
- rows.forEach(r=>{let sec=document.createElement('div');sec.className='drow';
-  sec.innerHTML=`<div class=rowh>${t('popular_on')} <b>${r.console}</b> <span>· ${t('click_search')}</span></div><div class=strip></div>`;
+ let hid=new Set(JSON.parse(localStorage.getItem('dischide')||'[]'));
+ let bar=document.createElement('div');bar.style.cssText='display:flex;justify-content:flex-end;margin-bottom:6px';
+ bar.innerHTML='<button onclick="toggleDiscCust()" style="background:#1e2229;border:1px solid #2c323b;color:#8b929e;padding:5px 10px;border-radius:8px;cursor:pointer;font-size:12px">⚙ anpassen / customize</button>';
+ g.appendChild(bar);
+ let cust=document.createElement('div');cust.id='disccust';cust.style.cssText='display:none;background:#171a20;border-radius:8px;padding:10px;margin-bottom:12px';
+ rows.forEach(r=>{let lbl=document.createElement('label');lbl.style.cssText='font-size:12px;color:#8b929e;display:inline-flex;gap:5px;align-items:center;margin:0 12px 6px 0';
+  let cb=document.createElement('input');cb.type='checkbox';cb.checked=!hid.has(r.key);
+  cb.onchange=()=>{let h=new Set(JSON.parse(localStorage.getItem('dischide')||'[]'));cb.checked?h.delete(r.key):h.add(r.key);localStorage.setItem('dischide',JSON.stringify([...h]));loadDiscover();};
+  lbl.appendChild(cb);lbl.appendChild(document.createTextNode(r.console));cust.appendChild(lbl);});
+ g.appendChild(cust);
+ rows.filter(r=>!hid.has(r.key)).forEach(r=>{let sec=document.createElement('div');sec.className='drow';
+  sec.innerHTML=`<div class=rowh>${r.slug?t('popular_on')+' ':''}<b>${r.console}</b> <span>· ${t('click_search')}</span></div><div class=strip></div>`;
   let strip=sec.querySelector('.strip');
   r.games.forEach(it=>{let c=document.createElement('div');c.className='pcard';
    c.innerHTML=`<div class=pcover style="${it.cover?`background-image:url('${it.cover}')`:''}">${it.in_library?'<span class=have2>✓</span>':''}</div><div class=pt>${it.title.replace(/</g,'&lt;')}</div>`;
-   c.onclick=()=>{SELP=new Set([r.slug]);localStorage.setItem('romp',JSON.stringify([r.slug]));updateFLabel();
-    document.querySelectorAll('.chip').forEach(e=>e.classList.toggle('on',e.dataset.s==r.slug));
+   c.onclick=()=>{SELP=r.slug?new Set([r.slug]):new Set();
+    localStorage.setItem('romp',JSON.stringify([...SELP]));updateFLabel();
+    document.querySelectorAll('.chip').forEach(e=>e.classList.toggle('on',SELP.has(e.dataset.s)));
     document.getElementById('q').value=it.title;search();};
    strip.appendChild(c);});
   g.appendChild(sec);});}
+function toggleDiscCust(){let e=document.getElementById('disccust');e.style.display=e.style.display=='none'?'block':'none';}
 const STCLS={downloading:'downloading',importing:'importing',done:'done',error:'error',denied:'error'};
 function stlab(s){return [t('st_'+s)||s, STCLS[s]||''];}
 async function loadJobs(){let r=await fetch('/api/jobs');let d=await r.json();let j=document.getElementById('jobs');
