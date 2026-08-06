@@ -1,0 +1,21 @@
+services:
+  rom-suche:
+    build: .
+    image: rom-suche:local
+    container_name: rom-suche
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8770}:8770"
+    env_file:
+      - .env
+    volumes:
+      # RomM-/RetroNAS-Bibliothek (Ziel der Einsortierung, Dedup-Quelle)
+      - ${ROMS_LIB:?bitte in .env setzen}:/roms
+      # SAB-Complete-Ordner der ROM-Kategorie (Usenet-Downloads abholen)
+      - ${SAB_COMPLETE:?bitte in .env setzen}:/sab-complete
+      # JDownloader FolderWatch (Filehoster-Links als .crawljob)
+      - ${JD_WATCH:-./data/jd-watch}:/jd-watch
+      # JDownloader-Ausgabe (fertige Filehoster-Downloads abholen)
+      - ${JD_OUTPUT:-./data/jd-output}:/jd-output
+      # persistente App-Daten (Jobs, Staging, Log)
+      - ./config:/config
