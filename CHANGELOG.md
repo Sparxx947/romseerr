@@ -7,6 +7,12 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Mehr Sprachen** — Oberfläche jetzt auch auf **Französisch und Spanisch** (zusätzlich
+  zu Deutsch/Englisch); Umschalter in der Sidebar (DE/EN/FR/ES), Profil- und
+  Standardsprache-Auswahl erweitert. Alle vier Sprachen vollständig (97 Schlüssel je Sprache). /
+  **More languages** — UI now also in **French and Spanish** (besides German/English);
+  sidebar switch (DE/EN/FR/ES), profile and default-language selectors extended;
+  all four languages complete (97 keys each).
 - **Logs & Wartung (Admin)** — neuer Einstellungs-Unterbereich: **Protokollansicht**
   (letzte Log-Zeilen), **Statistik** (Anfragen aktiv/fertig, Bibliotheksgröße, Cache),
   und Wartungsknöpfe **Cache leeren**, **neu indexieren**, **fertige Anfragen entfernen**.
