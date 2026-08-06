@@ -7,6 +7,14 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Admin-Bereich / Settings-Seite** mit Unterbereichen (Allgemein, Benachrichtigungen,
+  Benutzer, Dienste-Status, Über); Benutzerverwaltung + Discord dort gebündelt;
+  neue Endpunkte `GET /api/services/status`, erweiterte `/api/settings` (general:
+  App-Name, Standardsprache), `version` in `/api/auth/status`. /
+  **Admin area / settings page** with sections (General, Notifications, Users,
+  Services status, About); user management + Discord consolidated there;
+  new `GET /api/services/status`, extended `/api/settings` (general: app name,
+  default language), `version` in `/api/auth/status`.
 - **CI/CD** — GitHub Actions: Lint/Compile/Docker-Build, Security (CodeQL, Bandit, Trivy, gitleaks),
   Release-Bot (release-please), Dependabot; MIT-Lizenz. /
   **CI/CD** — GitHub Actions: lint/compile/docker build, security (CodeQL, Bandit, Trivy, gitleaks),
