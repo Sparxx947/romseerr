@@ -7,6 +7,11 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **API-Key** — programmatischer API-Zugriff ohne Session-Login (Header `X-Api-Key` oder
+  `?apikey=`); Key im Admin-Bereich (Allgemein) anzeigen/kopieren/regenerieren.
+  `GET /api/apikey`, `POST /api/apikey/regenerate`. /
+  **API key** — programmatic API access without a session (header `X-Api-Key` or `?apikey=`);
+  view/copy/regenerate in the admin general settings.
 - **Probleme/Issues** — Nutzer melden Probleme zu einem ROM (defekt, falsche Region/Plattform,
   sonstiges); Admin sieht alle und schließt/löscht, Nutzer sehen eigene; „Problem melden" auch
   aus der Detailansicht. `/api/issues` (GET/POST), `/api/issues/<id>/close` + DELETE. /

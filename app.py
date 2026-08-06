@@ -5,7 +5,7 @@ from datetime import datetime
 from functools import wraps
 from email.message import EmailMessage
 import requests
-from flask import Flask, request, jsonify, Response, session, redirect
+from flask import Flask, request, jsonify, Response, session, redirect, g
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # ---------- Konfiguration ----------
@@ -624,17 +624,21 @@ def app_secret():
 def login_required(f):
     @wraps(f)
     def w(*a, **k):
-        if not session.get("user"):
-            if request.path.startswith("/api/"): return jsonify({"error": "auth"}), 401
-            return redirect("/login")
-        return f(*a, **k)
+        if g.get("api_auth") or session.get("user"): return f(*a, **k)
+        if request.path.startswith("/api/"): return jsonify({"error": "auth"}), 401
+        return redirect("/login")
     return w
 def admin_required(f):
     @wraps(f)
     def w(*a, **k):
-        if session.get("role") != "admin": return jsonify({"error": "admin"}), 403
-        return f(*a, **k)
+        if g.get("api_auth") or session.get("role") == "admin": return f(*a, **k)
+        return jsonify({"error": "admin"}), 403
     return w
+def get_apikey():
+    s = load_settings(); k = s.get("apikey")
+    if not k:
+        k = secrets.token_hex(16); s["apikey"] = k; save_settings(s)
+    return k
 
 # ---------- Web-UI ----------
 app = Flask(__name__)
@@ -968,11 +972,18 @@ function setSection(sec){SETSEC=sec;
  document.querySelectorAll('.snav').forEach(e=>e.classList.toggle('on',e.dataset.sec==sec));
  let c=document.getElementById('setcontent');
  ({general:secGeneral,notif:secNotif,users:secUsers,blocklist:secBlocklist,services:secServices,about:secAbout}[sec]||secGeneral)(c);}
-async function secGeneral(c){let g=(await(await fetch('/api/settings')).json()).general||{};
+async function secGeneral(c){let gg=(await(await fetch('/api/settings')).json()).general||{};
  c.innerHTML=`<h3>${t('sec_general')}</h3>
-  <div class=frow><label>${t('app_name')}</label><input id=gname value="${(g.app_name||'Romseerr').replace(/"/g,'&quot;')}"></div>
-  <div class=frow><label>${t('default_lang')}</label><select id=glang><option value=de ${g.default_lang!='en'?'selected':''}>Deutsch</option><option value=en ${g.default_lang=='en'?'selected':''}>English</option></select></div>
-  <button onclick="saveGeneral()">${t('save')}</button> <span id=gmsg class=meta></span>`;}
+  <div class=frow><label>${t('app_name')}</label><input id=gname value="${(gg.app_name||'Romseerr').replace(/"/g,'&quot;')}"></div>
+  <div class=frow><label>${t('default_lang')}</label><select id=glang><option value=de ${gg.default_lang!='en'?'selected':''}>Deutsch</option><option value=en ${gg.default_lang=='en'?'selected':''}>English</option></select></div>
+  <button onclick="saveGeneral()">${t('save')}</button> <span id=gmsg class=meta></span>
+  <h3 style="margin-top:20px">API-Key</h3>
+  <div class=frow><input id=akey readonly value="…"><button onclick="copyKey()">📋</button><button onclick="regenKey()">↻</button></div>
+  <span class=meta>Header <code>X-Api-Key</code> oder <code>?apikey=…</code></span>`;
+ let k=await(await fetch('/api/apikey')).json();document.getElementById('akey').value=k.apikey||'';}
+async function regenKey(){if(!confirm('Neuen API-Key erzeugen? Alter wird ungültig. / Regenerate API key?'))return;
+ let k=await(await fetch('/api/apikey/regenerate',{method:'POST'})).json();document.getElementById('akey').value=k.apikey||'';}
+function copyKey(){let e=document.getElementById('akey');e.select();if(navigator.clipboard)navigator.clipboard.writeText(e.value);}
 async function saveGeneral(){let d={general:{app_name:document.getElementById('gname').value.trim(),default_lang:document.getElementById('glang').value}};
  let r=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
  document.getElementById('gmsg').textContent=r.ok?t('saved'):t('st_error');}
@@ -1206,6 +1217,9 @@ PUBLIC = {"/login","/api/login","/api/setup","/api/auth/status","/health","/rese
 def _guard():
     p = request.path
     if p in PUBLIC: return
+    key = request.headers.get("X-Api-Key") or request.args.get("apikey")
+    if key and key == load_settings().get("apikey"):
+        g.api_auth = True; return
     u = session.get("user")
     if not u or u not in load_users():
         session.clear()
@@ -1362,6 +1376,17 @@ def api_issues_close(iid):
 @admin_required
 def api_issues_del(iid):
     save_issues([i for i in load_issues() if i["id"] != iid]); return jsonify({"ok":True})
+
+@app.route("/api/apikey", methods=["GET"])
+@admin_required
+def api_apikey_get():
+    return jsonify({"apikey": get_apikey()})
+
+@app.route("/api/apikey/regenerate", methods=["POST"])
+@admin_required
+def api_apikey_regen():
+    s = load_settings(); s["apikey"] = secrets.token_hex(16); save_settings(s)
+    return jsonify({"apikey": s["apikey"]})
 
 @app.route("/api/setup", methods=["POST"])
 def api_setup():
