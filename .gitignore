@@ -1,0 +1,8 @@
+# Secrets & lokale Daten – NIEMALS einchecken
+.env
+config/
+data/
+*.log
+staging/
+__pycache__/
+*.pyc
