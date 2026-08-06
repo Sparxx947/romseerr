@@ -7,6 +7,10 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Sperrliste (Blocklist)** — Admin pflegt Stichwörter; passende Titel werden aus Suche
+  und Startseite gefiltert und können nicht angefragt werden. `GET/POST /api/blocklist`. /
+  **Blocklist** — admins maintain keywords; matching titles are filtered from search and
+  the home page and cannot be requested.
 - **Passwort-Reset per E-Mail** — SMTP-Konfiguration in den Einstellungen (Host/Port/User/
   Passwort/Absender/TLS + Testmail); „Passwort vergessen?" auf der Login-Seite → zeitlich
   begrenzter Reset-Link (1 h) per Mail; Reset-Seite `/reset`. Endpunkte `/api/forgot`,

@@ -270,8 +270,10 @@ def discover_rows():
                 rows.append({"slug": slug, "console": SLUG_NAME.get(slug, slug), "games": games})
         DISCOVER_CACHE["rows"], DISCOVER_CACHE["ts"] = rows, time.time()
     # Bibliotheks-Markierung je Spiel frisch (nicht cachen)
+    bl = [str(p).strip().lower() for p in load_settings().get("blocklist", []) if str(p).strip()]
     return [{"slug": r["slug"], "console": r["console"],
-             "games": [{**g, "in_library": in_library(g["title"], r["slug"])} for g in r["games"]]}
+             "games": [{**g, "in_library": in_library(g["title"], r["slug"])}
+                       for g in r["games"] if not is_blocked(g["title"], bl)]}
             for r in rows]
 
 def notify_send(text):
@@ -337,6 +339,12 @@ def is_set(title, size):
     if SET_RE.search(title or ""): return True
     return (size or 0) > 4*1024**3      # >4 GB -> vermutlich Sammlung
 
+def is_blocked(title, bl=None):
+    if bl is None:
+        bl = [str(p).strip().lower() for p in load_settings().get("blocklist", []) if str(p).strip()]
+    t = (title or "").lower()
+    return any(p in t for p in bl)
+
 def do_search(q, platforms=None):
     platforms = [p for p in (platforms or []) if p]
     # Usenet breit über Console (1000) abfragen und danach nach Plattform filtern —
@@ -346,8 +354,10 @@ def do_search(q, platforms=None):
     else:
         usenet_cats = PROW_CATS
     res = []
+    bl = [str(p).strip().lower() for p in load_settings().get("blocklist", []) if str(p).strip()]
     ar = search_archive(q); us = search_usenet(q, usenet_cats)
     for idx, r in enumerate(ar+us):
+        if is_blocked(r["title"], bl): continue        # Sperrliste
         if platforms:
             # bekannte Fremd-Plattform raus (beide Quellen)
             if r["platform"] and r["platform"] not in platforms: continue
@@ -739,7 +749,8 @@ const I18N={de:{
  notif_discord:'Benachrichtigungen — Discord',active:'aktiv',test:'Test',save:'Speichern',saved:'gespeichert ✓',test_sent:'Test gesendet ✓',webhook_ph:'Discord Webhook-URL',
  st_pending:'⏳ Wartet auf Freigabe',st_queued:'Angefragt',st_downloading:'Lädt…',st_importing:'Wird verarbeitet',st_done:'✅ Verfügbar',st_error:'Fehler',st_denied:'Abgelehnt',st_exists:'vorhanden',
  settings:'Einstellungen',sec_general:'Allgemein',sec_notif:'Benachrichtigungen',sec_users:'Benutzer',sec_services:'Dienste',sec_about:'Über',app_name:'App-Name',default_lang:'Standardsprache',refresh:'Aktualisieren',version:'Version',about_txt:'Selbstgebauter Seerr-Klon für ROMs.',
- profile:'Profil',display_name:'Anzeigename',email:'E-Mail',language:'Sprache',avatar:'Avatar',pwebhook:'Persönlicher Discord-Webhook',change_pw:'Passwort ändern',cur_pw:'Aktuelles Passwort',new_pw:'Neues Passwort',choose_img:'Bild wählen',saved_ok:'gespeichert ✓'
+ profile:'Profil',display_name:'Anzeigename',email:'E-Mail',language:'Sprache',avatar:'Avatar',pwebhook:'Persönlicher Discord-Webhook',change_pw:'Passwort ändern',cur_pw:'Aktuelles Passwort',new_pw:'Neues Passwort',choose_img:'Bild wählen',saved_ok:'gespeichert ✓',
+ blocklist:'Sperrliste',add_btn:'Hinzufügen',pattern_ph:'Stichwort/Muster im Titel'
 },en:{
  nav_discover:'🔍 Discover',nav_requests:'📥 Requests',nav_users:'👤 Users',nav_settings:'⚙️ Settings',logout:'🚪 Sign out',
  search_ph:'Search a game … (Enter)',platforms:'Platforms',all:'All',selected:'selected',
@@ -751,7 +762,8 @@ const I18N={de:{
  notif_discord:'Notifications — Discord',active:'enabled',test:'Test',save:'Save',saved:'saved ✓',test_sent:'test sent ✓',webhook_ph:'Discord webhook URL',
  st_pending:'⏳ Awaiting approval',st_queued:'Requested',st_downloading:'Downloading…',st_importing:'Processing',st_done:'✅ Available',st_error:'Error',st_denied:'Denied',st_exists:'in library',
  settings:'Settings',sec_general:'General',sec_notif:'Notifications',sec_users:'Users',sec_services:'Services',sec_about:'About',app_name:'App name',default_lang:'Default language',refresh:'Refresh',version:'Version',about_txt:'Self-built Seerr clone for ROMs.',
- profile:'Profile',display_name:'Display name',email:'Email',language:'Language',avatar:'Avatar',pwebhook:'Personal Discord webhook',change_pw:'Change password',cur_pw:'Current password',new_pw:'New password',choose_img:'Choose image',saved_ok:'saved ✓'
+ profile:'Profile',display_name:'Display name',email:'Email',language:'Language',avatar:'Avatar',pwebhook:'Personal Discord webhook',change_pw:'Change password',cur_pw:'Current password',new_pw:'New password',choose_img:'Choose image',saved_ok:'saved ✓',
+ blocklist:'Blocklist',add_btn:'Add',pattern_ph:'Keyword/pattern in title'
 }};
 let LANG=localStorage.getItem('lang')||'de';
 function t(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.de[k]||k;}
@@ -905,7 +917,7 @@ async function testPWebhook(){let wh=document.getElementById('pwh').value.trim()
 // --- Admin-Bereich / Einstellungen (Seite mit Unterbereichen) ---
 let SETSEC='general';
 function openSettingsView(){
- let secs=[['general',t('sec_general')],['notif',t('sec_notif')],['users',t('sec_users')],['services',t('sec_services')],['about',t('sec_about')]];
+ let secs=[['general',t('sec_general')],['notif',t('sec_notif')],['users',t('sec_users')],['blocklist',t('blocklist')],['services',t('sec_services')],['about',t('sec_about')]];
  document.getElementById('settings').innerHTML='<div class=setwrap><div class=setnav>'+
   secs.map(x=>`<a class=snav data-sec="${x[0]}" onclick="setSection('${x[0]}')">${x[1]}</a>`).join('')+
   '</div><div id=setcontent></div></div>';
@@ -913,7 +925,7 @@ function openSettingsView(){
 function setSection(sec){SETSEC=sec;
  document.querySelectorAll('.snav').forEach(e=>e.classList.toggle('on',e.dataset.sec==sec));
  let c=document.getElementById('setcontent');
- ({general:secGeneral,notif:secNotif,users:secUsers,services:secServices,about:secAbout}[sec]||secGeneral)(c);}
+ ({general:secGeneral,notif:secNotif,users:secUsers,blocklist:secBlocklist,services:secServices,about:secAbout}[sec]||secGeneral)(c);}
 async function secGeneral(c){let g=(await(await fetch('/api/settings')).json()).general||{};
  c.innerHTML=`<h3>${t('sec_general')}</h3>
   <div class=frow><label>${t('app_name')}</label><input id=gname value="${(g.app_name||'Romseerr').replace(/"/g,'&quot;')}"></div>
@@ -955,6 +967,18 @@ async function secServices(c){c.innerHTML=`<h3>${t('sec_services')}</h3><button 
 function secAbout(c){c.innerHTML=`<h3>Romseerr — ${t('sec_about')}</h3>
   <div class=frow><span>${t('version')}</span><span class=meta>${window.VERSION||''}</span></div>
   <p class=meta>${t('about_txt')}</p>`;}
+async function secBlocklist(c){let list=await(await fetch('/api/blocklist')).json();
+ c.innerHTML=`<h3>${t('blocklist')}</h3><div id=bllist></div>
+  <div class=frow><input id=blnew placeholder="${t('pattern_ph')}"><button onclick="blAdd()">${t('add_btn')}</button></div>`;
+ renderBlock(list);}
+function renderBlock(list){window.BL=list.slice();let d=document.getElementById('bllist');d.innerHTML='';
+ list.forEach((p,i)=>{let row=document.createElement('div');row.className='frow';
+  let s=document.createElement('span');s.textContent='🚫 '+p;row.appendChild(s);
+  let b=document.createElement('button');b.textContent=t('del');b.onclick=()=>{window.BL.splice(i,1);blSave();};
+  row.appendChild(b);d.appendChild(row);});}
+async function blSave(){let r=await(await fetch('/api/blocklist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({patterns:window.BL})})).json();
+ if(r.ok)setSection('blocklist');}
+function blAdd(){let v=document.getElementById('blnew').value.trim();if(!v)return;window.BL=(window.BL||[]).concat([v]);blSave();}
 async function saveSettings(){let d={discord:{enabled:document.getElementById('dcen').checked,url:document.getElementById('dcurl').value.trim()}};
  let r=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
  document.getElementById('serr').textContent=r.ok?t('saved'):t('st_error');}
@@ -1112,6 +1136,8 @@ def api_discover_rows():
 @app.route("/api/download", methods=["POST"])
 def api_download():
     it = request.get_json(force=True)
+    if is_blocked(it.get("title","")):
+        return jsonify({"ok":False,"msg":"gesperrt / blocked"})
     # Server-seitige Dedup-Sperre
     if in_library(it.get("title",""), it.get("platform")):
         return jsonify({"ok":False,"msg":"bereits in Bibliothek"})
@@ -1232,6 +1258,19 @@ def api_mail_test():
     if not to: return jsonify({"ok":False,"msg":"keine Adresse"}), 400
     ok = send_mail(to, "Romseerr — Test", "SMTP-Test erfolgreich / SMTP test successful.")
     return jsonify({"ok": ok, "msg": "" if ok else "Versand fehlgeschlagen (Log prüfen)"})
+
+@app.route("/api/blocklist", methods=["GET"])
+@admin_required
+def api_blocklist_get():
+    return jsonify(load_settings().get("blocklist", []))
+
+@app.route("/api/blocklist", methods=["POST"])
+@admin_required
+def api_blocklist_set():
+    pats = (request.get_json(force=True) or {}).get("patterns", [])
+    pats = [str(p).strip()[:80] for p in pats if str(p).strip()][:200]
+    s = load_settings(); s["blocklist"] = pats; save_settings(s)
+    return jsonify({"ok": True})
 
 @app.route("/api/setup", methods=["POST"])
 def api_setup():
