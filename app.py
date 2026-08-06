@@ -410,7 +410,7 @@ def new_job(item, user="", approved=True):
     jid = f"{int(time.time())}{len(JOBS)%1000:03d}"
     job = {"id":jid,"title":item["title"],"source":item["source"],"ref":item["ref"],
            "platform":item.get("platform_slug") or "Mixed","size":item.get("size",0),
-           "user":user,"state":"queued" if approved else "pending",
+           "user":user,"state":"queued" if approved else "pending","created":int(time.time()),
            "updated":datetime.now().strftime("%H:%M:%S"),"msg":"" if approved else "wartet auf Freigabe"}
     with JOBS_LOCK: JOBS.append(job); save_jobs()
     if approved: Q.put(jid)
@@ -421,6 +421,18 @@ def get_job(jid):
         for j in JOBS:
             if j["id"]==jid: return dict(j)
     return None
+
+def quota_used(user, days):
+    cutoff = time.time() - int(days)*86400
+    with JOBS_LOCK:
+        return sum(1 for j in JOBS if j.get("user")==user and j.get("state")!="denied" and j.get("created",0)>=cutoff)
+def quota_info(user):
+    q = load_settings().get("quota", {})
+    if not q.get("enabled") or has_perm("quota_exempt", user):
+        return {"enabled": False}
+    cnt = int(q.get("count", 10) or 10); days = int(q.get("days", 7) or 7)
+    used = quota_used(user, days)
+    return {"enabled": True, "count": cnt, "days": days, "used": used, "remaining": max(0, cnt-used)}
 
 # ---------- Download-Aktionen ----------
 def sab_add(url, name):
@@ -974,7 +986,8 @@ async function openProfile(){let m=document.getElementById('modal');m.style.disp
    <div class=row><input id=pmail ${inp} placeholder="${t('email')}" value="${(p.email||'').replace(/"/g,'&quot;')}"></div>
    <div class=row><label style="color:#8b929e;font-size:13px">${t('language')}</label><select id=plang ${inp}><option value="">—</option><option value=de ${p.lang=='de'?'selected':''}>Deutsch</option><option value=en ${p.lang=='en'?'selected':''}>English</option></select></div>
    <div class=row><input id=pwh ${inp} placeholder="${t('pwebhook')}" value="${(p.webhook||'').replace(/"/g,'&quot;')}"><button onclick="testPWebhook()">${t('test')}</button></div>
-   <div class=row><button onclick="saveProfile()">${t('save')}</button><span id=pmsg class=meta></span></div></div>
+   <div class=row><button onclick="saveProfile()">${t('save')}</button><span id=pmsg class=meta></span></div>
+   <div class=row><span class=meta>Kontingent / Quota</span><span class=meta>${p.quota&&p.quota.enabled?(p.quota.remaining+' / '+p.quota.count+' ('+p.quota.days+'d)'):'—'}</span></div></div>
   <div class=sec><h3>${t('change_pw')}</h3>
    <div class=row><input id=pold type=password ${inp} placeholder="${t('cur_pw')}"><input id=pnew type=password ${inp} placeholder="${t('new_pw')}"></div>
    <div class=row><button onclick="changePw()">${t('change_pw')}</button><span id=pwmsg class=meta></span></div></div></div>`;}
@@ -1004,11 +1017,15 @@ function setSection(sec){SETSEC=sec;
  document.querySelectorAll('.snav').forEach(e=>e.classList.toggle('on',e.dataset.sec==sec));
  let c=document.getElementById('setcontent');
  ({general:secGeneral,notif:secNotif,users:secUsers,blocklist:secBlocklist,services:secServices,about:secAbout}[sec]||secGeneral)(c);}
-async function secGeneral(c){let gg=(await(await fetch('/api/settings')).json()).general||{};
+async function secGeneral(c){let s=await(await fetch('/api/settings')).json();let gg=s.general||{};let qo=s.quota||{};
  c.innerHTML=`<h3>${t('sec_general')}</h3>
   <div class=frow><label>${t('app_name')}</label><input id=gname value="${(gg.app_name||'Romseerr').replace(/"/g,'&quot;')}"></div>
   <div class=frow><label>${t('default_lang')}</label><select id=glang><option value=de ${gg.default_lang!='en'?'selected':''}>Deutsch</option><option value=en ${gg.default_lang=='en'?'selected':''}>English</option></select></div>
   <button onclick="saveGeneral()">${t('save')}</button> <span id=gmsg class=meta></span>
+  <h3 style="margin-top:20px">Kontingent / Quota</h3>
+  <div class=frow><label style="min-width:auto"><input type=checkbox id=qen ${qo.enabled?'checked':''}> ${t('active')}</label><span></span></div>
+  <div class=frow><input id=qcount type=number style="flex:0 0 90px" value="${qo.count||10}"><input id=qdays type=number style="flex:0 0 90px" value="${qo.days||7}"><span class=meta>Anfragen / X Tage · requests / X days</span></div>
+  <button onclick="saveQuota()">${t('save')}</button> <span id=qmsg class=meta></span>
   <h3 style="margin-top:20px">API-Key</h3>
   <div class=frow><input id=akey readonly value="…"><button onclick="copyKey()">📋</button><button onclick="regenKey()">↻</button></div>
   <span class=meta>Header <code>X-Api-Key</code> oder <code>?apikey=…</code></span>`;
@@ -1019,6 +1036,9 @@ function copyKey(){let e=document.getElementById('akey');e.select();if(navigator
 async function saveGeneral(){let d={general:{app_name:document.getElementById('gname').value.trim(),default_lang:document.getElementById('glang').value}};
  let r=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
  document.getElementById('gmsg').textContent=r.ok?t('saved'):t('st_error');}
+async function saveQuota(){let d={quota:{enabled:document.getElementById('qen').checked,count:+document.getElementById('qcount').value,days:+document.getElementById('qdays').value}};
+ let r=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
+ document.getElementById('qmsg').textContent=r.ok?t('saved_ok'):t('st_error');}
 async function secNotif(c){let s=await(await fetch('/api/settings')).json();let dc=s.discord||{};let sm=s.smtp||{};let ag=s.agents||{};
  c.innerHTML=`<h3>${t('notif_discord')}</h3>
   <div class=frow><label style="min-width:auto"><input type=checkbox id=dcen ${dc.enabled?'checked':''}> ${t('active')}</label><span></span></div>
@@ -1252,6 +1272,9 @@ def api_download():
     if in_library(it.get("title",""), it.get("platform")):
         return jsonify({"ok":False,"msg":"bereits in Bibliothek"})
     user = session.get("user","")
+    qi = quota_info(user)
+    if qi.get("enabled") and qi.get("remaining", 1) <= 0:
+        return jsonify({"ok":False,"msg":"Kontingent erschöpft / quota reached"})
     auto = may_autoapprove(user)
     job = new_job(it, user=user, approved=auto)
     if not auto:
@@ -1302,7 +1325,7 @@ def api_profile_get():
     u = session.get("user"); usr = load_users().get(u, {})
     return jsonify({"username":u, "email":usr.get("email",""), "lang":usr.get("lang",""),
                     "display_name":usr.get("display_name",""), "avatar":usr.get("avatar",""),
-                    "webhook":usr.get("webhook","")})
+                    "webhook":usr.get("webhook",""), "quota": quota_info(u)})
 
 @app.route("/api/profile", methods=["POST"])
 def api_profile_set():
@@ -1516,7 +1539,8 @@ def api_settings_get():
                                      "has_token": bool(s.get("agents",{}).get("telegram",{}).get("token"))},
                         "webhook": {"enabled": bool(s.get("agents",{}).get("webhook",{}).get("enabled")),
                                     "url": s.get("agents",{}).get("webhook",{}).get("url","")},
-                        "email": {"enabled": bool(s.get("agents",{}).get("email",{}).get("enabled"))}}})
+                        "email": {"enabled": bool(s.get("agents",{}).get("email",{}).get("enabled"))}},
+                    "quota": s.get("quota", {"enabled": False, "count": 10, "days": 7})})
 
 @app.route("/api/settings", methods=["POST"])
 @admin_required
@@ -1545,6 +1569,10 @@ def api_settings_set():
             s["agents"]["webhook"] = {"enabled": bool(gw.get("enabled")), "url": (gw.get("url") or "").strip()}
         if "email" in a:
             s["agents"]["email"] = {"enabled": bool(a["email"].get("enabled"))}
+    if "quota" in d:
+        qq = d["quota"]
+        s["quota"] = {"enabled": bool(qq.get("enabled")), "count": int(qq.get("count") or 10),
+                      "days": int(qq.get("days") or 7)}
     save_settings(s); return jsonify({"ok": True})
 
 @app.route("/api/services/status")

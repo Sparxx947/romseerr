@@ -7,6 +7,11 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Anfrage-Kontingente (Quotas)** — Admin setzt X Anfragen pro Y Tage; Nutzer ohne
+  „kein Limit"-Recht (`quota_exempt`) werden bei Überschreitung abgelehnt; Rest-Kontingent
+  im Profil. /
+  **Request quotas** — admins set X requests per Y days; users without the `quota_exempt`
+  permission are refused when exceeded; remaining quota shown in the profile.
 - **Granulare Berechtigungen** — statt nur admin/user ein Rechte-Set pro Benutzer
   (anfragen, Auto-Freigabe, Anfragen/Benutzer/Probleme/Einstellungen verwalten,
   kontingentfrei); Admins haben implizit alle. Durchgesetzt auf Freigabe/Benutzer/Issues;
