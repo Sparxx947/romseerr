@@ -1,74 +1,67 @@
-# 🎮 rom-suche
+# 🎮 Romseerr
 
-Seerr-artige ROM-Suche & Auto-Download mit Einsortierung für **RomM** / **RetroNAS**.
-Sucht parallel über **Archive.org** (Retro) und **Usenet** (Prowlarr → SABnzbd, moderne
-Konsolen), lädt auf Knopfdruck herunter, entpackt, sortiert nach Plattform ein — und
-bietet nur an, was **noch nicht in der Bibliothek** ist (Dedup).
+Ein **Seerr für ROMs** — Such-, Anfrage- und Auto-Download-Oberfläche für die
+Retro-/Konsolenwelt, mit Einsortierung für **RomM** und **RetroNAS**. Angelehnt an
+Overseerr/Jellyseerr: Startseite mit beliebten Spielen je Konsole, Detailseiten,
+Anfrage-Workflow, Benutzerverwaltung und Benachrichtigungen.
 
-> Hinweis: Für den Betrieb ist der Nutzer selbst verantwortlich. Das Repo enthält
-> **keine** Zugangsdaten — alle Secrets kommen über `.env`.
+> Für den Betrieb ist der Nutzer selbst verantwortlich. Das Repo enthält **keine**
+> Zugangsdaten — alle Secrets kommen über `.env`.
 
 ## Funktionen
 
-- **Weboberfläche** (Port 8770) mit Cover, Plattform-/Quelle-Badge, Größe, „Download"-Knopf
-  und Download-Statusliste.
-- **Zwei Suchquellen:**
-  - **Archive.org** — titel-gebundene Such-API, direkter Download via `aria2` (Retro-ROMs,
-    No-Intro/Redump/TOSEC). Rausch-Filter gegen Skins/Wallpaper/Quellcode.
-  - **Usenet** — Prowlarr (nur lesend) für Console-Kategorien; Grabs laufen über eine
-    **isolierte SABnzbd-Kategorie** (`roms`), damit Film-/Serien-Setups unberührt bleiben.
-- **Plattform-Vorauswahl** — Systeme vorab als Chips wählen, damit die Suche nicht
-  über alles läuft (Auswahl bleibt via `localStorage` erhalten). Usenet wird breit
-  über *Console* abgefragt und nach Plattform nachgefiltert; reine Retro-Auswahl
-  überspringt Usenet ganz.
-- **Dedup** gegen die bestehende Bibliothek (normalisierter Titel je Plattform).
-- **Plattform-Erkennung** an der Dateiendung beim Import (`.sfc`→snes, `.gba`→gba …).
-- **Filehoster-Zweig** (optional) über JDownloader FolderWatch (`.crawljob`).
+- **Startseite mit Konsolen-Reihen** — beliebte Spiele je wichtiger Konsole (IGDB),
+  Klick sucht den Titel plattform-scoped.
+- **Suche** über **Archive.org** (Retro, direkter Download) und **Usenet** (Prowlarr →
+  SABnzbd, moderne Konsolen), mit **Plattform-Vorauswahl** und **Dedup** gegen die
+  bestehende Bibliothek. Cover via IGDB (für Usenet lazy nachgeladen).
+- **Detail-Ansicht** — Cover, Beschreibung, Dateiliste, Versionen/Quellen.
+- **Auto-Import** — entpacken (`unar`), Plattform an der Dateiendung erkennen,
+  einsortieren nach `/roms/<plattform>/` (RomM & RetroNAS teilen sich die Bibliothek).
+- **Benutzerverwaltung** — Login/Ersteinrichtung, Rollen (admin/user), **Auto-Freigabe**
+  je Benutzer und **Freigabe-Workflow** (Anfragen ohne Auto-Freigabe muss der Admin bestätigen).
+- **Benachrichtigungen** — Discord-Webhook in der Oberfläche konfigurierbar (mit Test).
+- **Seitenmenü** (Entdecken / Anfragen / Benutzer / Einstellungen) im Seerr-Stil.
 
-## Architektur
-
-```
-        ┌────────── Weboberfläche (Flask, :8770) ──────────┐
-Suche → │  Archive.org-API            Prowlarr (usenet, ro) │
-        └───────┬───────────────────────────┬──────────────┘
-      Download  │                            │
-                ▼                            ▼
-        aria2 → /config/staging      SAB addurl (cat=roms)
-                │                            │
-                └──────► Import: entpacken (unar) → /roms/<plattform>/
-                                   Dedup-Sperre · RomM-Scan
-```
-
-## Schnellstart
-
-```bash
-cp .env.example .env       # Werte eintragen (SAB/Prowlarr-Key, Pfade …)
-docker compose up -d --build
-# Oberfläche: http://<host>:8770
-```
-
-## Konfiguration
-
-Alle Variablen siehe [`.env.example`](.env.example). Wichtig:
-
-| Variable | Zweck |
-|---|---|
-| `SAB_URL` / `SAB_APIKEY` | SABnzbd für Usenet-Grabs |
-| `SAB_CAT` | eigene Kategorie (Standard `roms`) — **nicht** movies/tv |
-| `PROWLARR_URL` / `PROWLARR_APIKEY` | Usenet-Suche (nur lesend) |
-| `IGDB_CLIENT_ID/SECRET` | optionale Cover für Usenet-Treffer |
-| `ROMM_URL/USER/PASS` | optionaler RomM-Scan nach Import |
-| `ROMS_LIB` | RomM-/RetroNAS-Bibliothek (Ziel + Dedup-Quelle) |
-
-## Endpunkte
-
-- `/` — Weboberfläche
-- `GET /api/search?q=<titel>&platforms=<slug,slug>` — Suche (JSON), optional plattformgefiltert
-- `GET /api/platforms` — verfügbare Plattformen (gruppiert, mit Usenet-Flag)
-- `POST /api/download` — Download anstoßen (Body = Treffer-Objekt)
-- `GET /api/jobs` — Download-Status
-- `GET /health` — Health/Index-Größe
+**Geplant** (siehe [CHANGELOG](CHANGELOG.md) / Issues): SQLite-Backend, i18n de/en,
+Benutzerprofil, Passwort-Reset per E-Mail, Sperrliste, Probleme/Issues.
 
 ## Stack
 
-Python 3.12 · Flask · aria2 · unar. Ein Container, self-contained.
+Romseerr ist die Oberfläche; die Arbeit erledigt der umliegende Stack (SABnzbd,
+Prowlarr, JDownloader, RomM). Architektur, Datenfluss und Komponenten sind
+ausführlich in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** beschrieben.
+
+## Schnellstart
+
+**Kompletter Stack** (Romseerr + SABnzbd + Prowlarr + JDownloader + RomM):
+
+```bash
+cp .env.example .env        # Werte setzen (Pfade, DB-Passwörter, IGDB …)
+docker compose up -d --build
+# SABnzbd/Prowlarr einrichten -> deren API-Keys in .env -> erneut `up -d`
+# Romseerr: http://<host>:8770  (beim ersten Aufruf Admin anlegen)
+```
+
+**Nur Romseerr** (bestehender Stack): im `docker-compose.yml` nur den Dienst
+`romseerr` verwenden und dessen `.env`-URLs auf die vorhandenen Hosts zeigen.
+
+## Endpunkte (Auszug)
+
+- `/` — Weboberfläche · `/login` — Anmelden/Ersteinrichtung
+- `GET /api/search?q=&platforms=` · `GET /api/discover/rows` · `GET /api/detail` · `GET /api/cover`
+- `POST /api/download` · `GET /api/jobs` · `POST /api/jobs/<id>/approve|deny`
+- `GET/POST /api/settings` · `GET/POST /api/users` · `PATCH/DELETE /api/users/<u>`
+- `GET /api/auth/status` · `POST /api/login|logout|setup` · `GET /health`
+
+## Stack-Komponenten (Kurz)
+
+| Dienst | Rolle | Port |
+|---|---|---|
+| Romseerr | Such-/Anfrage-Oberfläche | 8770 |
+| SABnzbd | Usenet-Downloads (Kategorie `roms`) | 8080 |
+| Prowlarr | Indexer-Suche (nur lesend) | 9696 |
+| JDownloader | Filehoster-Downloads | 5800 |
+| RomM (+MariaDB) | Bibliothek/Player | 8998 |
+
+Stack: Python 3.12 · Flask · aria2 · unar.
