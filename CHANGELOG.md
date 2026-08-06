@@ -7,6 +7,13 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Granulare Berechtigungen** — statt nur admin/user ein Rechte-Set pro Benutzer
+  (anfragen, Auto-Freigabe, Anfragen/Benutzer/Probleme/Einstellungen verwalten,
+  kontingentfrei); Admins haben implizit alle. Durchgesetzt auf Freigabe/Benutzer/Issues;
+  Rechte-Häkchen in der Benutzerverwaltung. /
+  **Granular permissions** — per-user permission set instead of just admin/user
+  (request, autoapprove, manage requests/users/issues/settings, quota-exempt);
+  admins implicitly have all; enforced on approvals/users/issues.
 - **Weitere Benachrichtigungs-Agenten** — neben Discord jetzt **Telegram**, **generischer
   Webhook** (Slack/Gotify/Pushover-kompatibel) und **E-Mail bei Verfügbarkeit** (an den
   anfragenden Nutzer). `notify_send` sendet an alle aktiven Agenten. /
