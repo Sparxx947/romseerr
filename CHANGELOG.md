@@ -7,6 +7,13 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Benutzerprofil** — je Nutzer: Anzeigename, E-Mail, **Avatar-Bild** (Upload → Data-URI),
+  Sprache, eigenes Passwort ändern, **persönlicher Discord-Webhook** (bei Verfügbarkeit
+  werden allgemeiner **und** persönlicher Webhook benachrichtigt); Avatar in der Sidebar.
+  Endpunkte `/api/profile` (GET/POST), `/api/profile/password`, `/api/profile/notify-test`. /
+  **User profile** — per user: display name, email, **avatar image** (upload → data URI),
+  language, change own password, **personal Discord webhook** (on availability both the
+  global and personal webhooks fire); avatar in the sidebar.
 - **Admin-Bereich / Settings-Seite** mit Unterbereichen (Allgemein, Benachrichtigungen,
   Benutzer, Dienste-Status, Über); Benutzerverwaltung + Discord dort gebündelt;
   neue Endpunkte `GET /api/services/status`, erweiterte `/api/settings` (general:
