@@ -508,7 +508,12 @@ def import_folder(jid, folder):
     where = ", ".join(f"{v}×{k}" for k,v in by_plat.items()) or "nichts (schon vorhanden?)"
     set_state(jid, state="done", msg=f"{moved} Datei(en) → {where}")
     log(f"Job {jid} fertig: {moved} Dateien → {where}")
-    if moved: notify_available(job.get("title",""), where)
+    if moved:
+        notify_available(job.get("title",""), where)
+        wh = load_users().get(job.get("user",""), {}).get("webhook","")
+        if wh:
+            try: requests.post(wh, json={"content": f"🎮 **{job.get('title','')}** ist jetzt verfügbar / now available ({where})"}, timeout=8)
+            except Exception as e: log(f"Personal-Notify-Fehler: {e}")
 
 # ---------- Worker: fertige SAB/JD-Downloads einsortieren ----------
 def romm_scan():
@@ -611,6 +616,8 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;backg
 #langsw{display:flex;gap:8px;padding:6px 12px}
 #langsw b{cursor:pointer;font-size:12px;color:var(--mut);font-weight:700}
 #langsw b.on{color:var(--acc)}
+#who{font-size:12px;color:var(--mut);display:flex;align-items:center;padding:4px 12px}
+#who img{width:30px;height:30px;border-radius:50%;object-fit:cover;margin-right:7px;border:1px solid #2c323b}
 @media(max-width:680px){#side{position:static;width:auto;flex-direction:row;flex-wrap:wrap;align-items:center;padding:10px}#side .logo{margin:0 12px 0 4px}#side .grow{display:none}#side .ubox{border:none;padding:0}main{margin-left:0}.nav{padding:8px 10px;margin:0}}
 #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;padding:18px}
 .card{background:var(--card);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;border:1px solid #262b33}
@@ -681,7 +688,9 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;backg
  <a class=nav id=nSet data-i18n=nav_settings onclick="show('set')" style="display:none">⚙️ Einstellungen</a>
  <div class=grow></div>
  <div id=langsw><b data-l=de class=on onclick="setLang('de')">DE</b><b data-l=en onclick="setLang('en')">EN</b></div>
- <div class=ubox><div id=who></div><a class=nav data-i18n=logout onclick="logout()">🚪 Abmelden</a></div>
+ <div class=ubox><div id=who onclick="openProfile()" style="cursor:pointer"></div>
+  <a class=nav data-i18n=profile onclick="openProfile()">👤 Profil</a>
+  <a class=nav data-i18n=logout onclick="logout()">🚪 Abmelden</a></div>
 </div>
 <main>
  <div id=topbar>
@@ -705,7 +714,8 @@ const I18N={de:{
  users:'Benutzer',new_user:'Neuen Benutzer anlegen',create:'Anlegen',del:'Löschen',autoapprove:'Auto-Freigabe',role_user:'Nutzer',role_admin:'Admin',username:'Benutzername',password:'Passwort',
  notif_discord:'Benachrichtigungen — Discord',active:'aktiv',test:'Test',save:'Speichern',saved:'gespeichert ✓',test_sent:'Test gesendet ✓',webhook_ph:'Discord Webhook-URL',
  st_pending:'⏳ Wartet auf Freigabe',st_queued:'Angefragt',st_downloading:'Lädt…',st_importing:'Wird verarbeitet',st_done:'✅ Verfügbar',st_error:'Fehler',st_denied:'Abgelehnt',st_exists:'vorhanden',
- settings:'Einstellungen',sec_general:'Allgemein',sec_notif:'Benachrichtigungen',sec_users:'Benutzer',sec_services:'Dienste',sec_about:'Über',app_name:'App-Name',default_lang:'Standardsprache',refresh:'Aktualisieren',version:'Version',about_txt:'Selbstgebauter Seerr-Klon für ROMs.'
+ settings:'Einstellungen',sec_general:'Allgemein',sec_notif:'Benachrichtigungen',sec_users:'Benutzer',sec_services:'Dienste',sec_about:'Über',app_name:'App-Name',default_lang:'Standardsprache',refresh:'Aktualisieren',version:'Version',about_txt:'Selbstgebauter Seerr-Klon für ROMs.',
+ profile:'Profil',display_name:'Anzeigename',email:'E-Mail',language:'Sprache',avatar:'Avatar',pwebhook:'Persönlicher Discord-Webhook',change_pw:'Passwort ändern',cur_pw:'Aktuelles Passwort',new_pw:'Neues Passwort',choose_img:'Bild wählen',saved_ok:'gespeichert ✓'
 },en:{
  nav_discover:'🔍 Discover',nav_requests:'📥 Requests',nav_users:'👤 Users',nav_settings:'⚙️ Settings',logout:'🚪 Sign out',
  search_ph:'Search a game … (Enter)',platforms:'Platforms',all:'All',selected:'selected',
@@ -716,7 +726,8 @@ const I18N={de:{
  users:'Users',new_user:'Create new user',create:'Create',del:'Delete',autoapprove:'Auto-approve',role_user:'User',role_admin:'Admin',username:'Username',password:'Password',
  notif_discord:'Notifications — Discord',active:'enabled',test:'Test',save:'Save',saved:'saved ✓',test_sent:'test sent ✓',webhook_ph:'Discord webhook URL',
  st_pending:'⏳ Awaiting approval',st_queued:'Requested',st_downloading:'Downloading…',st_importing:'Processing',st_done:'✅ Available',st_error:'Error',st_denied:'Denied',st_exists:'in library',
- settings:'Settings',sec_general:'General',sec_notif:'Notifications',sec_users:'Users',sec_services:'Services',sec_about:'About',app_name:'App name',default_lang:'Default language',refresh:'Refresh',version:'Version',about_txt:'Self-built Seerr clone for ROMs.'
+ settings:'Settings',sec_general:'General',sec_notif:'Notifications',sec_users:'Users',sec_services:'Services',sec_about:'About',app_name:'App name',default_lang:'Default language',refresh:'Refresh',version:'Version',about_txt:'Self-built Seerr clone for ROMs.',
+ profile:'Profile',display_name:'Display name',email:'Email',language:'Language',avatar:'Avatar',pwebhook:'Personal Discord webhook',change_pw:'Change password',cur_pw:'Current password',new_pw:'New password',choose_img:'Choose image',saved_ok:'saved ✓'
 }};
 let LANG=localStorage.getItem('lang')||'de';
 function t(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.de[k]||k;}
@@ -829,9 +840,44 @@ function toggleFilter(){let f=document.getElementById('filter');f.style.display=
 // --- Benutzerverwaltung ---
 async function loadAuth(){let d=await(await fetch('/api/auth/status')).json();
  window.ROLE=d.role;window.VERSION=d.version||'';
- if(!localStorage.getItem('lang')&&d.default_lang){LANG=d.default_lang;setLang(LANG);}
- document.getElementById('who').textContent=d.user?('👋 '+d.user):'';
+ let lang=d.user_lang||localStorage.getItem('lang')||d.default_lang||'de';
+ if(lang!=LANG){LANG=lang;localStorage.setItem('lang',lang);setLang(lang);}
+ let who=document.getElementById('who');
+ if(d.user){let nm=(d.display_name||d.user);
+   who.innerHTML=(d.avatar?`<img src="${d.avatar}">`:'👋 ')+nm.replace(/</g,'&lt;');}
+ else who.textContent='';
  if(d.role=='admin')document.getElementById('nSet').style.display='';}
+// --- Benutzerprofil (#23) ---
+let PAV='';
+async function openProfile(){let m=document.getElementById('modal');m.style.display='block';PAV='';
+ let p=await(await fetch('/api/profile')).json();
+ let inp='style="flex:1;min-width:120px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px"';
+ m.innerHTML=`<div class=box><button class=x onclick="closeModal()">×</button>
+  <div class=sec><h3>${t('profile')} — ${(p.username||'').replace(/</g,'&lt;')}</h3>
+   <div class=row><div id=pav style="width:66px;flex:0 0 66px;height:66px;border-radius:50%;background:#0b0d10 center/cover no-repeat;border:1px solid #2c323b;${p.avatar?`background-image:url('${p.avatar}')`:''}"></div>
+    <label style="flex:1;font-size:12px;color:#8b929e">${t('avatar')}<br><input type=file accept="image/*" onchange="pickAvatar(event)"></label></div>
+   <div class=row><input id=pdn ${inp} placeholder="${t('display_name')}" value="${(p.display_name||'').replace(/"/g,'&quot;')}"></div>
+   <div class=row><input id=pmail ${inp} placeholder="${t('email')}" value="${(p.email||'').replace(/"/g,'&quot;')}"></div>
+   <div class=row><label style="color:#8b929e;font-size:13px">${t('language')}</label><select id=plang ${inp}><option value="">—</option><option value=de ${p.lang=='de'?'selected':''}>Deutsch</option><option value=en ${p.lang=='en'?'selected':''}>English</option></select></div>
+   <div class=row><input id=pwh ${inp} placeholder="${t('pwebhook')}" value="${(p.webhook||'').replace(/"/g,'&quot;')}"><button onclick="testPWebhook()">${t('test')}</button></div>
+   <div class=row><button onclick="saveProfile()">${t('save')}</button><span id=pmsg class=meta></span></div></div>
+  <div class=sec><h3>${t('change_pw')}</h3>
+   <div class=row><input id=pold type=password ${inp} placeholder="${t('cur_pw')}"><input id=pnew type=password ${inp} placeholder="${t('new_pw')}"></div>
+   <div class=row><button onclick="changePw()">${t('change_pw')}</button><span id=pwmsg class=meta></span></div></div></div>`;}
+function pickAvatar(e){let f=e.target.files[0];if(!f)return;
+ if(f.size>280000){document.getElementById('pmsg').textContent='max ~280 KB';return;}
+ let r=new FileReader();r.onload=()=>{PAV=r.result;document.getElementById('pav').style.backgroundImage="url('"+PAV+"')";};r.readAsDataURL(f);}
+async function saveProfile(){let d={display_name:document.getElementById('pdn').value,email:document.getElementById('pmail').value,lang:document.getElementById('plang').value,webhook:document.getElementById('pwh').value};
+ if(PAV)d.avatar=PAV;
+ let r=await(await fetch('/api/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
+ document.getElementById('pmsg').textContent=r.ok?t('saved_ok'):(r.msg||t('st_error'));
+ if(r.ok){PAV='';loadAuth();if(d.lang){LANG=d.lang;localStorage.setItem('lang',d.lang);setLang(d.lang);}}}
+async function changePw(){let d={old:document.getElementById('pold').value,new:document.getElementById('pnew').value};
+ let r=await(await fetch('/api/profile/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
+ document.getElementById('pwmsg').textContent=r.ok?t('saved_ok'):(r.msg||t('st_error'));}
+async function testPWebhook(){let wh=document.getElementById('pwh').value.trim();if(!wh)return;
+ let r=await(await fetch('/api/profile/notify-test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:wh})})).json();
+ document.getElementById('pmsg').textContent=r.ok?t('test_sent'):(r.msg||t('st_error'));}
 // --- Admin-Bereich / Einstellungen (Seite mit Unterbereichen) ---
 let SETSEC='general';
 function openSettingsView(){
@@ -1034,11 +1080,57 @@ def login_page(): return Response(LOGIN_PAGE, mimetype="text/html")
 @app.route("/api/auth/status")
 def auth_status():
     g = load_settings().get("general", {})
+    usr = load_users().get(session.get("user"), {}) if session.get("user") else {}
     return jsonify({"user":session.get("user"), "role":session.get("role"),
                     "setup": len(load_users())==0,
                     "default_lang": g.get("default_lang","de"),
                     "app_name": g.get("app_name","Romseerr"),
-                    "version": VERSION})
+                    "version": VERSION,
+                    "avatar": usr.get("avatar",""),
+                    "display_name": usr.get("display_name",""),
+                    "user_lang": usr.get("lang","")})
+
+@app.route("/api/profile", methods=["GET"])
+def api_profile_get():
+    u = session.get("user"); usr = load_users().get(u, {})
+    return jsonify({"username":u, "email":usr.get("email",""), "lang":usr.get("lang",""),
+                    "display_name":usr.get("display_name",""), "avatar":usr.get("avatar",""),
+                    "webhook":usr.get("webhook","")})
+
+@app.route("/api/profile", methods=["POST"])
+def api_profile_set():
+    u = session.get("user"); users = load_users()
+    if u not in users: return jsonify({"ok":False}), 404
+    d = request.get_json(force=True)
+    if "email" in d: users[u]["email"] = (d.get("email") or "").strip()[:120]
+    if "display_name" in d: users[u]["display_name"] = (d.get("display_name") or "").strip()[:60]
+    if "webhook" in d: users[u]["webhook"] = (d.get("webhook") or "").strip()[:300]
+    if "lang" in d: users[u]["lang"] = "en" if d.get("lang")=="en" else ("de" if d.get("lang")=="de" else "")
+    if "avatar" in d:
+        av = d.get("avatar") or ""
+        if len(av) > 300000: return jsonify({"ok":False,"msg":"Bild zu groß (max ~300 KB)"}), 400
+        users[u]["avatar"] = av
+    save_users(users); return jsonify({"ok":True})
+
+@app.route("/api/profile/password", methods=["POST"])
+def api_profile_pw():
+    u = session.get("user"); users = load_users()
+    d = request.get_json(force=True); old = d.get("old","") or ""; new = d.get("new","") or ""
+    if u not in users or not check_password_hash(users[u]["pw"], old):
+        return jsonify({"ok":False,"msg":"altes Passwort falsch / wrong current password"}), 400
+    if len(new) < 6: return jsonify({"ok":False,"msg":"min. 6 Zeichen"}), 400
+    users[u]["pw"] = generate_password_hash(new); save_users(users)
+    return jsonify({"ok":True})
+
+@app.route("/api/profile/notify-test", methods=["POST"])
+def api_profile_notify_test():
+    wh = ((request.get_json(silent=True) or {}).get("url") or "").strip()
+    if not wh: return jsonify({"ok":False,"msg":"keine URL"}), 400
+    try:
+        requests.post(wh, json={"content":"✅ Romseerr — persönlicher Test / personal test"}, timeout=8)
+        return jsonify({"ok":True})
+    except Exception as e:
+        return jsonify({"ok":False,"msg":str(e)[:100]}), 400
 
 @app.route("/api/setup", methods=["POST"])
 def api_setup():
