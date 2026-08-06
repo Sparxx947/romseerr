@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # rom-suche — Seerr-artige ROM-Suche & Auto-Download (Archive.org + Usenet/SAB), Dedup gegen Bibliothek.
-import os, re, json, time, threading, queue, subprocess, urllib.parse, html, secrets
+import os, re, json, time, threading, queue, subprocess, urllib.parse, html, secrets, smtplib
 from datetime import datetime
 from functools import wraps
+from email.message import EmailMessage
 import requests
 from flask import Flask, request, jsonify, Response, session, redirect
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -569,6 +570,29 @@ def save_settings(s):
 def may_autoapprove(username):
     usr = load_users().get(username, {})
     return usr.get("role") == "admin" or bool(usr.get("autoapprove"))
+
+def send_mail(to, subject, body):
+    s = load_settings().get("smtp", {})
+    if not (s.get("enabled") and s.get("host") and to): return False
+    try:
+        msg = EmailMessage()
+        msg["From"] = s.get("from") or s.get("user") or "romseerr@localhost"
+        msg["To"] = to; msg["Subject"] = subject; msg.set_content(body)
+        port = int(s.get("port") or 587); mode = s.get("tls", "starttls")
+        srv = smtplib.SMTP_SSL(s["host"], port, timeout=15) if (mode == "ssl" or port == 465) \
+              else smtplib.SMTP(s["host"], port, timeout=15)
+        if not (mode == "ssl" or port == 465) and mode != "none": srv.starttls()
+        if s.get("user"): srv.login(s["user"], s.get("pass", ""))
+        srv.send_message(msg); srv.quit(); return True
+    except Exception as e:
+        log(f"Mail-Fehler: {e}"); return False
+
+RESET_TOKENS = {}
+def gen_reset(user):
+    tok = secrets.token_urlsafe(24); RESET_TOKENS[tok] = {"user": user, "exp": time.time()+3600}; return tok
+def check_reset(tok):
+    d = RESET_TOKENS.get(tok)
+    return d["user"] if d and d["exp"] > time.time() else None
 def app_secret():
     try: return open(SECRET_FILE).read().strip()
     except Exception:
@@ -898,11 +922,25 @@ async function secGeneral(c){let g=(await(await fetch('/api/settings')).json()).
 async function saveGeneral(){let d={general:{app_name:document.getElementById('gname').value.trim(),default_lang:document.getElementById('glang').value}};
  let r=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
  document.getElementById('gmsg').textContent=r.ok?t('saved'):t('st_error');}
-async function secNotif(c){let dc=(await(await fetch('/api/settings')).json()).discord||{};
+async function secNotif(c){let s=await(await fetch('/api/settings')).json();let dc=s.discord||{};let sm=s.smtp||{};
  c.innerHTML=`<h3>${t('notif_discord')}</h3>
   <div class=frow><label style="min-width:auto"><input type=checkbox id=dcen ${dc.enabled?'checked':''}> ${t('active')}</label><span></span></div>
   <div class=frow><input id=dcurl placeholder="${t('webhook_ph')}" value="${(dc.url||'').replace(/"/g,'&quot;')}"><button onclick="testNotify()">${t('test')}</button></div>
-  <button onclick="saveSettings()">${t('save')}</button> <span id=serr class=meta></span>`;}
+  <div class=frow><button onclick="saveSettings()">${t('save')}</button><span id=serr class=meta></span></div>
+  <h3 style="margin-top:20px">E-Mail (SMTP)</h3>
+  <div class=frow><label style="min-width:auto"><input type=checkbox id=smen ${sm.enabled?'checked':''}> ${t('active')}</label><span></span></div>
+  <div class=frow><input id=smhost placeholder="Host" value="${(sm.host||'').replace(/"/g,'&quot;')}"><input id=smport placeholder="Port" style="flex:0 0 80px" value="${sm.port||'587'}"></div>
+  <div class=frow><input id=smuser placeholder="User" value="${(sm.user||'').replace(/"/g,'&quot;')}"><input id=smpass type=password placeholder="${sm.has_pass?'•••• gesetzt':'Passwort'}"></div>
+  <div class=frow><input id=smfrom placeholder="Absender / From" value="${(sm.from||'').replace(/"/g,'&quot;')}"><select id=smtls style="flex:0 0 120px"><option value=starttls ${sm.tls=='starttls'?'selected':''}>STARTTLS</option><option value=ssl ${sm.tls=='ssl'?'selected':''}>SSL</option><option value=none ${sm.tls=='none'?'selected':''}>none</option></select></div>
+  <div class=frow><input id=smto placeholder="Test an / to"><button onclick="mailTest()">${t('test')}</button></div>
+  <div class=frow><button onclick="saveSmtp()">${t('save')}</button><span id=smmsg class=meta></span></div>`;}
+async function saveSmtp(){let d={smtp:{enabled:document.getElementById('smen').checked,host:document.getElementById('smhost').value,port:document.getElementById('smport').value,user:document.getElementById('smuser').value,from:document.getElementById('smfrom').value,tls:document.getElementById('smtls').value}};
+ let pw=document.getElementById('smpass').value;if(pw)d.smtp.pass=pw;
+ let r=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
+ document.getElementById('smmsg').textContent=r.ok?t('saved_ok'):t('st_error');return r.ok;}
+async function mailTest(){let to=document.getElementById('smto').value.trim();if(!to)return;await saveSmtp();
+ let r=await(await fetch('/api/settings/mail-test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:to})})).json();
+ document.getElementById('smmsg').textContent=r.ok?t('test_sent'):(r.msg||t('st_error'));}
 async function secUsers(c){let list=await(await fetch('/api/users')).json();
  c.innerHTML=`<h3>${t('users')}</h3><div id=ulist></div>
   <h3 style="margin-top:18px">${t('new_user')}</h3>
@@ -979,17 +1017,46 @@ button{width:100%;padding:12px;margin-top:10px;border:none;border-radius:10px;ba
 <input id=u placeholder=Benutzername autofocus autocomplete=username>
 <input id=p type=password placeholder=Passwort autocomplete=current-password>
 <button id=btn>Anmelden</button><div class=err id=err></div>
+<div style="text-align:center;margin-top:10px"><a href="#" id=fgt onclick="forgot();return false" style="color:#8b929e;font-size:12px">Passwort vergessen? / Forgot password?</a></div>
 </form>
 <script>
 let setup=false;
 fetch('/api/auth/status').then(r=>r.json()).then(d=>{if(d.user){location.href='/';return;}
  setup=d.setup;if(setup){document.getElementById('sub').textContent='Ersteinrichtung — Administrator anlegen';
- document.getElementById('btn').textContent='Administrator anlegen';}});
+ document.getElementById('btn').textContent='Administrator anlegen';document.getElementById('fgt').style.display='none';}});
+async function forgot(){let q=prompt('Benutzername oder E-Mail / username or email:');if(!q)return;
+ await fetch('/api/forgot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:q})});
+ let e=document.getElementById('err');e.style.color='#8b929e';
+ e.textContent='Falls die Adresse existiert, wurde eine Mail gesendet. / If the address exists, an email was sent.';}
 async function go(e){e.preventDefault();
  let u=document.getElementById('u').value.trim(),p=document.getElementById('p').value;
  let r=await fetch(setup?'/api/setup':'/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({username:u,password:p})});
  let d=await r.json();if(d.ok)location.href='/';else document.getElementById('err').textContent=d.msg||'Fehler';}
+</script></body></html>"""
+
+RESET_PAGE = """<!doctype html><html lang=de><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1"><title>Romseerr — Reset</title>
+<style>
+:root{--acc:#6c5ce7}*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;background:radial-gradient(1100px 550px at 50% -10%,#2a2350,#0b0d10);color:#e6e8ec}
+.card{background:#171a21;border:1px solid #262b33;border-radius:16px;padding:30px;width:340px;box-shadow:0 20px 60px #0008}
+h1{margin:0 0 2px;font-size:28px;text-align:center;background:linear-gradient(90deg,#8a7bff,#6c5ce7);-webkit-background-clip:text;background-clip:text;color:transparent}
+p.sub{margin:0 0 18px;text-align:center;color:#8b929e;font-size:13px}
+input{width:100%;padding:11px 13px;margin:6px 0;border-radius:10px;border:1px solid #2c323b;background:#0b0d10;color:#e6e8ec;font-size:15px}
+button{width:100%;padding:12px;margin-top:10px;border:none;border-radius:10px;background:var(--acc);color:#fff;font-weight:600;font-size:15px;cursor:pointer}
+.err{color:#ff6b6b;font-size:13px;min-height:18px;text-align:center;margin-top:8px}
+</style></head><body>
+<form class=card onsubmit="go(event)">
+<h1>🎮 Romseerr</h1><p class=sub>Neues Passwort setzen / Set new password</p>
+<input id=p type=password placeholder="Neues Passwort / New password" autofocus>
+<button>Speichern / Save</button><div class=err id=err></div>
+</form>
+<script>
+let tok=new URLSearchParams(location.search).get('token')||'';
+async function go(e){e.preventDefault();
+ let r=await fetch('/api/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:tok,new:document.getElementById('p').value})});
+ let d=await r.json();if(d.ok)location.href='/login';else document.getElementById('err').textContent=d.msg||'Fehler';}
 </script></body></html>"""
 
 @app.route("/")
@@ -1063,7 +1130,7 @@ def api_jobs():
 def health(): return jsonify({"ok":True,"lib_titles":len(LIB['all']),"jobs":len(JOBS)})
 
 # ---------- Auth-Routen ----------
-PUBLIC = {"/login","/api/login","/api/setup","/api/auth/status","/health"}
+PUBLIC = {"/login","/api/login","/api/setup","/api/auth/status","/health","/reset","/api/forgot","/api/reset"}
 @app.before_request
 def _guard():
     p = request.path
@@ -1132,6 +1199,40 @@ def api_profile_notify_test():
     except Exception as e:
         return jsonify({"ok":False,"msg":str(e)[:100]}), 400
 
+@app.route("/api/forgot", methods=["POST"])
+def api_forgot():
+    q = ((request.get_json(silent=True) or {}).get("user") or "").strip().lower()
+    users = load_users(); match = None
+    for un, uv in users.items():
+        if un.lower() == q or (q and uv.get("email","").lower() == q): match = un; break
+    if match and users[match].get("email") and load_settings().get("smtp", {}).get("enabled"):
+        tok = gen_reset(match); base = request.host_url.rstrip("/")
+        send_mail(users[match]["email"], "Romseerr — Passwort zurücksetzen / password reset",
+                  f"Link (1 Stunde gültig / valid 1 hour):\n{base}/reset?token={tok}")
+    return jsonify({"ok": True})   # generisch, verrät keine Existenz
+
+@app.route("/reset")
+def reset_page(): return Response(RESET_PAGE, mimetype="text/html")
+
+@app.route("/api/reset", methods=["POST"])
+def api_reset():
+    d = request.get_json(force=True); u = check_reset(d.get("token","")); new = d.get("new","") or ""
+    if not u: return jsonify({"ok":False,"msg":"Token ungültig/abgelaufen / invalid or expired"}), 400
+    if len(new) < 6: return jsonify({"ok":False,"msg":"min. 6 Zeichen"}), 400
+    users = load_users()
+    if u not in users: return jsonify({"ok":False}), 400
+    users[u]["pw"] = generate_password_hash(new); save_users(users)
+    RESET_TOKENS.pop(d.get("token",""), None)
+    return jsonify({"ok": True})
+
+@app.route("/api/settings/mail-test", methods=["POST"])
+@admin_required
+def api_mail_test():
+    to = ((request.get_json(silent=True) or {}).get("to") or "").strip()
+    if not to: return jsonify({"ok":False,"msg":"keine Adresse"}), 400
+    ok = send_mail(to, "Romseerr — Test", "SMTP-Test erfolgreich / SMTP test successful.")
+    return jsonify({"ok": ok, "msg": "" if ok else "Versand fehlgeschlagen (Log prüfen)"})
+
 @app.route("/api/setup", methods=["POST"])
 def api_setup():
     if load_users(): return jsonify({"ok":False,"msg":"bereits eingerichtet"}), 400
@@ -1190,9 +1291,13 @@ def api_users_patch(u):
 @app.route("/api/settings", methods=["GET"])
 @admin_required
 def api_settings_get():
-    s = load_settings()
+    s = load_settings(); sm = s.get("smtp", {})
     return jsonify({"discord": s.get("discord", {"enabled": False, "url": ""}),
-                    "general": s.get("general", {"app_name": "Romseerr", "default_lang": "de"})})
+                    "general": s.get("general", {"app_name": "Romseerr", "default_lang": "de"}),
+                    "smtp": {"enabled": bool(sm.get("enabled")), "host": sm.get("host",""),
+                             "port": sm.get("port","587"), "user": sm.get("user",""),
+                             "from": sm.get("from",""), "tls": sm.get("tls","starttls"),
+                             "has_pass": bool(sm.get("pass"))}})
 
 @app.route("/api/settings", methods=["POST"])
 @admin_required
@@ -1204,6 +1309,12 @@ def api_settings_set():
         g = d["general"]
         s["general"] = {"app_name": (g.get("app_name") or "Romseerr")[:40],
                         "default_lang": "en" if g.get("default_lang") == "en" else "de"}
+    if "smtp" in d:
+        m = d["smtp"]; cur = s.get("smtp", {})
+        s["smtp"] = {"enabled": bool(m.get("enabled")), "host": (m.get("host") or "").strip(),
+                     "port": str(m.get("port") or "587"), "user": (m.get("user") or "").strip(),
+                     "from": (m.get("from") or "").strip(), "tls": m.get("tls") or "starttls",
+                     "pass": m.get("pass") if m.get("pass") else cur.get("pass", "")}
     save_settings(s); return jsonify({"ok": True})
 
 @app.route("/api/services/status")

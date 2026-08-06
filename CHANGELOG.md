@@ -7,6 +7,13 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Passwort-Reset per E-Mail** — SMTP-Konfiguration in den Einstellungen (Host/Port/User/
+  Passwort/Absender/TLS + Testmail); „Passwort vergessen?" auf der Login-Seite → zeitlich
+  begrenzter Reset-Link (1 h) per Mail; Reset-Seite `/reset`. Endpunkte `/api/forgot`,
+  `/api/reset`, `/api/settings/mail-test`. /
+  **Password reset via email** — SMTP config in settings (host/port/user/pass/from/TLS +
+  test mail); "Forgot password?" on the login page → time-limited reset link (1h) by mail;
+  reset page `/reset`.
 - **Benutzerprofil** — je Nutzer: Anzeigename, E-Mail, **Avatar-Bild** (Upload → Data-URI),
   Sprache, eigenes Passwort ändern, **persönlicher Discord-Webhook** (bei Verfügbarkeit
   werden allgemeiner **und** persönlicher Webhook benachrichtigt); Avatar in der Sidebar.
