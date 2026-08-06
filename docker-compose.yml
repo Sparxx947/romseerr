@@ -1,21 +1,119 @@
+# Vollständiger Referenz-Stack für Romseerr.
+#
+# Romseerr ist die Such-/Anfrage-Oberfläche; die eigentliche Arbeit erledigen
+# SABnzbd (Usenet), Prowlarr (Indexer-Suche), JDownloader (Filehoster) und RomM
+# (Bibliothek/Browser). Dieser Compose bringt den KOMPLETTEN Stack hoch.
+#
+# Wer SABnzbd/Prowlarr/JDownloader/RomM bereits betreibt, braucht nur den Dienst
+# "romseerr" und zeigt dessen .env auf die vorhandenen Hosts (siehe README).
+#
+# Vor dem ersten Start: `cp .env.example .env` und Werte setzen. API-Keys von
+# SABnzbd/Prowlarr entstehen erst beim ersten Start dieser Dienste — danach in
+# die .env eintragen und `docker compose up -d` erneut ausführen (siehe README).
+name: romseerr
+
 services:
-  rom-suche:
+  # ---- Romseerr (diese App) ----
+  romseerr:
     build: .
-    image: rom-suche:local
-    container_name: rom-suche
+    image: romseerr:local
+    container_name: romseerr
     restart: unless-stopped
-    ports:
-      - "${PORT:-8770}:8770"
-    env_file:
-      - .env
+    ports: ["${PORT:-8770}:8770"]
+    env_file: [.env]
     volumes:
-      # RomM-/RetroNAS-Bibliothek (Ziel der Einsortierung, Dedup-Quelle)
-      - ${ROMS_LIB:?bitte in .env setzen}:/roms
-      # SAB-Complete-Ordner der ROM-Kategorie (Usenet-Downloads abholen)
-      - ${SAB_COMPLETE:?bitte in .env setzen}:/sab-complete
-      # JDownloader FolderWatch (Filehoster-Links als .crawljob)
-      - ${JD_WATCH:-./data/jd-watch}:/jd-watch
-      # JDownloader-Ausgabe (fertige Filehoster-Downloads abholen)
+      - ${ROMS_LIB:?bitte in .env setzen}:/roms          # RomM/RetroNAS-Bibliothek (Ziel + Dedup)
+      - ${SAB_COMPLETE:-./data/usenet/complete/roms}:/sab-complete
+      - ${JD_WATCH:-./data/jdownloader/folderwatch}:/jd-watch
       - ${JD_OUTPUT:-./data/jd-output}:/jd-output
-      # persistente App-Daten (Jobs, Staging, Log)
-      - ./config:/config
+      - ./config:/config                                  # Jobs, Nutzer, Log, (künftig) SQLite
+    depends_on: [sabnzbd, prowlarr, romm]
+    networks: [romseerr]
+
+  # ---- Usenet-Downloader ----
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:latest
+    container_name: sabnzbd
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+    volumes:
+      - ./data/sabnzbd:/config
+      - ${SAB_COMPLETE:-./data/usenet/complete}:/complete
+      - ./data/usenet/incomplete:/incomplete
+    ports: ["8080:8080"]
+    networks: [romseerr]
+
+  # ---- Indexer-Suche (Usenet/Torrent) ----
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+    volumes:
+      - ./data/prowlarr:/config
+    ports: ["9696:9696"]
+    networks: [romseerr]
+
+  # ---- Cloudflare-Löser für Prowlarr (optional, für manche Indexer) ----
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    restart: unless-stopped
+    networks: [romseerr]
+
+  # ---- Filehoster-Downloader (Archive.org-Massen, 1fichier & Co.) ----
+  jdownloader:
+    image: jlesage/jdownloader-2:latest
+    container_name: jdownloader
+    restart: unless-stopped
+    ports: ["5800:5800"]                                   # Web-Oberfläche
+    volumes:
+      - ./data/jdownloader:/config                         # enthält u.a. folderwatch/
+      - ${JD_OUTPUT:-./data/jd-output}:/output
+    networks: [romseerr]
+
+  # ---- ROM-Bibliothek / Browser-Player ----
+  romm:
+    image: rommapp/romm:latest
+    container_name: romm
+    restart: unless-stopped
+    environment:
+      - DB_HOST=romm-db
+      - DB_NAME=romm
+      - DB_USER=romm
+      - DB_PASSWD=${ROMM_DB_PASSWORD:?bitte in .env setzen}
+      - ROMM_AUTH_SECRET_KEY=${ROMM_AUTH_SECRET_KEY:?bitte in .env setzen}
+      - IGDB_CLIENT_ID=${IGDB_CLIENT_ID:-}
+      - IGDB_CLIENT_SECRET=${IGDB_CLIENT_SECRET:-}
+      - ENABLE_RESCAN_ON_FILESYSTEM_CHANGE=true            # Importe automatisch erkennen
+      - RESCAN_ON_FILESYSTEM_CHANGE_DELAY=5
+    volumes:
+      - ${ROMS_LIB:?}:/romm/library                        # dieselbe Bibliothek wie Romseerr
+      - ./data/romm/resources:/romm/resources
+      - ./data/romm/config:/romm/config
+    ports: ["8998:8080"]
+    depends_on: [romm-db]
+    networks: [romseerr]
+
+  romm-db:
+    image: mariadb:11.4
+    container_name: romm-db
+    restart: unless-stopped
+    environment:
+      - MARIADB_DATABASE=romm
+      - MARIADB_USER=romm
+      - MARIADB_PASSWORD=${ROMM_DB_PASSWORD:?bitte in .env setzen}
+      - MARIADB_ROOT_PASSWORD=${ROMM_DB_ROOT_PASSWORD:?bitte in .env setzen}
+    volumes:
+      - ./data/romm-db:/var/lib/mysql
+    networks: [romseerr]
+
+networks:
+  romseerr:
+    driver: bridge

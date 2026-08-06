@@ -6,7 +6,28 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Geändert
+- **Rebrand zu „Romseerr"** (vormals rom-suche).
+- **Seerr-Layout:** feste Sidebar (Entdecken / Anfragen / Benutzer / Abmelden) statt Tab-Leiste.
+
 ### Hinzugefügt
+- **Einstellungen → Benachrichtigungen:** Discord-Webhook in der Oberfläche konfigurierbar
+  (aktiv/URL) mit Test-Knopf; `notify_send` nutzt Einstellungen, fällt auf `DISCORD_WEBHOOK` zurück.
+- **Berechtigungen & Freigabe-Workflow:** je Benutzer „Auto-Freigabe"; Anfragen von
+  Nutzern ohne Auto-Freigabe landen als **pending** und müssen vom Admin freigegeben
+  (oder abgelehnt) werden. Endpunkte `/api/settings`, `/api/users/<u>` (PATCH),
+  `/api/jobs/<id>/approve|deny`.
+- **Usenet-Cover:** werden lazy über IGDB nachgeladen (`/api/cover`), Release-Titel
+  vorher auf den Spielnamen bereinigt.
+- **Benutzerverwaltung / Login:** Session-Auth, Ersteinrichtung (Admin anlegen),
+  Rollen (admin/user), Admin kann Benutzer anlegen/löschen. Alle Routen geschützt.
+  Endpunkte `/api/auth/status`, `/api/login`, `/api/setup`, `/api/logout`, `/api/users`.
+- **Startseite mit Konsolen-Reihen:** beliebte Spiele je wichtiger Konsole (IGDB-Popularität),
+  sortiert nach Bedeutung; Klick auf ein Poster sucht den Titel plattform-scoped. `GET /api/discover/rows`.
+- **Detail-Ansicht** (Modal): Cover, IGDB-Beschreibung, Metadaten, Archive.org-Dateiliste,
+  Versionen/Quellen desselben Titels (`gkey`-Gruppierung). `GET /api/detail`.
+- **Anfragen-Status** im Seerr-Stil (Angefragt → Lädt → Wird verarbeitet → Verfügbar).
+- **Benachrichtigung bei Verfügbarkeit** via Discord-Webhook (`DISCORD_WEBHOOK`, optional).
 - Plattform-Vorauswahl in der Suche (Chips, Mehrfachauswahl, `localStorage`).
   Usenet wird breit über *Console* abgefragt und nach Plattform nachgefiltert;
   reine Retro-Auswahl überspringt Usenet. Neuer Endpunkt `GET /api/platforms`.
