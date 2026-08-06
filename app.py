@@ -46,6 +46,24 @@ def log(msg):
 # Prowlarr-Usenet-Kategorie-ID -> Slug
 USENET_CAT = {101010:"nds",101020:"psp",101030:"wii",101035:"switch",101040:"xbox",101050:"xbox360",
               101060:"wii",101080:"ps3",101090:"xboxone",101100:"ps4",101110:"switch",104050:"pc"}
+# Slug -> Usenet-Kategorie-IDs (Umkehrung; nur moderne Konsolen liegen auf Usenet)
+SLUG2USE = {}
+for _cid, _slug in USENET_CAT.items(): SLUG2USE.setdefault(_slug, []).append(_cid)
+
+# Für die Plattform-Vorauswahl in der Oberfläche (Gruppe -> [(slug, Anzeigename)])
+PLATFORMS = [
+ ("Nintendo", [("nes","NES"),("snes","SNES"),("n64","N64"),("gb","Game Boy"),("gbc","GB Color"),
+   ("gba","GB Advance"),("nds","DS"),("3ds","3DS"),("ngc","GameCube"),("wii","Wii"),
+   ("wiiu","Wii U"),("switch","Switch"),("virtualboy","Virtual Boy")]),
+ ("Sega", [("sms","Master System"),("genesis","Mega Drive"),("segacd","Mega-CD"),
+   ("sega32x","32X"),("gamegear","Game Gear"),("saturn","Saturn"),("dreamcast","Dreamcast")]),
+ ("Sony", [("psx","PS1"),("ps2","PS2"),("ps3","PS3"),("ps4","PS4"),("psp","PSP"),("psvita","Vita")]),
+ ("Microsoft", [("xbox","Xbox"),("xbox360","Xbox 360"),("xboxone","Xbox One")]),
+ ("Sonstige", [("turbografx16","PC Engine"),("neogeo","Neo Geo"),("neogeopocket","NGP"),
+   ("wonderswan","WonderSwan"),("atari2600","Atari 2600"),("atari7800","Atari 7800"),
+   ("lynx","Lynx"),("jaguar","Jaguar"),("3do","3DO"),("amiga","Amiga"),("c64","C64"),
+   ("dos","DOS"),("arcade","Arcade")]),
+]
 # Schlüsselwort -> bevorzugter Slug (für Archive.org-Titel/Sammlung und Fallback)
 KW = [
  (r"super\s*nintendo|snes|super\s*famicom", "snes"),
@@ -213,12 +231,12 @@ def search_archive(q, limit=30):
         log(f"Archive-Suche-Fehler: {e}")
     return out
 
-def search_usenet(q, limit=30):
+def search_usenet(q, cats, limit=30):
     out = []
-    if not (PROW_URL and PROW_KEY): return out
+    if not (PROW_URL and PROW_KEY and cats): return out
     try:
         u = f"{PROW_URL}/api/v1/search"
-        r = requests.get(u, params={"query":q,"categories":PROW_CATS,"type":"search","limit":limit},
+        r = requests.get(u, params={"query":q,"categories":cats,"type":"search","limit":limit},
                          headers={"X-Api-Key":PROW_KEY}, timeout=25)
         for it in r.json():
             if it.get("protocol") != "usenet": continue
@@ -240,10 +258,22 @@ def is_set(title, size):
     if SET_RE.search(title or ""): return True
     return (size or 0) > 4*1024**3      # >4 GB -> vermutlich Sammlung
 
-def do_search(q):
+def do_search(q, platforms=None):
+    platforms = [p for p in (platforms or []) if p]
+    # Usenet breit über Console (1000) abfragen und danach nach Plattform filtern —
+    # Indexer taggen vieles nur unter der Oberkategorie. Retro-only-Auswahl -> Usenet aus.
+    if platforms:
+        usenet_cats = PROW_CATS if any(SLUG2USE.get(p) for p in platforms) else ""
+    else:
+        usenet_cats = PROW_CATS
     res = []
-    ar = search_archive(q); us = search_usenet(q)
+    ar = search_archive(q); us = search_usenet(q, usenet_cats)
     for idx, r in enumerate(ar+us):
+        if platforms:
+            # bekannte Fremd-Plattform raus (beide Quellen)
+            if r["platform"] and r["platform"] not in platforms: continue
+            # Usenet ohne erkannte Plattform raus (Titel tragen sonst keine Zuordnung)
+            if r["source"]=="usenet" and not r["platform"]: continue
         r["platform_slug"] = resolve_slug(r["platform"])
         r["in_library"] = in_library(r["title"], r["platform"])
         r["is_set"] = is_set(r["title"], r["size"])
@@ -467,11 +497,20 @@ button.tab.on{color:var(--txt);border-bottom:2px solid var(--acc)}
 .st{font-size:12px;padding:2px 8px;border-radius:6px;background:#2a2f37}
 .st.done{background:#1e5e3a}.st.error{background:#6e2a2a}.st.downloading,.st.importing{background:#5a4a1e}
 .hint{color:var(--mut);padding:0 18px 18px;font-size:12px}
+#filter{display:none;padding:12px 18px;background:#0f1114;border-bottom:1px solid #262b33}
+#filter .grp{margin-bottom:6px}
+#filter .gl{font-size:11px;color:var(--mut);margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em}
+.chip{display:inline-block;margin:3px;padding:5px 10px;border-radius:16px;border:1px solid #2c323b;background:#1e2229;color:var(--txt);font-size:12px;cursor:pointer;user-select:none}
+.chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+#filter .fbtns{margin-top:8px}
+#filter .fbtns button{background:#2a2f37;border:none;color:var(--txt);padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;margin-right:6px}
 </style></head><body>
 <header><h1>🎮 rom-suche</h1>
 <input id=q placeholder="Spiel suchen … (Enter)" autofocus>
+<button class="tab" id=tF onclick="toggleFilter()">🎛 Plattformen: Alle ▾</button>
 <button class="tab on" id=tS onclick="show('s')">Suche</button>
 <button class="tab" id=tJ onclick="show('j')">Downloads</button></header>
+<div id=filter></div>
 <div id=grid></div><div class=hint id=hint>Tippe einen Titel und drücke Enter.</div>
 <div id=jobs></div>
 <script>
@@ -484,7 +523,7 @@ function show(v){cur=v;document.getElementById('grid').style.display=v=='s'?'gri
 function sz(b){if(!b)return'';let u=['B','KB','MB','GB','TB'],i=0;while(b>=1024&&i<4){b/=1024;i++}return b.toFixed(1)+' '+u[i];}
 async function search(){let q=document.getElementById('q').value.trim();if(!q)return;
  document.getElementById('hint').textContent='Suche läuft …';
- let r=await fetch('/api/search?q='+encodeURIComponent(q));let d=await r.json();
+ let r=await fetch('/api/search?q='+encodeURIComponent(q)+'&platforms='+[...SELP].join(','));let d=await r.json();
  let g=document.getElementById('grid');g.innerHTML='';
  if(!d.length){document.getElementById('hint').textContent='Keine Treffer.';return;}
  document.getElementById('hint').textContent=d.length+' Treffer';
@@ -506,6 +545,23 @@ async function loadJobs(){let r=await fetch('/api/jobs');let d=await r.json();le
  d.forEach(o=>{let e=document.createElement('div');e.className='job';
   e.innerHTML=`<div><div>${o.title.replace(/</g,'&lt;')}</div><div class=meta style="color:#8b929e;font-size:11px">${o.platform} · ${o.source} · ${o.msg||''}</div></div>
    <span class="st ${o.state}">${o.state}</span>`;j.appendChild(e);});}
+// --- Plattform-Vorauswahl ---
+let SELP=new Set(JSON.parse(localStorage.getItem('romp')||'[]'));
+async function loadPlatforms(){
+ let r=await fetch('/api/platforms');let d=await r.json();
+ document.getElementById('filter').innerHTML=d.map(g=>`<div class=grp><div class=gl>${g.group}</div>`+
+   g.items.map(it=>`<span class="chip${SELP.has(it.slug)?' on':''}" data-s="${it.slug}" onclick="toggleChip('${it.slug}')" title="${it.usenet?'auch über Usenet':'nur Archive.org'}">${it.name}${it.usenet?' 📡':''}</span>`).join('')+
+   `</div>`).join('')+`<div class=fbtns><button onclick="clearP()">Alle zurücksetzen</button></div>`;
+ updateFLabel();}
+function toggleChip(s){SELP.has(s)?SELP.delete(s):SELP.add(s);
+ localStorage.setItem('romp',JSON.stringify([...SELP]));
+ document.querySelectorAll('.chip[data-s="'+s+'"]').forEach(e=>e.classList.toggle('on',SELP.has(s)));
+ updateFLabel();}
+function clearP(){SELP.clear();localStorage.setItem('romp','[]');
+ document.querySelectorAll('.chip').forEach(e=>e.classList.remove('on'));updateFLabel();}
+function updateFLabel(){document.getElementById('tF').textContent='🎛 Plattformen: '+(SELP.size?SELP.size+' gewählt':'Alle')+' ▾';}
+function toggleFilter(){let f=document.getElementById('filter');f.style.display=f.style.display=='block'?'none':'block';}
+loadPlatforms();
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key=='Enter')search();});
 setInterval(()=>{if(cur=='j')loadJobs();},4000);
 </script></body></html>"""
@@ -517,7 +573,13 @@ def index(): return Response(PAGE, mimetype="text/html")
 def api_search():
     q = request.args.get("q","").strip()
     if not q: return jsonify([])
-    return jsonify(do_search(q))
+    plats = [p for p in request.args.get("platforms","").split(",") if p]
+    return jsonify(do_search(q, plats))
+
+@app.route("/api/platforms")
+def api_platforms():
+    return jsonify([{"group":g, "items":[{"slug":s,"name":n,"usenet":bool(SLUG2USE.get(s))}
+                    for s,n in items]} for g,items in PLATFORMS])
 
 @app.route("/api/download", methods=["POST"])
 def api_download():
