@@ -7,6 +7,10 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **CI/CD** — GitHub Actions: Lint/Compile/Docker-Build, Security (CodeQL, Bandit, Trivy, gitleaks),
+  Release-Bot (release-please), Dependabot; MIT-Lizenz. /
+  **CI/CD** — GitHub Actions: lint/compile/docker build, security (CodeQL, Bandit, Trivy, gitleaks),
+  release bot (release-please), Dependabot; MIT license.
 - **i18n Deutsch + Englisch** — Sprachumschalter (DE/EN) in der Sidebar, Auswahl via `localStorage`;
   Ober­fläche über `data-i18n` und `t()` übersetzt. /
   **i18n German + English** — language switch (DE/EN) in the sidebar, stored in `localStorage`;
