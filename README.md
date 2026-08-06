@@ -17,6 +17,10 @@ bietet nur an, was **noch nicht in der Bibliothek** ist (Dedup).
     No-Intro/Redump/TOSEC). Rausch-Filter gegen Skins/Wallpaper/Quellcode.
   - **Usenet** — Prowlarr (nur lesend) für Console-Kategorien; Grabs laufen über eine
     **isolierte SABnzbd-Kategorie** (`roms`), damit Film-/Serien-Setups unberührt bleiben.
+- **Plattform-Vorauswahl** — Systeme vorab als Chips wählen, damit die Suche nicht
+  über alles läuft (Auswahl bleibt via `localStorage` erhalten). Usenet wird breit
+  über *Console* abgefragt und nach Plattform nachgefiltert; reine Retro-Auswahl
+  überspringt Usenet ganz.
 - **Dedup** gegen die bestehende Bibliothek (normalisierter Titel je Plattform).
 - **Plattform-Erkennung** an der Dateiendung beim Import (`.sfc`→snes, `.gba`→gba …).
 - **Filehoster-Zweig** (optional) über JDownloader FolderWatch (`.crawljob`).
@@ -59,7 +63,8 @@ Alle Variablen siehe [`.env.example`](.env.example). Wichtig:
 ## Endpunkte
 
 - `/` — Weboberfläche
-- `GET /api/search?q=<titel>` — Suche (JSON)
+- `GET /api/search?q=<titel>&platforms=<slug,slug>` — Suche (JSON), optional plattformgefiltert
+- `GET /api/platforms` — verfügbare Plattformen (gruppiert, mit Usenet-Flag)
 - `POST /api/download` — Download anstoßen (Body = Treffer-Objekt)
 - `GET /api/jobs` — Download-Status
 - `GET /health` — Health/Index-Größe
