@@ -795,6 +795,10 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;backg
 .shots{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
 .shots img{height:110px;border-radius:6px;flex:0 0 auto}
 .chips{display:flex;flex-wrap:wrap;gap:5px}
+.cmts{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.cmt{background:#12151a;border:1px solid #20242b;border-radius:6px;padding:5px 8px;font-size:12px;color:var(--txt)}
+.cmt .cu{font-weight:600}
+.cmt .cu.staff{color:#5bbf8a}
 #grid.disc{display:block}
 .drow{margin-bottom:20px}
 .rowh{font-size:16px;margin:4px 2px 10px}
@@ -857,7 +861,7 @@ const I18N={de:{
  settings:'Einstellungen',sec_general:'Allgemein',sec_notif:'Benachrichtigungen',sec_users:'Benutzer',sec_services:'Dienste',sec_about:'Über',app_name:'App-Name',default_lang:'Standardsprache',refresh:'Aktualisieren',version:'Version',about_txt:'Selbstgebauter Seerr-Klon für ROMs.',
  profile:'Profil',display_name:'Anzeigename',email:'E-Mail',language:'Sprache',avatar:'Avatar',pwebhook:'Persönlicher Discord-Webhook',change_pw:'Passwort ändern',cur_pw:'Aktuelles Passwort',new_pw:'Neues Passwort',choose_img:'Bild wählen',saved_ok:'gespeichert ✓',
  blocklist:'Sperrliste',add_btn:'Hinzufügen',pattern_ph:'Stichwort/Muster im Titel',
- nav_issues:'🐞 Probleme',issues:'Probleme',report_issue:'Problem melden',issue_msg:'Beschreibung',close_btn:'Schließen',st_open:'offen',st_closed:'geschlossen',submit:'Absenden',issue_type:'Art'
+ nav_issues:'🐞 Probleme',issues:'Probleme',report_issue:'Problem melden',issue_msg:'Beschreibung',close_btn:'Schließen',st_open:'offen',st_closed:'geschlossen',submit:'Absenden',issue_type:'Art',comment_ph:'Kommentar schreiben …',comment_send:'Senden'
 },en:{
  nav_discover:'🔍 Discover',nav_requests:'📥 Requests',nav_users:'👤 Users',nav_settings:'⚙️ Settings',logout:'🚪 Sign out',
  search_ph:'Search a game … (Enter)',platforms:'Platforms',all:'All',selected:'selected',
@@ -871,7 +875,7 @@ const I18N={de:{
  settings:'Settings',sec_general:'General',sec_notif:'Notifications',sec_users:'Users',sec_services:'Services',sec_about:'About',app_name:'App name',default_lang:'Default language',refresh:'Refresh',version:'Version',about_txt:'Self-built Seerr clone for ROMs.',
  profile:'Profile',display_name:'Display name',email:'Email',language:'Language',avatar:'Avatar',pwebhook:'Personal Discord webhook',change_pw:'Change password',cur_pw:'Current password',new_pw:'New password',choose_img:'Choose image',saved_ok:'saved ✓',
  blocklist:'Blocklist',add_btn:'Add',pattern_ph:'Keyword/pattern in title',
- nav_issues:'🐞 Issues',issues:'Issues',report_issue:'Report issue',issue_msg:'Message',close_btn:'Close',st_open:'open',st_closed:'closed',submit:'Submit',issue_type:'Type'
+ nav_issues:'🐞 Issues',issues:'Issues',report_issue:'Report issue',issue_msg:'Message',close_btn:'Close',st_open:'open',st_closed:'closed',submit:'Submit',issue_type:'Type',comment_ph:'Write a comment …',comment_send:'Send'
 }};
 let LANG=localStorage.getItem('lang')||'de';
 function t(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.de[k]||k;}
@@ -906,11 +910,17 @@ async function loadIssues(pref){let box=document.getElementById('issues');
   <h3 style="text-transform:uppercase;color:#8b929e;font-size:12px;margin-top:20px">${t('issues')}</h3><div id=ilist></div></div>`;
  renderIssues(items);}
 function renderIssues(items){let d=document.getElementById('ilist');d.innerHTML=items.length?'':'<div class=meta>—</div>';
- items.forEach(i=>{let e=document.createElement('div');e.className='job';
+ items.forEach(i=>{let e=document.createElement('div');e.className='job';e.style.flexDirection='column';e.style.alignItems='stretch';
   let st=i.status=='closed'?t('st_closed'):t('st_open');
   let right=(canDo('manage_issues')&&i.status!='closed')?`<button onclick="closeIssue('${i.id}')" style="background:#1e5e3a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer">${t('close_btn')}</button>`:`<span class="st ${i.status=='closed'?'done':''}">${st}</span>`;
-  e.innerHTML=`<div><div>${(''+(i.title||'')).replace(/</g,'&lt;')} <span class=meta>(${i.type})</span></div><div class=meta style="font-size:11px">👤 ${(''+(i.user||'')).replace(/</g,'&lt;')} · ${i.platform||''} · ${i.ts||''} · ${(''+(i.message||'')).replace(/</g,'&lt;').slice(0,90)}</div></div><div>${right}</div>`;
+  let cs=(i.comments||[]).map(c=>`<div class=cmt><span class="cu${c.staff?' staff':''}">${(''+(c.user||'')).replace(/</g,'&lt;')}${c.staff?' 🛠':''}</span> <span class=meta style="font-size:10px">${c.ts||''}</span><div>${(''+(c.text||'')).replace(/</g,'&lt;')}</div></div>`).join('');
+  e.innerHTML=`<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start"><div><div>${(''+(i.title||'')).replace(/</g,'&lt;')} <span class=meta>(${i.type})</span></div><div class=meta style="font-size:11px">👤 ${(''+(i.user||'')).replace(/</g,'&lt;')} · ${i.platform||''} · ${i.ts||''} · ${(''+(i.message||'')).replace(/</g,'&lt;').slice(0,90)}</div></div><div>${right}</div></div>
+   <div class=cmts>${cs}</div>
+   <div class=frow style="margin-top:6px"><input id="ic_${i.id}" placeholder="${t('comment_ph')}" style="flex:1" onkeydown="if(event.key=='Enter')addComment('${i.id}')"><button onclick="addComment('${i.id}')">${t('comment_send')}</button></div>`;
   d.appendChild(e);});}
+async function addComment(id){let inp=document.getElementById('ic_'+id);let txt=inp.value.trim();if(!txt)return;
+ let r=await(await fetch('/api/issues/'+id+'/comment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:txt})})).json();
+ if(r.ok)loadIssues();}
 async function submitIssue(){let d={title:document.getElementById('itit').value,platform:document.getElementById('iplat').value,type:document.getElementById('ityp').value,message:document.getElementById('imsg').value};
  if(!d.title.trim()){document.getElementById('imm').textContent='Titel fehlt / title missing';return;}
  let r=await(await fetch('/api/issues',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
@@ -1524,6 +1534,23 @@ def api_issues_close(iid):
     for i in items:
         if i["id"] == iid: i["status"] = "closed"
     save_issues(items); return jsonify({"ok":True})
+
+@app.route("/api/issues/<iid>/comment", methods=["POST"])
+@login_required
+def api_issues_comment(iid):
+    txt = (request.get_json(force=True).get("text") or "").strip()[:1000]
+    if not txt: return jsonify({"error":"empty"}), 400
+    items = load_issues()
+    for i in items:
+        if i["id"] == iid:
+            if i.get("user") != session.get("user") and not has_perm("manage_issues"):
+                return jsonify({"error":"forbidden"}), 403
+            i.setdefault("comments", []).append({
+                "user": session.get("user",""), "text": txt, "staff": bool(has_perm("manage_issues")),
+                "ts": datetime.now().strftime("%Y-%m-%d %H:%M")})
+            save_issues(items)
+            return jsonify({"ok":True, "comments": i["comments"]})
+    return jsonify({"error":"not found"}), 404
 
 @app.route("/api/issues/<iid>", methods=["DELETE"])
 @perm_required("manage_issues")
