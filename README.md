@@ -1,5 +1,7 @@
 # 🎮 Romseerr
 
+*English: [README.en.md](README.en.md)*
+
 Ein **Seerr für ROMs** — Such-, Anfrage- und Auto-Download-Oberfläche für die
 Retro-/Konsolenwelt, mit Einsortierung für **RomM** und **RetroNAS**. Angelehnt an
 Overseerr/Jellyseerr: Startseite mit beliebten Spielen je Konsole, Detailseiten,
@@ -21,6 +23,7 @@ Anfrage-Workflow, Benutzerverwaltung und Benachrichtigungen.
 - **Benutzerverwaltung** — Login/Ersteinrichtung, Rollen (admin/user), **Auto-Freigabe**
   je Benutzer und **Freigabe-Workflow** (Anfragen ohne Auto-Freigabe muss der Admin bestätigen).
 - **Benachrichtigungen** — Discord-Webhook in der Oberfläche konfigurierbar (mit Test).
+- **Mehrsprachig** — Umschalter Deutsch/Englisch (i18n).
 - **Seitenmenü** (Entdecken / Anfragen / Benutzer / Einstellungen) im Seerr-Stil.
 
 **Geplant** (siehe [CHANGELOG](CHANGELOG.md) / Issues): SQLite-Backend, i18n de/en,

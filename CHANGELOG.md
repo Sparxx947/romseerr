@@ -6,6 +6,12 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Hinzugefügt / Added
+- **i18n Deutsch + Englisch** — Sprachumschalter (DE/EN) in der Sidebar, Auswahl via `localStorage`;
+  Ober­fläche über `data-i18n` und `t()` übersetzt. /
+  **i18n German + English** — language switch (DE/EN) in the sidebar, stored in `localStorage`;
+  UI translated via `data-i18n` and `t()`.
+
 ### Geändert
 - **Rebrand zu „Romseerr"** (vormals rom-suche).
 - **Seerr-Layout:** feste Sidebar (Entdecken / Anfragen / Benutzer / Abmelden) statt Tab-Leiste.

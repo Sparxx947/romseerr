@@ -607,6 +607,9 @@ main{margin-left:210px}
 #topbar{position:sticky;top:0;background:#0f1114;padding:14px 18px;display:flex;gap:12px;align-items:center;border-bottom:1px solid #262b33;z-index:5}
 input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;background:#0b0d10;color:var(--txt);font-size:15px}
 .fbtn{background:#1e2229;border:1px solid #2c323b;color:var(--txt);font-size:13px;cursor:pointer;padding:10px 12px;border-radius:10px;white-space:nowrap}
+#langsw{display:flex;gap:8px;padding:6px 12px}
+#langsw b{cursor:pointer;font-size:12px;color:var(--mut);font-weight:700}
+#langsw b.on{color:var(--acc)}
 @media(max-width:680px){#side{position:static;width:auto;flex-direction:row;flex-wrap:wrap;align-items:center;padding:10px}#side .logo{margin:0 12px 0 4px}#side .grow{display:none}#side .ubox{border:none;padding:0}main{margin-left:0}.nav{padding:8px 10px;margin:0}}
 #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;padding:18px}
 .card{background:var(--card);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;border:1px solid #262b33}
@@ -659,24 +662,55 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;backg
 </style></head><body>
 <div id=side>
  <div class=logo>🎮 Romseerr</div>
- <a class="nav on" id=nS onclick="show('s')">🔍 Entdecken</a>
- <a class=nav id=nJ onclick="show('j')">📥 Anfragen</a>
- <a class=nav id=nU onclick="openUsers()" style="display:none">👤 Benutzer</a>
- <a class=nav id=nSet onclick="openSettings()" style="display:none">⚙️ Einstellungen</a>
+ <a class="nav on" id=nS data-i18n=nav_discover onclick="show('s')">🔍 Entdecken</a>
+ <a class=nav id=nJ data-i18n=nav_requests onclick="show('j')">📥 Anfragen</a>
+ <a class=nav id=nU data-i18n=nav_users onclick="openUsers()" style="display:none">👤 Benutzer</a>
+ <a class=nav id=nSet data-i18n=nav_settings onclick="openSettings()" style="display:none">⚙️ Einstellungen</a>
  <div class=grow></div>
- <div class=ubox><div id=who></div><a class=nav onclick="logout()">🚪 Abmelden</a></div>
+ <div id=langsw><b data-l=de class=on onclick="setLang('de')">DE</b><b data-l=en onclick="setLang('en')">EN</b></div>
+ <div class=ubox><div id=who></div><a class=nav data-i18n=logout onclick="logout()">🚪 Abmelden</a></div>
 </div>
 <main>
  <div id=topbar>
-  <input id=q placeholder="Spiel suchen … (Enter)" autofocus>
+  <input id=q data-i18n-ph=search_ph placeholder="Spiel suchen … (Enter)" autofocus>
   <button class=fbtn id=tF onclick="toggleFilter()">🎛 Plattformen: Alle</button>
  </div>
  <div id=filter></div>
- <div id=discview><div id=grid></div><div class=hint id=hint>Tippe einen Titel und drücke Enter.</div></div>
+ <div id=discview><div id=grid></div><div class=hint id=hint data-i18n=hint_type>Tippe einen Titel und drücke Enter.</div></div>
  <div id=jobs></div>
 </main>
 <div id=modal></div>
 <script>
+const I18N={de:{
+ nav_discover:'🔍 Entdecken',nav_requests:'📥 Anfragen',nav_users:'👤 Benutzer',nav_settings:'⚙️ Einstellungen',logout:'🚪 Abmelden',
+ search_ph:'Spiel suchen … (Enter)',platforms:'Plattformen',all:'Alle',selected:'gewählt',
+ hint_type:'Tippe einen Titel und drücke Enter.',loading_home:'Lade Startseite …',popular_on:'Beliebt auf',click_search:'klick zum Suchen',
+ searching:'Suche läuft …',no_results:'Keine Treffer.',results:'Treffer',in_library:'✓ in Bibliothek',download:'⬇ Download',requested:'✓ angefragt',collection:'Sammlung',
+ versions:'Versionen / Quellen',files:'Dateien',no_desc:'Keine Beschreibung verfügbar.',
+ no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',reset:'Alle zurücksetzen',
+ users:'Benutzer',new_user:'Neuen Benutzer anlegen',create:'Anlegen',del:'Löschen',autoapprove:'Auto-Freigabe',role_user:'Nutzer',role_admin:'Admin',username:'Benutzername',password:'Passwort',
+ notif_discord:'Benachrichtigungen — Discord',active:'aktiv',test:'Test',save:'Speichern',saved:'gespeichert ✓',test_sent:'Test gesendet ✓',webhook_ph:'Discord Webhook-URL',
+ st_pending:'⏳ Wartet auf Freigabe',st_queued:'Angefragt',st_downloading:'Lädt…',st_importing:'Wird verarbeitet',st_done:'✅ Verfügbar',st_error:'Fehler',st_denied:'Abgelehnt',st_exists:'vorhanden'
+},en:{
+ nav_discover:'🔍 Discover',nav_requests:'📥 Requests',nav_users:'👤 Users',nav_settings:'⚙️ Settings',logout:'🚪 Sign out',
+ search_ph:'Search a game … (Enter)',platforms:'Platforms',all:'All',selected:'selected',
+ hint_type:'Type a title and press Enter.',loading_home:'Loading home …',popular_on:'Popular on',click_search:'click to search',
+ searching:'Searching …',no_results:'No results.',results:'results',in_library:'✓ in library',download:'⬇ Download',requested:'✓ requested',collection:'Collection',
+ versions:'Versions / sources',files:'Files',no_desc:'No description available.',
+ no_requests:'No requests yet.',approve:'Approve',deny:'Deny',reset:'Reset all',
+ users:'Users',new_user:'Create new user',create:'Create',del:'Delete',autoapprove:'Auto-approve',role_user:'User',role_admin:'Admin',username:'Username',password:'Password',
+ notif_discord:'Notifications — Discord',active:'enabled',test:'Test',save:'Save',saved:'saved ✓',test_sent:'test sent ✓',webhook_ph:'Discord webhook URL',
+ st_pending:'⏳ Awaiting approval',st_queued:'Requested',st_downloading:'Downloading…',st_importing:'Processing',st_done:'✅ Available',st_error:'Error',st_denied:'Denied',st_exists:'in library'
+}};
+let LANG=localStorage.getItem('lang')||'de';
+function t(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.de[k]||k;}
+function setLang(l){LANG=l;localStorage.setItem('lang',l);applyI18n();
+ document.querySelectorAll('#langsw b').forEach(e=>e.classList.toggle('on',e.dataset.l==l));
+ if(cur=='s'&&!document.getElementById('q').value.trim())loadDiscover();if(cur=='j')loadJobs();}
+function applyI18n(){
+ document.querySelectorAll('[data-i18n]').forEach(e=>e.textContent=t(e.dataset.i18n));
+ document.querySelectorAll('[data-i18n-ph]').forEach(e=>e.placeholder=t(e.dataset.i18nPh));
+ updateFLabel();}
 let cur='s';
 function show(v){cur=v;
  document.getElementById('discview').style.display=v=='s'?'':'none';
@@ -688,28 +722,28 @@ function sz(b){if(!b)return'';let u=['B','KB','MB','GB','TB'],i=0;while(b>=1024&
 function renderCard(it){let c=document.createElement('div');c.className='card';
  let cov=it.cover?`background-image:url('${it.cover}')`:'';
  let src=it.source=='usenet'?'📡 Usenet':'🗄 Archive';
- let settag=it.is_set?' · 📦 Sammlung':'';
+ let settag=it.is_set?' · 📦 '+t('collection'):'';
  c.innerHTML=`<div class=cover style="${cov}"><span class=badge>${it.platform_slug||'?'}</span><span class=src>${src}</span></div>
   <div class=body><div class=t>${it.title.replace(/</g,'&lt;')}</div><div class=meta>${sz(it.size)}${settag}</div><div class=act></div></div>`;
  c.querySelector('.cover').onclick=()=>openDetail(it);
  let tt=c.querySelector('.t');tt.style.cursor='pointer';tt.onclick=()=>openDetail(it);
  let act=c.querySelector('.act');
- if(it.in_library)act.innerHTML='<div class=have>✓ in Bibliothek</div>';
- else{let b=document.createElement('button');b.className='dl';b.textContent='⬇ Download';b.onclick=()=>dl(b,it);act.appendChild(b);}
+ if(it.in_library)act.innerHTML='<div class=have>'+t('in_library')+'</div>';
+ else{let b=document.createElement('button');b.className='dl';b.textContent=t('download');b.onclick=()=>dl(b,it);act.appendChild(b);}
  if(!it.cover)fetch('/api/cover?title='+encodeURIComponent(it.title)).then(r=>r.json()).then(d=>{
   if(d.cover){it.cover=d.cover;c.querySelector('.cover').style.backgroundImage="url('"+d.cover+"')";}});
  return c;}
 
 async function search(){let q=document.getElementById('q').value.trim();if(!q){loadDiscover();return;}
- let hint=document.getElementById('hint');hint.style.display='';hint.textContent='Suche läuft …';
+ let hint=document.getElementById('hint');hint.style.display='';hint.textContent=t('searching');
  let r=await fetch('/api/search?q='+encodeURIComponent(q)+'&platforms='+[...SELP].join(','));let d=await r.json();
  window.LASTRES=d;let g=document.getElementById('grid');g.className='';g.innerHTML='';
- if(!d.length){document.getElementById('hint').textContent='Keine Treffer.';return;}
- document.getElementById('hint').textContent=d.length+' Treffer';
+ if(!d.length){document.getElementById('hint').textContent=t('no_results');return;}
+ document.getElementById('hint').textContent=d.length+' '+t('results');
  d.forEach(it=>g.appendChild(renderCard(it)));}
 async function dl(btn,it){btn.disabled=true;btn.textContent='…';
  let r=await fetch('/api/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(it)});
- let d=await r.json();btn.textContent=d.ok?'✓ angefragt':(d.msg||'Fehler');}
+ let d=await r.json();btn.textContent=d.ok?t('requested'):(d.msg||t('st_error'));}
 // --- Detail-Ansicht (Seerr-Detailseite) ---
 async function openDetail(it){let m=document.getElementById('modal');m.style.display='block';
  let vars=(window.LASTRES||[]).filter(x=>x.gkey&&x.gkey===it.gkey);
@@ -718,7 +752,7 @@ async function openDetail(it){let m=document.getElementById('modal');m.style.dis
    <div><h2>${it.title.replace(/</g,'&lt;')}</h2>
     <div class=meta>${it.platform_slug||'?'} · ${it.source=='usenet'?'📡 Usenet':'🗄 Archive'} · ${sz(it.size)}${it.is_set?' · 📦 Sammlung':''}</div>
     <div class=desc id=mdesc>…</div></div></div>
-  <div class=sec><h3>Versionen / Quellen (${vars.length})</h3><div id=mvar></div></div>
+  <div class=sec><h3>${t('versions')} (${vars.length})</h3><div id=mvar></div></div>
   <div class=sec id=mfiles></div></div>`;
  let mv=document.getElementById('mvar');
  vars.forEach(v=>{let row=document.createElement('div');row.className='row';
@@ -728,18 +762,18 @@ async function openDetail(it){let m=document.getElementById('modal');m.style.dis
   row.appendChild(b);mv.appendChild(row);});
  let r=await fetch('/api/detail?source='+encodeURIComponent(it.source)+'&ref='+encodeURIComponent(it.ref||'')+'&title='+encodeURIComponent(it.title));
  let d=await r.json();
- document.getElementById('mdesc').textContent=d.description||'Keine Beschreibung verfügbar.';
- if(d.files&&d.files.length)document.getElementById('mfiles').innerHTML='<h3>Dateien</h3><div class=flist>'+
+ document.getElementById('mdesc').textContent=d.description||t('no_desc');
+ if(d.files&&d.files.length)document.getElementById('mfiles').innerHTML='<h3>'+t('files')+'</h3><div class=flist>'+
    d.files.map(f=>`<div>${f.name.replace(/</g,'&lt;')} — ${sz(f.size)}</div>`).join('')+'</div>';}
 function closeModal(){document.getElementById('modal').style.display='none';}
 // --- Discover / Startseite: beliebte Spiele je Konsole ---
-async function loadDiscover(){let hint=document.getElementById('hint');hint.style.display='';hint.textContent='Lade Startseite …';
+async function loadDiscover(){let hint=document.getElementById('hint');hint.style.display='';hint.textContent=t('loading_home');
  let g=document.getElementById('grid');
  let rows=await(await fetch('/api/discover/rows')).json();
- if(!rows.length){hint.textContent='Tippe einen Titel und drücke Enter.';g.className='';g.innerHTML='';return;}
+ if(!rows.length){hint.textContent=t('hint_type');g.className='';g.innerHTML='';return;}
  hint.style.display='none';g.className='disc';g.innerHTML='';
  rows.forEach(r=>{let sec=document.createElement('div');sec.className='drow';
-  sec.innerHTML=`<div class=rowh>Beliebt auf <b>${r.console}</b> <span>· klick zum Suchen</span></div><div class=strip></div>`;
+  sec.innerHTML=`<div class=rowh>${t('popular_on')} <b>${r.console}</b> <span>· ${t('click_search')}</span></div><div class=strip></div>`;
   let strip=sec.querySelector('.strip');
   r.games.forEach(it=>{let c=document.createElement('div');c.className='pcard';
    c.innerHTML=`<div class=pcover style="${it.cover?`background-image:url('${it.cover}')`:''}">${it.in_library?'<span class=have2>✓</span>':''}</div><div class=pt>${it.title.replace(/</g,'&lt;')}</div>`;
@@ -748,15 +782,15 @@ async function loadDiscover(){let hint=document.getElementById('hint');hint.styl
     document.getElementById('q').value=it.title;search();};
    strip.appendChild(c);});
   g.appendChild(sec);});}
-const STLAB={pending:['⏳ Wartet auf Freigabe',''],queued:['Angefragt',''],downloading:['Lädt…','downloading'],importing:['Wird verarbeitet','importing'],done:['✅ Verfügbar','done'],error:['Fehler','error'],denied:['Abgelehnt','error'],exists:['vorhanden','']};
+const STCLS={downloading:'downloading',importing:'importing',done:'done',error:'error',denied:'error'};
+function stlab(s){return [t('st_'+s)||s, STCLS[s]||''];}
 async function loadJobs(){let r=await fetch('/api/jobs');let d=await r.json();let j=document.getElementById('jobs');
- j.innerHTML=d.length?'':'<div class=hint>Noch keine Anfragen.</div>';
- d.forEach(o=>{let e=document.createElement('div');e.className='job';let L=STLAB[o.state]||[o.state,''];
-  let by=o.user?(' · '+o.user):'';let right;
+ j.innerHTML=d.length?'':('<div class=hint>'+t('no_requests')+'</div>');
+ d.forEach(o=>{let e=document.createElement('div');e.className='job';let L=stlab(o.state);let right;
   if(o.state=='pending'&&window.ROLE=='admin'){
-   right=`<button onclick="approveJob('${o.id}')" style="background:#1e5e3a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;margin-right:6px">Freigeben</button><button onclick="denyJob('${o.id}')" style="background:#6e2a2a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer">Ablehnen</button>`;
+   right=`<button onclick="approveJob('${o.id}')" style="background:#1e5e3a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;margin-right:6px">${t('approve')}</button><button onclick="denyJob('${o.id}')" style="background:#6e2a2a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer">${t('deny')}</button>`;
   }else{right=`<span class="st ${L[1]}">${L[0]}</span>`;}
-  e.innerHTML=`<div><div>${o.title.replace(/</g,'&lt;')}</div><div class=meta style="color:#8b929e;font-size:11px">${o.platform} · ${o.source}${by} · ${o.msg||''}</div></div><div>${right}</div>`;
+  e.innerHTML=`<div><div>${o.title.replace(/</g,'&lt;')}</div><div class=meta style="color:#8b929e;font-size:11px">👤 <b style="color:#b9c0cc">${(o.user||'—').replace(/</g,'&lt;')}</b> · ${o.platform} · ${o.source} · ${o.msg||''}</div></div><div>${right}</div>`;
   j.appendChild(e);});}
 // --- Plattform-Vorauswahl ---
 let SELP=new Set(JSON.parse(localStorage.getItem('romp')||'[]'));
@@ -764,7 +798,7 @@ async function loadPlatforms(){
  let r=await fetch('/api/platforms');let d=await r.json();
  document.getElementById('filter').innerHTML=d.map(g=>`<div class=grp><div class=gl>${g.group}</div>`+
    g.items.map(it=>`<span class="chip${SELP.has(it.slug)?' on':''}" data-s="${it.slug}" onclick="toggleChip('${it.slug}')" title="${it.usenet?'auch über Usenet':'nur Archive.org'}">${it.name}${it.usenet?' 📡':''}</span>`).join('')+
-   `</div>`).join('')+`<div class=fbtns><button onclick="clearP()">Alle zurücksetzen</button></div>`;
+   `</div>`).join('')+`<div class=fbtns><button onclick="clearP()">${t('reset')}</button></div>`;
  updateFLabel();}
 function toggleChip(s){SELP.has(s)?SELP.delete(s):SELP.add(s);
  localStorage.setItem('romp',JSON.stringify([...SELP]));
@@ -772,7 +806,7 @@ function toggleChip(s){SELP.has(s)?SELP.delete(s):SELP.add(s);
  updateFLabel();}
 function clearP(){SELP.clear();localStorage.setItem('romp','[]');
  document.querySelectorAll('.chip').forEach(e=>e.classList.remove('on'));updateFLabel();}
-function updateFLabel(){document.getElementById('tF').textContent='🎛 Plattformen: '+(SELP.size?SELP.size+' gewählt':'Alle')+' ▾';}
+function updateFLabel(){let e=document.getElementById('tF');if(e)e.textContent='🎛 '+t('platforms')+': '+(SELP.size?SELP.size+' '+t('selected'):t('all'));}
 function toggleFilter(){let f=document.getElementById('filter');f.style.display=f.style.display=='block'?'none':'block';}
 // --- Benutzerverwaltung ---
 async function loadAuth(){let d=await(await fetch('/api/auth/status')).json();
@@ -782,30 +816,30 @@ async function openSettings(){let m=document.getElementById('modal');m.style.dis
  let s=await(await fetch('/api/settings')).json();let dc=s.discord||{};
  let inp='style="flex:1;min-width:120px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px"';
  m.innerHTML=`<div class=box><button class=x onclick="closeModal()">×</button>
-  <div class=sec><h3>Benachrichtigungen — Discord</h3>
-   <div class=row><label style="display:flex;gap:8px;align-items:center"><input type=checkbox id=dcen ${dc.enabled?'checked':''}> aktiv</label></div>
-   <div class=row><input id=dcurl ${inp} placeholder="Discord Webhook-URL" value="${(dc.url||'').replace(/"/g,'&quot;')}"><button onclick="testNotify()">Test</button></div>
-   <div class=row><button onclick="saveSettings()">Speichern</button><span id=serr style="color:#8b929e;font-size:12px"></span></div>
+  <div class=sec><h3>${t('notif_discord')}</h3>
+   <div class=row><label style="display:flex;gap:8px;align-items:center"><input type=checkbox id=dcen ${dc.enabled?'checked':''}> ${t('active')}</label></div>
+   <div class=row><input id=dcurl ${inp} placeholder="${t('webhook_ph')}" value="${(dc.url||'').replace(/"/g,'&quot;')}"><button onclick="testNotify()">${t('test')}</button></div>
+   <div class=row><button onclick="saveSettings()">${t('save')}</button><span id=serr style="color:#8b929e;font-size:12px"></span></div>
   </div></div>`;}
 async function saveSettings(){let d={discord:{enabled:document.getElementById('dcen').checked,url:document.getElementById('dcurl').value.trim()}};
  let r=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
- document.getElementById('serr').textContent=r.ok?'gespeichert ✓':'Fehler';}
+ document.getElementById('serr').textContent=r.ok?t('saved'):t('st_error');}
 async function testNotify(){let d={discord:{url:document.getElementById('dcurl').value.trim()}};
  let r=await(await fetch('/api/settings/notify-test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
- document.getElementById('serr').textContent=r.ok?'Test gesendet ✓':(r.msg||'Fehler');}
+ document.getElementById('serr').textContent=r.ok?t('test_sent'):(r.msg||t('st_error'));}
 async function approveJob(id){await fetch('/api/jobs/'+id+'/approve',{method:'POST'});loadJobs();}
 async function denyJob(id){await fetch('/api/jobs/'+id+'/deny',{method:'POST'});loadJobs();}
 async function openUsers(){let m=document.getElementById('modal');m.style.display='block';
  let list=await(await fetch('/api/users')).json();
  let inp='style="flex:1;min-width:90px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px"';
  m.innerHTML=`<div class=box><button class=x onclick="closeModal()">×</button>
-  <div class=sec><h3>Benutzer</h3><div id=ulist></div></div>
-  <div class=sec><h3>Neuen Benutzer anlegen</h3>
-   <div class=row><input id=nu placeholder=Benutzername ${inp}>
-    <input id=np type=password placeholder=Passwort ${inp}>
-    <select id=nr ${inp}><option value=user>Nutzer</option><option value=admin>Admin</option></select>
-    <label style="font-size:12px;color:#8b929e;display:flex;gap:5px;align-items:center"><input type=checkbox id=naa> Auto-Freigabe</label>
-    <button onclick="addUser()">Anlegen</button></div>
+  <div class=sec><h3>${t('users')}</h3><div id=ulist></div></div>
+  <div class=sec><h3>${t('new_user')}</h3>
+   <div class=row><input id=nu placeholder="${t('username')}" ${inp}>
+    <input id=np type=password placeholder="${t('password')}" ${inp}>
+    <select id=nr ${inp}><option value=user>${t('role_user')}</option><option value=admin>${t('role_admin')}</option></select>
+    <label style="font-size:12px;color:#8b929e;display:flex;gap:5px;align-items:center"><input type=checkbox id=naa> ${t('autoapprove')}</label>
+    <button onclick="addUser()">${t('create')}</button></div>
    <div id=uerr style="color:#ff6b6b;font-size:12px;margin-top:6px"></div></div></div>`;
  renderUsers(list);}
 function renderUsers(list){let ul=document.getElementById('ulist');ul.innerHTML='';
@@ -815,8 +849,8 @@ function renderUsers(list){let ul=document.getElementById('ulist');ul.innerHTML=
   let lbl=document.createElement('label');lbl.style.cssText='font-size:12px;color:#8b929e;display:flex;gap:5px;align-items:center';
   let cb=document.createElement('input');cb.type='checkbox';cb.checked=u.autoapprove;cb.disabled=(u.role=='admin');
   cb.onchange=()=>fetch('/api/users/'+encodeURIComponent(u.username),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({autoapprove:cb.checked})});
-  lbl.appendChild(cb);lbl.appendChild(document.createTextNode('Auto-Freigabe'));right.appendChild(lbl);
-  let b=document.createElement('button');b.textContent='Löschen';
+  lbl.appendChild(cb);lbl.appendChild(document.createTextNode(t('autoapprove')));right.appendChild(lbl);
+  let b=document.createElement('button');b.textContent=t('del');
   b.onclick=async()=>{let d=await(await fetch('/api/users/'+encodeURIComponent(u.username),{method:'DELETE'})).json();
    if(d.ok)openUsers();else alert(d.msg||'Fehler');};
   right.appendChild(b);row.appendChild(right);ul.appendChild(row);});}
@@ -825,7 +859,8 @@ async function addUser(){let u=document.getElementById('nu').value.trim(),p=docu
    body:JSON.stringify({username:u,password:p,role:r,autoapprove:aa})})).json();
  if(d.ok)openUsers();else document.getElementById('uerr').textContent=d.msg||'Fehler';}
 async function logout(){await fetch('/api/logout',{method:'POST'});location.href='/login';}
-loadAuth();loadPlatforms();loadDiscover();
+document.querySelectorAll('#langsw b').forEach(e=>e.classList.toggle('on',e.dataset.l==LANG));
+applyI18n();loadAuth();loadPlatforms();loadDiscover();
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key=='Enter')search();});
 setInterval(()=>{if(cur=='j')loadJobs();},4000);
 </script></body></html>"""
