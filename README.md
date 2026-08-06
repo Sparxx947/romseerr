@@ -1,5 +1,9 @@
 # 🎮 Romseerr
 
+[![CI](https://github.com/Sparxx947/romseerr/actions/workflows/ci.yml/badge.svg)](https://github.com/Sparxx947/romseerr/actions/workflows/ci.yml)
+[![Security](https://github.com/Sparxx947/romseerr/actions/workflows/security.yml/badge.svg)](https://github.com/Sparxx947/romseerr/actions/workflows/security.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 *English: [README.en.md](README.en.md)*
 
 Ein **Seerr für ROMs** — Such-, Anfrage- und Auto-Download-Oberfläche für die
