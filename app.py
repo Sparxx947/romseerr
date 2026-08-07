@@ -119,7 +119,7 @@ CONFIG_DIR = os.environ.get("ROMSEERR_CONFIG", "/config")
 ROMS       = os.environ.get("ROMSEERR_ROMS", "/roms")
 SAB_DONE   = "/sab-complete"
 JD_WATCH   = "/jd-watch"
-JD_OUT     = "/jd-output/romseerr"           # Sicht von Romseerr (=/mnt/user/Downloads/romseerr)
+JD_OUT     = "/jd-output/romseerr"           # Sicht von Romseerr auf JDownloaders Ausgabe
 JD_DL_BASE = os.environ.get("JD_DL_BASE","/output/romseerr")  # Sicht des JD-Containers
 STAGING    = os.path.join(CONFIG_DIR, "staging")
 JOBDB      = os.path.join(CONFIG_DIR, "jobs.json")
@@ -144,6 +144,10 @@ _ENV_CONN = {"sab_url": SAB_URL, "sab_apikey": SAB_APIKEY, "sab_cat": SAB_CAT,
              "prow_url": PROW_URL, "prow_apikey": PROW_KEY, "prow_cats": PROW_CATS,
              "igdb_id": IGDB_ID, "igdb_secret": IGDB_SECRET,
              "romm_url": ROMM_URL, "romm_user": ROMM_USER, "romm_pass": ROMM_PASS,
+             # JDownloader: drei verschiedene SICHTEN auf dieselbe Uebergabe —
+             # jd_watch/jd_out sieht Romseerr, jd_dl_base sieht JDownloader. (#83)
+             "jd_watch": os.environ.get("JD_WATCH", JD_WATCH),
+             "jd_out": os.environ.get("JD_OUT", JD_OUT),
              "jd_dl_base": JD_DL_BASE,
              # Scraper / Cover-Quellen
              "sgdb_key": os.environ.get("STEAMGRIDDB_KEY", ""),
@@ -1482,12 +1486,42 @@ def sab_queue():
         pass
     return out
 
+def jd_watch_dir(): return cfg("jd_watch") or JD_WATCH
+def jd_out_dir():   return cfg("jd_out") or JD_OUT
+
+def jd_check():
+    """Zustand der Ordner-Uebergabe an JDownloader. Es gibt keinen Handschlag — ein
+    Ordner-Handoff bestaetigt nichts —, also ist die Pruefung der Verzeichnisse die
+    EINZIGE Moeglichkeit, dem Betreiber ueberhaupt ein Signal zu geben. (#83)
+
+    „fehlt" und „nicht beschreibbar" werden getrennt gemeldet: der eine Fall wird durch
+    einen Mount geloest, der andere durch Besitzrechte."""
+    watch, out = jd_watch_dir(), jd_out_dir()
+    if not os.path.isdir(watch):
+        return {"ok": False, "reason": "watch_missing",
+                "info": f"Watch-Ordner fehlt / watch dir not found: {watch}"}
+    if not os.access(watch, os.W_OK):
+        return {"ok": False, "reason": "watch_readonly",
+                "info": f"Watch-Ordner nicht beschreibbar (uid {os.getuid()}) / "
+                        f"not writable by uid {os.getuid()}: {watch}"}
+    if not os.path.isdir(out):
+        return {"ok": False, "reason": "out_missing",
+                "info": f"Ausgabe-Ordner fehlt / output dir not found: {out}"}
+    return {"ok": True, "reason": "", "info": f"{watch} → {out}"}
+
 def write_crawljob(jid, links, folder, name):
-    # folder = JD-Container-Sicht (z.B. /output/romseerr/...); JD legt sie selbst an.
+    """`.crawljob` in den Watch-Ordner legen. folder = JD-Container-Sicht
+    (z. B. /output/romseerr/...); JD legt sie selbst an.
+
+    Schlaegt das Schreiben fehl, MUSS die Ausnahme durch: frueher wurde nur geloggt und
+    der Job blieb fuer immer auf `downloading` stehen — der Ausfall war unsichtbar. (#83)"""
+    st = jd_check()
+    if not st["ok"]:
+        raise RuntimeError(f"JDownloader-Uebergabe nicht moeglich / handover not possible: {st['info']}")
     data = [{"text":"\n".join(links) if isinstance(links,list) else links,
              "downloadFolder":folder,"packageName":name,"enabled":"true","autoStart":"true",
              "autoConfirm":"true","overwritePackagizerRules":"true"}]
-    path = os.path.join(JD_WATCH, f"romseerr_{jid}.crawljob")
+    path = os.path.join(jd_watch_dir(), f"romseerr_{jid}.crawljob")
     with open(path,"w") as f: json.dump(data,f)
     log(f"crawljob geschrieben: {path}")
 
@@ -1666,14 +1700,14 @@ def worker_collect():
                         pct = next((v for k, v in sabq.items() if pref in k), None)
                         if pct not in (None, ""): set_state(jid, msg=f"{pct}%")
                 else:
-                    p = find_output(JD_OUT, jid)
+                    p = find_output(jd_out_dir(), jid)
                     if p and any(os.scandir(p)): cand = p
                 if cand and folder_stable(cand):
                     import_folder(jid, cand)
                     # Erledigten Download aus SAB/JD und von der Platte entfernen. (#65)
                     if job["source"] == "usenet": sab_cleanup(jid)
                     try:
-                        if os.path.isdir(cand) and (cand.startswith(SAB_DONE) or cand.startswith(JD_OUT)):
+                        if os.path.isdir(cand) and (cand.startswith(SAB_DONE) or cand.startswith(jd_out_dir())):
                             subprocess.run(["rm", "-rf", cand])
                     except Exception as e: log(f"Ausgabe-Cleanup {jid}: {e}")
         except Exception as e:
@@ -3226,6 +3260,9 @@ def api_services_status():
         except Exception as e: out.append({"name":"SteamGridDB","ok":False,"info":str(e)[:40]})
     if cfg("ss_user"):
         out.append({"name":"ScreenScraper","ok":True,"info":"Zugang hinterlegt / configured"})
+    # JDownloader hat keine API in diesem Aufbau — geprueft wird die Ordner-Uebergabe. (#83)
+    jd = jd_check()
+    out.append({"name":"JDownloader","ok":jd["ok"],"info":jd["info"]})
     out.append({"name":"Archive.org","ok":True,"info":"public API"})
     return jsonify(out)
 
@@ -3574,6 +3611,9 @@ def check_config():
         log("Konfig: SABnzbd nicht gesetzt — Usenet-Download aus.")
     elif not reach(cfg("sab_url")):
         log(f"Konfig-WARNUNG: SABnzbd ({cfg("sab_url")}) nicht erreichbar.")
+    jd = jd_check()
+    if not jd["ok"]:
+        log(f"Konfig-WARNUNG: JDownloader-Uebergabe — {jd['info']}")
     if not (cfg("prow_url") and cfg("prow_apikey")):
         log("Konfig: Prowlarr nicht gesetzt — Usenet-Suche aus.")
     elif not reach(cfg("prow_url")):
