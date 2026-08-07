@@ -485,6 +485,68 @@ paths:
         schema:
           type: string
         description: Plattform-Slug
+  /api/stream:
+    get:
+      summary: Ist der Titel streambar (Plattform ohne Browser-Kern)?
+      tags:
+      - Search
+      responses: &id005
+        '403': *id004
+      security: *id002
+      parameters:
+      - name: title
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Titel
+      - name: platform
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Plattform-Slug
+  /api/stream/start:
+    post:
+      summary: Einzelplatz belegen und Titel auf dem Streaming-Host starten
+      tags:
+      - Requests
+      responses:
+        '403': *id004
+        '200':
+          description: gestartet
+        '409':
+          description: Platz belegt
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - title
+              properties:
+                title:
+                  type: string
+                platform:
+                  type: string
+  /api/stream/stop:
+    post:
+      summary: Sitzung beenden (Inhaber oder manage_requests)
+      tags:
+      - Requests
+      responses:
+        '403': *id004
+        '200':
+          description: freigegeben
+      security: *id002
+  /api/stream/status:
+    get:
+      summary: Zustand des Einzelplatzes
+      tags:
+      - Requests
+      responses: *id005
+      security: *id002
   /api/cover:
     get:
       summary: Cover-URL zu einem Titel (lazy, via IGDB)

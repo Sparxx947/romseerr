@@ -87,6 +87,12 @@ teilen sich **RomM** (Browser/Player) und **RetroNAS**.
   einspielen** (TXT/CSV, ein Titel je Zeile, optional `Titel;Plattform`) — mit **Vorschau**
   vor dem Schreiben: getroffen / mehrdeutig / nicht gefunden. Eine **Beispieldatei** im
   erwarteten Format gibt es im Dialog (bzw. unter `/api/wishlist/example.csv`).
+- 📺 **Stream** für die Plattformen, die der Browser **nicht** emulieren kann (PS2, GameCube,
+  Wii, Switch): der Emulator läuft auf einem Streaming-Host, der Browser bekommt Bild und Ton.
+  Romseerr emuliert nichts und liefert weder Emulator noch Firmware aus — es löst einen Titel
+  auf eine Datei auf und bittet den Host, sie zu starten. **Einzelplatz**: eine Sitzung
+  gleichzeitig, mit Namen des Belegers, Ablauf und ausdrücklichem Beenden. Der schlanke
+  Start-Dienst liegt als `contrib/stream-agent.py` bei.
 - ▶ **Play im Browser**: liegt der Titel in RomM und gibt es für die Plattform einen
   EmulatorJS-Kern, führt ein Knopf auf der Detailseite direkt in RomMs eingebauten Spieler.
   Romseerr emuliert selbst nichts. **PS2, GameCube, Wii, Dreamcast und Switch zeigen den Knopf
@@ -242,6 +248,8 @@ Zwei Wege, die sich ergänzen — **die Weboberfläche hat Vorrang, `.env` ist d
 | `CATALOG_URLS` | Katalog-JSON-Quellen für den Filehoster-Weg (leer = inaktiv, s. u.) |
 | `ROMSEERR_CATALOG_TTL` | Auffrischintervall der Kataloge in Sekunden (Default 21600) |
 | `ROMSEERR_PLAY_MAX_MB` | Größengrenze für „Im Browser spielen" in MB (Default 2048) |
+| `STREAM_URL` / `STREAM_LAUNCH` | Streaming-Host: Browser-URL und optionaler Start-Dienst |
+| `ROMSEERR_STREAM_TTL` | Ablauf einer Streaming-Sitzung in Sekunden (Default 7200) |
 | `SAB_URL` / `SAB_APIKEY` / `SAB_CAT` | SABnzbd-Anbindung |
 | `PROW_URL` / `PROW_APIKEY` / `PROW_CATS` | Prowlarr-Anbindung |
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | IGDB (Cover, Metadaten, Empfehlungen) |
