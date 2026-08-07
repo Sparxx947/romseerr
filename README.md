@@ -53,13 +53,16 @@ docker compose up -d --build
 **Nur Romseerr** (bestehender Stack): im `docker-compose.yml` nur den Dienst
 `romseerr` verwenden und dessen `.env`-URLs auf die vorhandenen Hosts zeigen.
 
-## Endpunkte (Auszug)
+## API
 
-- `/` — Weboberfläche · `/login` — Anmelden/Ersteinrichtung
-- `GET /api/search?q=&platforms=` · `GET /api/discover/rows` · `GET /api/detail` · `GET /api/cover`
-- `POST /api/download` · `GET /api/jobs` · `POST /api/jobs/<id>/approve|deny`
-- `GET/POST /api/settings` · `GET/POST /api/users` · `PATCH/DELETE /api/users/<u>`
-- `GET /api/auth/status` · `POST /api/login|logout|setup` · `GET /health`
+Vollständige Dokumentation:
+
+- **Interaktiv:** `http://<host>:8770/api/docs` (Redoc) · **Spec:** `/api/openapi.json`
+- **Anleitung + Auth (API-Key/Session):** [`docs/API.md`](docs/API.md)
+- **OpenAPI 3.1 im Repo:** [`docs/openapi.yaml`](docs/openapi.yaml)
+
+Programmatischer Zugriff per API-Key (Header `X-Api-Key` oder `?apikey=`), z. B.
+`curl -H "X-Api-Key: $KEY" http://<host>:8770/api/jobs`.
 
 ## Stack-Komponenten (Kurz)
 

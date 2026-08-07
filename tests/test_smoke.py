@@ -74,6 +74,42 @@ def test_protected_endpoint_requires_auth(client):
     assert r.status_code in (401, 403)
 
 
+def test_openapi_covers_all_routes(appmod):
+    """Jede registrierte Route muss in der OpenAPI-Spec dokumentiert sein (Drift-Schutz)."""
+    paths = appmod.OPENAPI["paths"]
+    missing = []
+    for rule in appmod.app.url_map.iter_rules():
+        if rule.endpoint == "static":
+            continue
+        p = re.sub(r"<(?:[^:<>]+:)?([^<>]+)>", r"{\1}", rule.rule)
+        if p not in paths:
+            missing.append(p)
+    assert not missing, f"nicht in OpenAPI dokumentiert: {sorted(set(missing))}"
+
+
+def test_openapi_yaml_in_sync(appmod):
+    """docs/openapi.yaml muss aus app.OPENAPI erzeugt sein (kein Drift)."""
+    try:
+        import yaml
+    except ImportError:
+        pytest.skip("pyyaml nicht verfügbar")
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(root, "docs", "openapi.yaml")
+    if not os.path.exists(path):
+        pytest.skip("docs/openapi.yaml fehlt")
+    on_disk = yaml.safe_load(open(path))
+    assert on_disk == appmod.OPENAPI, "docs/openapi.yaml veraltet — `python scripts/build_openapi.py` neu ausführen"
+
+
+def test_openapi_served(client):
+    r = client.get("/api/openapi.json")
+    assert r.status_code == 200
+    spec = r.get_json()
+    assert spec["openapi"].startswith("3.")
+    assert "/health" in spec["paths"]
+    assert "securitySchemes" in spec["components"]
+
+
 def test_inline_js_parses():
     """Der interpretierte PAGE/LOGIN/RESET-JS-Block muss gültiges JavaScript sein.
 

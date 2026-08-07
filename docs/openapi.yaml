@@ -1,0 +1,878 @@
+# GENERIERT aus app.OPENAPI — nicht von Hand ändern. / GENERATED — do not edit.
+# Neu erzeugen: python scripts/build_openapi.py
+openapi: 3.1.0
+info:
+  title: Romseerr API
+  version: 0.1.0
+  description: Selbstgehostete Seerr-artige ROM-Suche & -Anfrage. / Self-hosted Seerr-style ROM search
+    & request. Auth per Session-Cookie oder API-Key (Header `X-Api-Key` bzw. Query `?apikey=`; API-Key
+    = Admin-äquivalent).
+  license:
+    name: MIT
+servers:
+- url: /
+  description: dieselbe Herkunft / same origin
+tags:
+- name: System
+  description: Health, Auth-Status, PWA-Assets
+- name: Auth
+  description: Ersteinrichtung, Login/Logout, Passwort-Reset
+- name: Search
+  description: Suche, Discover, Detail, Cover, Plattformen
+- name: Requests
+  description: Downloads/Anfragen (Jobs) + Freigabe
+- name: Issues
+  description: Problemmeldungen + Kommentare
+- name: Profile
+  description: Eigenes Profil, Passwort, Benachrichtigungen
+- name: Push
+  description: Web-Push-Abos
+- name: Admin
+  description: Benutzer, Einstellungen, Sperrliste, Logs, Wartung, API-Key
+- name: Docs
+  description: diese Spezifikation
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session
+    apiKeyHeader:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+    apiKeyQuery:
+      type: apiKey
+      in: query
+      name: apikey
+paths:
+  /health:
+    get:
+      summary: Liveness-Probe (Titelzahl, Jobs)
+      tags:
+      - System
+      responses:
+        '200':
+          description: OK
+      security: &id001 []
+  /api/auth/status:
+    get:
+      summary: Anmelde-/Setup-Status, App-Name, Version
+      tags:
+      - System
+      responses:
+        '200':
+          description: OK
+      security: *id001
+  /manifest.webmanifest:
+    get:
+      summary: PWA-Manifest
+      tags:
+      - System
+      responses:
+        '200':
+          description: OK
+      security: *id001
+  /sw.js:
+    get:
+      summary: Service-Worker
+      tags:
+      - System
+      responses:
+        '200':
+          description: OK
+      security: *id001
+  /icon.svg:
+    get:
+      summary: App-Icon
+      tags:
+      - System
+      responses:
+        '200':
+          description: OK
+      security: *id001
+  /:
+    get:
+      summary: Web-Oberfläche (HTML)
+      tags:
+      - System
+      responses:
+        '200':
+          description: OK
+      security: &id002
+      - cookieAuth: []
+      - apiKeyHeader: []
+      - apiKeyQuery: []
+  /login:
+    get:
+      summary: Login-Seite (HTML)
+      tags:
+      - System
+      responses:
+        '200':
+          description: OK
+      security: *id001
+  /reset:
+    get:
+      summary: Passwort-Reset-Seite (HTML)
+      tags:
+      - System
+      responses:
+        '200':
+          description: OK
+      security: *id001
+  /api/setup:
+    post:
+      summary: Ersten Admin anlegen (nur solange kein Nutzer existiert)
+      tags:
+      - Auth
+      responses:
+        '200':
+          description: OK
+      security: *id001
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - username
+              - password
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                display_name:
+                  type: string
+  /api/login:
+    post:
+      summary: Anmelden (Session-Cookie)
+      tags:
+      - Auth
+      responses:
+        '200':
+          description: OK
+        '401':
+          description: falsche Zugangsdaten
+      security: *id001
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - username
+              - password
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+  /api/logout:
+    post:
+      summary: Abmelden
+      tags:
+      - Auth
+      responses:
+        '200':
+          description: OK
+      security: *id002
+  /api/forgot:
+    post:
+      summary: Passwort-Reset per E-Mail anstoßen (generische Antwort)
+      tags:
+      - Auth
+      responses:
+        '200':
+          description: OK
+      security: *id001
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user:
+                  type: string
+                  description: Benutzername oder E-Mail
+  /api/reset:
+    post:
+      summary: Passwort mit Token setzen
+      tags:
+      - Auth
+      responses:
+        '200':
+          description: OK
+      security: *id001
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - token
+              - password
+              properties:
+                token:
+                  type: string
+                password:
+                  type: string
+  /api/search:
+    get:
+      summary: ROMs suchen (Archive.org + Usenet), plattform-gefiltert
+      tags:
+      - Search
+      responses:
+        '401': &id003
+          description: nicht angemeldet / not authenticated
+        '200':
+          description: Trefferliste
+      security: *id002
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Suchbegriff
+      - name: platforms
+        in: query
+        required: false
+        schema:
+          type: string
+        description: kommagetrennte Plattform-Slugs
+  /api/discover:
+    get:
+      summary: Beliebte Titel (flach)
+      tags:
+      - Search
+      responses:
+        '200':
+          description: OK
+      security: *id002
+  /api/discover/rows:
+    get:
+      summary: Startseiten-Reihen (beliebt je Konsole + je Genre)
+      tags:
+      - Search
+      responses:
+        '200':
+          description: OK
+      security: *id002
+  /api/detail:
+    get:
+      summary: Detaildaten inkl. IGDB (Wertung, Screenshots, Ähnliches) + Dateien
+      tags:
+      - Search
+      responses:
+        '200':
+          description: OK
+      security: *id002
+      parameters:
+      - name: source
+        in: query
+        required: false
+        schema:
+          type: string
+        description: archive|usenet
+      - name: ref
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Quell-Referenz
+      - name: title
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Titel
+  /api/cover:
+    get:
+      summary: Cover-URL zu einem Titel (lazy, via IGDB)
+      tags:
+      - Search
+      responses:
+        '200':
+          description: OK
+      security: *id002
+      parameters:
+      - name: title
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Titel
+  /api/platforms:
+    get:
+      summary: Verfügbare Plattformen/Slugs
+      tags:
+      - Search
+      responses:
+        '200':
+          description: OK
+      security: *id002
+  /api/download:
+    post:
+      summary: ROM anfragen/herunterladen (Auto-Freigabe oder pending)
+      tags:
+      - Requests
+      responses:
+        '401': *id003
+        '200':
+          description: Job angelegt
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Trefferobjekt aus /api/search bzw. /api/detail
+  /api/jobs:
+    get:
+      summary: 'Eigene Anfragen (Admin: alle) mit Status'
+      tags:
+      - Requests
+      responses:
+        '200':
+          description: OK
+      security: *id002
+  /api/jobs/{jid}/approve:
+    post:
+      summary: Anfrage freigeben
+      tags:
+      - Requests
+      responses:
+        '403': &id004
+          description: fehlende Berechtigung / missing permission
+        '200':
+          description: OK
+      security: *id002
+      parameters:
+      - name: jid
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Job-ID
+  /api/jobs/{jid}/deny:
+    post:
+      summary: Anfrage ablehnen
+      tags:
+      - Requests
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+      parameters:
+      - name: jid
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Job-ID
+  /api/jobs/clear-finished:
+    post:
+      summary: Abgeschlossene Anfragen entfernen
+      tags:
+      - Requests
+      responses:
+        '403': *id004
+        '200':
+          description: entfernt
+      security: *id002
+  /api/issues:
+    get:
+      summary: 'Problemmeldungen (eigene; Admin: alle)'
+      tags:
+      - Issues
+      responses:
+        '200':
+          description: OK
+      security: *id002
+    post:
+      summary: Problem melden
+      tags:
+      - Issues
+      responses:
+        '200':
+          description: OK
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - title
+              properties:
+                title:
+                  type: string
+                platform:
+                  type: string
+                type:
+                  type: string
+                message:
+                  type: string
+  /api/issues/{iid}/comment:
+    post:
+      summary: Kommentar (Melder oder Staff)
+      tags:
+      - Issues
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+        '400':
+          description: leer
+      security: *id002
+      parameters:
+      - name: iid
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Issue-ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - text
+              properties:
+                text:
+                  type: string
+  /api/issues/{iid}/close:
+    post:
+      summary: Problem schließen
+      tags:
+      - Issues
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+      parameters:
+      - name: iid
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Issue-ID
+  /api/issues/{iid}:
+    delete:
+      summary: Problem löschen
+      tags:
+      - Issues
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+      parameters:
+      - name: iid
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Issue-ID
+  /api/profile:
+    get:
+      summary: Eigenes Profil
+      tags:
+      - Profile
+      responses:
+        '200':
+          description: OK
+      security: *id002
+    post:
+      summary: Profil ändern (Name, E-Mail, Sprache, Avatar, persönl. Webhook)
+      tags:
+      - Profile
+      responses:
+        '200':
+          description: OK
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                display_name:
+                  type: string
+                email:
+                  type: string
+                lang:
+                  type: string
+                  enum:
+                  - de
+                  - en
+                  - fr
+                  - es
+                avatar:
+                  type: string
+                  description: data-URI
+                webhook:
+                  type: string
+  /api/profile/password:
+    post:
+      summary: Eigenes Passwort ändern
+      tags:
+      - Profile
+      responses:
+        '200':
+          description: OK
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - old
+              - new
+              properties:
+                old:
+                  type: string
+                new:
+                  type: string
+  /api/profile/notify-test:
+    post:
+      summary: Persönlichen Webhook testen
+      tags:
+      - Profile
+      responses:
+        '200':
+          description: OK
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+  /api/push/pubkey:
+    get:
+      summary: VAPID-Public-Key + ob Push verfügbar
+      tags:
+      - Push
+      responses:
+        '200':
+          description: OK
+      security: *id002
+  /api/push/subscribe:
+    post:
+      summary: Push-Abo speichern
+      tags:
+      - Push
+      responses:
+        '200':
+          description: OK
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - endpoint
+              description: PushSubscription-JSON
+  /api/push/unsubscribe:
+    post:
+      summary: Push-Abo entfernen
+      tags:
+      - Push
+      responses:
+        '200':
+          description: OK
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                endpoint:
+                  type: string
+  /api/push/test:
+    post:
+      summary: Test-Push an sich selbst
+      tags:
+      - Push
+      responses:
+        '200':
+          description: OK
+      security: *id002
+  /api/users:
+    get:
+      summary: Benutzer auflisten
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: Liste
+      security: *id002
+    post:
+      summary: Benutzer anlegen
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - username
+              - password
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                role:
+                  type: string
+                  enum:
+                  - user
+                  - admin
+                perms:
+                  type: array
+                  items:
+                    type: string
+  /api/users/{u}:
+    patch:
+      summary: Benutzer ändern (Rolle/Rechte/Auto-Freigabe)
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+      parameters:
+      - name: u
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Benutzername
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                perms:
+                  type: array
+                  items:
+                    type: string
+                autoapprove:
+                  type: boolean
+    delete:
+      summary: Benutzer löschen
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+      parameters:
+      - name: u
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Benutzername
+  /api/settings:
+    get:
+      summary: Einstellungen (Discord, SMTP-Status, Quota, Agenten, general)
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+    post:
+      summary: Einstellungen speichern
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Teil- oder Gesamtobjekt der Einstellungen
+  /api/settings/mail-test:
+    post:
+      summary: Test-E-Mail senden
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+  /api/settings/notify-test:
+    post:
+      summary: Benachrichtigungs-Agenten testen
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+  /api/blocklist:
+    get:
+      summary: Sperrliste lesen
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+    post:
+      summary: Sperrliste setzen
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                blocklist:
+                  type: array
+                  items:
+                    type: string
+  /api/services/status:
+    get:
+      summary: Status angebundener Dienste (SAB, Prowlarr, RomM …)
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+  /api/maillog:
+    get:
+      summary: Mail-Versand-Protokoll
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+  /api/logs:
+    get:
+      summary: Anwendungs-Log (letzte Zeilen)
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+      parameters:
+      - name: n
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Anzahl Zeilen (max 1000)
+  /api/admin/stats:
+    get:
+      summary: Laufzeit-Statistik (Jobs, Bibliothek, Cache)
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+  /api/admin/cache/clear:
+    post:
+      summary: IGDB-/Discover-Cache leeren
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+  /api/admin/reindex:
+    post:
+      summary: Bibliotheks-Index neu aufbauen (Hintergrund)
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+  /api/apikey:
+    get:
+      summary: API-Key anzeigen
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+  /api/apikey/regenerate:
+    post:
+      summary: API-Key neu erzeugen
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: neuer Key
+      security: *id002
+  /api/openapi.json:
+    get:
+      summary: Diese OpenAPI-Spezifikation
+      tags:
+      - Docs
+      responses:
+        '200':
+          description: OK
+      security: *id001
+  /api/docs:
+    get:
+      summary: Interaktive API-Dokumentation (Redoc)
+      tags:
+      - Docs
+      responses:
+        '200':
+          description: OK
+      security: *id001

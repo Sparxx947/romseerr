@@ -1595,7 +1595,7 @@ def health(): return jsonify({"ok":True,"lib_titles":len(LIB['all']),"jobs":len(
 
 # ---------- Auth-Routen ----------
 PUBLIC = {"/login","/api/login","/api/setup","/api/auth/status","/health","/reset","/api/forgot","/api/reset",
-          "/manifest.webmanifest","/sw.js","/icon.svg"}
+          "/manifest.webmanifest","/sw.js","/icon.svg","/api/openapi.json","/api/docs"}
 @app.before_request
 def _guard():
     p = request.path
@@ -2060,6 +2060,202 @@ def api_users_del(u):
     if users[u].get("role")=="admin" and len(admins)<=1:
         return jsonify({"ok":False,"msg":"letzter Admin"}), 400
     users.pop(u,None); save_users(users); return jsonify({"ok":True})
+
+# ---------- OpenAPI / API-Dokumentation ----------
+# Einzige Quelle der Wahrheit. Ausgeliefert unter /api/openapi.json, gerendert unter /api/docs.
+# docs/openapi.yaml im Repo wird daraus per scripts/build_openapi.py erzeugt.
+_SEC = [{"cookieAuth": []}, {"apiKeyHeader": []}, {"apiKeyQuery": []}]   # Session ODER API-Key
+_PUB = []                                                               # kein Auth (öffentlich)
+
+def _op(summary, tag, security=None, params=None, body=None, responses=None):
+    o = {"summary": summary, "tags": [tag],
+         "responses": responses or {"200": {"description": "OK"}}}
+    o["security"] = _SEC if security is None else security
+    if params: o["parameters"] = params
+    if body: o["requestBody"] = {"content": {"application/json": {"schema": body}}}
+    return o
+
+_R_AUTH = {"401": {"description": "nicht angemeldet / not authenticated"}}
+_R_PERM = {"403": {"description": "fehlende Berechtigung / missing permission"}}
+_qp = lambda n, d: {"name": n, "in": "query", "required": False, "schema": {"type": "string"}, "description": d}
+_pp = lambda n, d: {"name": n, "in": "path", "required": True, "schema": {"type": "string"}, "description": d}
+
+OPENAPI = {
+    "openapi": "3.1.0",
+    "info": {
+        "title": "Romseerr API",
+        "version": VERSION,
+        "description": "Selbstgehostete Seerr-artige ROM-Suche & -Anfrage. / Self-hosted "
+                       "Seerr-style ROM search & request. Auth per Session-Cookie oder API-Key "
+                       "(Header `X-Api-Key` bzw. Query `?apikey=`; API-Key = Admin-äquivalent).",
+        "license": {"name": "MIT"},
+    },
+    "servers": [{"url": "/", "description": "dieselbe Herkunft / same origin"}],
+    "tags": [
+        {"name": "System", "description": "Health, Auth-Status, PWA-Assets"},
+        {"name": "Auth", "description": "Ersteinrichtung, Login/Logout, Passwort-Reset"},
+        {"name": "Search", "description": "Suche, Discover, Detail, Cover, Plattformen"},
+        {"name": "Requests", "description": "Downloads/Anfragen (Jobs) + Freigabe"},
+        {"name": "Issues", "description": "Problemmeldungen + Kommentare"},
+        {"name": "Profile", "description": "Eigenes Profil, Passwort, Benachrichtigungen"},
+        {"name": "Push", "description": "Web-Push-Abos"},
+        {"name": "Admin", "description": "Benutzer, Einstellungen, Sperrliste, Logs, Wartung, API-Key"},
+        {"name": "Docs", "description": "diese Spezifikation"},
+    ],
+    "components": {
+        "securitySchemes": {
+            "cookieAuth": {"type": "apiKey", "in": "cookie", "name": "session"},
+            "apiKeyHeader": {"type": "apiKey", "in": "header", "name": "X-Api-Key"},
+            "apiKeyQuery": {"type": "apiKey", "in": "query", "name": "apikey"},
+        }
+    },
+    "paths": {
+        # --- System ---
+        "/health": {"get": _op("Liveness-Probe (Titelzahl, Jobs)", "System", _PUB)},
+        "/api/auth/status": {"get": _op("Anmelde-/Setup-Status, App-Name, Version", "System", _PUB)},
+        "/manifest.webmanifest": {"get": _op("PWA-Manifest", "System", _PUB)},
+        "/sw.js": {"get": _op("Service-Worker", "System", _PUB)},
+        "/icon.svg": {"get": _op("App-Icon", "System", _PUB)},
+        "/": {"get": _op("Web-Oberfläche (HTML)", "System", _SEC)},
+        "/login": {"get": _op("Login-Seite (HTML)", "System", _PUB)},
+        "/reset": {"get": _op("Passwort-Reset-Seite (HTML)", "System", _PUB)},
+        # --- Auth ---
+        "/api/setup": {"post": _op("Ersten Admin anlegen (nur solange kein Nutzer existiert)", "Auth", _PUB,
+            body={"type": "object", "required": ["username", "password"],
+                  "properties": {"username": {"type": "string"}, "password": {"type": "string"},
+                                 "display_name": {"type": "string"}}})},
+        "/api/login": {"post": _op("Anmelden (Session-Cookie)", "Auth", _PUB,
+            body={"type": "object", "required": ["username", "password"],
+                  "properties": {"username": {"type": "string"}, "password": {"type": "string"}}},
+            responses={"200": {"description": "OK"}, "401": {"description": "falsche Zugangsdaten"}})},
+        "/api/logout": {"post": _op("Abmelden", "Auth")},
+        "/api/forgot": {"post": _op("Passwort-Reset per E-Mail anstoßen (generische Antwort)", "Auth", _PUB,
+            body={"type": "object", "properties": {"user": {"type": "string", "description": "Benutzername oder E-Mail"}}})},
+        "/api/reset": {"post": _op("Passwort mit Token setzen", "Auth", _PUB,
+            body={"type": "object", "required": ["token", "password"],
+                  "properties": {"token": {"type": "string"}, "password": {"type": "string"}}})},
+        # --- Search ---
+        "/api/search": {"get": _op("ROMs suchen (Archive.org + Usenet), plattform-gefiltert", "Search",
+            params=[_qp("q", "Suchbegriff"), _qp("platforms", "kommagetrennte Plattform-Slugs")],
+            responses={**_R_AUTH, "200": {"description": "Trefferliste"}})},
+        "/api/discover": {"get": _op("Beliebte Titel (flach)", "Search")},
+        "/api/discover/rows": {"get": _op("Startseiten-Reihen (beliebt je Konsole + je Genre)", "Search")},
+        "/api/detail": {"get": _op("Detaildaten inkl. IGDB (Wertung, Screenshots, Ähnliches) + Dateien", "Search",
+            params=[_qp("source", "archive|usenet"), _qp("ref", "Quell-Referenz"), _qp("title", "Titel")])},
+        "/api/cover": {"get": _op("Cover-URL zu einem Titel (lazy, via IGDB)", "Search",
+            params=[_qp("title", "Titel")])},
+        "/api/platforms": {"get": _op("Verfügbare Plattformen/Slugs", "Search")},
+        # --- Requests / Jobs ---
+        "/api/download": {"post": _op("ROM anfragen/herunterladen (Auto-Freigabe oder pending)", "Requests",
+            body={"type": "object", "description": "Trefferobjekt aus /api/search bzw. /api/detail"},
+            responses={**_R_AUTH, "200": {"description": "Job angelegt"}})},
+        "/api/jobs": {"get": _op("Eigene Anfragen (Admin: alle) mit Status", "Requests")},
+        "/api/jobs/{jid}/approve": {"post": _op("Anfrage freigeben", "Requests",
+            params=[_pp("jid", "Job-ID")], responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/jobs/{jid}/deny": {"post": _op("Anfrage ablehnen", "Requests",
+            params=[_pp("jid", "Job-ID")], responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/jobs/clear-finished": {"post": _op("Abgeschlossene Anfragen entfernen", "Requests",
+            responses={**_R_PERM, "200": {"description": "entfernt"}})},
+        # --- Issues ---
+        "/api/issues": {
+            "get": _op("Problemmeldungen (eigene; Admin: alle)", "Issues"),
+            "post": _op("Problem melden", "Issues",
+                body={"type": "object", "required": ["title"],
+                      "properties": {"title": {"type": "string"}, "platform": {"type": "string"},
+                                     "type": {"type": "string"}, "message": {"type": "string"}}})},
+        "/api/issues/{iid}/comment": {"post": _op("Kommentar (Melder oder Staff)", "Issues",
+            params=[_pp("iid", "Issue-ID")],
+            body={"type": "object", "required": ["text"], "properties": {"text": {"type": "string"}}},
+            responses={**_R_PERM, "200": {"description": "OK"}, "400": {"description": "leer"}})},
+        "/api/issues/{iid}/close": {"post": _op("Problem schließen", "Issues",
+            params=[_pp("iid", "Issue-ID")], responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/issues/{iid}": {"delete": _op("Problem löschen", "Issues",
+            params=[_pp("iid", "Issue-ID")], responses={**_R_PERM, "200": {"description": "OK"}})},
+        # --- Profile ---
+        "/api/profile": {
+            "get": _op("Eigenes Profil", "Profile"),
+            "post": _op("Profil ändern (Name, E-Mail, Sprache, Avatar, persönl. Webhook)", "Profile",
+                body={"type": "object", "properties": {
+                    "display_name": {"type": "string"}, "email": {"type": "string"},
+                    "lang": {"type": "string", "enum": ["de", "en", "fr", "es"]},
+                    "avatar": {"type": "string", "description": "data-URI"}, "webhook": {"type": "string"}}})},
+        "/api/profile/password": {"post": _op("Eigenes Passwort ändern", "Profile",
+            body={"type": "object", "required": ["old", "new"],
+                  "properties": {"old": {"type": "string"}, "new": {"type": "string"}}})},
+        "/api/profile/notify-test": {"post": _op("Persönlichen Webhook testen", "Profile",
+            body={"type": "object", "properties": {"url": {"type": "string"}}})},
+        # --- Push ---
+        "/api/push/pubkey": {"get": _op("VAPID-Public-Key + ob Push verfügbar", "Push")},
+        "/api/push/subscribe": {"post": _op("Push-Abo speichern", "Push",
+            body={"type": "object", "required": ["endpoint"], "description": "PushSubscription-JSON"})},
+        "/api/push/unsubscribe": {"post": _op("Push-Abo entfernen", "Push",
+            body={"type": "object", "properties": {"endpoint": {"type": "string"}}})},
+        "/api/push/test": {"post": _op("Test-Push an sich selbst", "Push")},
+        # --- Admin ---
+        "/api/users": {
+            "get": _op("Benutzer auflisten", "Admin", responses={**_R_PERM, "200": {"description": "Liste"}}),
+            "post": _op("Benutzer anlegen", "Admin",
+                body={"type": "object", "required": ["username", "password"],
+                      "properties": {"username": {"type": "string"}, "password": {"type": "string"},
+                                     "role": {"type": "string", "enum": ["user", "admin"]},
+                                     "perms": {"type": "array", "items": {"type": "string"}}}},
+                responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/users/{u}": {
+            "patch": _op("Benutzer ändern (Rolle/Rechte/Auto-Freigabe)", "Admin", params=[_pp("u", "Benutzername")],
+                body={"type": "object", "properties": {"role": {"type": "string"},
+                      "perms": {"type": "array", "items": {"type": "string"}}, "autoapprove": {"type": "boolean"}}},
+                responses={**_R_PERM, "200": {"description": "OK"}}),
+            "delete": _op("Benutzer löschen", "Admin", params=[_pp("u", "Benutzername")],
+                responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/settings": {
+            "get": _op("Einstellungen (Discord, SMTP-Status, Quota, Agenten, general)", "Admin",
+                responses={**_R_PERM, "200": {"description": "OK"}}),
+            "post": _op("Einstellungen speichern", "Admin",
+                body={"type": "object", "description": "Teil- oder Gesamtobjekt der Einstellungen"},
+                responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/settings/mail-test": {"post": _op("Test-E-Mail senden", "Admin",
+            responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/settings/notify-test": {"post": _op("Benachrichtigungs-Agenten testen", "Admin",
+            responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/blocklist": {
+            "get": _op("Sperrliste lesen", "Admin", responses={**_R_PERM, "200": {"description": "OK"}}),
+            "post": _op("Sperrliste setzen", "Admin",
+                body={"type": "object", "properties": {"blocklist": {"type": "array", "items": {"type": "string"}}}},
+                responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/services/status": {"get": _op("Status angebundener Dienste (SAB, Prowlarr, RomM …)", "Admin",
+            responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/maillog": {"get": _op("Mail-Versand-Protokoll", "Admin",
+            responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/logs": {"get": _op("Anwendungs-Log (letzte Zeilen)", "Admin",
+            params=[_qp("n", "Anzahl Zeilen (max 1000)")], responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/admin/stats": {"get": _op("Laufzeit-Statistik (Jobs, Bibliothek, Cache)", "Admin",
+            responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/admin/cache/clear": {"post": _op("IGDB-/Discover-Cache leeren", "Admin",
+            responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/admin/reindex": {"post": _op("Bibliotheks-Index neu aufbauen (Hintergrund)", "Admin",
+            responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/apikey": {"get": _op("API-Key anzeigen", "Admin",
+            responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/apikey/regenerate": {"post": _op("API-Key neu erzeugen", "Admin",
+            responses={**_R_PERM, "200": {"description": "neuer Key"}})},
+        # --- Docs ---
+        "/api/openapi.json": {"get": _op("Diese OpenAPI-Spezifikation", "Docs", _PUB)},
+        "/api/docs": {"get": _op("Interaktive API-Dokumentation (Redoc)", "Docs", _PUB)},
+    },
+}
+
+REDOC_PAGE = """<!doctype html><html><head><meta charset=utf-8>
+<title>Romseerr API</title><meta name=viewport content="width=device-width,initial-scale=1">
+<style>body{margin:0}</style></head><body>
+<redoc spec-url="/api/openapi.json"></redoc>
+<script src="https://cdn.jsdelivr.net/npm/redoc@2/bundles/redoc.standalone.js"></script>
+</body></html>"""
+
+@app.route("/api/openapi.json")
+def api_openapi(): return jsonify(OPENAPI)
+
+@app.route("/api/docs")
+def api_docs(): return Response(REDOC_PAGE, mimetype="text/html")
 
 # ---------- Start ----------
 def periodic_index():
