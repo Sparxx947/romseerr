@@ -175,6 +175,22 @@ def test_private_messages(client):
     client.delete("/api/users/bob")
 
 
+def test_request_on_behalf(client):
+    """Admin darf eine Anfrage im Namen eines anderen Nutzers stellen (for_user)."""
+    st = client.get("/api/auth/status").get_json()
+    if st["setup"]:
+        client.post("/api/setup", json={"username": "admin", "password": "pw123456", "display_name": "A"})
+    client.post("/api/login", json={"username": "admin", "password": "pw123456"})
+    client.post("/api/users", json={"username": "carol", "password": "carolpw1", "role": "user", "perms": ["request"]})
+    r = client.post("/api/download", json={"title": "ZZ OnBehalf 55123", "source": "archive",
+                                           "ref": "x", "platform_slug": "snes", "for_user": "carol"})
+    assert r.status_code == 200 and r.get_json().get("ok")
+    jid = r.get_json()["id"]
+    j = next((x for x in client.get("/api/jobs").get_json() if x["id"] == jid), None)
+    assert j and j["user"] == "carol"
+    client.delete("/api/users/carol")
+
+
 def test_protected_endpoint_requires_auth(client):
     # ohne Login liefert eine geschützte API 401 (nicht 200)
     r = client.get("/api/users")
