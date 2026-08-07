@@ -349,6 +349,10 @@ def db_init():
             c.execute("CREATE INDEX IF NOT EXISTS ix_lib_norm ON library(norm)")
             c.execute("CREATE INDEX IF NOT EXISTS ix_lib_slug ON library(slug, norm)")
             c.execute("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)")
+            # Katalog = „welche Titel gibt es für diese Plattform" (Momentaufnahme aus IGDB).
+            # Getrennt von `library` (= was wir haben); die Differenz ist die Abdeckung. (#78)
+            c.execute("CREATE TABLE IF NOT EXISTS catalog(slug TEXT, norm TEXT, name TEXT)")
+            c.execute("CREATE INDEX IF NOT EXISTS ix_cat_slug ON catalog(slug, norm)")
             c.execute("CREATE TABLE IF NOT EXISTS users(username TEXT PRIMARY KEY, data TEXT)")
             c.execute("CREATE TABLE IF NOT EXISTS jobs(seq INTEGER PRIMARY KEY AUTOINCREMENT, jid TEXT, data TEXT)")
             c.execute("CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, data TEXT)")
@@ -432,6 +436,116 @@ def build_index():
         LIB["per"], LIB["all"], LIB["slugs"], LIB["ts"] = per, allset, slugs, ts
     save_index_to_db(per, allset, slugs, ts)   # persistieren -> schneller Neustart
     log(f"Bibliotheks-Index: {len(slugs)} Plattformen, {len(allset)} Titel (in DB gesichert)")
+    refresh_coverage_counts()   # Abdeckung folgt der Bibliothek, wird nicht je Request gerechnet (#78)
+
+# ---------- Abdeckung je Plattform (#78) ----------
+# „412 von 1.180" — die Frage, die ein sammelnder Nutzer zuerst stellt. Dafür braucht es
+# neben dem, was da ist (`library`), eine Vorstellung davon, was es GIBT (`catalog`).
+#
+# WICHTIG: Eine Prozentzahl ohne Grundlage lädt zu falschen Schlüssen ein. Metadaten-Sätze
+# sind sich uneins, was als eigener Titel zählt (Regionalfassungen, Revisionen, Unlizenziertes).
+# Deshalb steht an JEDER Zahl die Quelle und der Stand der Momentaufnahme — auch in der API.
+CATALOG_SOURCE = "IGDB"
+CATALOG_MAX    = 3000        # Titel je Plattform (darüber wird die Zahl als Untergrenze geführt)
+CATALOG_PAGE   = 500         # IGDB-Maximum je Abfrage
+COVERAGE_LOCK  = threading.Lock()
+
+def load_coverage(): return kv_get("coverage", {})
+def save_coverage(c): kv_put("coverage", c)
+
+def fetch_catalog(slug):
+    """Titelliste einer Plattform von IGDB holen und die Katalogtabelle für sie ersetzen.
+
+    Nur Hauptspiele (`category = 0`), damit DLC und Editionen die Grundgesamtheit nicht
+    aufblähen. Liefert die Zahl der gespeicherten Titel oder None, wenn die Quelle nichts
+    hergibt — dann wird bewusst KEINE Momentaufnahme geschrieben, statt 0 zu behaupten."""
+    pid = IGDB_PLAT.get(slug)
+    if not pid or not igdb_token(): return None
+    rows, offset = [], 0
+    while offset < CATALOG_MAX:
+        d = igdb_query("games", f'fields name; where platforms=({pid}) & category = 0; '
+                                f'sort name asc; limit {CATALOG_PAGE}; offset {offset};')
+        if not isinstance(d, list) or not d: break
+        for g in d:
+            nm = (g or {}).get("name") or ""
+            n = norm(nm)
+            if n: rows.append((slug, n, nm))
+        if len(d) < CATALOG_PAGE: break
+        offset += CATALOG_PAGE
+    if not rows: return None
+    seen, uniq = set(), []
+    for slg, n, nm in rows:
+        if n in seen: continue
+        seen.add(n); uniq.append((slg, n, nm))
+    try:
+        with DB_LOCK, closing(db_conn()) as c, c:
+            c.execute("DELETE FROM catalog WHERE slug=?", (slug,))
+            c.executemany("INSERT INTO catalog(slug,norm,name) VALUES(?,?,?)", uniq)
+    except Exception as e:
+        log(f"Katalog-Speichern {slug}: {e}"); return None
+    return len(uniq)
+
+def refresh_coverage_counts():
+    """Besessen/bekannt je Plattform neu auszählen und ablegen. Läuft nach jedem
+    Index-Lauf und nach jedem Katalog-Abruf — NICHT je Request (das skaliert nicht)."""
+    cov = load_coverage()
+    try:
+        with closing(db_conn()) as c:
+            known = dict(c.execute("SELECT slug, COUNT(*) FROM catalog GROUP BY slug"))
+            owned = dict(c.execute(
+                "SELECT c.slug, COUNT(*) FROM catalog c "
+                "WHERE EXISTS(SELECT 1 FROM library l WHERE l.slug=c.slug AND l.norm=c.norm) "
+                "GROUP BY c.slug"))
+    except Exception as e:
+        log(f"Abdeckung-Zählen: {e}"); return cov
+    for slug, k in known.items():
+        e = cov.setdefault(slug, {})
+        e.update({"known": k, "owned": owned.get(slug, 0), "source": CATALOG_SOURCE,
+                  "capped": k >= CATALOG_MAX, "counted": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+        e.setdefault("snapshot", e["counted"])
+    for slug in list(cov):
+        if slug not in known: cov.pop(slug)      # Katalog weg -> keine Zahl behaupten
+    save_coverage(cov)
+    return cov
+
+def coverage_overview():
+    """Übersicht je Plattform. Plattformen ohne Momentaufnahme erscheinen MIT diesem Hinweis,
+    statt als „0 %" — das wäre die falscheste aller Zahlen."""
+    cov = load_coverage()
+    with LIB_LOCK:
+        have = {s: len(v) for s, v in LIB["per"].items()}
+    out = []
+    for _grp, items in PLATFORMS:
+        for slug, name in items:
+            e = cov.get(slug)
+            row = {"slug": slug, "name": name, "files": have.get(slug, 0),
+                   "catalog": bool(IGDB_PLAT.get(slug))}
+            if e:
+                row.update({"owned": e.get("owned", 0), "known": e.get("known", 0),
+                            "pct": round(100.0 * e.get("owned", 0) / e["known"], 1) if e.get("known") else None,
+                            "source": e.get("source", CATALOG_SOURCE), "snapshot": e.get("snapshot", ""),
+                            "capped": bool(e.get("capped"))})
+            else:
+                row.update({"owned": None, "known": None, "pct": None, "snapshot": "", "source": ""})
+            out.append(row)
+    return out
+
+def missing_titles(slug, offset=0, limit=100, q=""):
+    """Fehlende Titel einer Plattform (Katalog minus Bibliothek), paginiert und filterbar."""
+    sql = ("SELECT c.name FROM catalog c WHERE c.slug=? "
+           "AND NOT EXISTS(SELECT 1 FROM library l WHERE l.slug=c.slug AND l.norm=c.norm)")
+    args = [slug]
+    if q:
+        sql += " AND c.name LIKE ?"; args.append(f"%{q}%")
+    cnt_sql = sql.replace("SELECT c.name", "SELECT COUNT(*)", 1)
+    sql += " ORDER BY c.name LIMIT ? OFFSET ?"
+    try:
+        with closing(db_conn()) as c:
+            total = c.execute(cnt_sql, args).fetchone()[0]
+            names = [r[0] for r in c.execute(sql, args + [int(limit), int(offset)])]
+    except Exception as e:
+        log(f"Fehlende-Titel {slug}: {e}"); return {"total": 0, "titles": []}
+    return {"total": total, "titles": names}
 
 def in_library(title, slug):
     n = norm(title)
@@ -1597,6 +1711,7 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid var(--border)
  <a class="nav on" id=nS data-i18n=nav_discover onclick="show('s')">🔍 Entdecken</a>
  <a class=nav id=nJ data-i18n=nav_requests onclick="show('j')">📥 Anfragen</a>
  <a class=nav id=nI data-i18n=nav_issues onclick="show('issues')">🐞 Probleme</a>
+ <a class=nav id=nC data-i18n=nav_coverage onclick="show('cov')">📊 Abdeckung</a>
  <a class=nav id=nM onclick="show('msg')">✉ <span data-i18n=nav_messages>Nachrichten</span><span id=msgbadge></span></a>
  <a class=nav id=nSet data-i18n=nav_settings onclick="show('set')" style="display:none">⚙️ Einstellungen</a>
  <div class=grow></div>
@@ -1616,6 +1731,7 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid var(--border)
  <div id=settings></div>
  <div id=issues></div>
  <div id=messages></div>
+ <div id=coverage></div>
 </main>
 <div id=modal></div>
 <script>
@@ -1625,7 +1741,7 @@ const I18N={de:{
  hint_type:'Tippe einen Titel und drücke Enter.',loading_home:'Lade Startseite …',popular_on:'Beliebt auf',click_search:'klick zum Suchen',
  searching:'Suche läuft …',no_results:'Keine Treffer.',results:'Treffer',in_library:'✓ in Bibliothek',download:'⬇ Download',requested:'✓ angefragt',collection:'Sammlung',
  versions:'Versionen / Quellen',files:'Dateien',no_desc:'Keine Beschreibung verfügbar.',screenshots:'Screenshots',similar:'Ähnliche Spiele',series:'Reihe',because_you:'Weil du angefragt hast:',
- no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',retry:'Erneut',reset:'Alle zurücksetzen',req_all:'Alle anfragen',flt_user:'Nutzer',flt_all:'Alle',wishlist:'Wunschliste',wl_import:'Import',wl_imp_hint:'Liste einfügen oder Datei wählen (TXT/CSV) — ein Titel je Zeile, optional Titel;Plattform. Nichts wird geschrieben, bevor du die Vorschau bestätigst.',wl_imp_example:'Beispieldatei herunterladen',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Vorschau',wl_imp_apply:'Übernehmen',wl_imp_none:'Nichts ausgewählt.',wl_imp_done:'{a} übernommen, {s} übersprungen.',wl_imp_trunc:'Nur die ersten {n} Zeilen werden geprüft.',wl_imp_toobig:'Datei zu groß (max. 200 kB).',wl_imp_nocheck:'Ohne IGDB-Zugang kein Katalogabgleich — Einträge werden ungeprüft übernommen.',wl_s_matched:'getroffen',wl_s_ambiguous:'mehrdeutig',wl_s_notfound:'nicht gefunden',wl_s_duplicate:'schon gemerkt',wl_s_inlib:'schon vorhanden',wl_s_unverified:'ungeprüft',add_wishlist:'⭐ Merken',wl_added:'⭐ gemerkt',wl_empty:'Wunschliste leer.',wl_remove:'Entfernen',
+ no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',retry:'Erneut',reset:'Alle zurücksetzen',req_all:'Alle anfragen',flt_user:'Nutzer',flt_all:'Alle',wishlist:'Wunschliste',nav_coverage:'Abdeckung',cov_of:'von',cov_src:'Quelle',cov_asof:'Stand',cov_files:'Dateien',cov_missing:'fehlende Titel',cov_refresh:'Katalog aktualisieren',cov_nosnap:'keine Momentaufnahme — Katalog noch nicht geholt',cov_nosource:'keine Katalogquelle für diese Plattform',cov_basis:'Grundlage ist eine Momentaufnahme aus {src} (max. {max} Titel je Plattform). Metadatensätze sind sich uneins, was als eigener Titel zählt — die Prozentzahl ist eine Orientierung, kein Messwert.',cov_search:'Suchen',cov_none:'Nichts fehlt (oder kein Katalog).',cov_filter:'Filtern …',cov_filter_do:'Filtern',cov_wish_sel:'Auswahl auf die Wunschliste',wl_import:'Import',wl_imp_hint:'Liste einfügen oder Datei wählen (TXT/CSV) — ein Titel je Zeile, optional Titel;Plattform. Nichts wird geschrieben, bevor du die Vorschau bestätigst.',wl_imp_example:'Beispieldatei herunterladen',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Vorschau',wl_imp_apply:'Übernehmen',wl_imp_none:'Nichts ausgewählt.',wl_imp_done:'{a} übernommen, {s} übersprungen.',wl_imp_trunc:'Nur die ersten {n} Zeilen werden geprüft.',wl_imp_toobig:'Datei zu groß (max. 200 kB).',wl_imp_nocheck:'Ohne IGDB-Zugang kein Katalogabgleich — Einträge werden ungeprüft übernommen.',wl_s_matched:'getroffen',wl_s_ambiguous:'mehrdeutig',wl_s_notfound:'nicht gefunden',wl_s_duplicate:'schon gemerkt',wl_s_inlib:'schon vorhanden',wl_s_unverified:'ungeprüft',add_wishlist:'⭐ Merken',wl_added:'⭐ gemerkt',wl_empty:'Wunschliste leer.',wl_remove:'Entfernen',
  users:'Benutzer',new_user:'Neuen Benutzer anlegen',create:'Anlegen',del:'Löschen',autoapprove:'Auto-Freigabe',role_user:'Nutzer',role_admin:'Admin',username:'Benutzername',password:'Passwort',
  notif_discord:'Benachrichtigungen — Discord',active:'aktiv',test:'Test',save:'Speichern',saved:'gespeichert ✓',test_sent:'Test gesendet ✓',webhook_ph:'Discord Webhook-URL',
  st_pending:'⏳ Wartet auf Freigabe',st_queued:'Angefragt',st_downloading:'Lädt…',st_importing:'Wird verarbeitet',st_done:'✅ Verfügbar',st_error:'Fehler',st_denied:'Abgelehnt',st_exists:'vorhanden',
@@ -1639,7 +1755,7 @@ const I18N={de:{
  hint_type:'Type a title and press Enter.',loading_home:'Loading home …',popular_on:'Popular on',click_search:'click to search',
  searching:'Searching …',no_results:'No results.',results:'results',in_library:'✓ in library',download:'⬇ Download',requested:'✓ requested',collection:'Collection',
  versions:'Versions / sources',files:'Files',no_desc:'No description available.',screenshots:'Screenshots',similar:'Similar games',series:'Series',because_you:'Because you requested:',
- no_requests:'No requests yet.',approve:'Approve',deny:'Deny',retry:'Retry',reset:'Reset all',req_all:'Request all',flt_user:'User',flt_all:'All',wishlist:'Wishlist',wl_import:'Import',wl_imp_hint:'Paste a list or pick a file (TXT/CSV) — one title per line, optionally title;platform. Nothing is written until you confirm the preview.',wl_imp_example:'Download example file',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Preview',wl_imp_apply:'Import',wl_imp_none:'Nothing selected.',wl_imp_done:'{a} imported, {s} skipped.',wl_imp_trunc:'Only the first {n} lines are checked.',wl_imp_toobig:'File too large (max 200 kB).',wl_imp_nocheck:'No IGDB credentials — no catalogue check; entries are imported unverified.',wl_s_matched:'matched',wl_s_ambiguous:'ambiguous',wl_s_notfound:'not found',wl_s_duplicate:'already listed',wl_s_inlib:'already in library',wl_s_unverified:'unverified',add_wishlist:'⭐ Watch',wl_added:'⭐ watched',wl_empty:'Wishlist empty.',wl_remove:'Remove',
+ no_requests:'No requests yet.',approve:'Approve',deny:'Deny',retry:'Retry',reset:'Reset all',req_all:'Request all',flt_user:'User',flt_all:'All',wishlist:'Wishlist',nav_coverage:'Coverage',cov_of:'of',cov_src:'Source',cov_asof:'as of',cov_files:'files',cov_missing:'missing titles',cov_refresh:'Refresh catalogue',cov_nosnap:'no snapshot — catalogue not fetched yet',cov_nosource:'no catalogue source for this platform',cov_basis:'Based on a snapshot from {src} (max {max} titles per platform). Metadata sets disagree about what counts as a distinct title — the percentage is an orientation, not a measurement.',cov_search:'Search',cov_none:'Nothing missing (or no catalogue).',cov_filter:'Filter …',cov_filter_do:'Filter',cov_wish_sel:'Selection to wishlist',wl_import:'Import',wl_imp_hint:'Paste a list or pick a file (TXT/CSV) — one title per line, optionally title;platform. Nothing is written until you confirm the preview.',wl_imp_example:'Download example file',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Preview',wl_imp_apply:'Import',wl_imp_none:'Nothing selected.',wl_imp_done:'{a} imported, {s} skipped.',wl_imp_trunc:'Only the first {n} lines are checked.',wl_imp_toobig:'File too large (max 200 kB).',wl_imp_nocheck:'No IGDB credentials — no catalogue check; entries are imported unverified.',wl_s_matched:'matched',wl_s_ambiguous:'ambiguous',wl_s_notfound:'not found',wl_s_duplicate:'already listed',wl_s_inlib:'already in library',wl_s_unverified:'unverified',add_wishlist:'⭐ Watch',wl_added:'⭐ watched',wl_empty:'Wishlist empty.',wl_remove:'Remove',
  users:'Users',new_user:'Create new user',create:'Create',del:'Delete',autoapprove:'Auto-approve',role_user:'User',role_admin:'Admin',username:'Username',password:'Password',
  notif_discord:'Notifications — Discord',active:'enabled',test:'Test',save:'Save',saved:'saved ✓',test_sent:'test sent ✓',webhook_ph:'Discord webhook URL',
  st_pending:'⏳ Awaiting approval',st_queued:'Requested',st_downloading:'Downloading…',st_importing:'Processing',st_done:'✅ Available',st_error:'Error',st_denied:'Denied',st_exists:'in library',
@@ -1653,7 +1769,7 @@ const I18N={de:{
  hint_type:'Saisissez un titre et appuyez sur Entrée.',loading_home:'Chargement …',popular_on:'Populaire sur',click_search:'cliquer pour rechercher',
  searching:'Recherche …',no_results:'Aucun résultat.',results:'résultats',in_library:'✓ dans la bibliothèque',download:'⬇ Télécharger',requested:'✓ demandé',collection:'Collection',
  versions:'Versions / sources',files:'Fichiers',no_desc:'Aucune description disponible.',screenshots:'Captures',similar:'Jeux similaires',series:'Série',because_you:'Parce que vous avez demandé :',
- no_requests:'Aucune demande.',approve:'Approuver',deny:'Refuser',retry:'Réessayer',reset:'Tout réinitialiser',req_all:'Tout demander',flt_user:'Utilisateur',flt_all:'Tous',wishlist:'Liste de souhaits',wl_import:'Import',wl_imp_hint:'Collez une liste ou choisissez un fichier (TXT/CSV) — un titre par ligne, éventuellement titre;plateforme. Rien n’est écrit avant votre confirmation.',wl_imp_example:'Télécharger un exemple',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Aperçu',wl_imp_apply:'Importer',wl_imp_none:'Rien de sélectionné.',wl_imp_done:'{a} importés, {s} ignorés.',wl_imp_trunc:'Seules les {n} premières lignes sont vérifiées.',wl_imp_toobig:'Fichier trop grand (max 200 ko).',wl_imp_nocheck:'Sans accès IGDB, pas de vérification — les entrées sont importées telles quelles.',wl_s_matched:'trouvé',wl_s_ambiguous:'ambigu',wl_s_notfound:'introuvable',wl_s_duplicate:'déjà suivi',wl_s_inlib:'déjà présent',wl_s_unverified:'non vérifié',add_wishlist:'⭐ Suivre',wl_added:'⭐ suivi',wl_empty:'Liste vide.',wl_remove:'Retirer',
+ no_requests:'Aucune demande.',approve:'Approuver',deny:'Refuser',retry:'Réessayer',reset:'Tout réinitialiser',req_all:'Tout demander',flt_user:'Utilisateur',flt_all:'Tous',wishlist:'Liste de souhaits',nav_coverage:'Couverture',cov_of:'sur',cov_src:'Source',cov_asof:'au',cov_files:'fichiers',cov_missing:'titres manquants',cov_refresh:'Actualiser le catalogue',cov_nosnap:'pas d’instantané — catalogue pas encore récupéré',cov_nosource:'pas de source de catalogue pour cette plateforme',cov_basis:'Basé sur un instantané de {src} (max {max} titres par plateforme). Les jeux de métadonnées ne s’accordent pas sur ce qui compte comme titre distinct — le pourcentage est une orientation, pas une mesure.',cov_search:'Chercher',cov_none:'Rien ne manque (ou pas de catalogue).',cov_filter:'Filtrer …',cov_filter_do:'Filtrer',cov_wish_sel:'Sélection vers la liste',wl_import:'Import',wl_imp_hint:'Collez une liste ou choisissez un fichier (TXT/CSV) — un titre par ligne, éventuellement titre;plateforme. Rien n’est écrit avant votre confirmation.',wl_imp_example:'Télécharger un exemple',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Aperçu',wl_imp_apply:'Importer',wl_imp_none:'Rien de sélectionné.',wl_imp_done:'{a} importés, {s} ignorés.',wl_imp_trunc:'Seules les {n} premières lignes sont vérifiées.',wl_imp_toobig:'Fichier trop grand (max 200 ko).',wl_imp_nocheck:'Sans accès IGDB, pas de vérification — les entrées sont importées telles quelles.',wl_s_matched:'trouvé',wl_s_ambiguous:'ambigu',wl_s_notfound:'introuvable',wl_s_duplicate:'déjà suivi',wl_s_inlib:'déjà présent',wl_s_unverified:'non vérifié',add_wishlist:'⭐ Suivre',wl_added:'⭐ suivi',wl_empty:'Liste vide.',wl_remove:'Retirer',
  users:'Utilisateurs',new_user:'Créer un utilisateur',create:'Créer',del:'Supprimer',autoapprove:'Approbation auto',role_user:'Utilisateur',role_admin:'Admin',username:"Nom d'utilisateur",password:'Mot de passe',
  notif_discord:'Notifications — Discord',active:'activé',test:'Test',save:'Enregistrer',saved:'enregistré ✓',test_sent:'test envoyé ✓',webhook_ph:'URL du webhook Discord',
  st_pending:"⏳ En attente d'approbation",st_queued:'Demandé',st_downloading:'Téléchargement…',st_importing:'Traitement',st_done:'✅ Disponible',st_error:'Erreur',st_denied:'Refusé',st_exists:'présent',
@@ -1667,7 +1783,7 @@ const I18N={de:{
  hint_type:'Escribe un título y pulsa Intro.',loading_home:'Cargando …',popular_on:'Popular en',click_search:'clic para buscar',
  searching:'Buscando …',no_results:'Sin resultados.',results:'resultados',in_library:'✓ en la biblioteca',download:'⬇ Descargar',requested:'✓ solicitado',collection:'Colección',
  versions:'Versiones / fuentes',files:'Archivos',no_desc:'Sin descripción disponible.',screenshots:'Capturas',similar:'Juegos similares',series:'Serie',because_you:'Porque solicitaste:',
- no_requests:'Aún no hay solicitudes.',approve:'Aprobar',deny:'Rechazar',retry:'Reintentar',reset:'Restablecer todo',req_all:'Solicitar todo',flt_user:'Usuario',flt_all:'Todos',wishlist:'Lista de deseos',wl_import:'Importar',wl_imp_hint:'Pega una lista o elige un archivo (TXT/CSV) — un título por línea, opcionalmente título;plataforma. No se escribe nada hasta que confirmes.',wl_imp_example:'Descargar archivo de ejemplo',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Vista previa',wl_imp_apply:'Importar',wl_imp_none:'Nada seleccionado.',wl_imp_done:'{a} importados, {s} omitidos.',wl_imp_trunc:'Solo se comprueban las primeras {n} líneas.',wl_imp_toobig:'Archivo demasiado grande (máx. 200 kB).',wl_imp_nocheck:'Sin acceso a IGDB no hay comprobación — se importan sin verificar.',wl_s_matched:'encontrado',wl_s_ambiguous:'ambiguo',wl_s_notfound:'no encontrado',wl_s_duplicate:'ya en la lista',wl_s_inlib:'ya en biblioteca',wl_s_unverified:'sin verificar',add_wishlist:'⭐ Seguir',wl_added:'⭐ en lista',wl_empty:'Lista vacía.',wl_remove:'Quitar',
+ no_requests:'Aún no hay solicitudes.',approve:'Aprobar',deny:'Rechazar',retry:'Reintentar',reset:'Restablecer todo',req_all:'Solicitar todo',flt_user:'Usuario',flt_all:'Todos',wishlist:'Lista de deseos',nav_coverage:'Cobertura',cov_of:'de',cov_src:'Fuente',cov_asof:'a fecha',cov_files:'archivos',cov_missing:'títulos que faltan',cov_refresh:'Actualizar catálogo',cov_nosnap:'sin instantánea — catálogo aún no obtenido',cov_nosource:'sin fuente de catálogo para esta plataforma',cov_basis:'Basado en una instantánea de {src} (máx. {max} títulos por plataforma). Los conjuntos de metadatos no coinciden en qué cuenta como título propio — el porcentaje orienta, no mide.',cov_search:'Buscar',cov_none:'No falta nada (o no hay catálogo).',cov_filter:'Filtrar …',cov_filter_do:'Filtrar',cov_wish_sel:'Selección a la lista',wl_import:'Importar',wl_imp_hint:'Pega una lista o elige un archivo (TXT/CSV) — un título por línea, opcionalmente título;plataforma. No se escribe nada hasta que confirmes.',wl_imp_example:'Descargar archivo de ejemplo',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Vista previa',wl_imp_apply:'Importar',wl_imp_none:'Nada seleccionado.',wl_imp_done:'{a} importados, {s} omitidos.',wl_imp_trunc:'Solo se comprueban las primeras {n} líneas.',wl_imp_toobig:'Archivo demasiado grande (máx. 200 kB).',wl_imp_nocheck:'Sin acceso a IGDB no hay comprobación — se importan sin verificar.',wl_s_matched:'encontrado',wl_s_ambiguous:'ambiguo',wl_s_notfound:'no encontrado',wl_s_duplicate:'ya en la lista',wl_s_inlib:'ya en biblioteca',wl_s_unverified:'sin verificar',add_wishlist:'⭐ Seguir',wl_added:'⭐ en lista',wl_empty:'Lista vacía.',wl_remove:'Quitar',
  users:'Usuarios',new_user:'Crear usuario',create:'Crear',del:'Eliminar',autoapprove:'Auto-aprobación',role_user:'Usuario',role_admin:'Admin',username:'Usuario',password:'Contraseña',
  notif_discord:'Notificaciones — Discord',active:'activo',test:'Prueba',save:'Guardar',saved:'guardado ✓',test_sent:'prueba enviada ✓',webhook_ph:'URL del webhook de Discord',
  st_pending:'⏳ Esperando aprobación',st_queued:'Solicitado',st_downloading:'Descargando…',st_importing:'Procesando',st_done:'✅ Disponible',st_error:'Error',st_denied:'Rechazado',st_exists:'presente',
@@ -1681,7 +1797,7 @@ const I18N={de:{
  hint_type:'Digita un titolo e premi Invio.',loading_home:'Caricamento …',popular_on:'Popolari su',click_search:'clicca per cercare',
  searching:'Ricerca …',no_results:'Nessun risultato.',results:'risultati',in_library:'✓ in libreria',download:'⬇ Scarica',requested:'✓ richiesto',collection:'Collezione',
  versions:'Versioni / fonti',files:'File',no_desc:'Nessuna descrizione disponibile.',screenshots:'Screenshot',similar:'Giochi simili',series:'Serie',because_you:'Perché hai richiesto:',
- no_requests:'Ancora nessuna richiesta.',approve:'Approva',deny:'Rifiuta',retry:'Riprova',reset:'Reimposta tutto',req_all:'Richiedi tutto',flt_user:'Utente',flt_all:'Tutti',wishlist:'Lista dei desideri',wl_import:'Importa',wl_imp_hint:'Incolla un elenco o scegli un file (TXT/CSV) — un titolo per riga, opzionalmente titolo;piattaforma. Nulla viene scritto prima della conferma.',wl_imp_example:'Scarica file di esempio',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Anteprima',wl_imp_apply:'Importa',wl_imp_none:'Niente selezionato.',wl_imp_done:'{a} importati, {s} saltati.',wl_imp_trunc:'Vengono controllate solo le prime {n} righe.',wl_imp_toobig:'File troppo grande (max 200 kB).',wl_imp_nocheck:'Senza accesso IGDB nessun controllo — le voci vengono importate non verificate.',wl_s_matched:'trovato',wl_s_ambiguous:'ambiguo',wl_s_notfound:'non trovato',wl_s_duplicate:'già in lista',wl_s_inlib:'già in libreria',wl_s_unverified:'non verificato',add_wishlist:'⭐ Segui',wl_added:'⭐ seguito',wl_empty:'Lista vuota.',wl_remove:'Rimuovi',
+ no_requests:'Ancora nessuna richiesta.',approve:'Approva',deny:'Rifiuta',retry:'Riprova',reset:'Reimposta tutto',req_all:'Richiedi tutto',flt_user:'Utente',flt_all:'Tutti',wishlist:'Lista dei desideri',nav_coverage:'Copertura',cov_of:'di',cov_src:'Fonte',cov_asof:'al',cov_files:'file',cov_missing:'titoli mancanti',cov_refresh:'Aggiorna catalogo',cov_nosnap:'nessuna istantanea — catalogo non ancora recuperato',cov_nosource:'nessuna fonte di catalogo per questa piattaforma',cov_basis:'Basato su un’istantanea da {src} (max {max} titoli per piattaforma). I set di metadati non concordano su cosa sia un titolo distinto — la percentuale orienta, non misura.',cov_search:'Cerca',cov_none:'Non manca nulla (o nessun catalogo).',cov_filter:'Filtra …',cov_filter_do:'Filtra',cov_wish_sel:'Selezione alla lista',wl_import:'Importa',wl_imp_hint:'Incolla un elenco o scegli un file (TXT/CSV) — un titolo per riga, opzionalmente titolo;piattaforma. Nulla viene scritto prima della conferma.',wl_imp_example:'Scarica file di esempio',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Anteprima',wl_imp_apply:'Importa',wl_imp_none:'Niente selezionato.',wl_imp_done:'{a} importati, {s} saltati.',wl_imp_trunc:'Vengono controllate solo le prime {n} righe.',wl_imp_toobig:'File troppo grande (max 200 kB).',wl_imp_nocheck:'Senza accesso IGDB nessun controllo — le voci vengono importate non verificate.',wl_s_matched:'trovato',wl_s_ambiguous:'ambiguo',wl_s_notfound:'non trovato',wl_s_duplicate:'già in lista',wl_s_inlib:'già in libreria',wl_s_unverified:'non verificato',add_wishlist:'⭐ Segui',wl_added:'⭐ seguito',wl_empty:'Lista vuota.',wl_remove:'Rimuovi',
  users:'Utenti',new_user:'Crea utente',create:'Crea',del:'Elimina',autoapprove:'Auto-approvazione',role_user:'Utente',role_admin:'Admin',username:'Utente',password:'Password',
  notif_discord:'Notifiche — Discord',active:'attivo',test:'Test',save:'Salva',saved:'salvato ✓',test_sent:'test inviato ✓',webhook_ph:'URL webhook Discord',
  st_pending:'⏳ In attesa di approvazione',st_queued:'Richiesto',st_downloading:'Scaricamento…',st_importing:'Elaborazione',st_done:'✅ Disponibile',st_error:'Errore',st_denied:'Rifiutato',st_exists:'presente',
@@ -1711,6 +1827,7 @@ function show(v){cur=v;
  document.getElementById('settings').style.display=v=='set'?'block':'none';
  document.getElementById('issues').style.display=v=='issues'?'block':'none';
  document.getElementById('messages').style.display=v=='msg'?'block':'none';
+ document.getElementById('coverage').style.display=v=='cov'?'block':'none';
  document.getElementById('nS').classList.toggle('on',v=='s');
  document.getElementById('nJ').classList.toggle('on',v=='j');
  document.getElementById('nI').classList.toggle('on',v=='issues');
@@ -1718,7 +1835,67 @@ function show(v){cur=v;
  document.getElementById('nSet').classList.toggle('on',v=='set');
  if(v=='j')loadJobs();if(v=='set')openSettingsView();
  if(v=='issues'){loadIssues(window._ipref);window._ipref=null;}
- if(v=='msg')loadMessages();}
+ let nC=document.getElementById('nC');if(nC)nC.classList.toggle('on',v=='cov');
+ if(v=='msg')loadMessages();if(v=='cov')loadCoverage();}
+// --- Abdeckung je Plattform: „was fehlt mir" statt „was habe ich" (#78) ---
+// Jede Zahl traegt Quelle + Stand — eine nackte Prozentzahl waere hier irrefuehrend.
+async function loadCoverage(){let box=document.getElementById('coverage');
+ box.innerHTML='<div class=meta>…</div>';
+ let d=await(await fetch('/api/coverage')).json();
+ let rows=(d.platforms||[]).map(p=>{
+  if(p.known==null)return `<div class=job><div><b>${p.name}</b><div class=meta style="font-size:11px">`
+    +(p.catalog?t('cov_nosnap'):t('cov_nosource'))+` · ${p.files} ${t('cov_files')}</div></div></div>`;
+  let bar=`<div style="background:#2a2f37;border-radius:4px;height:6px;width:120px;overflow:hidden">`
+   +`<div style="background:#6c5ce7;height:6px;width:${Math.min(100,p.pct||0)}%"></div></div>`;
+  return `<div class=job style="cursor:pointer" onclick="openMissing('${p.slug}','${p.name.replace(/'/g,"")}')">
+   <div><b>${p.name}</b><div class=meta style="font-size:11px">${p.owned} ${t('cov_of')} ${p.known}`
+   +(p.capped?' +':'')+` · ${p.pct}% · ${t('cov_src')}: ${p.source} · ${t('cov_asof')} ${(p.snapshot||'').slice(0,10)}</div></div>
+   <div style="display:flex;align-items:center;gap:10px">${bar}<span class=meta>›</span></div></div>`;}).join('');
+ let adm=canDo('manage_settings')?`<button onclick="covRefresh()">${t('cov_refresh')}</button>
+   <span id=covmsg class=meta></span>`:'';
+ box.innerHTML=`<div class=rowh style="display:flex;align-items:center;gap:10px"><b>📊 ${t('nav_coverage')}</b>
+   <span style="margin-left:auto">${adm}</span></div>
+  <div class=meta style="margin:6px 0 10px;line-height:1.6">${t('cov_basis').replace('{src}',d.source).replace('{max}',d.max_per_platform)}</div>
+  ${rows}`;
+ if(d.building)covPoll();}
+async function covRefresh(){let m=document.getElementById('covmsg');m.textContent='…';
+ let r=await fetch('/api/coverage/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+ let d=await r.json();if(!d.ok){m.textContent=d.msg||t('st_error');return;}covPoll();}
+async function covPoll(){let m=document.getElementById('covmsg');if(!m)return;
+ let st=await(await fetch('/api/coverage/status')).json();
+ if(st.running){m.textContent=`${st.current||''} ${st.done}/${st.total}`;setTimeout(covPoll,2000);}
+ else{m.textContent=t('done_word');loadCoverage();}}
+let _miss={slug:'',name:'',offset:0,q:''};
+async function openMissing(slug,name){_miss={slug:slug,name:name,offset:0,q:''};renderMissing();}
+async function renderMissing(){let m=document.getElementById('modal');m.style.display='block';
+ m.innerHTML='<div class=box><div class=meta>…</div></div>';
+ let u=`/api/coverage/${_miss.slug}/missing?offset=${_miss.offset}&limit=100`+(_miss.q?'&q='+encodeURIComponent(_miss.q):'');
+ let d=await(await fetch(u)).json();
+ let rows=(d.titles||[]).map((tt,i)=>`<div class=job><label style="display:flex;align-items:center;gap:8px;flex:1">
+   <input type=checkbox class=misschk data-title="${tt.replace(/"/g,'&quot;')}"> <span>${tt.replace(/</g,'&lt;')}</span></label>
+  <button onclick="missSearch('${tt.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')" style="background:#2a2f37">${t('cov_search')}</button></div>`).join('')
+  ||`<div class=meta>${t('cov_none')}</div>`;
+ let pages=`<div class=frow style="gap:8px">
+   <button ${_miss.offset<=0?'disabled':''} onclick="_miss.offset=Math.max(0,_miss.offset-100);renderMissing()">‹</button>
+   <span class=meta>${_miss.offset+1}–${Math.min(d.total,_miss.offset+100)} / ${d.total}</span>
+   <button ${_miss.offset+100>=d.total?'disabled':''} onclick="_miss.offset+=100;renderMissing()">›</button></div>`;
+ m.innerHTML=`<div class=box><button class=x onclick="closeModal()">×</button>
+  <h2>${_miss.name} — ${t('cov_missing')}</h2>
+  <div class=meta style="margin-bottom:8px">${t('cov_src')}: ${d.source||'—'} · ${t('cov_asof')} ${(d.snapshot||'').slice(0,10)}</div>
+  <div class=frow style="gap:8px"><input id=missq value="${(_miss.q||'').replace(/"/g,'&quot;')}" placeholder="${t('cov_filter')}" style="flex:1">
+   <button onclick="_miss.q=document.getElementById('missq').value;_miss.offset=0;renderMissing()">${t('cov_filter_do')}</button></div>
+  <div style="max-height:340px;overflow:auto;margin-top:8px">${rows}</div>
+  ${pages}
+  <div class=frow style="justify-content:flex-end;gap:8px"><span id=missmsg class=meta></span>
+   <button onclick="missWish()">${t('cov_wish_sel')}</button></div></div>`;}
+function missSearch(title){closeModal();document.getElementById('q').value=title;show('s');search();}
+async function missWish(){let sel=[...document.querySelectorAll('.misschk')].filter(c=>c.checked)
+  .map(c=>({title:c.dataset.title,platform:_miss.slug}));
+ let msg=document.getElementById('missmsg');
+ if(!sel.length){msg.textContent=t('wl_imp_none');return;}
+ let d=await(await fetch('/api/wishlist/import',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({confirm:true,entries:sel})})).json();
+ msg.textContent=t('wl_imp_done').replace('{a}',d.added||0).replace('{s}',d.skipped||0);}
 let msgWith='';
 async function loadMessages(){let box=document.getElementById('messages');let d=await(await fetch('/api/messages')).json();
  let me=d.me,users=d.users||[];if(!msgWith&&users.length)msgWith=users[0];
@@ -2431,6 +2608,72 @@ def api_search():
 def api_platforms():
     return jsonify([{"group":g, "items":[{"slug":s,"name":n,"usenet":bool(SLUG2USE.get(s))}
                     for s,n in items]} for g,items in PLATFORMS])
+
+# Fortschritt eines laufenden Katalogabrufs (nur ein Lauf gleichzeitig)
+COVERAGE_BUILD = {"running": False, "done": 0, "total": 0, "current": ""}
+
+@app.route("/api/coverage")
+def api_coverage():
+    """Abdeckung je Plattform. Jede Zahl trägt Quelle und Stand — eine nackte Prozentzahl
+    wäre hier irreführend, weil Metadatensätze sich uneins sind, was ein eigener Titel ist."""
+    return jsonify({"platforms": coverage_overview(), "source": CATALOG_SOURCE,
+                    "max_per_platform": CATALOG_MAX, "building": bool(COVERAGE_BUILD["running"])})
+
+@app.route("/api/coverage/refresh", methods=["POST"])
+@perm_required("manage_settings")
+def api_coverage_refresh():
+    """Momentaufnahme(n) neu holen. Läuft im Hintergrund — ein Katalogabruf sind je
+    Plattform mehrere IGDB-Seiten, das gehört nicht in einen Request."""
+    d = request.get_json(silent=True) or {}
+    only = (d.get("slug") or "").strip()
+    slugs = [only] if only else [s for s in IGDB_PLAT if s in SLUG_NAME]
+    if only and only not in IGDB_PLAT:
+        return jsonify({"ok": False, "msg": f"keine Katalogquelle für '{only}' / no catalogue source"}), 400
+    if not igdb_token():
+        return jsonify({"ok": False, "msg": "IGDB nicht konfiguriert / not configured"}), 400
+    with COVERAGE_LOCK:
+        if COVERAGE_BUILD["running"]:
+            return jsonify({"ok": False, "msg": "läuft bereits / already running"}), 409
+        COVERAGE_BUILD.update({"running": True, "done": 0, "total": len(slugs), "current": ""})
+
+    def run():
+        try:
+            cov = load_coverage()
+            for slug in slugs:
+                COVERAGE_BUILD["current"] = slug
+                n = fetch_catalog(slug)
+                if n:
+                    cov = load_coverage()
+                    cov.setdefault(slug, {})["snapshot"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                    save_coverage(cov)
+                    log(f"Katalog {slug}: {n} Titel ({CATALOG_SOURCE})")
+                else:
+                    log(f"Katalog {slug}: keine Daten — keine Momentaufnahme geschrieben")
+                COVERAGE_BUILD["done"] += 1
+            refresh_coverage_counts()
+        except Exception as e:
+            log(f"Katalog-Lauf-Fehler: {e}")
+        finally:
+            COVERAGE_BUILD.update({"running": False, "current": ""})
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({"ok": True, "platforms": len(slugs)})
+
+@app.route("/api/coverage/status")
+def api_coverage_status():
+    return jsonify(dict(COVERAGE_BUILD))
+
+@app.route("/api/coverage/<slug>/missing")
+def api_coverage_missing(slug):
+    """Die FEHLENDEN Titel — das ist die Liste, mit der man etwas anfangen kann."""
+    try:
+        offset = max(0, int(request.args.get("offset", 0) or 0))
+        limit = min(500, max(1, int(request.args.get("limit", 100) or 100)))
+    except ValueError:
+        offset, limit = 0, 100
+    d = missing_titles(slug, offset, limit, (request.args.get("q") or "").strip()[:60])
+    e = load_coverage().get(slug, {})
+    return jsonify({**d, "slug": slug, "offset": offset, "limit": limit,
+                    "source": e.get("source", ""), "snapshot": e.get("snapshot", "")})
 
 @app.route("/api/detail")
 def api_detail():
@@ -3703,6 +3946,16 @@ OPENAPI = {
         "/api/search": {"get": _op("ROMs suchen (Archive.org + Usenet), plattform-gefiltert", "Search",
             params=[_qp("q", "Suchbegriff"), _qp("platforms", "kommagetrennte Plattform-Slugs")],
             responses={**_R_AUTH, "200": {"description": "Trefferliste"}})},
+        "/api/coverage": {"get": _op("Abdeckung je Plattform (besessen/bekannt/Prozent, mit Quelle und Stand)", "Search")},
+        "/api/coverage/status": {"get": _op("Fortschritt eines laufenden Katalogabrufs", "Search")},
+        "/api/coverage/refresh": {"post": _op("Katalog-Momentaufnahme neu holen (Hintergrundlauf)", "Admin",
+            body={"type": "object", "properties": {"slug": {"type": "string", "description": "nur diese Plattform; leer = alle"}}},
+            responses={**_R_PERM, "200": {"description": "gestartet"},
+                       "400": {"description": "keine Katalogquelle / IGDB nicht konfiguriert"},
+                       "409": {"description": "Lauf bereits aktiv"}})},
+        "/api/coverage/{slug}/missing": {"get": _op("Fehlende Titel einer Plattform (paginiert, filterbar)", "Search",
+            params=[_pp("slug", "Plattform-Slug"), _qp("offset", "Versatz"), _qp("limit", "max. 500"),
+                    _qp("q", "Textfilter")])},
         "/api/discover": {"get": _op("Beliebte Titel (flach)", "Search")},
         "/api/discover/rows": {"get": _op("Startseiten-Reihen (beliebt je Konsole + je Genre)", "Search")},
         "/api/detail": {"get": _op("Detaildaten inkl. IGDB (Wertung, Screenshots, Ähnliches) + Dateien", "Search",

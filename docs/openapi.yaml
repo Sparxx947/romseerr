@@ -270,6 +270,82 @@ paths:
         schema:
           type: string
         description: kommagetrennte Plattform-Slugs
+  /api/coverage:
+    get:
+      summary: Abdeckung je Plattform (besessen/bekannt/Prozent, mit Quelle und Stand)
+      tags:
+      - Search
+      responses:
+        '200':
+          description: OK
+      security: *id002
+  /api/coverage/status:
+    get:
+      summary: Fortschritt eines laufenden Katalogabrufs
+      tags:
+      - Search
+      responses:
+        '200':
+          description: OK
+      security: *id002
+  /api/coverage/refresh:
+    post:
+      summary: Katalog-Momentaufnahme neu holen (Hintergrundlauf)
+      tags:
+      - Admin
+      responses:
+        '403': &id004
+          description: fehlende Berechtigung / missing permission
+        '200':
+          description: gestartet
+        '400':
+          description: keine Katalogquelle / IGDB nicht konfiguriert
+        '409':
+          description: Lauf bereits aktiv
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                slug:
+                  type: string
+                  description: nur diese Plattform; leer = alle
+  /api/coverage/{slug}/missing:
+    get:
+      summary: Fehlende Titel einer Plattform (paginiert, filterbar)
+      tags:
+      - Search
+      responses:
+        '200':
+          description: OK
+      security: *id002
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Plattform-Slug
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Versatz
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: string
+        description: max. 500
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Textfilter
   /api/discover:
     get:
       summary: Beliebte Titel (flach)
@@ -402,8 +478,7 @@ paths:
       tags:
       - Requests
       responses:
-        '403': &id004
-          description: fehlende Berechtigung / missing permission
+        '403': *id004
         '200':
           description: Vorschau bzw. Ergebnis
         '413':
