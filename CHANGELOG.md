@@ -6,6 +6,17 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Sicherheit / Security
+- **Login-Bruteforce-Schutz** — max. 8 Fehlversuche je (IP, Benutzer) in 5 min, danach HTTP 429.
+- **Cookie-Härtung** — Session-Cookie `HttpOnly` + `SameSite=Strict` (CSRF-Schutz); `Secure`
+  automatisch, wenn `ROMSEERR_HTTPS=1` (hinter TLS-Proxy).
+- **Container läuft als non-root** — Dockerfile `USER 1000` (echter Fix des Trivy-Funds
+  AVD-DS-0002 statt Unterdrückung); Volumes müssen dem Laufzeit-User gehören (z. B. `--user 99:100`).
+  Zusätzlich `HEALTHCHECK` im Image. /
+  **Login brute-force protection** (429 after 8 fails), **hardened session cookie**
+  (HttpOnly + SameSite=Strict, Secure via `ROMSEERR_HTTPS=1`), **non-root container**
+  (`USER 1000`, real fix for AVD-DS-0002) and an image `HEALTHCHECK`.
+
 ### Dokumentation / Documentation
 - **Ausführliche Code-Kommentierung** — Modul-Docstring (Architektur, Datenhaltung, Auth,
   Fallstricke), Docstrings auf den nicht-trivialen Funktionen (Index, Worker, Import, Auth,
