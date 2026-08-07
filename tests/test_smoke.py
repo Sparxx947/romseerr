@@ -487,3 +487,118 @@ def test_metrics_import_counter_single_outcome(appmod):
     assert sum(appmod.IMPORTS.values()) == before + 1
     with appmod.JOBS_LOCK:
         appmod.JOBS[:] = [x for x in appmod.JOBS if x["id"] != jid]; appmod.save_jobs()
+
+
+def test_wishlist_parse_lines(appmod):
+    """Zerlegung: Kommentare raus, Semikolon/Tab trennen, Komma NUR vor echter Plattform. (#80)"""
+    rows = appmod.parse_wishlist_text(
+        "# Kommentar\n"
+        "Chrono Trigger\n"
+        "Super Metroid;snes\n"
+        "Pokemon Crystal;Game Boy\n"
+        "Metroid Fusion\tgba\n"
+        "Castlevania,psx\n"
+        "Sonic 3 & Knuckles, Collectors Edition\n"
+        "   \n"
+    )
+    got = [(t, p) for t, p, _raw in rows]
+    assert got == [
+        ("Chrono Trigger", ""),
+        ("Super Metroid", "snes"),
+        ("Pokemon Crystal", "gb"),          # Anzeigename -> Slug
+        ("Metroid Fusion", "gba"),
+        ("Castlevania", "psx"),
+        ("Sonic 3 & Knuckles, Collectors Edition", ""),   # Komma bleibt Teil des Titels
+    ]
+
+
+def test_wishlist_preview_writes_nothing(appmod, client):
+    """Die Vorschau darf NICHTS schreiben — sie ist ein Prüfschritt, kein Abschicken. (#80)"""
+    appmod.kv_put("wishlist", {})
+    appmod.save_users({"imp": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "imp"; sess["role"] = "admin"
+    r = client.post("/api/wishlist/import", json={"text": "Zzz Testspiel Eins\nZzz Testspiel Zwei;snes"})
+    assert r.status_code == 200
+    d = r.get_json()
+    assert d["total"] == 2
+    assert appmod.load_wishlist().get("imp", []) == []      # nichts geschrieben
+    # ohne IGDB-Zugang wird NICHT "nicht gefunden" behauptet
+    assert d["checked"] is False
+    assert all(e["status"] == "unverified" for e in d["entries"])
+    appmod.kv_put("wishlist", {}); appmod.save_users({})
+
+
+def test_wishlist_import_confirm_and_dedup(appmod, client):
+    """Bestätigter Import schreibt; derselbe Import zweimal erzeugt keine Dubletten. (#80)"""
+    appmod.kv_put("wishlist", {})
+    appmod.save_users({"imp": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "imp"; sess["role"] = "admin"
+    body = {"confirm": True, "entries": [{"title": "Zzz Testspiel Eins", "platform": "snes"},
+                                         {"title": "Zzz Testspiel Zwei", "platform": "snes"}]}
+    d = client.post("/api/wishlist/import", json=body).get_json()
+    assert d["added"] == 2 and d["skipped"] == 0
+    d2 = client.post("/api/wishlist/import", json=body).get_json()
+    assert d2["added"] == 0 and d2["skipped"] == 2
+    assert len(appmod.load_wishlist()["imp"]) == 2
+    appmod.kv_put("wishlist", {}); appmod.save_users({})
+
+
+def test_wishlist_import_skips_library_titles(appmod, client):
+    """Was schon in der Bibliothek liegt, landet nicht auf der Wunschliste. (#80)"""
+    snes = os.path.join(appmod.ROMS, "snes")
+    os.makedirs(snes, exist_ok=True)
+    open(os.path.join(snes, "Chrono Trigger (USA).sfc"), "w").close()
+    appmod.build_index()
+    appmod.kv_put("wishlist", {})
+    appmod.save_users({"imp": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "imp"; sess["role"] = "admin"
+    d = client.post("/api/wishlist/import", json={"text": "Chrono Trigger;snes"}).get_json()
+    assert d["entries"][0]["status"] == "in_library"
+    r = client.post("/api/wishlist/import",
+                    json={"confirm": True, "entries": [{"title": "Chrono Trigger", "platform": "snes"}]})
+    assert r.get_json()["added"] == 0
+    appmod.kv_put("wishlist", {}); appmod.save_users({})
+
+
+def test_wishlist_import_size_cap_and_empty(appmod, client):
+    """Größenbegrenzung mit lesbarer Meldung statt unbegrenzter Schleife. (#80)"""
+    appmod.save_users({"imp": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "imp"; sess["role"] = "admin"
+    assert client.post("/api/wishlist/import", json={"text": "   "}).status_code == 400
+    assert client.post("/api/wishlist/import", json={"text": "x" * 200_001}).status_code == 413
+    many = "\n".join(f"Spiel Nummer {i}" for i in range(appmod.WISH_IMPORT_MAX + 25))
+    d = client.post("/api/wishlist/import", json={"text": many}).get_json()
+    assert d["truncated"] is True
+    assert d["total"] == appmod.WISH_IMPORT_MAX
+    appmod.save_users({})
+
+
+def test_wishlist_import_requires_permission(appmod, client):
+    """Ohne `request`-Recht kein Import — dieselbe Regel wie beim Einzel-Hinzufügen. (#80)"""
+    appmod.save_users({"nop": {"pw": "x", "role": "user", "perms": []}})
+    with client.session_transaction() as sess:
+        sess["user"] = "nop"; sess["role"] = "user"
+    assert client.post("/api/wishlist/import", json={"text": "Chrono Trigger"}).status_code == 403
+    appmod.save_users({})
+
+
+def test_wishlist_example_file_is_importable(appmod, client):
+    """Die angebotene Beispieldatei muss selbst ein gültiger Import sein. (#80)"""
+    appmod.save_users({"imp": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "imp"; sess["role"] = "admin"
+    r = client.get("/api/wishlist/example.csv")
+    assert r.status_code == 200
+    assert "attachment" in r.headers.get("Content-Disposition", "")
+    rows = appmod.parse_wishlist_text(r.get_data(as_text=True))
+    assert len(rows) >= 7
+    titles = [t for t, _p, _r in rows]
+    assert "Chrono Trigger" in titles
+    assert ("Super Metroid", "snes") in [(t, p) for t, p, _r in rows]
+    assert ("Pokemon Crystal", "gb") in [(t, p) for t, p, _r in rows]
+    assert not any(t.startswith("#") for t in titles)     # keine Kommentarzeile als Titel
+    appmod.save_users({})

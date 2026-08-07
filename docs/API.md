@@ -57,7 +57,7 @@ ohne gültige Session/Key mit **401**.
 | System | `GET /health`, `GET /api/version`, `GET /metrics`, `GET /api/auth/status` |
 | Auth | `POST /api/setup`, `/api/login`, `/api/logout`, `/api/forgot`, `/api/reset` |
 | Suche | `GET /api/search`, `/api/discover/rows`, `/api/detail`, `/api/platforms` |
-| Anfragen | `POST /api/download`, `GET /api/jobs`, `POST /api/jobs/{id}/approve\|deny` |
+| Anfragen | `POST /api/download`, `GET /api/jobs`, `POST /api/jobs/{id}/approve\|deny`, `POST /api/wishlist/import` |
 | Probleme | `GET/POST /api/issues`, `/api/issues/{id}/comment\|close` |
 | Profil | `GET/POST /api/profile`, `/api/profile/password` |
 | Push | `GET /api/push/pubkey`, `POST /api/push/subscribe` |

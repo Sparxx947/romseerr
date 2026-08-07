@@ -476,6 +476,36 @@ def igdb_game(title):
     IGDB["cache"][key] = g
     return g
 
+def _igdb_escape(s):
+    """Anführungszeichen/Backslashes für die Apicalypse-Query entschärfen."""
+    return str(s).replace("\\", "").replace('"', "").replace("\n", " ")[:60]
+
+def igdb_multisearch(titles, limit=5):
+    """Mehrere Titel in EINEM Rutsch suchen (IGDB-`multiquery`, max. 10 Abfragen je Request).
+
+    Nötig für den Wunschlisten-Import: 200 Einzelabfragen wären bei IGDBs 4 Req/s
+    quälend langsam, als multiquery sind es 20 Requests. Rückgabe: {Eingabetitel:
+    [Kandidatenname, …]}. Fehler und fehlende Zugangsdaten ergeben ein leeres Dict —
+    der Aufrufer behandelt das als „nicht geprüft", nicht als „nicht gefunden"."""
+    out = {}
+    if not (titles and igdb_token()): return out
+    uniq = list(dict.fromkeys(t for t in titles if t))
+    for i in range(0, len(uniq), 10):
+        chunk = uniq[i:i+10]
+        body = "".join(f'query games "q{n}" {{ search "{_igdb_escape(t)}"; fields name; limit {limit}; }};'
+                       for n, t in enumerate(chunk))
+        try:
+            tok = igdb_token()
+            h = {"Client-ID": cfg("igdb_id"), "Authorization": f"Bearer {tok}"}
+            r = requests.post("https://api.igdb.com/v4/multiquery", headers=h, data=body, timeout=15)
+            for part in (r.json() if r.ok else []):
+                n = int(str(part.get("name", "q0"))[1:] or 0)
+                if 0 <= n < len(chunk):
+                    out[chunk[n]] = [g.get("name", "") for g in (part.get("result") or []) if g.get("name")]
+        except Exception as e:
+            log(f"IGDB-multiquery-Fehler: {e}")
+    return out
+
 def _cover_url(g):
     return f"https://images.igdb.com/igdb/image/upload/t_cover_big/{g['cover']['image_id']}.jpg" if g.get("cover") else ""
 
@@ -850,6 +880,100 @@ def wishlist_title_matches(want, cand):
     wt = _title_tokens(want)
     ct = set(_title_tokens(cand))
     return bool(wt) and all(w in ct for w in wt)
+
+# ---------- Wunschlisten-Import (Liste einfügen / Datei hochladen) ----------
+# Eine Wunschliste entsteht selten Eintrag für Eintrag — sie liegt schon irgendwo als
+# Notizzettel oder Tabelle. Der Import ist bewusst ein ZWEISCHRITT: erst Vorschau
+# (getroffen / mehrdeutig / nicht gefunden), dann schreibt der Nutzer, was er bestätigt.
+# Der Fehlermodus, den es zu vermeiden gilt, ist eine still mit Beinahe-Treffern
+# gefüllte Wunschliste — der Auto-Download würde die dann auch noch holen.
+WISH_IMPORT_MAX = 200          # Zeilen je Import (danach klare Meldung statt endloser Schleife)
+_PLAT_LOOKUP = {**{s: s for s in SLUG_NAME},
+                **{n.lower(): s for s, n in SLUG_NAME.items()}}
+
+def parse_platform(token):
+    """'snes', 'SNES', 'Game Boy' -> Slug; unbekannt -> '' (statt zu raten)."""
+    return _PLAT_LOOKUP.get((token or "").strip().lower(), "")
+
+def parse_wishlist_text(text):
+    """Freitext in [(Titel, Plattform-Slug, Rohzeile)] zerlegen.
+
+    Ein Titel je Zeile, optional `Titel;Plattform` (auch Tab). Ein **Komma** trennt nur
+    dann ab, wenn der Teil dahinter wirklich eine bekannte Plattform ist — sonst würde
+    „Sonic 3 & Knuckles, Special Edition" mitten im Titel zerschnitten."""
+    rows = []
+    for raw in (text or "").splitlines():
+        line = raw.strip().lstrip("﻿")
+        if not line or line.startswith("#"): continue
+        title, plat = line, ""
+        for sep in (";", "\t"):
+            if sep in line:
+                a, _, b = line.partition(sep)
+                title, plat = a.strip(), parse_platform(b)
+                break
+        else:
+            if "," in line:
+                a, _, b = line.rpartition(",")
+                p = parse_platform(b)
+                if p: title, plat = a.strip(), p
+        title = title.strip().strip('"').strip()
+        if title: rows.append((title[:120], plat, line))
+    return rows
+
+def wishlist_preview(user, text):
+    """Vorschau erzeugen: je Zeile den Zustand bestimmen, OHNE etwas zu schreiben.
+
+    Zustände: `in_library` (schon da), `duplicate` (schon auf der Wunschliste),
+    `matched` (genau ein Katalogtreffer), `ambiguous` (mehrere — der Nutzer wählt),
+    `not_found` (Katalog kennt ihn nicht) und `unverified` (kein IGDB konfiguriert
+    oder Abfrage fehlgeschlagen — bewusst NICHT als „nicht gefunden" ausgegeben)."""
+    rows = parse_wishlist_text(text)
+    truncated = len(rows) > WISH_IMPORT_MAX
+    rows = rows[:WISH_IMPORT_MAX]
+    have = {(norm(e.get("title", "")), e.get("platform") or "")
+            for e in load_wishlist().get(user, [])}
+    cand_map = igdb_multisearch([t for t, _p, _r in rows])
+    checked = bool(cand_map)
+    entries = []
+    for title, plat, raw in rows:
+        e = {"title": title, "platform": plat, "line": raw, "candidates": []}
+        if in_library(title, plat or None):
+            e["status"] = "in_library"
+        elif (norm(title), plat) in have:
+            e["status"] = "duplicate"
+        elif not checked:
+            e["status"] = "unverified"
+        else:
+            cands = cand_map.get(title, [])
+            exact = [c for c in cands if norm(c) == norm(title)]
+            if len(exact) == 1:
+                e["status"] = "matched"; e["title"] = exact[0]
+            elif cands:
+                e["status"] = "ambiguous"; e["candidates"] = cands[:5]
+            else:
+                e["status"] = "not_found"
+        entries.append(e)
+    counts = {}
+    for e in entries: counts[e["status"]] = counts.get(e["status"], 0) + 1
+    return {"ok": True, "entries": entries, "counts": counts, "total": len(entries),
+            "truncated": truncated, "max": WISH_IMPORT_MAX, "checked": checked,
+            "quota": quota_info(user)}
+
+def wishlist_import(user, entries):
+    """Bestätigte Einträge schreiben. Nutzt denselben Weg wie eine Einzel-Hinzufügung
+    (`wishlist_add`, dedupliziert) und dieselbe Bibliotheksprüfung — der Import ist damit
+    nachweislich kein zweiter, laxerer Pfad."""
+    added, skipped = 0, 0
+    for e in (entries or [])[:WISH_IMPORT_MAX]:
+        title = (e.get("title") or "").strip()[:120]
+        plat = parse_platform(e.get("platform") or "")
+        if not title or in_library(title, plat or None):
+            skipped += 1; continue
+        before = len(load_wishlist().get(user, []))
+        wishlist_add(user, title, plat)
+        if len(load_wishlist().get(user, [])) > before: added += 1
+        else: skipped += 1        # wishlist_add dedupliziert -> war schon drauf
+    return {"ok": True, "added": added, "skipped": skipped}
 
 def worker_wishlist():
     """Prüft periodisch alle Wunschlisten. Erscheint zu einem Eintrag eine passende
@@ -1501,7 +1625,7 @@ const I18N={de:{
  hint_type:'Tippe einen Titel und drücke Enter.',loading_home:'Lade Startseite …',popular_on:'Beliebt auf',click_search:'klick zum Suchen',
  searching:'Suche läuft …',no_results:'Keine Treffer.',results:'Treffer',in_library:'✓ in Bibliothek',download:'⬇ Download',requested:'✓ angefragt',collection:'Sammlung',
  versions:'Versionen / Quellen',files:'Dateien',no_desc:'Keine Beschreibung verfügbar.',screenshots:'Screenshots',similar:'Ähnliche Spiele',series:'Reihe',because_you:'Weil du angefragt hast:',
- no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',retry:'Erneut',reset:'Alle zurücksetzen',req_all:'Alle anfragen',flt_user:'Nutzer',flt_all:'Alle',wishlist:'Wunschliste',add_wishlist:'⭐ Merken',wl_added:'⭐ gemerkt',wl_empty:'Wunschliste leer.',wl_remove:'Entfernen',
+ no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',retry:'Erneut',reset:'Alle zurücksetzen',req_all:'Alle anfragen',flt_user:'Nutzer',flt_all:'Alle',wishlist:'Wunschliste',wl_import:'Import',wl_imp_hint:'Liste einfügen oder Datei wählen (TXT/CSV) — ein Titel je Zeile, optional Titel;Plattform. Nichts wird geschrieben, bevor du die Vorschau bestätigst.',wl_imp_example:'Beispieldatei herunterladen',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Vorschau',wl_imp_apply:'Übernehmen',wl_imp_none:'Nichts ausgewählt.',wl_imp_done:'{a} übernommen, {s} übersprungen.',wl_imp_trunc:'Nur die ersten {n} Zeilen werden geprüft.',wl_imp_toobig:'Datei zu groß (max. 200 kB).',wl_imp_nocheck:'Ohne IGDB-Zugang kein Katalogabgleich — Einträge werden ungeprüft übernommen.',wl_s_matched:'getroffen',wl_s_ambiguous:'mehrdeutig',wl_s_notfound:'nicht gefunden',wl_s_duplicate:'schon gemerkt',wl_s_inlib:'schon vorhanden',wl_s_unverified:'ungeprüft',add_wishlist:'⭐ Merken',wl_added:'⭐ gemerkt',wl_empty:'Wunschliste leer.',wl_remove:'Entfernen',
  users:'Benutzer',new_user:'Neuen Benutzer anlegen',create:'Anlegen',del:'Löschen',autoapprove:'Auto-Freigabe',role_user:'Nutzer',role_admin:'Admin',username:'Benutzername',password:'Passwort',
  notif_discord:'Benachrichtigungen — Discord',active:'aktiv',test:'Test',save:'Speichern',saved:'gespeichert ✓',test_sent:'Test gesendet ✓',webhook_ph:'Discord Webhook-URL',
  st_pending:'⏳ Wartet auf Freigabe',st_queued:'Angefragt',st_downloading:'Lädt…',st_importing:'Wird verarbeitet',st_done:'✅ Verfügbar',st_error:'Fehler',st_denied:'Abgelehnt',st_exists:'vorhanden',
@@ -1515,7 +1639,7 @@ const I18N={de:{
  hint_type:'Type a title and press Enter.',loading_home:'Loading home …',popular_on:'Popular on',click_search:'click to search',
  searching:'Searching …',no_results:'No results.',results:'results',in_library:'✓ in library',download:'⬇ Download',requested:'✓ requested',collection:'Collection',
  versions:'Versions / sources',files:'Files',no_desc:'No description available.',screenshots:'Screenshots',similar:'Similar games',series:'Series',because_you:'Because you requested:',
- no_requests:'No requests yet.',approve:'Approve',deny:'Deny',retry:'Retry',reset:'Reset all',req_all:'Request all',flt_user:'User',flt_all:'All',wishlist:'Wishlist',add_wishlist:'⭐ Watch',wl_added:'⭐ watched',wl_empty:'Wishlist empty.',wl_remove:'Remove',
+ no_requests:'No requests yet.',approve:'Approve',deny:'Deny',retry:'Retry',reset:'Reset all',req_all:'Request all',flt_user:'User',flt_all:'All',wishlist:'Wishlist',wl_import:'Import',wl_imp_hint:'Paste a list or pick a file (TXT/CSV) — one title per line, optionally title;platform. Nothing is written until you confirm the preview.',wl_imp_example:'Download example file',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Preview',wl_imp_apply:'Import',wl_imp_none:'Nothing selected.',wl_imp_done:'{a} imported, {s} skipped.',wl_imp_trunc:'Only the first {n} lines are checked.',wl_imp_toobig:'File too large (max 200 kB).',wl_imp_nocheck:'No IGDB credentials — no catalogue check; entries are imported unverified.',wl_s_matched:'matched',wl_s_ambiguous:'ambiguous',wl_s_notfound:'not found',wl_s_duplicate:'already listed',wl_s_inlib:'already in library',wl_s_unverified:'unverified',add_wishlist:'⭐ Watch',wl_added:'⭐ watched',wl_empty:'Wishlist empty.',wl_remove:'Remove',
  users:'Users',new_user:'Create new user',create:'Create',del:'Delete',autoapprove:'Auto-approve',role_user:'User',role_admin:'Admin',username:'Username',password:'Password',
  notif_discord:'Notifications — Discord',active:'enabled',test:'Test',save:'Save',saved:'saved ✓',test_sent:'test sent ✓',webhook_ph:'Discord webhook URL',
  st_pending:'⏳ Awaiting approval',st_queued:'Requested',st_downloading:'Downloading…',st_importing:'Processing',st_done:'✅ Available',st_error:'Error',st_denied:'Denied',st_exists:'in library',
@@ -1529,7 +1653,7 @@ const I18N={de:{
  hint_type:'Saisissez un titre et appuyez sur Entrée.',loading_home:'Chargement …',popular_on:'Populaire sur',click_search:'cliquer pour rechercher',
  searching:'Recherche …',no_results:'Aucun résultat.',results:'résultats',in_library:'✓ dans la bibliothèque',download:'⬇ Télécharger',requested:'✓ demandé',collection:'Collection',
  versions:'Versions / sources',files:'Fichiers',no_desc:'Aucune description disponible.',screenshots:'Captures',similar:'Jeux similaires',series:'Série',because_you:'Parce que vous avez demandé :',
- no_requests:'Aucune demande.',approve:'Approuver',deny:'Refuser',retry:'Réessayer',reset:'Tout réinitialiser',req_all:'Tout demander',flt_user:'Utilisateur',flt_all:'Tous',wishlist:'Liste de souhaits',add_wishlist:'⭐ Suivre',wl_added:'⭐ suivi',wl_empty:'Liste vide.',wl_remove:'Retirer',
+ no_requests:'Aucune demande.',approve:'Approuver',deny:'Refuser',retry:'Réessayer',reset:'Tout réinitialiser',req_all:'Tout demander',flt_user:'Utilisateur',flt_all:'Tous',wishlist:'Liste de souhaits',wl_import:'Import',wl_imp_hint:'Collez une liste ou choisissez un fichier (TXT/CSV) — un titre par ligne, éventuellement titre;plateforme. Rien n’est écrit avant votre confirmation.',wl_imp_example:'Télécharger un exemple',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Aperçu',wl_imp_apply:'Importer',wl_imp_none:'Rien de sélectionné.',wl_imp_done:'{a} importés, {s} ignorés.',wl_imp_trunc:'Seules les {n} premières lignes sont vérifiées.',wl_imp_toobig:'Fichier trop grand (max 200 ko).',wl_imp_nocheck:'Sans accès IGDB, pas de vérification — les entrées sont importées telles quelles.',wl_s_matched:'trouvé',wl_s_ambiguous:'ambigu',wl_s_notfound:'introuvable',wl_s_duplicate:'déjà suivi',wl_s_inlib:'déjà présent',wl_s_unverified:'non vérifié',add_wishlist:'⭐ Suivre',wl_added:'⭐ suivi',wl_empty:'Liste vide.',wl_remove:'Retirer',
  users:'Utilisateurs',new_user:'Créer un utilisateur',create:'Créer',del:'Supprimer',autoapprove:'Approbation auto',role_user:'Utilisateur',role_admin:'Admin',username:"Nom d'utilisateur",password:'Mot de passe',
  notif_discord:'Notifications — Discord',active:'activé',test:'Test',save:'Enregistrer',saved:'enregistré ✓',test_sent:'test envoyé ✓',webhook_ph:'URL du webhook Discord',
  st_pending:"⏳ En attente d'approbation",st_queued:'Demandé',st_downloading:'Téléchargement…',st_importing:'Traitement',st_done:'✅ Disponible',st_error:'Erreur',st_denied:'Refusé',st_exists:'présent',
@@ -1543,7 +1667,7 @@ const I18N={de:{
  hint_type:'Escribe un título y pulsa Intro.',loading_home:'Cargando …',popular_on:'Popular en',click_search:'clic para buscar',
  searching:'Buscando …',no_results:'Sin resultados.',results:'resultados',in_library:'✓ en la biblioteca',download:'⬇ Descargar',requested:'✓ solicitado',collection:'Colección',
  versions:'Versiones / fuentes',files:'Archivos',no_desc:'Sin descripción disponible.',screenshots:'Capturas',similar:'Juegos similares',series:'Serie',because_you:'Porque solicitaste:',
- no_requests:'Aún no hay solicitudes.',approve:'Aprobar',deny:'Rechazar',retry:'Reintentar',reset:'Restablecer todo',req_all:'Solicitar todo',flt_user:'Usuario',flt_all:'Todos',wishlist:'Lista de deseos',add_wishlist:'⭐ Seguir',wl_added:'⭐ en lista',wl_empty:'Lista vacía.',wl_remove:'Quitar',
+ no_requests:'Aún no hay solicitudes.',approve:'Aprobar',deny:'Rechazar',retry:'Reintentar',reset:'Restablecer todo',req_all:'Solicitar todo',flt_user:'Usuario',flt_all:'Todos',wishlist:'Lista de deseos',wl_import:'Importar',wl_imp_hint:'Pega una lista o elige un archivo (TXT/CSV) — un título por línea, opcionalmente título;plataforma. No se escribe nada hasta que confirmes.',wl_imp_example:'Descargar archivo de ejemplo',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Vista previa',wl_imp_apply:'Importar',wl_imp_none:'Nada seleccionado.',wl_imp_done:'{a} importados, {s} omitidos.',wl_imp_trunc:'Solo se comprueban las primeras {n} líneas.',wl_imp_toobig:'Archivo demasiado grande (máx. 200 kB).',wl_imp_nocheck:'Sin acceso a IGDB no hay comprobación — se importan sin verificar.',wl_s_matched:'encontrado',wl_s_ambiguous:'ambiguo',wl_s_notfound:'no encontrado',wl_s_duplicate:'ya en la lista',wl_s_inlib:'ya en biblioteca',wl_s_unverified:'sin verificar',add_wishlist:'⭐ Seguir',wl_added:'⭐ en lista',wl_empty:'Lista vacía.',wl_remove:'Quitar',
  users:'Usuarios',new_user:'Crear usuario',create:'Crear',del:'Eliminar',autoapprove:'Auto-aprobación',role_user:'Usuario',role_admin:'Admin',username:'Usuario',password:'Contraseña',
  notif_discord:'Notificaciones — Discord',active:'activo',test:'Prueba',save:'Guardar',saved:'guardado ✓',test_sent:'prueba enviada ✓',webhook_ph:'URL del webhook de Discord',
  st_pending:'⏳ Esperando aprobación',st_queued:'Solicitado',st_downloading:'Descargando…',st_importing:'Procesando',st_done:'✅ Disponible',st_error:'Error',st_denied:'Rechazado',st_exists:'presente',
@@ -1557,7 +1681,7 @@ const I18N={de:{
  hint_type:'Digita un titolo e premi Invio.',loading_home:'Caricamento …',popular_on:'Popolari su',click_search:'clicca per cercare',
  searching:'Ricerca …',no_results:'Nessun risultato.',results:'risultati',in_library:'✓ in libreria',download:'⬇ Scarica',requested:'✓ richiesto',collection:'Collezione',
  versions:'Versioni / fonti',files:'File',no_desc:'Nessuna descrizione disponibile.',screenshots:'Screenshot',similar:'Giochi simili',series:'Serie',because_you:'Perché hai richiesto:',
- no_requests:'Ancora nessuna richiesta.',approve:'Approva',deny:'Rifiuta',retry:'Riprova',reset:'Reimposta tutto',req_all:'Richiedi tutto',flt_user:'Utente',flt_all:'Tutti',wishlist:'Lista dei desideri',add_wishlist:'⭐ Segui',wl_added:'⭐ seguito',wl_empty:'Lista vuota.',wl_remove:'Rimuovi',
+ no_requests:'Ancora nessuna richiesta.',approve:'Approva',deny:'Rifiuta',retry:'Riprova',reset:'Reimposta tutto',req_all:'Richiedi tutto',flt_user:'Utente',flt_all:'Tutti',wishlist:'Lista dei desideri',wl_import:'Importa',wl_imp_hint:'Incolla un elenco o scegli un file (TXT/CSV) — un titolo per riga, opzionalmente titolo;piattaforma. Nulla viene scritto prima della conferma.',wl_imp_example:'Scarica file di esempio',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Anteprima',wl_imp_apply:'Importa',wl_imp_none:'Niente selezionato.',wl_imp_done:'{a} importati, {s} saltati.',wl_imp_trunc:'Vengono controllate solo le prime {n} righe.',wl_imp_toobig:'File troppo grande (max 200 kB).',wl_imp_nocheck:'Senza accesso IGDB nessun controllo — le voci vengono importate non verificate.',wl_s_matched:'trovato',wl_s_ambiguous:'ambiguo',wl_s_notfound:'non trovato',wl_s_duplicate:'già in lista',wl_s_inlib:'già in libreria',wl_s_unverified:'non verificato',add_wishlist:'⭐ Segui',wl_added:'⭐ seguito',wl_empty:'Lista vuota.',wl_remove:'Rimuovi',
  users:'Utenti',new_user:'Crea utente',create:'Crea',del:'Elimina',autoapprove:'Auto-approvazione',role_user:'Utente',role_admin:'Admin',username:'Utente',password:'Password',
  notif_discord:'Notifiche — Discord',active:'attivo',test:'Test',save:'Salva',saved:'salvato ✓',test_sent:'test inviato ✓',webhook_ph:'URL webhook Discord',
  st_pending:'⏳ In attesa di approvazione',st_queued:'Richiesto',st_downloading:'Scaricamento…',st_importing:'Elaborazione',st_done:'✅ Disponibile',st_error:'Errore',st_denied:'Rifiutato',st_exists:'presente',
@@ -1729,6 +1853,53 @@ async function addWishlist(btn){btn.disabled=true;let it=window._detit||{};
  let r=await(await fetch('/api/wishlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:window._detname||it.title||'',platform:it.platform_slug||''})})).json();
  btn.textContent=r.ok?t('wl_added'):(r.msg||t('st_error'));}
 function closeModal(){document.getElementById('modal').style.display='none';}
+// --- Wunschlisten-Import: Vorschau ZUERST, geschrieben wird erst nach Bestaetigung (#80) ---
+const WLST={matched:['#3fb950','wl_s_matched'],ambiguous:['#d29922','wl_s_ambiguous'],
+ not_found:['#f85149','wl_s_notfound'],duplicate:['#8b929e','wl_s_duplicate'],
+ in_library:['#8b929e','wl_s_inlib'],unverified:['#58a6ff','wl_s_unverified']};
+function openWlImport(){let m=document.getElementById('modal');m.style.display='block';
+ m.innerHTML=`<div class=box><button class=x onclick="closeModal()">×</button>
+  <h2>⭐ ${t('wl_import')}</h2>
+  <div class=meta style="line-height:1.6;margin-bottom:10px">${t('wl_imp_hint')}
+   · <a href="/api/wishlist/example.csv" download style="color:#5b8cff">${t('wl_imp_example')}</a></div>
+  <textarea id=wlta placeholder="${t('wl_imp_ph')}" style="width:100%;min-height:150px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:8px;font-family:ui-monospace,monospace;font-size:12px"></textarea>
+  <div class=frow style="gap:8px;flex-wrap:wrap">
+   <input type=file id=wlfile accept=".txt,.csv,text/plain,text/csv" onchange="wlReadFile(this)" style="flex:1;min-width:200px;font-size:12px">
+   <button onclick="wlPreview()">${t('wl_imp_preview')}</button></div>
+  <div id=wlres style="margin-top:12px"></div></div>`;}
+function wlReadFile(inp){let f=inp.files&&inp.files[0];if(!f)return;
+ if(f.size>200000){document.getElementById('wlres').innerHTML='<div class=meta style="color:#f85149">'+t('wl_imp_toobig')+'</div>';return;}
+ let rd=new FileReader();rd.onload=()=>{document.getElementById('wlta').value=rd.result||'';};rd.readAsText(f);}
+async function wlPreview(){let res=document.getElementById('wlres');res.innerHTML='<div class=meta>…</div>';
+ let text=document.getElementById('wlta').value||'';
+ let d=await(await fetch('/api/wishlist/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text})})).json();
+ if(!d.ok){res.innerHTML='<div class=meta style="color:#f85149">'+((d.msg||t('st_error')).replace(/</g,'&lt;'))+'</div>';return;}
+ window._wlprev=d.entries;
+ let sum=Object.keys(d.counts||{}).map(k=>`${t(WLST[k]?WLST[k][1]:k)}: <b>${d.counts[k]}</b>`).join(' · ');
+ let warn=d.truncated?`<div class=meta style="color:#d29922">${t('wl_imp_trunc').replace('{n}',d.max)}</div>`:'';
+ let nochk=d.checked?'':`<div class=meta style="color:#58a6ff">${t('wl_imp_nocheck')}</div>`;
+ let rows=d.entries.map((e,i)=>{let st=WLST[e.status]||['#8b929e',e.status];
+  let sel=e.status==='ambiguous'
+   ?`<select id="wlc${i}" style="background:#1a1d23;color:#e6e8ec;border:1px solid #2a2f37;border-radius:6px;padding:3px 6px;font-size:12px">`
+    +e.candidates.map(c=>`<option>${c.replace(/</g,'&lt;')}</option>`).join('')+'</select>'
+   :`<span>${(e.title||'').replace(/</g,'&lt;')}</span>`;
+  let skip=(e.status==='duplicate'||e.status==='in_library');
+  return `<div class=job><div style="display:flex;align-items:center;gap:8px;flex:1">
+    <input type=checkbox id="wlk${i}" ${skip?'':'checked'} ${skip?'disabled':''}>
+    ${sel}<span class=meta style="font-size:11px">${(e.platform||'—').replace(/</g,'&lt;')}</span></div>
+   <span style="color:${st[0]};font-size:12px">${t(st[1])}</span></div>`;}).join('');
+ res.innerHTML=`<div class=meta style="margin-bottom:6px">${sum}</div>${warn}${nochk}
+  <div style="max-height:320px;overflow:auto">${rows}</div>
+  <div class=frow style="justify-content:flex-end;gap:8px"><span id=wlmsg class=meta></span>
+   <button onclick="wlApply()">${t('wl_imp_apply')}</button></div>`;}
+async function wlApply(){let prev=window._wlprev||[];let out=[];
+ prev.forEach((e,i)=>{let k=document.getElementById('wlk'+i);if(!k||!k.checked)return;
+  let c=document.getElementById('wlc'+i);
+  out.push({title:c?c.value:e.title,platform:e.platform||''});});
+ if(!out.length){document.getElementById('wlmsg').textContent=t('wl_imp_none');return;}
+ let d=await(await fetch('/api/wishlist/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true,entries:out})})).json();
+ document.getElementById('wlmsg').textContent=t('wl_imp_done').replace('{a}',d.added||0).replace('{s}',d.skipped||0);
+ loadJobs();}
 // --- Discover / Startseite: beliebte Spiele je Konsole ---
 async function loadDiscover(){let hint=document.getElementById('hint');hint.style.display='';hint.textContent=t('loading_home');
  let g=document.getElementById('grid');
@@ -1763,15 +1934,18 @@ function stlab(s){return [t('st_'+s)||s, STCLS[s]||''];}
 async function loadJobs(){let r=await fetch('/api/jobs');let d=await r.json();let j=document.getElementById('jobs');
  j.innerHTML='';
  try{let wl=await(await fetch('/api/wishlist')).json();
-  if(wl&&wl.length){let box=document.createElement('div');box.style.cssText='margin-bottom:14px';
-   box.innerHTML='<div class=rowh style="margin-bottom:6px">⭐ <b>'+t('wishlist')+'</b></div>';
+  let box=document.createElement('div');box.style.cssText='margin-bottom:14px';
+  box.innerHTML='<div class=rowh style="margin-bottom:6px;display:flex;align-items:center;gap:8px">⭐ <b>'+t('wishlist')+'</b>'
+   +'<button onclick="openWlImport()" style="margin-left:auto;background:#2a2f37;border:none;color:#e6e8ec;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px">'+t('wl_import')+'</button></div>';
+  if(wl&&wl.length){
    wl.forEach(e=>{let row=document.createElement('div');row.className='job';
     row.innerHTML=`<div><div>${(e.title||'').replace(/</g,'&lt;')}</div><div class=meta style="color:#8b929e;font-size:11px">${(e.platform||'—').replace(/</g,'&lt;')}</div></div>`;
     let b=document.createElement('button');b.textContent=t('wl_remove');
     b.style.cssText='background:#6e2a2a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer';
     b.onclick=async()=>{await fetch('/api/wishlist/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:e.title,platform:e.platform})});loadJobs();};
     row.appendChild(b);box.appendChild(row);});
-   j.appendChild(box);}}catch(e){}
+  }else{let em=document.createElement('div');em.className='meta';em.textContent=t('wl_empty');box.appendChild(em);}
+  j.appendChild(box);}catch(e){}
  if(canDo('manage_requests')){let users=[...new Set(d.map(o=>o.user||'—'))].sort();
   if(users.length>1){let bar=document.createElement('div');bar.style.cssText='margin:0 0 10px;color:#8b929e;font-size:13px';
    let opts='<option value="">'+t('flt_all')+'</option>'+users.map(u=>`<option${window.jobFilter===u?' selected':''}>${u.replace(/</g,'&lt;')}</option>`).join('');
@@ -2315,6 +2489,61 @@ def api_wishlist():
         wishlist_add(user, title, d.get("platform", ""))
         return jsonify({"ok": True})
     return jsonify(load_wishlist().get(user, []))
+
+@app.route("/api/wishlist/import", methods=["POST"])
+def api_wishlist_import():
+    """Wunschliste aus eingefügter Liste oder Datei füllen — zweistufig.
+
+    Ohne `confirm` wird nur eine **Vorschau** berechnet (nichts geschrieben); mit
+    `confirm: true` werden die mitgeschickten, vom Nutzer bestätigten `entries`
+    übernommen. Dieselbe Berechtigung wie beim Einzel-Hinzufügen."""
+    user = session.get("user", "") or "api"
+    if not has_perm("request"):
+        return jsonify({"ok": False, "msg": "keine Berechtigung / no permission"}), 403
+    d = request.get_json(force=True, silent=True) or {}
+    if d.get("confirm"):
+        entries = d.get("entries")
+        if not isinstance(entries, list):
+            return jsonify({"ok": False, "msg": "entries fehlt / missing"}), 400
+        return jsonify(wishlist_import(user, entries))
+    text = d.get("text")
+    if not isinstance(text, str) or not text.strip():
+        return jsonify({"ok": False, "msg": "Liste ist leer / list is empty"}), 400
+    if len(text) > 200_000:
+        return jsonify({"ok": False, "msg": "Liste zu groß / list too large (max 200 kB)"}), 413
+    return jsonify(wishlist_preview(user, text))
+
+EXAMPLE_WISHLIST = """\
+# Romseerr — Beispiel-Wunschliste / example wishlist
+# Ein Titel je Zeile. Zeilen mit # werden übersprungen.
+# One title per line. Lines starting with # are skipped.
+#
+# Plattform ist optional. Erlaubt sind Semikolon, Tabulator — und ein Komma
+# NUR dann, wenn dahinter wirklich eine Plattform steht (sonst bleibt es Teil
+# des Titels). Slug oder Anzeigename, beides geht: snes / SNES, gb / Game Boy.
+# Platform is optional: semicolon, tab, or a comma followed by a real platform.
+#
+# --- nur Titel / title only -------------------------------------------------
+Chrono Trigger
+The Legend of Zelda: A Link to the Past
+# --- Titel;Plattform (Slug) / title;platform (slug) -------------------------
+Super Metroid;snes
+Metroid Fusion;gba
+# --- Titel;Plattform (Anzeigename) / title;platform (display name) ----------
+Pokemon Crystal;Game Boy
+Metal Gear Solid;PS1
+# --- Titel,Plattform — Komma trennt nur vor einer echten Plattform ----------
+Castlevania: Symphony of the Night,psx
+# ... hier bleibt das Komma Teil des Titels / here the comma stays in the title:
+Sonic 3 & Knuckles, Collectors Edition
+"""
+
+@app.route("/api/wishlist/example.csv")
+def api_wishlist_example():
+    """Beispieldatei im erwarteten Format zum Herunterladen — erspart das Raten,
+    wie Plattformen anzugeben sind, und ist selbst ein gültiger Import."""
+    return Response(EXAMPLE_WISHLIST, mimetype="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="romseerr-wishlist-example.csv"'})
 
 @app.route("/api/wishlist/remove", methods=["POST"])
 def api_wishlist_remove():
@@ -3255,6 +3484,19 @@ OPENAPI = {
                 body={"type": "object", "required": ["title"],
                       "properties": {"title": {"type": "string"}, "platform": {"type": "string"}}},
                 responses={**_R_AUTH, "200": {"description": "vorgemerkt"}})},
+        "/api/wishlist/import": {"post": _op(
+            "Wunschliste aus Liste/Datei einspielen — ohne `confirm` nur Vorschau, mit `confirm` schreiben",
+            "Requests",
+            body={"type": "object",
+                  "properties": {"text": {"type": "string", "description": "Rohtext, ein Titel je Zeile (optional `Titel;Plattform`)"},
+                                 "confirm": {"type": "boolean", "description": "true = die bestätigten `entries` schreiben"},
+                                 "entries": {"type": "array", "description": "nur mit confirm: bestätigte Einträge",
+                                             "items": {"type": "object", "properties": {"title": {"type": "string"},
+                                                                                        "platform": {"type": "string"}}}}},
+                  },
+            responses={**_R_PERM, "200": {"description": "Vorschau bzw. Ergebnis"},
+                       "413": {"description": "Liste zu groß"}})},
+        "/api/wishlist/example.csv": {"get": _op("Beispieldatei im erwarteten Importformat", "Requests")},
         "/api/wishlist/remove": {"post": _op("Titel von der Wunschliste entfernen", "Requests",
             body={"type": "object", "required": ["title"],
                   "properties": {"title": {"type": "string"}, "platform": {"type": "string"}}},
