@@ -92,7 +92,10 @@ teilen sich **RomM** (Browser/Player) und **RetroNAS**.
   Romseerr emuliert nichts und liefert weder Emulator noch Firmware aus — es löst einen Titel
   auf eine Datei auf und bittet den Host, sie zu starten. **Einzelplatz**: eine Sitzung
   gleichzeitig, mit Namen des Belegers, Ablauf und ausdrücklichem Beenden. Der schlanke
-  Start-Dienst liegt als `contrib/stream-agent.py` bei.
+  komplette Streaming-Host liegt als **`contrib/streaming-host/`** bei (Compose,
+  Init-Skripte, Start-Dienst, Doku) und ist ohne fremde Umgebung nachbaubar.
+  **Ton und Gamepad brauchen dort HTTPS** — über HTTP verweigert der Browser die
+  WebCodecs-API, und beides bleibt still, ohne dass ein Fehler erscheint.
 - ▶ **Play im Browser**: liegt der Titel in RomM und gibt es für die Plattform einen
   EmulatorJS-Kern, führt ein Knopf auf der Detailseite direkt in RomMs eingebauten Spieler.
   Romseerr emuliert selbst nichts. **PS2, GameCube, Wii, Dreamcast und Switch zeigen den Knopf

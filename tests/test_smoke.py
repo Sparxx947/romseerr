@@ -1492,7 +1492,7 @@ def test_stream_agent_refuses_paths_outside_the_library(appmod):
     sonst waere er ein Fernstart fuer beliebige Dateien. (#71)"""
     import importlib.util
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    path = os.path.join(root, "contrib", "stream-agent.py")
+    path = os.path.join(root, "contrib", "streaming-host", "stream-agent.py")
     os.environ["STREAM_AGENT_TOKEN"] = "testtoken"
     os.environ["STREAM_ROMS"] = appmod.ROMS
     spec = importlib.util.spec_from_file_location("stream_agent", path)
@@ -1514,3 +1514,52 @@ def test_stream_find_file_validates_the_slug_itself(appmod):
         assert appmod.stream_find_file("passwd", evil) is None, evil
     assert appmod.stream_find_file("X", "snes") is None      # nicht streambar -> kein Pfadzugriff
     appmod.save_settings({})
+
+
+def test_no_private_infrastructure_details_in_repo():
+    """Das Repo ist öffentlich. Keine Adressen, Hostnamen oder Anlagenpfade darin.
+
+    Nicht als Mahnung gedacht, sondern als Bremse: so etwas rutscht beim Kopieren
+    aus einer laufenden Installation mit, und GitHub zeigt den Bearbeitungsverlauf —
+    nachträglich löschen hilft dann nicht mehr.
+
+    Beispieladressen in Doku und Tests sind erlaubt, aber sie stehen NAMENTLICH
+    unten. Eine neue Adresse aufzunehmen ist damit eine bewusste Entscheidung und
+    kein Versehen — genau das ist der Zweck.
+    """
+    BEISPIELE = {
+        "192.168.1.1", "192.168.1.10",   # Doku: „so sieht eine LAN-Adresse aus"
+        "10.0.0.5", "172.16.4.4",        # SSRF-Tests: abzulehnende Ziele
+        "127.0.0.1",
+    }
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    muster = [
+        (r"\b192\.168\.\d{1,3}\.\d{1,3}\b", "private IPv4 (192.168.x.x)"),
+        (r"\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", "private IPv4 (10.x.x.x)"),
+        (r"\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b", "private IPv4 (172.16-31.x.x)"),
+        # zusammengesetzt, sonst findet der Test sein eigenes Suchmuster
+        ("/mnt" + "/user/", "NAS-Sharepfad einer konkreten Anlage"),
+        (r"dns_[a-z0-9]+_api_token\s*=\s*[A-Za-z0-9_\-]{20,}", "echter API-Token"),
+    ]
+    erlaubt_dirs = {".git", "node_modules", "__pycache__", "data", ".pytest_cache", ".ruff_cache"}
+    treffer = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in erlaubt_dirs]
+        for fn in filenames:
+            if fn.endswith((".png", ".jpg", ".jpeg", ".ico", ".pyc", ".gz", ".zip", ".svg")):
+                continue
+            p = os.path.join(dirpath, fn)
+            try:
+                text = open(p, encoding="utf-8", errors="ignore").read()
+            except OSError:
+                continue
+            for pat, was in muster:
+                for m in re.finditer(pat, text):
+                    if m.group(0) in BEISPIELE:
+                        continue
+                    zeile = text[:m.start()].count("\n") + 1
+                    treffer.append(f"{os.path.relpath(p, root)}:{zeile} {was}: {m.group(0)}")
+    assert not treffer, ("Anlagendaten im oeffentlichen Repo gefunden:\n  "
+                         + "\n  ".join(treffer)
+                         + "\n\nEntweder entfernen, oder — wenn es wirklich ein Beispiel ist —"
+                           " oben in BEISPIELE aufnehmen.")

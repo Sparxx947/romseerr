@@ -1,0 +1,46 @@
+#!/bin/bash
+# Zertifikats-Waechter: laedt nginx neu, wenn der Beiwagen ein neues Zertifikat ablegt.
+# Certificate watcher: reloads nginx when the sidecar drops in a new certificate.
+#
+# Der Beiwagen-Container (certbot) erneuert das Zertifikat und legt es in denselben
+# Ordner (/config/ssl). nginx merkt davon nichts — es liest die Datei nur beim Start
+# oder beim Reload. Dieser Waechter schliesst genau diese Luecke.
+#
+# Bewusst OHNE Docker-Socket: der Beiwagen soll den Streaming-Container nicht
+# fernsteuern muessen. Er legt nur eine Datei ab, den Reload macht dieser Prozess von
+# innen. Ein Container mit Docker-Socket ist faktisch root auf dem Host — dafuer ist
+# ein nginx-Reload kein ausreichender Grund.
+#
+# Pollen statt inotify: das waere ein zusaetzliches Paket, und einmal pro Minute
+# nachzusehen kostet nichts. Ein Zertifikat wechselt alle 60 Tage.
+set -u
+CERT=/config/ssl/cert.pem
+STAMP=/config/ssl/.cert-fingerprint
+LOG=/config/cert-watch.log
+
+if [ "${1:-}" = "--loop" ]; then
+  last=""
+  [ -f "$STAMP" ] && last=$(cat "$STAMP" 2>/dev/null)
+  while true; do
+    if [ -f "$CERT" ]; then
+      # Fingerabdruck statt Zeitstempel: ein blosses Neuschreiben derselben Datei
+      # soll KEINEN Reload ausloesen.
+      cur=$(openssl x509 -in "$CERT" -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2)
+      if [ -n "$cur" ] && [ "$cur" != "$last" ]; then
+        if [ -n "$last" ]; then
+          echo "[$(date '+%F %T')] Zertifikat geaendert -> nginx neu laden"
+          nginx -s reload 2>&1
+        else
+          echo "[$(date '+%F %T')] Ausgangszustand gemerkt"
+        fi
+        echo "$cur" > "$STAMP"
+        last="$cur"
+      fi
+    fi
+    sleep 60
+  done
+fi
+
+pkill -f "cert-watch --loop" 2>/dev/null || true
+setsid nohup bash "$0" --loop >> "$LOG" 2>&1 &
+echo "cert-watch gestartet (prueft /config/ssl/cert.pem minuetlich)"

@@ -92,7 +92,10 @@ into the library and notifies when they are available. The library is shared by 
   emulates nothing and ships neither emulator nor firmware — it resolves a title to a file and
   asks the host to launch it. **Single seat**: one session at a time, showing who holds it,
   with an expiry and an explicit stop. The thin launch service ships as
-  `contrib/stream-agent.py`.
+  **`contrib/streaming-host/`** (compose file, init scripts, launch service, docs)
+  and is reproducible without anyone's particular environment. **Audio and gamepad
+  require HTTPS** there — over HTTP the browser gates the WebCodecs API and both
+  stay silent with no error shown.
 - ▶ **Play in the browser**: if the title exists in RomM and the platform has an EmulatorJS
   core, a button on the detail view opens RomM's built-in player. Romseerr emulates nothing
   itself. **PS2, GameCube, Wii, Dreamcast and Switch never show the button** — no core exists

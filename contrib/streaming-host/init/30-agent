@@ -1,0 +1,46 @@
+#!/bin/bash
+# Start-Dienst, den Romseerr aufruft. / Launch service Romseerr calls.
+#
+# Alle Emulatoren laufen über VirtualGL — ohne das rendert Mesa auf der CPU
+# (siehe 10-virtualgl). Der Card-Knoten wird dort ermittelt und hier gelesen,
+# damit niemand raten muss, welcher es ist.
+#
+# All emulators run through VirtualGL; the card node is detected in 10-virtualgl.
+#
+# Das Token wird AUS EINER DATEI gelesen und nicht ins Skript geschrieben:
+# ein Geheimnis gehört an genau eine Stelle, sonst laufen die Kopien auseinander.
+# The token is read from a file rather than written into this script.
+set -u
+
+TOKFILE=/config/agent-token
+if [ -n "${STREAM_AGENT_TOKEN:-}" ]; then
+  printf '%s' "${STREAM_AGENT_TOKEN}" > "$TOKFILE"
+  chmod 600 "$TOKFILE"
+fi
+if [ ! -s "$TOKFILE" ]; then
+  echo "[agent] kein Token gesetzt — Dienst startet NICHT."
+  echo "[agent] no token configured — refusing to start. Set STREAM_AGENT_TOKEN in .env"
+  exit 0
+fi
+
+VGLDEV=$(cat /config/.vgl-device 2>/dev/null)
+if [ -n "$VGLDEV" ] && [ -x /opt/VirtualGL/bin/vglrun ]; then
+  VGL="/opt/VirtualGL/bin/vglrun -d ${VGLDEV}"
+  echo "[agent] GPU über VirtualGL auf ${VGLDEV} / GPU via VirtualGL"
+else
+  VGL=""
+  echo "[agent] WARNUNG: ohne VirtualGL — es wird auf der CPU gerendert"
+  echo "[agent] WARNING: no VirtualGL — rendering will be on the CPU"
+fi
+
+EMU=/config/emulators
+export STREAM_AGENT_TOKEN="$(cat "$TOKFILE")"
+export STREAM_AGENT_PORT="${AGENT_PORT:-8901}"
+export STREAM_ROMS=/roms
+[ -x "$EMU/pcsx2/AppRun" ]     && export EMU_PS2="$VGL $EMU/pcsx2/AppRun -- %s"
+[ -x /usr/games/dolphin-emu ]  && export EMU_GC="$VGL /usr/games/dolphin-emu -b -e %s"
+[ -x "$EMU/switchemu/AppRun" ] && export EMU_SWITCH="$VGL $EMU/switchemu/AppRun -f -g %s"
+
+pkill -f stream-agent.py 2>/dev/null || true
+setsid nohup python3 /config/stream-agent.py >> /config/stream-agent.log 2>&1 &
+echo "[agent] gestartet auf :${STREAM_AGENT_PORT} / started"

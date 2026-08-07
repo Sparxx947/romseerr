@@ -1,0 +1,92 @@
+# Streaming-Host für Romseerr (#71) / streaming host for Romseerr
+#
+# Emuliert die Plattformen, die der Browser NICHT kann (PS2, GameCube, Wii, Switch):
+# der Emulator läuft hier server-seitig mit GPU, der Browser bekommt Bild, Ton und
+# schickt Eingaben. Romseerr selbst emuliert nichts — es löst einen Titel auf eine
+# Datei auf und bittet den Start-Dienst, sie zu öffnen.
+#
+# Emulates the platforms a browser cannot (PS2, GameCube, Wii, Switch): the emulator
+# runs here with GPU access, the browser receives video and audio and sends input.
+#
+#   cp .env.example .env    # ausfüllen / fill in
+#   docker compose up -d
+#
+# Alles Weitere steht in README.md — besonders die Stolperstellen, die man sonst
+# einzeln durch Messen findet. / See README.md, especially the pitfalls section.
+
+services:
+  # ---------------------------------------------------------------- Desktop + Stream
+  stream-host:
+    image: lscr.io/linuxserver/webtop:${WEBTOP_TAG:-ubuntu-xfce}
+    container_name: stream-host
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Etc/UTC}
+      TITLE: ${TITLE:-Romseerr Streaming}
+
+      # --- Ton -------------------------------------------------------------------
+      # Ohne das versucht Selkies GAR KEIN Audio — der Standard ist "aus", und im
+      # Log steht dann schlicht nichts. / Without this Selkies never even attempts
+      # audio; the default is off and the log stays silent about it.
+      SELKIES_AUDIO_ENABLED: "true"
+      SELKIES_AUDIO_DEVICE_NAME: "output.monitor"
+      # Die Aufnahmebibliothek beachtet PULSE_RUNTIME_PATH NICHT und scheitert sonst
+      # mit "pa_context_connect() failed". / The capture library ignores
+      # PULSE_RUNTIME_PATH and otherwise fails with pa_context_connect().
+      PULSE_SERVER: "unix:/defaults/native"
+    volumes:
+      - ${CONFIG_DIR:-./data}/config:/config
+      # Init-Skripte MÜSSEN hierhin — /config/custom-cont-init.d wird ignoriert.
+      # Init scripts MUST be mounted here; /config/custom-cont-init.d is ignored.
+      - ./init:/custom-cont-init.d:ro
+      # Die ROM-Bibliothek nur lesend. / The ROM library, read-only.
+      - ${ROMS_DIR:?ROMS_DIR fehlt - siehe .env.example}:/roms:ro
+    devices:
+      # Der Emulator braucht eine GPU. Beide Knoten derselben Karte angeben:
+      # den Render-Knoten UND den Card-Knoten — VirtualGL will letzteren.
+      # Give BOTH nodes of the same card: VirtualGL needs the card node.
+      - ${DRI_RENDER_NODE:?DRI_RENDER_NODE fehlt}:${DRI_RENDER_NODE}
+      - ${DRI_CARD_NODE:?DRI_CARD_NODE fehlt}:${DRI_CARD_NODE}
+    shm_size: ${SHM_SIZE:-2g}
+    ports:
+      # HTTP — nur für den ersten Blick. Ton und Gamepad brauchen HTTPS (s. README).
+      # HTTP is for a first look only; audio and gamepad require HTTPS.
+      - "${HTTP_PORT:-8900}:3000"
+      - "${HTTPS_PORT:-8902}:3001"
+      # Start-Dienst, den Romseerr aufruft. / Launch service Romseerr calls.
+      - "${AGENT_PORT:-8901}:${AGENT_PORT:-8901}"
+
+  # ------------------------------------------------- Zertifikat (optional, aber empfohlen)
+  # Holt und erneuert ein Zertifikat per DNS-01 und legt es dorthin, wo der
+  # Streaming-Host es liest. Kein Docker-Socket, kein Host-Cron: der Stack versorgt
+  # sich selbst. Wer ein eigenes Zertifikat mitbringt, lässt diesen Dienst weg
+  # (`docker compose up -d stream-host`) und legt cert.pem/cert.key selbst ab.
+  #
+  # Fetches and renews a certificate via DNS-01 and drops it where the streaming host
+  # reads it. No Docker socket, no host cron. Bring your own certificate instead by
+  # starting only `stream-host` and placing cert.pem/cert.key yourself.
+  stream-certbot:
+    image: certbot/dns-${DNS_PLUGIN:-cloudflare}
+    container_name: stream-certbot
+    restart: unless-stopped
+    profiles: ["acme"]
+    entrypoint: ["/bin/sh", "/renew.sh"]
+    environment:
+      CERT_DOMAIN: ${CERT_DOMAIN:?CERT_DOMAIN fehlt}
+      CERT_EMAIL: ${CERT_EMAIL:?CERT_EMAIL fehlt}
+      DNS_PLUGIN: ${DNS_PLUGIN:-cloudflare}
+      PROPAGATION_SECONDS: ${PROPAGATION_SECONDS:-30}
+      RENEW_INTERVAL: ${RENEW_INTERVAL:-43200}
+      OWNER_UID: ${PUID:-1000}
+      OWNER_GID: ${PGID:-1000}
+    volumes:
+      - ${CONFIG_DIR:-./data}/letsencrypt/etc:/etc/letsencrypt
+      - ${CONFIG_DIR:-./data}/letsencrypt/var:/var/lib/letsencrypt
+      # Die Zugangsdatei des DNS-Anbieters — NUR lesend, und niemals in dieses Repo.
+      # The DNS provider credentials file, read-only, and never in this repository.
+      - ${DNS_CREDENTIALS_FILE:?DNS_CREDENTIALS_FILE fehlt}:/creds/dns.ini:ro
+      # Zielordner, aus dem der Streaming-Host sein Zertifikat liest.
+      - ${CONFIG_DIR:-./data}/config/ssl:/ssl
+      - ./renew.sh:/renew.sh:ro
