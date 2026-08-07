@@ -73,6 +73,20 @@ paths:
         schema:
           type: string
         description: 1 = zusätzlich gegen den Release-Feed prüfen (latest, update_available)
+  /metrics:
+    get:
+      summary: Betriebsmetriken im Prometheus-Textformat (Auth wie API)
+      tags:
+      - System
+      responses:
+        '401': &id003
+          description: nicht angemeldet / not authenticated
+        '200':
+          description: text/plain; version=0.0.4
+      security: &id002
+      - cookieAuth: []
+      - apiKeyHeader: []
+      - apiKeyQuery: []
   /api/auth/status:
     get:
       summary: Anmelde-/Setup-Status, App-Name, Version
@@ -117,10 +131,7 @@ paths:
       responses:
         '200':
           description: OK
-      security: &id002
-      - cookieAuth: []
-      - apiKeyHeader: []
-      - apiKeyQuery: []
+      security: *id002
   /login:
     get:
       summary: Login-Seite (HTML)
@@ -242,8 +253,7 @@ paths:
       tags:
       - Search
       responses:
-        '401': &id003
-          description: nicht angemeldet / not authenticated
+        '401': *id003
         '200':
           description: Trefferliste
       security: *id002

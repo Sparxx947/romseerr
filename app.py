@@ -858,6 +858,7 @@ def worker_wishlist():
     den Titel bewusst vorgemerkt) und der Eintrag entfernt."""
     time.sleep(90)   # dem Index/den Diensten nach dem Start Zeit geben
     while True:
+        beat("wishlist")
         try:
             for user, lst in list(load_wishlist().items()):
                 for e in list(lst):
@@ -991,9 +992,16 @@ def worker_download():
     .crawljob für JDownloader. usenet/filehoster laufen asynchron weiter und werden
     später von worker_collect eingesammelt. Fehler -> state=error."""
     while True:
-        jid = Q.get()
+        beat("download")
+        # Mit Timeout warten statt unbegrenzt zu blockieren: sonst sähe ein gesunder,
+        # aber unbeschäftigter Worker in den Metriken wie ein hängender aus.
+        try:
+            jid = Q.get(timeout=30)
+        except queue.Empty:
+            continue
         job = get_job(jid)
-        if not job: continue
+        if not job:
+            Q.task_done(); continue
         try:
             if job["source"]=="usenet":
                 set_state(jid, state="downloading", msg="an SAB übergeben")
@@ -1018,6 +1026,7 @@ def worker_download():
                 write_crawljob(jid, job["ref"], f"{cfg("jd_dl_base")}/{dn}", dn)
         except Exception as e:
             set_state(jid, state="error", msg=str(e)[:200]); log(f"Job {jid} Fehler: {e}")
+            count_import("failure", "exception")
         finally:
             Q.task_done()
 
@@ -1046,6 +1055,7 @@ def import_folder(jid, folder):
     extract_archives(folder)
     job_slug = job.get("platform")
     moved, skipped, by_plat = 0, 0, {}
+    copy_errors = 0
     for root,_,files in os.walk(folder):
         for fn in files:
             if SKIP_FILES.search(fn) or fn == ".urls": continue
@@ -1066,7 +1076,8 @@ def import_folder(jid, folder):
             try:
                 subprocess.run(["cp","-a",src,dst], check=True); moved += 1
                 by_plat[slug] = by_plat.get(slug,0)+1
-            except Exception as e: log(f"move-Fehler {fn}: {e}")
+            except Exception as e:
+                log(f"move-Fehler {fn}: {e}"); copy_errors += 1
     # Staging aufräumen
     try:
         if folder.startswith(STAGING): subprocess.run(["rm","-rf",folder])
@@ -1078,11 +1089,16 @@ def import_folder(jid, folder):
     if moved == 0 and not by_plat and skipped:
         set_state(jid, state="error", msg=f"keine ROM-Dateien gefunden / no ROM files ({skipped} übersprungen)")
         log(f"Job {jid}: keine ROM-Dateien, {skipped} Nicht-ROM übersprungen")
+        count_import("failure", "no_rom_files")
         return
     where = ", ".join(f"{v}×{k}" for k,v in by_plat.items()) or "nichts (schon vorhanden?)"
     tail = f" · {skipped} Nicht-ROM übersprungen" if skipped else ""
     set_state(jid, state="done", msg=f"{moved} Datei(en) → {where}{tail}")
     log(f"Job {jid} fertig: {moved} Dateien → {where}{tail}")
+    # Genau EIN Ausgang je Import. Nichts kopiert, aber Kopierfehler aufgetreten -> Fehlschlag,
+    # auch wenn der Job-Zustand (unverändert) „done" bleibt.
+    if moved == 0 and copy_errors: count_import("failure", "copy_failed")
+    else: count_import("success")
     if moved:
         notify_available(job.get("title",""), where)
         send_push_to_user(job.get("user",""), "Romseerr",
@@ -1113,6 +1129,7 @@ def worker_collect():
     ändert sich nicht mehr), wird import_folder aufgerufen. So werden asynchrone Downloads
     eingesammelt, die worker_download nur angestoßen hat."""
     while True:
+        beat("collect")
         try:
             with JOBS_LOCK:
                 pending = [dict(j) for j in JOBS if j["state"]=="downloading" and j["source"] in ("usenet","filehoster")]
@@ -2309,6 +2326,102 @@ def api_wishlist_remove():
 @app.route("/health")
 def health(): return jsonify({"ok":True,"lib_titles":len(LIB['all']),"jobs":len(JOBS)})
 
+# ---------- Betriebsmetriken (Prometheus) ----------
+# /health beantwortet nur „läuft der Prozess". Die interessanten Ausfälle hier sind leise:
+# ein Worker, der keine Jobs mehr annimmt, Importe, die reihenweise scheitern, eine
+# Warteschlange, die nicht mehr abfließt. Genau das steht hier drin.
+#
+# Zähler leben im Prozess und werden NICHT auf Platte gehalten — Prometheus verträgt
+# Neustarts (Counter-Reset), solange sie dazwischen monoton steigen.
+# Bewusst KEIN Label je Titel oder Nutzer: die Kardinalität würde mit der Bibliothek wachsen.
+METRICS_LOCK = threading.Lock()
+IMPORTS      = {}   # (Ergebnis, Grund) -> Anzahl
+WORKER_SEEN  = {}   # Worker-Name -> Unix-Zeit des letzten Durchlaufs
+JOB_STATES   = ("pending", "queued", "downloading", "importing", "done", "error", "denied")
+IMPORT_REASONS = {"none", "no_rom_files", "copy_failed", "exception"}
+
+def beat(worker):
+    """Lebenszeichen eines Hintergrund-Workers setzen (romseerr_worker_last_run_...)."""
+    WORKER_SEEN[worker] = time.time()
+
+def count_import(result, reason="none"):
+    """Import-Ausgang zählen. `reason` ist auf IMPORT_REASONS begrenzt, damit die
+    Label-Menge endlich bleibt — freie Fehlertexte gehören ins Log, nicht in eine Metrik."""
+    with METRICS_LOCK:
+        k = (result, reason if reason in IMPORT_REASONS else "other")
+        IMPORTS[k] = IMPORTS.get(k, 0) + 1
+
+def _mlabel(v):
+    return str(v).replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+
+def render_metrics():
+    """Prometheus-Textformat (0.0.4) von Hand rendern — spart eine Abhängigkeit und
+    ist bei dieser Menge Metriken übersichtlicher als eine Client-Bibliothek."""
+    out = []
+    def block(name, typ, helptext, samples):
+        out.append(f"# HELP {name} {helptext}")
+        out.append(f"# TYPE {name} {typ}")
+        for labels, val in samples:
+            lbl = ("{" + ",".join(f'{k}="{_mlabel(v)}"' for k, v in labels.items()) + "}") if labels else ""
+            out.append(f"{name}{lbl} {val}")
+
+    now = time.time()
+    with JOBS_LOCK:
+        jobs = [dict(j) for j in JOBS]
+
+    per_state = {s: 0 for s in JOB_STATES}   # feste Reihe: Zustände verschwinden nie aus der Ausgabe
+    for j in jobs:
+        st = j.get("state", "")
+        per_state[st] = per_state.get(st, 0) + 1
+    block("romseerr_requests", "gauge", "Anfragen (Jobs) je Zustand / requests by state",
+          [({"state": s}, n) for s, n in sorted(per_state.items())])
+
+    waiting = [j for j in jobs if j.get("state") in ("pending", "queued")]
+    block("romseerr_queue_depth", "gauge",
+          "Wartende Anfragen (pending + queued) / requests waiting to be worked on",
+          [({}, len(waiting))])
+    oldest = min((j.get("created") or now for j in waiting), default=now)
+    block("romseerr_queue_oldest_age_seconds", "gauge",
+          "Alter der ältesten wartenden Anfrage / age of the oldest waiting request",
+          [({}, round(max(0.0, now - oldest), 1))])
+
+    with METRICS_LOCK:
+        imports = dict(IMPORTS)
+    block("romseerr_imports_total", "counter",
+          "Abgeschlossene Importe nach Ergebnis / completed imports by outcome",
+          [({"result": r, "reason": rs}, n) for (r, rs), n in sorted(imports.items())]
+          or [({"result": "success", "reason": "none"}, 0)])
+
+    try:
+        wl = load_wishlist()
+        wish_n = sum(len(v) for v in wl.values())
+    except Exception:
+        wish_n = 0
+    block("romseerr_wishlist_entries", "gauge", "Einträge auf allen Wunschlisten / wishlist entries",
+          [({}, wish_n)])
+
+    block("romseerr_worker_last_run_timestamp_seconds", "gauge",
+          "Letzter Durchlauf je Hintergrund-Worker / last run per background worker",
+          [({"worker": w}, round(ts, 1)) for w, ts in sorted(WORKER_SEEN.items())])
+
+    block("romseerr_library_titles", "gauge", "Titel im Bibliotheks-Index / indexed library titles",
+          [({}, len(LIB["all"]))])
+    block("romseerr_library_platforms", "gauge", "Plattformen mit Titeln / platforms holding titles",
+          [({}, len(LIB["slugs"]))])
+    block("romseerr_library_index_timestamp_seconds", "gauge",
+          "Zeitpunkt des letzten Index-Laufs / time of the last index run", [({}, round(LIB["ts"], 1))])
+
+    block("romseerr_build_info", "gauge", "Version und Build als statische Info / build info",
+          [({"version": VERSION, "commit": BUILD_COMMIT or "", "built_at": BUILD_DATE or ""}, 1)])
+    return "\n".join(out) + "\n"
+
+@app.route("/metrics")
+def api_metrics():
+    """Prometheus-Endpunkt. Bewusst NICHT öffentlich — Metriken verraten Nutzungsmuster.
+    Er hängt an derselben Schleuse wie die API, ein Scraper nutzt also den API-Key
+    (`?apikey=…` oder Header `X-Api-Key`)."""
+    return Response(render_metrics(), mimetype="text/plain; version=0.0.4; charset=utf-8")
+
 # ---------- Version / Update-Hinweis ----------
 UPDATE_URL   = "https://api.github.com/repos/Sparxx947/romseerr/releases/latest"
 UPDATE_TTL   = 6 * 3600
@@ -2367,7 +2480,9 @@ def _guard():
     u = session.get("user")
     if not u or u not in load_users():
         session.clear()
-        if p.startswith("/api/"): return jsonify({"error":"auth"}), 401
+        # /metrics wird von einem Scraper geholt, nicht von einem Browser — ein Redirect
+        # auf /login käme dort als HTTP 200 mit HTML an und sähe wie ein Erfolg aus.
+        if p.startswith("/api/") or p == "/metrics": return jsonify({"error":"auth"}), 401
         return redirect("/login")
 
 @app.route("/login")
@@ -3094,6 +3209,8 @@ OPENAPI = {
         "/health": {"get": _op("Liveness-Probe (Titelzahl, Jobs)", "System", _PUB)},
         "/api/version": {"get": _op("Laufende Version, Commit und Bauzeitpunkt (optional Update-Abgleich)", "System", _PUB,
             params=[_qp("check", "1 = zusätzlich gegen den Release-Feed prüfen (latest, update_available)")])},
+        "/metrics": {"get": _op("Betriebsmetriken im Prometheus-Textformat (Auth wie API)", "System",
+            responses={**_R_AUTH, "200": {"description": "text/plain; version=0.0.4"}})},
         "/api/auth/status": {"get": _op("Anmelde-/Setup-Status, App-Name, Version", "System", _PUB)},
         "/manifest.webmanifest": {"get": _op("PWA-Manifest", "System", _PUB)},
         "/sw.js": {"get": _op("Service-Worker", "System", _PUB)},
@@ -3276,7 +3393,7 @@ def api_docs(): return Response(REDOC_PAGE, mimetype="text/html")
 # ---------- Start ----------
 def periodic_index():
     while True:
-        time.sleep(600); build_index()
+        time.sleep(600); beat("index"); build_index()
 
 def check_config():
     """Beim Start einmal prüfen und WARNEN (nicht fatal), wenn optionale Dienste fehlen oder
