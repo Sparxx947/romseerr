@@ -340,6 +340,58 @@ paths:
         '200':
           description: OK
       security: *id002
+  /api/wishlist:
+    get:
+      summary: Eigene Wunschliste (vorgemerkte, noch nicht verfügbare Titel)
+      tags:
+      - Requests
+      responses:
+        '200':
+          description: OK
+      security: *id002
+    post:
+      summary: Titel auf die Wunschliste setzen (Auto-Download, sobald verfügbar)
+      tags:
+      - Requests
+      responses:
+        '401': *id003
+        '200':
+          description: vorgemerkt
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - title
+              properties:
+                title:
+                  type: string
+                platform:
+                  type: string
+  /api/wishlist/remove:
+    post:
+      summary: Titel von der Wunschliste entfernen
+      tags:
+      - Requests
+      responses:
+        '401': *id003
+        '200':
+          description: entfernt
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - title
+              properties:
+                title:
+                  type: string
+                platform:
+                  type: string
   /api/jobs/{jid}/approve:
     post:
       summary: Anfrage freigeben

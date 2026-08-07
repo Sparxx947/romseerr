@@ -266,3 +266,18 @@ def test_inline_js_parses():
             os.unlink(path)
         checked += 1
     assert checked >= 1, "kein <script>-Block gefunden"
+
+
+def test_wishlist_roundtrip(appmod):
+    """Wunschliste: Hinzufügen ist dedupliziert und per-Nutzer, Entfernen greift."""
+    appmod.kv_put("wishlist", {})
+    appmod.wishlist_add("alice", "Chrono Trigger", "snes")
+    appmod.wishlist_add("alice", "Chrono Trigger", "snes")   # Dublette
+    appmod.wishlist_add("bob", "Zelda", "")
+    wl = appmod.load_wishlist()
+    assert len(wl.get("alice", [])) == 1
+    assert wl["alice"][0]["title"] == "Chrono Trigger"
+    assert len(wl.get("bob", [])) == 1
+    appmod.wishlist_remove("alice", "Chrono Trigger", "snes")
+    assert appmod.load_wishlist().get("alice", []) == []
+    appmod.kv_put("wishlist", {})   # aufräumen / cleanup

@@ -505,7 +505,8 @@ def igdb_rich(title):
     dev = ""
     for ic in g.get("involved_companies", []) or []:
         if ic.get("developer") and ic.get("company"): dev = ic["company"].get("name",""); break
-    out = {"summary": g.get("summary",""), "rating": round(rating) if rating else None, "year": year,
+    out = {"name": g.get("name",""),
+           "summary": g.get("summary",""), "rating": round(rating) if rating else None, "year": year,
            "developer": dev, "genres": [x.get("name") for x in g.get("genres",[]) or [] if x.get("name")],
            "screenshots": [f"https://images.igdb.com/igdb/image/upload/t_screenshot_med/{s['image_id']}.jpg"
                            for s in (g.get("screenshots",[]) or [])[:6] if s.get("image_id")],
@@ -797,6 +798,65 @@ def get_job(jid):
         for j in JOBS:
             if j["id"]==jid: return dict(j)
     return None
+
+# ---------- Wunschliste (Wishlist + Auto-Download) ----------
+# Titel, für die es (noch) keine Quelle gibt, kann ein Nutzer vormerken. Ein
+# Hintergrund-Worker sucht periodisch erneut; taucht eine passende Quelle auf,
+# wird sie automatisch angefragt und der Eintrag entfernt. Struktur im kv-Store
+# unter "wishlist": {user: [{title, platform, added}]}.
+WISH_LOCK = threading.Lock()
+WISH_INTERVAL = int(os.environ.get("ROMSEERR_WISH_INTERVAL", "1800"))   # Sekunden zwischen den Läufen
+def load_wishlist(): return kv_get("wishlist", {})
+def save_wishlist(w): kv_put("wishlist", w)
+def wishlist_add(user, title, platform=""):
+    title = (title or "").strip()
+    if not (user and title): return
+    with WISH_LOCK:
+        w = load_wishlist(); lst = w.setdefault(user, [])
+        if any(norm(e.get("title","")) == norm(title) and (e.get("platform") or "") == (platform or "")
+               for e in lst): return
+        lst.append({"title": title, "platform": platform or "", "added": int(time.time())})
+        save_wishlist(w)
+def wishlist_remove(user, title, platform=None):
+    with WISH_LOCK:
+        w = load_wishlist()
+        w[user] = [e for e in w.get(user, [])
+                   if not (norm(e.get("title","")) == norm(title)
+                           and (platform is None or (e.get("platform") or "") == (platform or "")))]
+        save_wishlist(w)
+
+def worker_wishlist():
+    """Prüft periodisch alle Wunschlisten. Erscheint zu einem Eintrag eine passende
+    Quelle (Titel-Abgleich streng, um Fehlgriffe zu vermeiden) und ist er nicht schon
+    in der Bibliothek, wird automatisch angefragt (immer freigegeben — der Nutzer hat
+    den Titel bewusst vorgemerkt) und der Eintrag entfernt."""
+    time.sleep(90)   # dem Index/den Diensten nach dem Start Zeit geben
+    while True:
+        try:
+            for user, lst in list(load_wishlist().items()):
+                for e in list(lst):
+                    title = e.get("title",""); plat = e.get("platform") or ""
+                    if not title: continue
+                    if in_library(title, plat or None):
+                        wishlist_remove(user, title, plat); continue
+                    try:
+                        hits = do_search(title, [plat] if plat else None)
+                    except Exception as ex:
+                        log(f"Wunschliste-Suche '{title}': {ex}"); continue
+                    nt = norm(title)
+                    best = next((r for r in hits if not r["in_library"] and nt in norm(r["title"])), None)
+                    if not best: continue
+                    new_job(best, user=user, approved=True)
+                    wishlist_remove(user, title, plat)
+                    try:
+                        send_push_to_user(user, "Romseerr",
+                            f"Aus deiner Wunschliste verfügbar / from your wishlist: {title[:60]}")
+                        notify_send(f"⭐ Wunschliste erfüllt / wishlist granted: **{title}** ({user})")
+                    except Exception: pass
+                    time.sleep(2)   # externe Quellen schonen
+        except Exception as ex:
+            log(f"Wunschlisten-Worker: {ex}")
+        time.sleep(WISH_INTERVAL)
 
 def quota_used(user, days):
     """Anzahl der Anfragen eines Nutzers innerhalb der letzten `days` Tage (abgelehnte zählen nicht)."""
@@ -1308,7 +1368,7 @@ const I18N={de:{
  hint_type:'Tippe einen Titel und drücke Enter.',loading_home:'Lade Startseite …',popular_on:'Beliebt auf',click_search:'klick zum Suchen',
  searching:'Suche läuft …',no_results:'Keine Treffer.',results:'Treffer',in_library:'✓ in Bibliothek',download:'⬇ Download',requested:'✓ angefragt',collection:'Sammlung',
  versions:'Versionen / Quellen',files:'Dateien',no_desc:'Keine Beschreibung verfügbar.',screenshots:'Screenshots',similar:'Ähnliche Spiele',series:'Reihe',because_you:'Weil du angefragt hast:',
- no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',retry:'Erneut',reset:'Alle zurücksetzen',req_all:'Alle anfragen',flt_user:'Nutzer',flt_all:'Alle',
+ no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',retry:'Erneut',reset:'Alle zurücksetzen',req_all:'Alle anfragen',flt_user:'Nutzer',flt_all:'Alle',wishlist:'Wunschliste',add_wishlist:'⭐ Merken',wl_added:'⭐ gemerkt',wl_empty:'Wunschliste leer.',wl_remove:'Entfernen',
  users:'Benutzer',new_user:'Neuen Benutzer anlegen',create:'Anlegen',del:'Löschen',autoapprove:'Auto-Freigabe',role_user:'Nutzer',role_admin:'Admin',username:'Benutzername',password:'Passwort',
  notif_discord:'Benachrichtigungen — Discord',active:'aktiv',test:'Test',save:'Speichern',saved:'gespeichert ✓',test_sent:'Test gesendet ✓',webhook_ph:'Discord Webhook-URL',
  st_pending:'⏳ Wartet auf Freigabe',st_queued:'Angefragt',st_downloading:'Lädt…',st_importing:'Wird verarbeitet',st_done:'✅ Verfügbar',st_error:'Fehler',st_denied:'Abgelehnt',st_exists:'vorhanden',
@@ -1322,7 +1382,7 @@ const I18N={de:{
  hint_type:'Type a title and press Enter.',loading_home:'Loading home …',popular_on:'Popular on',click_search:'click to search',
  searching:'Searching …',no_results:'No results.',results:'results',in_library:'✓ in library',download:'⬇ Download',requested:'✓ requested',collection:'Collection',
  versions:'Versions / sources',files:'Files',no_desc:'No description available.',screenshots:'Screenshots',similar:'Similar games',series:'Series',because_you:'Because you requested:',
- no_requests:'No requests yet.',approve:'Approve',deny:'Deny',retry:'Retry',reset:'Reset all',req_all:'Request all',flt_user:'User',flt_all:'All',
+ no_requests:'No requests yet.',approve:'Approve',deny:'Deny',retry:'Retry',reset:'Reset all',req_all:'Request all',flt_user:'User',flt_all:'All',wishlist:'Wishlist',add_wishlist:'⭐ Watch',wl_added:'⭐ watched',wl_empty:'Wishlist empty.',wl_remove:'Remove',
  users:'Users',new_user:'Create new user',create:'Create',del:'Delete',autoapprove:'Auto-approve',role_user:'User',role_admin:'Admin',username:'Username',password:'Password',
  notif_discord:'Notifications — Discord',active:'enabled',test:'Test',save:'Save',saved:'saved ✓',test_sent:'test sent ✓',webhook_ph:'Discord webhook URL',
  st_pending:'⏳ Awaiting approval',st_queued:'Requested',st_downloading:'Downloading…',st_importing:'Processing',st_done:'✅ Available',st_error:'Error',st_denied:'Denied',st_exists:'in library',
@@ -1336,7 +1396,7 @@ const I18N={de:{
  hint_type:'Saisissez un titre et appuyez sur Entrée.',loading_home:'Chargement …',popular_on:'Populaire sur',click_search:'cliquer pour rechercher',
  searching:'Recherche …',no_results:'Aucun résultat.',results:'résultats',in_library:'✓ dans la bibliothèque',download:'⬇ Télécharger',requested:'✓ demandé',collection:'Collection',
  versions:'Versions / sources',files:'Fichiers',no_desc:'Aucune description disponible.',screenshots:'Captures',similar:'Jeux similaires',series:'Série',because_you:'Parce que vous avez demandé :',
- no_requests:'Aucune demande.',approve:'Approuver',deny:'Refuser',retry:'Réessayer',reset:'Tout réinitialiser',req_all:'Tout demander',flt_user:'Utilisateur',flt_all:'Tous',
+ no_requests:'Aucune demande.',approve:'Approuver',deny:'Refuser',retry:'Réessayer',reset:'Tout réinitialiser',req_all:'Tout demander',flt_user:'Utilisateur',flt_all:'Tous',wishlist:'Liste de souhaits',add_wishlist:'⭐ Suivre',wl_added:'⭐ suivi',wl_empty:'Liste vide.',wl_remove:'Retirer',
  users:'Utilisateurs',new_user:'Créer un utilisateur',create:'Créer',del:'Supprimer',autoapprove:'Approbation auto',role_user:'Utilisateur',role_admin:'Admin',username:"Nom d'utilisateur",password:'Mot de passe',
  notif_discord:'Notifications — Discord',active:'activé',test:'Test',save:'Enregistrer',saved:'enregistré ✓',test_sent:'test envoyé ✓',webhook_ph:'URL du webhook Discord',
  st_pending:"⏳ En attente d'approbation",st_queued:'Demandé',st_downloading:'Téléchargement…',st_importing:'Traitement',st_done:'✅ Disponible',st_error:'Erreur',st_denied:'Refusé',st_exists:'présent',
@@ -1350,7 +1410,7 @@ const I18N={de:{
  hint_type:'Escribe un título y pulsa Intro.',loading_home:'Cargando …',popular_on:'Popular en',click_search:'clic para buscar',
  searching:'Buscando …',no_results:'Sin resultados.',results:'resultados',in_library:'✓ en la biblioteca',download:'⬇ Descargar',requested:'✓ solicitado',collection:'Colección',
  versions:'Versiones / fuentes',files:'Archivos',no_desc:'Sin descripción disponible.',screenshots:'Capturas',similar:'Juegos similares',series:'Serie',because_you:'Porque solicitaste:',
- no_requests:'Aún no hay solicitudes.',approve:'Aprobar',deny:'Rechazar',retry:'Reintentar',reset:'Restablecer todo',req_all:'Solicitar todo',flt_user:'Usuario',flt_all:'Todos',
+ no_requests:'Aún no hay solicitudes.',approve:'Aprobar',deny:'Rechazar',retry:'Reintentar',reset:'Restablecer todo',req_all:'Solicitar todo',flt_user:'Usuario',flt_all:'Todos',wishlist:'Lista de deseos',add_wishlist:'⭐ Seguir',wl_added:'⭐ en lista',wl_empty:'Lista vacía.',wl_remove:'Quitar',
  users:'Usuarios',new_user:'Crear usuario',create:'Crear',del:'Eliminar',autoapprove:'Auto-aprobación',role_user:'Usuario',role_admin:'Admin',username:'Usuario',password:'Contraseña',
  notif_discord:'Notificaciones — Discord',active:'activo',test:'Prueba',save:'Guardar',saved:'guardado ✓',test_sent:'prueba enviada ✓',webhook_ph:'URL del webhook de Discord',
  st_pending:'⏳ Esperando aprobación',st_queued:'Solicitado',st_downloading:'Descargando…',st_importing:'Procesando',st_done:'✅ Disponible',st_error:'Error',st_denied:'Rechazado',st_exists:'presente',
@@ -1477,6 +1537,7 @@ async function openDetail(it){let m=document.getElementById('modal');m.style.dis
     <div class=meta>${it.platform_slug||'?'} · ${it.source=='usenet'?'📡 Usenet':'🗄 Archive'} · ${sz(it.size)}${it.is_set?' · 📦 Sammlung':''}</div>
     <div class=meta2 id=mrich></div>
     <button onclick="reportFromDetail()" style="margin-top:8px;background:#2a2f37;border:none;color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px">🐞 ${t('report_issue')}</button>
+    <button id=wlbtn onclick="addWishlist(this)" style="margin-top:8px;margin-left:6px;background:#2a2f37;border:none;color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px">${t('add_wishlist')}</button>
     <div class=desc id=mdesc>…</div></div></div>
   <div class=sec id=mshots style="display:none"><h3>${t('screenshots')}</h3><div class=shots id=mshotsw></div></div>
   <div class=sec><h3>${t('versions')} (${vars.length})</h3><div id=reqforbar></div><div id=mvar></div></div>
@@ -1494,6 +1555,7 @@ async function openDetail(it){let m=document.getElementById('modal');m.style.dis
     bar.innerHTML=`<div class=frow style="margin-bottom:8px"><label style="min-width:auto;color:#8b929e;font-size:12px">${t('req_for')}</label><select id=reqforsel onchange="window.reqFor=this.value"><option value="">${t('req_self')}</option>${names.map(u=>`<option value="${u}">${u.replace(/</g,'&lt;')}</option>`).join('')}</select></div>`;}}catch(e){}}
  let r=await fetch('/api/detail?source='+encodeURIComponent(it.source)+'&ref='+encodeURIComponent(it.ref||'')+'&title='+encodeURIComponent(it.title));
  let d=await r.json();
+ window._detname=d.name||'';
  document.getElementById('mdesc').textContent=d.description||t('no_desc');
  let rb=[];
  if(d.rating)rb.push(`<span class=badge>★ ${d.rating}</span>`);
@@ -1511,6 +1573,9 @@ async function openDetail(it){let m=document.getElementById('modal');m.style.dis
  if(d.files&&d.files.length)document.getElementById('mfiles').innerHTML='<h3>'+t('files')+'</h3><div class=flist>'+
    d.files.map(f=>`<div>${f.name.replace(/</g,'&lt;')} — ${sz(f.size)}</div>`).join('')+'</div>';}
 function simSearch(n){closeModal();document.getElementById('q').value=n;show('s');search();}
+async function addWishlist(btn){btn.disabled=true;let it=window._detit||{};
+ let r=await(await fetch('/api/wishlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:window._detname||it.title||'',platform:it.platform_slug||''})})).json();
+ btn.textContent=r.ok?t('wl_added'):(r.msg||t('st_error'));}
 function closeModal(){document.getElementById('modal').style.display='none';}
 // --- Discover / Startseite: beliebte Spiele je Konsole ---
 async function loadDiscover(){let hint=document.getElementById('hint');hint.style.display='';hint.textContent=t('loading_home');
@@ -1545,6 +1610,16 @@ const STCLS={downloading:'downloading',importing:'importing',done:'done',error:'
 function stlab(s){return [t('st_'+s)||s, STCLS[s]||''];}
 async function loadJobs(){let r=await fetch('/api/jobs');let d=await r.json();let j=document.getElementById('jobs');
  j.innerHTML='';
+ try{let wl=await(await fetch('/api/wishlist')).json();
+  if(wl&&wl.length){let box=document.createElement('div');box.style.cssText='margin-bottom:14px';
+   box.innerHTML='<div class=rowh style="margin-bottom:6px">⭐ <b>'+t('wishlist')+'</b></div>';
+   wl.forEach(e=>{let row=document.createElement('div');row.className='job';
+    row.innerHTML=`<div><div>${(e.title||'').replace(/</g,'&lt;')}</div><div class=meta style="color:#8b929e;font-size:11px">${(e.platform||'—').replace(/</g,'&lt;')}</div></div>`;
+    let b=document.createElement('button');b.textContent=t('wl_remove');
+    b.style.cssText='background:#6e2a2a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer';
+    b.onclick=async()=>{await fetch('/api/wishlist/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:e.title,platform:e.platform})});loadJobs();};
+    row.appendChild(b);box.appendChild(row);});
+   j.appendChild(box);}}catch(e){}
  if(canDo('manage_requests')){let users=[...new Set(d.map(o=>o.user||'—'))].sort();
   if(users.length>1){let bar=document.createElement('div');bar.style.cssText='margin:0 0 10px;color:#8b929e;font-size:13px';
    let opts='<option value="">'+t('flt_all')+'</option>'+users.map(u=>`<option${window.jobFilter===u?' selected':''}>${u.replace(/</g,'&lt;')}</option>`).join('');
@@ -1987,9 +2062,10 @@ def api_platforms():
 def api_detail():
     source = request.args.get("source",""); ref = request.args.get("ref",""); title = request.args.get("title","")
     rich = igdb_rich(title) if title else {}
-    out = {"description": rich.get("summary","") or "", "files": [],
+    out = {"description": rich.get("summary","") or "", "files": [], "name": rich.get("name","") or "",
            "rating": rich.get("rating"), "year": rich.get("year",""), "developer": rich.get("developer",""),
-           "genres": rich.get("genres", []), "screenshots": rich.get("screenshots", []), "similar": rich.get("similar", [])}
+           "genres": rich.get("genres", []), "screenshots": rich.get("screenshots", []), "similar": rich.get("similar", []),
+           "series": rich.get("series", ""), "series_games": rich.get("series_games", [])}
     if source == "archive" and ref:
         try:
             m = requests.get(f"https://archive.org/metadata/{ref}", timeout=15).json()
@@ -2055,6 +2131,29 @@ def api_download():
 @app.route("/api/jobs")
 def api_jobs():
     with JOBS_LOCK: return jsonify(list(reversed(JOBS))[:100])
+
+@app.route("/api/wishlist", methods=["GET", "POST"])
+def api_wishlist():
+    user = session.get("user", "") or "api"
+    if request.method == "POST":
+        if not has_perm("request"):
+            return jsonify({"ok": False, "msg": "keine Berechtigung / no permission"}), 403
+        d = request.get_json(force=True) or {}
+        title = (d.get("title") or "").strip()
+        if not title:
+            return jsonify({"ok": False, "msg": "Titel fehlt / title missing"}), 400
+        if in_library(title, (d.get("platform") or "") or None):
+            return jsonify({"ok": False, "msg": "bereits in Bibliothek / already in library"})
+        wishlist_add(user, title, d.get("platform", ""))
+        return jsonify({"ok": True})
+    return jsonify(load_wishlist().get(user, []))
+
+@app.route("/api/wishlist/remove", methods=["POST"])
+def api_wishlist_remove():
+    user = session.get("user", "") or "api"
+    d = request.get_json(force=True) or {}
+    wishlist_remove(user, (d.get("title") or "").strip(), d.get("platform"))
+    return jsonify({"ok": True})
 
 @app.route("/health")
 def health(): return jsonify({"ok":True,"lib_titles":len(LIB['all']),"jobs":len(JOBS)})
@@ -2815,6 +2914,16 @@ OPENAPI = {
             body={"type": "object", "description": "Trefferobjekt aus /api/search bzw. /api/detail"},
             responses={**_R_AUTH, "200": {"description": "Job angelegt"}})},
         "/api/jobs": {"get": _op("Eigene Anfragen (Admin: alle) mit Status", "Requests")},
+        "/api/wishlist": {
+            "get": _op("Eigene Wunschliste (vorgemerkte, noch nicht verfügbare Titel)", "Requests"),
+            "post": _op("Titel auf die Wunschliste setzen (Auto-Download, sobald verfügbar)", "Requests",
+                body={"type": "object", "required": ["title"],
+                      "properties": {"title": {"type": "string"}, "platform": {"type": "string"}}},
+                responses={**_R_AUTH, "200": {"description": "vorgemerkt"}})},
+        "/api/wishlist/remove": {"post": _op("Titel von der Wunschliste entfernen", "Requests",
+            body={"type": "object", "required": ["title"],
+                  "properties": {"title": {"type": "string"}, "platform": {"type": "string"}}},
+            responses={**_R_AUTH, "200": {"description": "entfernt"}})},
         "/api/jobs/{jid}/approve": {"post": _op("Anfrage freigeben", "Requests",
             params=[_pp("jid", "Job-ID")], responses={**_R_PERM, "200": {"description": "OK"}})},
         "/api/jobs/{jid}/deny": {"post": _op("Anfrage ablehnen", "Requests",
@@ -2980,6 +3089,7 @@ if __name__ == "__main__":
     threading.Thread(target=worker_collect, daemon=True).start()
     threading.Thread(target=periodic_index, daemon=True).start()
     threading.Thread(target=check_config, daemon=True).start()
+    threading.Thread(target=worker_wishlist, daemon=True).start()
     # Optionaler HTTPS-Listener (eigener Port), wenn ein Zertifikat hinterlegt & aktiviert ist.
     def _start_https():
         info = tls_info()
