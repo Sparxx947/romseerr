@@ -1017,6 +1017,12 @@ def perm_required(perm):
 app = Flask(__name__)
 app.secret_key = app_secret()
 app.config["PERMANENT_SESSION_LIFETIME"] = 60*60*24*30
+# Cookie-Härtung: HttpOnly (kein JS-Zugriff) + SameSite=Strict (CSRF-Schutz, da alle
+# API-Aufrufe same-origin sind). Secure nur setzen, wenn hinter HTTPS betrieben
+# (ROMSEERR_HTTPS=1) — sonst würde das Cookie über reines HTTP im LAN nicht gesetzt.
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("ROMSEERR_HTTPS", "") == "1"
 
 PAGE = """<!doctype html><html lang=de><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1"><title>Romseerr</title>
@@ -2042,13 +2048,35 @@ def api_setup():
     session.permanent=True; session["user"]=u; session["role"]="admin"
     return jsonify({"ok":True})
 
+# Einfaches In-RAM-Rate-Limit gegen Passwort-Bruteforce: max. LOGIN_MAX Fehlversuche je
+# (IP, Benutzer) im gleitenden Fenster LOGIN_WINDOW, danach LOGIN_MAX weitere = HTTP 429.
+LOGIN_FAILS = {}
+LOGIN_WINDOW = 300     # Sekunden
+LOGIN_MAX = 8          # erlaubte Fehlversuche im Fenster
+def _rl_key(user):
+    ip = (request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+          or request.remote_addr or "?")
+    return f"{ip}|{(user or '').lower()}"
+def login_blocked(user):
+    now = time.time(); k = _rl_key(user)
+    LOGIN_FAILS[k] = [t for t in LOGIN_FAILS.get(k, []) if now - t < LOGIN_WINDOW]
+    return len(LOGIN_FAILS[k]) >= LOGIN_MAX
+def login_fail(user):
+    LOGIN_FAILS.setdefault(_rl_key(user), []).append(time.time())
+def login_ok(user):
+    LOGIN_FAILS.pop(_rl_key(user), None)
+
 @app.route("/api/login", methods=["POST"])
 def api_login():
     d = request.get_json(force=True); u=(d.get("username") or "").strip(); p=d.get("password") or ""
+    if login_blocked(u):
+        return jsonify({"ok":False,"msg":"Zu viele Fehlversuche — bitte kurz warten / too many attempts"}), 429
     usr = load_users().get(u)
     if usr and check_password_hash(usr["pw"], p):
+        login_ok(u)
         session.permanent=True; session["user"]=u; session["role"]=usr.get("role","user")
         return jsonify({"ok":True,"role":session["role"]})
+    login_fail(u)
     return jsonify({"ok":False,"msg":"Falsche Zugangsdaten"}), 401
 
 @app.route("/api/logout", methods=["POST"])

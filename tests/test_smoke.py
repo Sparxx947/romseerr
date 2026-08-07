@@ -68,6 +68,18 @@ def test_login_wrong_password_rejected(client):
     assert r.status_code != 200
 
 
+def test_login_rate_limited(appmod, client):
+    """Nach zu vielen Fehlversuchen antwortet der Login mit 429 (Bruteforce-Schutz)."""
+    codes = [client.post("/api/login", json={"username": "rl_probe", "password": "x"}).status_code
+             for _ in range(appmod.LOGIN_MAX + 2)]
+    assert 429 in codes, f"kein 429 nach {appmod.LOGIN_MAX} Fehlversuchen: {codes}"
+
+
+def test_session_cookie_hardened(appmod):
+    assert appmod.app.config["SESSION_COOKIE_SAMESITE"] == "Strict"
+    assert appmod.app.config["SESSION_COOKIE_HTTPONLY"] is True
+
+
 def test_protected_endpoint_requires_auth(client):
     # ohne Login liefert eine geschützte API 401 (nicht 200)
     r = client.get("/api/users")
