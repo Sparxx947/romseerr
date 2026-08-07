@@ -1504,3 +1504,13 @@ def test_stream_agent_refuses_paths_outside_the_library(appmod):
     assert ok is False and "nicht gefunden" in msg
     ok, msg = mod.launch(os.path.join(appmod.ROMS, "x.iso"), "voellig-unbekannt")
     assert ok is False and "kein Emulator" in msg
+
+
+def test_stream_find_file_validates_the_slug_itself(appmod):
+    """Der Slug geht in einen Pfad. Er wird IN stream_find_file geprüft, nicht nur beim
+    Aufrufer — sonst haengt die Sicherheit an der Reihenfolge der Pruefungen. (#71)"""
+    appmod.save_settings({"connections": {"stream_url": "http://s.example/"}})
+    for evil in ("../../etc", "..", "/etc", "ps2/../../etc"):
+        assert appmod.stream_find_file("passwd", evil) is None, evil
+    assert appmod.stream_find_file("X", "snes") is None      # nicht streambar -> kein Pfadzugriff
+    appmod.save_settings({})

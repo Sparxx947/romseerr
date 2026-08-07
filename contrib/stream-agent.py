@@ -72,14 +72,20 @@ def launch(path, platform):
     if not cmd:
         return False, f"kein Emulator fuer '{platform}' hinterlegt / no emulator configured"
 
-    real = os.path.realpath(path)
     # Der Pfad kommt von aussen. Nach Aufloesung der Symlinks MUSS er unter ROMS liegen —
-    # sonst waere dies ein Fernstart fuer beliebige Dateien auf dem Host.
-    if not (real == ROMS or real.startswith(ROMS + os.sep)):
+    # sonst waere dies ein Fernstart fuer beliebige Dateien auf dem Host. Geprueft wird die
+    # AUFGELOESTE Form (realpath), sonst genuegt ein Symlink oder ein '..' zum Ausbrechen.
+    try:
+        real = os.path.realpath(path)
+        if os.path.commonpath([real, ROMS]) != ROMS:
+            raise ValueError
+    except (ValueError, OSError):
         return False, "Pfad ausserhalb der Bibliothek / path outside the library"
     if not os.path.isfile(real):
         return False, "Datei nicht gefunden / file not found"
 
+    # argv ist damit: fester Befehl aus der Umgebung (der Betreiber setzt ihn) + genau EIN
+    # geprueftes Argument aus der Bibliothek. Keine Shell, keine Wortzerlegung durch execve.
     argv = [real if part == "%s" else part for part in shlex.split(cmd)]
     if "%s" not in cmd:
         argv.append(real)

@@ -2033,7 +2033,12 @@ def stream_session():
     return ses
 
 def stream_find_file(title, slug):
-    """Titel -> Datei in der Bibliothek. Ohne Datei kein Stream (dieselbe Regel wie bei Play)."""
+    """Titel -> Datei in der Bibliothek. Ohne Datei kein Stream (dieselbe Regel wie bei Play).
+
+    Der Slug kommt vom Aufrufer und geht in einen Pfad. Er wird deshalb HIER gegen die
+    feste Menge geprueft und nicht nur beim Aufrufer — sonst haenge die Sicherheit an der
+    Reihenfolge der Pruefungen in stream_info(), und die kann sich aendern."""
+    if slug not in STREAMABLE: return None
     want = norm(title)
     base = os.path.join(ROMS, slug)
     if not (want and os.path.isdir(base)): return None
