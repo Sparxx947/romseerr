@@ -1066,6 +1066,81 @@ def discover_rows():
                        for g in r["games"] if not is_blocked(g["title"], bl)]}
             for r in rows]
 
+# ---------- Ausgehende Anfragen an selbst gesetzte URLs (#89) ----------
+# Webhook-URLs kommen vom Nutzer. Ohne Pruefung wird der Server damit zum HTTP-Client
+# fuer beliebige Ziele — auch solche, die NUR er erreicht (andere Container, Router- und
+# Firewall-Oberflaechen, Metadaten-Endpunkte). Das kann JEDER angemeldete Nutzer ausloesen,
+# nicht nur ein Admin: es genuegt, das eigene Webhook-Feld zu setzen und "Test" zu druecken.
+#
+# Bewusst KEIN pauschales Verbot privater Ziele: viele betreiben ihr Benachrichtigungsziel
+# im selben Netz. Deshalb eine ausdrueckliche Admin-Einstellung, standardmaessig AUS.
+_PRIVATE_OK_KEY = "allow_private_webhooks"
+
+def allow_private_targets():
+    return bool(load_settings().get(_PRIVATE_OK_KEY))
+
+def url_allowed(url):
+    """(ok, grund). Prueft Schema und die AUFGELOESTE Adresse — ein Hostname sagt nichts,
+    `interner-dienst.example.com` kann auf 127.0.0.1 zeigen."""
+    import ipaddress, socket
+    try:
+        u = urllib.parse.urlsplit(str(url or ""))
+    except Exception:
+        return False, "invalid"
+    if u.scheme not in ("http", "https"): return False, "scheme"
+    if not u.hostname: return False, "invalid"
+    if allow_private_targets(): return True, ""
+    try:
+        infos = socket.getaddrinfo(u.hostname, u.port or (443 if u.scheme == "https" else 80),
+                                   proto=socket.IPPROTO_TCP)
+    except Exception:
+        return False, "dns"
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False, "dns"
+        if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast
+                or ip.is_reserved or ip.is_unspecified):
+            return False, "private"
+    return True, ""
+
+def err_kind(e):
+    """Fehlerart statt Ausnahmetext. Der Volltext gehoert ins Log, nicht in eine Antwort —
+    er verraet interne Pfade, Hostnamen und Bibliotheksdetails."""
+    import socket as _s
+    if isinstance(e, requests.Timeout): return "timeout"
+    if isinstance(e, requests.ConnectionError): return "nicht erreichbar / unreachable"
+    if isinstance(e, requests.HTTPError) and e.response is not None:
+        return f"HTTP {e.response.status_code}"
+    if isinstance(e, (_s.gaierror,)): return "DNS"
+    if isinstance(e, ValueError): return "ungueltige Antwort / invalid response"
+    return "Fehler / error"
+
+URL_REFUSED = {"scheme": "nur http(s) erlaubt / http(s) only",
+               "private": "Ziel im privaten Netz — in den Einstellungen ausdruecklich erlauben / "
+                          "private target, enable it explicitly in settings",
+               "dns": "Name nicht aufloesbar / cannot resolve",
+               "invalid": "keine gueltige URL / not a valid URL"}
+
+def safe_request(method, url, _redirects=2, **kw):
+    """Wie requests.request, aber nur an erlaubte Ziele — und Weiterleitungen werden
+    einzeln neu geprueft. Ohne das genuegt eine Umleitung auf 127.0.0.1, um die
+    Pruefung der Ausgangs-URL zu umgehen."""
+    ok, why = url_allowed(url)
+    if not ok:
+        raise PermissionError(URL_REFUSED.get(why, why))
+    kw.setdefault("timeout", 8)
+    kw["allow_redirects"] = False
+    r = requests.request(method, url, **kw)
+    if r.is_redirect and _redirects > 0 and r.headers.get("Location"):
+        nxt = urllib.parse.urljoin(url, r.headers["Location"])
+        return safe_request(method, nxt, _redirects - 1, **kw)
+    return r
+
+def safe_post(url, **kw): return safe_request("POST", url, **kw)
+def safe_get(url, **kw):  return safe_request("GET", url, **kw)
+
 def notify_send(text):
     """Meldung an ALLE aktiven globalen Kanäle senden: Discord-Webhook (Einstellungen oder
     Env-Fallback), Telegram, generischer Webhook. Gibt True zurück, wenn mind. einer sendete."""
@@ -1073,7 +1148,7 @@ def notify_send(text):
     dc = s.get("discord", {})
     wh = dc.get("url") if dc.get("enabled") else os.environ.get("DISCORD_WEBHOOK", "")
     if wh:
-        try: requests.post(wh, json={"content": text}, timeout=8); sent = True
+        try: safe_post(wh, json={"content": text}); sent = True
         except Exception as e: log(f"Discord-Fehler: {e}")
     ag = s.get("agents", {})
     tg = ag.get("telegram", {})
@@ -1083,18 +1158,18 @@ def notify_send(text):
         except Exception as e: log(f"Telegram-Fehler: {e}")
     gw = ag.get("webhook", {})
     if gw.get("enabled") and gw.get("url"):
-        try: requests.post(gw["url"], json={"content": text, "text": text}, timeout=8); sent = True
+        try: safe_post(gw["url"], json={"content": text, "text": text}); sent = True
         except Exception as e: log(f"Webhook-Fehler: {e}")
     gt = ag.get("gotify", {})
     if gt.get("enabled") and gt.get("url") and gt.get("token"):
-        try: requests.post(f"{gt['url'].rstrip('/')}/message", params={"token": gt["token"]},
-                           json={"title": "Romseerr", "message": text}, timeout=8); sent = True
+        try: safe_post(f"{gt['url'].rstrip('/')}/message", params={"token": gt["token"]},
+                       json={"title": "Romseerr", "message": text}); sent = True
         except Exception as e: log(f"Gotify-Fehler: {e}")
     nt = ag.get("ntfy", {})
     if nt.get("enabled") and nt.get("topic"):
         base = (nt.get("url") or "https://ntfy.sh").rstrip("/")
         hdr = {"Authorization": "Bearer " + nt["token"]} if nt.get("token") else {}
-        try: requests.post(f"{base}/{nt['topic']}", data=text.encode("utf-8"), headers=hdr, timeout=8); sent = True
+        try: safe_post(f"{base}/{nt['topic']}", data=text.encode("utf-8"), headers=hdr); sent = True
         except Exception as e: log(f"ntfy-Fehler: {e}")
     po = ag.get("pushover", {})
     if po.get("enabled") and po.get("token") and po.get("user"):
@@ -1153,7 +1228,7 @@ def catalog_urls():
 def fetch_catalog_source(url):
     """Eine Katalogquelle holen, prüfen und ihre Einträge ablegen. Rückgabe (name, anzahl)
     oder eine Ausnahme mit lesbarem Grund — eine unbrauchbare Quelle soll auffallen."""
-    r = requests.get(url, timeout=30, headers={"Accept": "application/json"})
+    r = safe_get(url, timeout=30, headers={"Accept": "application/json"})
     if not r.ok: raise RuntimeError(f"HTTP {r.status_code}")
     data = r.json()
     if not isinstance(data, dict) or not isinstance(data.get("downloads"), list):
@@ -1821,7 +1896,7 @@ def import_folder(jid, folder):
                           f"🎮 {job.get('title','')} verfügbar / available ({where})")
         wh = load_users().get(job.get("user",""), {}).get("webhook","")
         if wh:
-            try: requests.post(wh, json={"content": f"🎮 **{job.get('title','')}** ist jetzt verfügbar / now available ({where})"}, timeout=8)
+            try: safe_post(wh, json={"content": f"🎮 **{job.get('title','')}** ist jetzt verfügbar / now available ({where})"})
             except Exception as e: log(f"Personal-Notify-Fehler: {e}")
         if load_settings().get("agents", {}).get("email", {}).get("enabled"):
             em = load_users().get(job.get("user",""), {}).get("email","")
@@ -2404,7 +2479,7 @@ def api_detail():
                 fs.append({"name": nm, "size": int(fo.get("size") or 0)})
             out["files"] = sorted(fs, key=lambda x:-x["size"])[:60]
         except Exception as e:
-            out["error"] = str(e)[:150]
+            log(f"Archive-Detail {ref}: {e}"); out["error"] = err_kind(e)
     return jsonify(out)
 
 @app.route("/api/play")
@@ -2781,11 +2856,17 @@ def api_profile_pw():
 def api_profile_notify_test():
     wh = ((request.get_json(silent=True) or {}).get("url") or "").strip()
     if not wh: return jsonify({"ok":False,"msg":"keine URL"}), 400
+    # Zuerst FRAGEN, dann senden: die Begruendung kommt aus der festen Tabelle URL_REFUSED
+    # und nicht aus einem Ausnahmetext — der duerfte so oder so nicht nach aussen. (#89)
+    ok, why = url_allowed(wh)
+    if not ok:
+        return jsonify({"ok":False,"msg":URL_REFUSED.get(why, "abgelehnt / refused")}), 400
     try:
-        requests.post(wh, json={"content":"✅ Romseerr — persönlicher Test / personal test"}, timeout=8)
+        safe_post(wh, json={"content":"✅ Romseerr — persönlicher Test / personal test"})
         return jsonify({"ok":True})
     except Exception as e:
-        return jsonify({"ok":False,"msg":str(e)[:100]}), 400
+        log(f"Persoenlicher Webhook-Test: {e}")
+        return jsonify({"ok":False,"msg":err_kind(e)}), 400
 
 @app.route("/api/forgot", methods=["POST"])
 def api_forgot():
@@ -2928,7 +3009,7 @@ def api_messages_send():
     send_push_to_user(to, "Romseerr", f"✉ {me}: {body[:60]}")
     wh = load_users().get(to, {}).get("webhook", "")
     if wh:
-        try: requests.post(wh, json={"content": f"✉ **{me}**: {body[:200]}"}, timeout=8)
+        try: safe_post(wh, json={"content": f"✉ **{me}**: {body[:200]}"})
         except Exception: pass
     return jsonify({"ok": True})
 
@@ -3174,6 +3255,7 @@ def api_settings_get():
                     "quota": s.get("quota", {"enabled": False, "count": 10, "days": 7}),
                     "onboarded": bool(s.get("onboarded")),
                     "update_check": bool(s.get("update_check", True)),
+                    "allow_private_webhooks": bool(s.get(_PRIVATE_OK_KEY)),
                     "variant": variant_prefs(), "variant_regions": list(REGIONS),
                     "connections": {**{k: cfg(k) for k in CONN_KEYS if k not in CONN_SECRET},
                                     **{"has_"+k: bool(cfg(k)) for k in CONN_SECRET}}})
@@ -3234,6 +3316,7 @@ def api_settings_set():
                 s["connections"][k] = (v or "").strip()  # leer = Env-Default nutzen
     if "onboarded" in d: s["onboarded"] = bool(d["onboarded"])
     if "update_check" in d: s["update_check"] = bool(d["update_check"])
+    if _PRIVATE_OK_KEY in d: s[_PRIVATE_OK_KEY] = bool(d[_PRIVATE_OK_KEY])
     if "variant" in d: s["variant"] = sanitize_variant_prefs(d["variant"])
     save_settings(s); return jsonify({"ok": True})
 
@@ -3433,7 +3516,7 @@ def api_import():
         return jsonify({"ok": False, "msg": str(e)}), 400
     except Exception as e:
         log(f"Import-Fehler: {e}")
-        return jsonify({"ok": False, "msg": f"Import fehlgeschlagen / failed: {str(e)[:120]}"}), 500
+        return jsonify({"ok": False, "msg": "Import fehlgeschlagen / failed"}), 500
     log(f"Konfiguration importiert ({d.get('mode')}): {counts}")
     return jsonify({"ok": True, "mode": d.get("mode"), "counts": counts})
 
@@ -3458,7 +3541,7 @@ def tls_info():
             exp = getattr(crt, "not_valid_after_utc", None) or crt.not_valid_after
             info["expires"] = exp.strftime("%Y-%m-%d")
         except Exception as e:
-            info["error"] = str(e)[:100]
+            log(f"Mail-Test: {e}"); info["error"] = err_kind(e)
     return info
 
 def _tls_validate(cert, key):
@@ -3522,22 +3605,22 @@ def api_services_status():
     try:
         j = requests.get(f"{cfg("sab_url")}/api", params={"mode":"version","output":"json","apikey":cfg("sab_apikey")}, timeout=6).json()
         out.append({"name":"SABnzbd","ok":True,"info":"v"+str(j.get("version",""))})
-    except Exception as e: out.append({"name":"SABnzbd","ok":False,"info":str(e)[:40]})
+    except Exception as e: out.append({"name":"SABnzbd","ok":False,"info":err_kind(e)})
     try:
         r = requests.get(f"{cfg("prow_url")}/api/v1/system/status", headers={"X-Api-Key":cfg("prow_apikey")}, timeout=6)
         out.append({"name":"Prowlarr","ok":r.ok,"info":"v"+str(r.json().get("version",""))})
-    except Exception as e: out.append({"name":"Prowlarr","ok":False,"info":str(e)[:40]})
+    except Exception as e: out.append({"name":"Prowlarr","ok":False,"info":err_kind(e)})
     try:
         r = requests.get(f"{cfg("romm_url")}/api/heartbeat", timeout=6)
         out.append({"name":"RomM","ok":r.ok,"info":"erreichbar"})
-    except Exception as e: out.append({"name":"RomM","ok":False,"info":str(e)[:40]})
+    except Exception as e: out.append({"name":"RomM","ok":False,"info":err_kind(e)})
     out.append({"name":"IGDB","ok":bool(igdb_token()),"info":"Cover / Discover"})
     if cfg("sgdb_key"):
         try:
             r = requests.get("https://www.steamgriddb.com/api/v2/search/autocomplete/mario",
                              headers={"Authorization":"Bearer "+cfg("sgdb_key")}, timeout=6)
             out.append({"name":"SteamGridDB","ok":r.ok,"info":"Cover-Fallback"})
-        except Exception as e: out.append({"name":"SteamGridDB","ok":False,"info":str(e)[:40]})
+        except Exception as e: out.append({"name":"SteamGridDB","ok":False,"info":err_kind(e)})
     if cfg("ss_user"):
         out.append({"name":"ScreenScraper","ok":True,"info":"Zugang hinterlegt / configured"})
     # JDownloader hat keine API in diesem Aufbau — geprueft wird die Ordner-Uebergabe. (#83)
@@ -3551,11 +3634,15 @@ def api_services_status():
 def api_settings_test():
     d = request.get_json(silent=True) or {}; dc = d.get("discord") or {}
     if dc.get("url"):
+        ok_url, why = url_allowed(dc["url"])
+        if not ok_url:
+            return jsonify({"ok": False, "msg": URL_REFUSED.get(why, "abgelehnt / refused")}), 400
         try:
-            requests.post(dc["url"], json={"content":"✅ Romseerr — Testbenachrichtigung / test notification"}, timeout=8)
+            safe_post(dc["url"], json={"content":"✅ Romseerr — Testbenachrichtigung / test notification"})
             return jsonify({"ok": True})
         except Exception as e:
-            return jsonify({"ok": False, "msg": str(e)[:120]}), 400
+            log(f"Discord-Test: {e}")
+            return jsonify({"ok": False, "msg": err_kind(e)}), 400
     ok = notify_send("✅ Romseerr — Testbenachrichtigung / test notification")
     return jsonify({"ok": ok, "msg": "" if ok else "kein Webhook konfiguriert"})
 
