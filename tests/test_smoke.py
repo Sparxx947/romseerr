@@ -141,6 +141,18 @@ def test_tls_upload_and_status(client):
     assert client.get("/api/settings/tls").get_json()["has_cert"] is False
 
 
+def test_onboarded_flag_roundtrip(client):
+    """Das onboarded-Flag (Steuerung des Erststart-Assistenten) muss speicher-/lesbar sein."""
+    st = client.get("/api/auth/status").get_json()
+    if st["setup"]:
+        client.post("/api/setup", json={"username": "admin", "password": "pw123456", "display_name": "A"})
+    client.post("/api/login", json={"username": "admin", "password": "pw123456"})
+    client.post("/api/settings", json={"onboarded": True})
+    assert client.get("/api/settings").get_json()["onboarded"] is True
+    client.post("/api/settings", json={"onboarded": False})
+    assert client.get("/api/settings").get_json()["onboarded"] is False
+
+
 def test_protected_endpoint_requires_auth(client):
     # ohne Login liefert eine geschützte API 401 (nicht 200)
     r = client.get("/api/users")

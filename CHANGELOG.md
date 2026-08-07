@@ -6,6 +6,16 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Hinzugefügt / Added
+- **Erststart-Assistent** — beim ersten Start (Admin, noch nicht „onboarded") führt ein Wizard
+  Schritt für Schritt durch die Verbindungen (SABnzbd/Prowlarr/IGDB/RomM) mit Test je Schritt;
+  jederzeit über Einstellungen → Über erneut aufrufbar. Flag `onboarded` in den Einstellungen. /
+  **First-run wizard** — guides new admins through the stack connections step by step with a
+  per-step test; reopenable from Settings → About.
+- **Ausführlicher „Über"-Bereich** — Version, Bibliotheks-/Anfragen-Statistik, Links (Repo, Wiki,
+  API-Doku, Changelog, Issues, Security), Funktions- und Stack-Überblick, Lizenz. /
+  **Detailed "About" section** — version, library/request stats, links, feature & stack overview.
+
 ### Geändert / Changed
 - **Rebrand-Aufräumen** — restliche `rom-suche`/`romsuche_`-Verweise im Code durch `Romseerr`/
   `romseerr_` ersetzt (Log „Romseerr startet…", Logdatei `romseerr.log`, Job-/Ordnernamen
