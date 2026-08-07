@@ -1,5 +1,66 @@
 #!/usr/bin/env python3
-# rom-suche — Seerr-artige ROM-Suche & Auto-Download (Archive.org + Usenet/SAB), Dedup gegen Bibliothek.
+"""
+Romseerr — eine Seerr-artige Such-/Anfrage-Oberfläche für ROMs.
+Romseerr — a Seerr-style search/request front-end for ROMs.
+
+================================================================================
+ÜBERBLICK / OVERVIEW
+================================================================================
+Romseerr ist bewusst **eine schlanke Oberfläche vor bestehenden Werkzeugen**: Es
+sucht Titel (Archive.org + Usenet über Prowlarr), stößt Downloads an (SABnzbd bzw.
+JDownloader bzw. direkt via aria2), entpackt/sortiert das Ergebnis in eine
+ROM-Bibliothek und meldet Verfügbarkeit. Die gesamte App ist bewusst **eine einzige
+Datei** ohne Build-Schritt — Flask-Backend UND das komplette Frontend (HTML/CSS/JS
+als Strings) leben hier drin.
+
+Ausführliche Architektur inkl. Diagramm: docs/ARCHITECTURE.md.
+API-Referenz: /api/docs (Redoc) bzw. docs/API.md. Mitwirken: .github/CONTRIBUTING.md.
+
+================================================================================
+AUFBAU DIESER DATEI / HOW THIS FILE IS ORGANIZED  (Reihenfolge = Abschnitts-Header)
+================================================================================
+  1. Konfiguration            – Env-Variablen, Pfade (per Env überschreibbar).
+  2. Plattform-Zuordnung      – Dateiendung/Token -> Plattform-Slug; Slug -> Anzeigename.
+  3. Normalisierung + Index   – norm(): Titel vergleichbar machen; RAM-Index für Dedup.
+  4. SQLite                   – persistenter Bibliotheks-Index + users/jobs (Migration aus JSON).
+  5. IGDB                     – optionale Cover/Beschreibungen/„beliebt je Konsole".
+  6. Suche                    – Archive.org- und Prowlarr/Usenet-Abfrage, Nachfilter.
+  7. Jobs                     – Anfrage-Objekte (Zustandsmaschine) + Persistenz.
+  8. Download/Import/Worker   – Downloads anstoßen, entpacken, einsortieren (2 Threads + Queue).
+  9. Auth                     – Benutzer, Login, granulare Rechte, Decorators.
+ 10. Web-Push (VAPID)         – optionale Browser-Benachrichtigungen.
+ 11. Web-UI                   – PAGE/LOGIN_PAGE/RESET_PAGE: das gesamte Frontend als String.
+ 12. Auth-/Admin-Routen       – REST-Endpunkte (siehe OpenAPI-Abschnitt).
+ 13. OpenAPI                  – Selbstdokumentation (/api/openapi.json, /api/docs).
+ 14. Start                    – Index laden, Worker starten, Flask starten.
+
+================================================================================
+DATENHALTUNG / STORAGE  (alles unter CONFIG_DIR, Default /config)
+================================================================================
+  romseerr.db  – SQLite: Tabelle `library` (Dedup-Index), `meta`, `users`, `jobs`.
+  settings.json, issues.json, maillog.json, push_subs.json, secret.key, vapid.json
+               – kleine, menschenlesbare JSON-/Key-Dateien (bewusst NICHT in der DB).
+  Die ROM-Bibliothek selbst liegt unter ROMS (Default /roms/<plattform>/…).
+
+================================================================================
+AUTH-MODELL / AUTH MODEL
+================================================================================
+  * Session-Cookie (signiert mit secret.key) ODER API-Key (Header X-Api-Key /
+    Query ?apikey=, Admin-äquivalent) — siehe _guard() und die *_required-Decorators.
+  * Granulare Rechte (PERMS): request, autoapprove, manage_requests, manage_users,
+    manage_issues, manage_settings, quota_exempt. Admins haben implizit alle.
+
+================================================================================
+WICHTIGE FALLSTRICKE / IMPORTANT GOTCHAS
+================================================================================
+  * Das Frontend-JS steckt in NICHT-rohen Python-Strings (PAGE): Backslash-Escapes
+    MÜSSEN verdoppelt werden (`\\n`), sonst zerbricht das gesamte Inline-Skript.
+    Der Test tests/test_smoke.py::test_inline_js_parses wacht darüber.
+  * Pro-Aufruf geöffnete SQLite-Verbindungen werden mit contextlib.closing wieder
+    geschlossen (sonst File-Descriptor-Leck bei jedem Request).
+  * Deployment: ein neues Image erfordert `docker rm`+`run` — `docker restart` lädt
+    KEIN neues Image.
+"""
 import os, re, json, time, threading, queue, subprocess, urllib.parse, html, secrets, smtplib, base64, sqlite3
 from datetime import datetime
 from functools import wraps
@@ -17,6 +78,8 @@ from flask import Flask, request, jsonify, Response, session, redirect, g
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # ---------- Konfiguration ----------
+# Alle Zugangsdaten/URLs kommen aus Umgebungsvariablen (docker-compose .env), die Datenpfade
+# aus CONFIG_DIR/ROMS (per Env überschreibbar, Default /config /roms). Nichts ist hartkodiert.
 SAB_URL      = os.environ.get("SAB_URL", "").rstrip("/")
 SAB_APIKEY   = os.environ.get("SAB_APIKEY", "")
 SAB_CAT      = os.environ.get("SAB_CAT", "roms")
@@ -65,6 +128,8 @@ def log(msg):
     except Exception: pass
 
 # ---------- Plattform-Zuordnung ----------
+# Tabellen, die ROMs einer Konsole zuordnen: Dateiendung -> Slug (EXT2PLAT), Usenet-Kategorie
+# -> Slug, Slug -> Anzeigename (SLUG_NAME), sowie SKIP_FILES (Beifang wie Scans/Handbücher).
 # Prowlarr-Usenet-Kategorie-ID -> Slug
 USENET_CAT = {101010:"nds",101020:"psp",101030:"wii",101035:"switch",101040:"xbox",101050:"xbox360",
               101060:"wii",101080:"ps3",101090:"xboxone",101100:"ps4",101110:"switch",104050:"pc"}
@@ -160,10 +225,15 @@ NOISE_RE = re.compile(r'\b(winamp|skin|wallpaper|theme|soundtrack|\bost\b|manual
                       r'strategy\s*guide|comic|sprite\s*sheet|music)\b', re.I)
 
 # ---------- Normalisierung / Bibliotheks-Index ----------
+# norm() bringt zwei Schreibweisen desselben Spiels auf denselben String, damit die
+# Dedup („habe ich das schon?") funktioniert. REGION_RE entfernt Region-/Format-Tokens
+# (USA, EUR, snes, v1.2 …), die nichts über die Identität des Spiels aussagen.
 REGION_RE = re.compile(r'\b(usa|eur|europe|japan|jpn|world|korea|kor|rev\s*\d+|proper|repack|'
     r'nsw|xci|nsp|disc\s*\d+|snes|smc|sfc|nes|n64|z64|gba|gbc|\bgb\b|megadrive|genesis|'
     r'\bmd\b|psx|ps1|ps2|psp|switch|wii|gamecube|ngc|arcade|mame)\b')
 def norm(name):
+    """Datei-/Titelname -> normalisierter Vergleichsschlüssel (Endung, Klammern, Region,
+    Versionsnummern und Sonderzeichen entfernt, lowercase). Grundlage der Dedup."""
     s = os.path.splitext(name)[0].lower()
     s = re.sub(r'[\._\-+]+', ' ', s)                          # Trenner ZUERST zu Space
     s = re.sub(r'\([^)]*\)|\[[^\]]*\]|\{[^}]*\}', ' ', s)     # (USA), [!], {...}
@@ -172,13 +242,19 @@ def norm(name):
     s = re.sub(r'[^a-z0-9]+', ' ', s)
     return re.sub(r'\s+', ' ', s).strip()
 
+# RAM-Abbild des Bibliotheks-Index (schnelles in_library): per = {slug: {norm,…}},
+# all = alle norms plattformübergreifend, slugs = vorhandene Plattform-Ordner, ts = Bauzeit.
 LIB = {"per": {}, "all": set(), "slugs": set(), "ts": 0}
 LIB_LOCK = threading.Lock()
 
 # ---------- SQLite: persistenter Bibliotheks-Index ----------
-DB_LOCK = threading.Lock()
+# Der Index (zehntausende Titel) wird zusätzlich in SQLite gehalten, damit der Start den
+# RAM-Index aus der DB laden kann (~1 s) statt jedes Mal das Dateisystem zu durchlaufen (~24 s).
+DB_LOCK = threading.Lock()   # serialisiert SCHREIBende Zugriffe; Reads laufen dank WAL lock-frei
 
 def db_conn():
+    """Neue SQLite-Verbindung im WAL-Modus. Aufrufer schließt sie via contextlib.closing
+    (pro-Aufruf-Verbindungen, sonst FD-Leck). WAL erlaubt Leser parallel zum einen Schreiber."""
     c = sqlite3.connect(DB_FILE, check_same_thread=False, timeout=30)
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA busy_timeout=30000")
@@ -220,6 +296,7 @@ def db_init():
         log(f"DB-Init-Fehler: {e}")
 
 def save_index_to_db(per, allset, slugs, ts):
+    """RAM-Index atomar in SQLite spiegeln (library-Tabelle komplett ersetzen + meta-Zähler)."""
     rows = [(slug, n) for slug, s in per.items() for n in s]
     try:
         with DB_LOCK, closing(db_conn()) as c, c:
@@ -251,6 +328,9 @@ def load_index_from_db():
         log(f"Index-DB-Laden-Fehler: {e}"); return None
 
 def build_index():
+    """Bibliotheks-Index aus dem Dateisystem neu aufbauen (ROMS/<slug>/…, 2 Ebenen tief),
+    in LIB (RAM) ablegen UND in SQLite persistieren. Läuft beim allerersten Start und
+    danach periodisch im Hintergrund (periodic_index) sowie nach jedem Import."""
     per, allset, slugs = {}, set(), set()
     try:
         for slug in os.listdir(ROMS):
@@ -387,6 +467,9 @@ def igdb_popular_genre(gid, limit=20):
 
 DISCOVER_CACHE = {"ts": 0, "rows": []}
 def discover_rows():
+    """Startseiten-Reihen: „beliebt je Konsole" (DISCOVER_ORDER) + „beliebt je Genre"
+    (IGDB_GENRES), 1 h gecacht. Die `in_library`-Markierung und der Sperrlisten-Filter
+    werden bei jedem Aufruf frisch angewandt (nicht gecacht)."""
     if time.time()-DISCOVER_CACHE["ts"] < 3600 and DISCOVER_CACHE["rows"]:
         rows = DISCOVER_CACHE["rows"]
     else:
@@ -409,6 +492,8 @@ def discover_rows():
             for r in rows]
 
 def notify_send(text):
+    """Meldung an ALLE aktiven globalen Kanäle senden: Discord-Webhook (Einstellungen oder
+    Env-Fallback), Telegram, generischer Webhook. Gibt True zurück, wenn mind. einer sendete."""
     s = load_settings(); sent = False
     dc = s.get("discord", {})
     wh = dc.get("url") if dc.get("enabled") else os.environ.get("DISCORD_WEBHOOK", "")
@@ -482,12 +567,17 @@ def is_set(title, size):
     return (size or 0) > 4*1024**3      # >4 GB -> vermutlich Sammlung
 
 def is_blocked(title, bl=None):
+    """True, wenn der Titel ein Sperrlisten-Stichwort als Teilstring enthält (case-insensitive).
+    `bl` kann vorbereitet übergeben werden; sonst wird die Sperrliste aus den Einstellungen geladen."""
     if bl is None:
         bl = [str(p).strip().lower() for p in load_settings().get("blocklist", []) if str(p).strip()]
     t = (title or "").lower()
     return any(p in t for p in bl)
 
 def do_search(q, platforms=None):
+    """Suche über die aktiven Quellen und Zusammenführung: Archive.org (Retro) + Prowlarr/
+    Usenet (moderne Konsolen), nach `platforms` gefiltert, gruppiert (gkey) für die Versionen-
+    Ansicht und mit `in_library`-Markierung. Reine Retro-Auswahl überspringt Usenet."""
     platforms = [p for p in (platforms or []) if p]
     # Usenet breit über Console (1000) abfragen und danach nach Plattform filtern —
     # Indexer taggen vieles nur unter der Oberkategorie. Retro-only-Auswahl -> Usenet aus.
@@ -517,9 +607,15 @@ def do_search(q, platforms=None):
     return res
 
 # ---------- Jobs ----------
-JOBS = []           # Liste dicts
+# Ein „Job" ist eine Anfrage/ein Download. Zustandsmaschine (Feld `state`):
+#   pending  -> (Admin gibt frei) -> queued -> downloading -> importing -> done
+#                \-> (Admin lehnt ab) -> denied            \-> error
+# `queued`-Jobs werden über die Queue Q an worker_download übergeben; nach Abschluss
+# sortiert worker_collect sie ein und setzt `done`. JOBS ist die Liste im RAM, per
+# save_jobs()/load_jobs() in SQLite gespiegelt. JOBS_LOCK schützt die Liste.
+JOBS = []           # Liste von Job-Dicts / list of job dicts
 JOBS_LOCK = threading.Lock()
-Q = queue.Queue()
+Q = queue.Queue()   # jid-Warteschlange freigegebener Jobs für worker_download
 
 def load_jobs():
     global JOBS
@@ -537,12 +633,15 @@ def save_jobs():
     except Exception as e:
         log(f"Job-Speichern-Fehler: {e}")
 def set_state(jid, **kw):
+    """Felder eines Jobs aktualisieren (z. B. state=…, msg=…) und persistieren."""
     with JOBS_LOCK:
         for j in JOBS:
             if j["id"]==jid: j.update(kw); j["updated"]=datetime.now().strftime("%H:%M:%S")
         save_jobs()
 
 def new_job(item, user="", approved=True):
+    """Anfrage anlegen. approved=True -> direkt `queued` + in die Worker-Queue;
+    approved=False -> `pending` (wartet auf Admin-Freigabe). Gibt den Job zurück."""
     jid = f"{int(time.time())}{len(JOBS)%1000:03d}"
     job = {"id":jid,"title":item["title"],"source":item["source"],"ref":item["ref"],
            "platform":item.get("platform_slug") or "Mixed","size":item.get("size",0),
@@ -559,10 +658,13 @@ def get_job(jid):
     return None
 
 def quota_used(user, days):
+    """Anzahl der Anfragen eines Nutzers innerhalb der letzten `days` Tage (abgelehnte zählen nicht)."""
     cutoff = time.time() - int(days)*86400
     with JOBS_LOCK:
         return sum(1 for j in JOBS if j.get("user")==user and j.get("state")!="denied" and j.get("created",0)>=cutoff)
 def quota_info(user):
+    """Kontingent-Status für einen Nutzer (enabled/count/days/used/remaining);
+    quota_exempt-Berechtigte und deaktiviertes Kontingent -> {'enabled': False}."""
     q = load_settings().get("quota", {})
     if not q.get("enabled") or has_perm("quota_exempt", user):
         return {"enabled": False}
@@ -605,6 +707,10 @@ def archive_file_urls(ident):
 
 # ---------- Worker: Download starten ----------
 def worker_download():
+    """Dauerthread: nimmt freigegebene Jobs aus Q und startet den Download je Quelle:
+    usenet -> SABnzbd, archive -> aria2 direkt (import direkt danach), filehoster ->
+    .crawljob für JDownloader. usenet/filehoster laufen asynchron weiter und werden
+    später von worker_collect eingesammelt. Fehler -> state=error."""
     while True:
         jid = Q.get()
         job = get_job(jid)
@@ -637,6 +743,7 @@ def worker_download():
 
 # ---------- Import (entpacken + einsortieren) ----------
 def extract_archives(folder):
+    """Alle Archive (ARCH_EXT) im Ordner rekursiv mit `unar` entpacken und das Archiv löschen."""
     for root,_,files in os.walk(folder):
         for fn in files:
             ext = fn.rsplit(".",1)[-1].lower() if "." in fn else ""
@@ -648,6 +755,11 @@ def extract_archives(folder):
                 except Exception: pass
 
 def import_folder(jid, folder):
+    """Kern der Einsortierung: Archive entpacken, jede Datei einer Plattform zuordnen
+    (eindeutige Endung via EXT2PLAT schlägt den Job-Hinweis), **Dedup** gegen die
+    Bibliothek, dann nach ROMS/<slug>/ kopieren. Danach Index neu bauen, RomM-Scan
+    anstoßen, Job auf `done` setzen und (falls etwas neu ist) Benachrichtigungen
+    senden (global, persönlicher Webhook, Web-Push, E-Mail). Staging wird aufgeräumt."""
     job = get_job(jid)
     if not job: return
     set_state(jid, state="importing", msg="entpacken/einsortieren")
@@ -694,6 +806,7 @@ def import_folder(jid, folder):
 
 # ---------- Worker: fertige SAB/JD-Downloads einsortieren ----------
 def romm_scan():
+    """Optional: RomM zu einem schnellen Bibliotheks-Scan anstoßen (nur wenn konfiguriert)."""
     if not (ROMM_URL and ROMM_USER and ROMM_PASS): return
     try:
         s = requests.Session()
@@ -703,6 +816,10 @@ def romm_scan():
         log(f"RomM-Scan-Hinweis: {e}")
 
 def worker_collect():
+    """Dauerthread (alle 20 s): sucht für noch laufende usenet/filehoster-Jobs den fertigen
+    Ausgabeordner (SAB_DONE bzw. JD_OUT, Name `romsuche_<jid>`). Ist er **stabil** (Größe
+    ändert sich nicht mehr), wird import_folder aufgerufen. So werden asynchrone Downloads
+    eingesammelt, die worker_download nur angestoßen hat."""
     while True:
         try:
             with JOBS_LOCK:
@@ -723,6 +840,8 @@ def worker_collect():
         time.sleep(20)
 
 def folder_stable(path, wait=6):
+    """True, wenn sich die Gesamtgröße des Ordners über `wait` Sekunden nicht ändert
+    (= Download vermutlich abgeschlossen), damit nicht mitten im Schreiben importiert wird."""
     try:
         a = sum(f.stat().st_size for f in os.scandir(path) if f.is_file())
         time.sleep(wait)
@@ -810,6 +929,8 @@ def save_push(d):
     except Exception: pass
 
 def send_push_to_user(user, title, body):
+    """Web-Push an alle Abos eines Nutzers senden (VAPID). Abgelaufene Abos (404/410) werden
+    verworfen. No-op, wenn pywebpush fehlt oder kein Abo existiert."""
     if not PUSH_OK or not user: return
     vp = ensure_vapid()
     if not vp: return
@@ -828,20 +949,26 @@ def send_push_to_user(user, title, body):
     if len(keep) != len(subs):
         d = load_push(); d[user] = keep; save_push(d)
 
+# Passwort-Reset-Token (nur im RAM, 1 h gültig). gen_reset erzeugt, check_reset prüft/löst auf.
 RESET_TOKENS = {}
 def gen_reset(user):
+    """Einmal-Token für „Passwort vergessen" erzeugen (1 h gültig, nur im RAM)."""
     tok = secrets.token_urlsafe(24); RESET_TOKENS[tok] = {"user": user, "exp": time.time()+3600}; return tok
 def check_reset(tok):
+    """Reset-Token -> Benutzername, falls gültig und nicht abgelaufen; sonst None."""
     d = RESET_TOKENS.get(tok)
     return d["user"] if d and d["exp"] > time.time() else None
 def app_secret():
+    """Signaturschlüssel für die Flask-Session (secret.key). Beim ersten Mal erzeugt & gespeichert."""
     try: return open(SECRET_FILE).read().strip()
     except Exception:
         s = secrets.token_hex(32)
         try: open(SECRET_FILE, "w").write(s)
         except Exception: pass
         return s
+# Decorators zum Schutz von Routen. Alle akzeptieren auch den API-Key (g.api_auth, s. _guard).
 def login_required(f):
+    """Route nur für angemeldete Nutzer (oder gültigen API-Key). API -> 401, sonst Redirect /login."""
     @wraps(f)
     def w(*a, **k):
         if g.get("api_auth") or session.get("user"): return f(*a, **k)
@@ -849,26 +976,31 @@ def login_required(f):
         return redirect("/login")
     return w
 def admin_required(f):
+    """Route nur für Admins (oder API-Key). Sonst 403."""
     @wraps(f)
     def w(*a, **k):
         if g.get("api_auth") or session.get("role") == "admin": return f(*a, **k)
         return jsonify({"error": "admin"}), 403
     return w
 def get_apikey():
+    """Aktuellen API-Key aus den Einstellungen holen; beim ersten Mal einen erzeugen."""
     s = load_settings(); k = s.get("apikey")
     if not k:
         k = secrets.token_hex(16); s["apikey"] = k; save_settings(s)
     return k
 
-# Granulare Rechte (Admin hat implizit alle)
+# Granulare Rechte (Admin hat implizit ALLE). Werden je Benutzer in dessen `perms`-Liste gespeichert
+# und über has_perm()/den perm_required-Decorator geprüft.
 PERMS = ["request", "autoapprove", "manage_requests", "manage_users", "manage_issues",
          "manage_settings", "quota_exempt"]
 def has_perm(perm, user=None):
+    """Hat der Nutzer (Default: der aktuelle) das Recht? API-Key und Admin -> immer True."""
     if g.get("api_auth"): return True
     usr = load_users().get(user or session.get("user"), {})
     if usr.get("role") == "admin": return True
     return perm in (usr.get("perms") or [])
 def perm_required(perm):
+    """Decorator-Fabrik: Route nur, wenn der Nutzer `perm` hat (Admin/API-Key immer). Sonst 403."""
     def deco(f):
         @wraps(f)
         def w(*a, **k):
@@ -878,6 +1010,10 @@ def perm_required(perm):
     return deco
 
 # ---------- Web-UI ----------
+# Das GESAMTE Frontend steckt in den folgenden String-Konstanten (PAGE = App nach Login,
+# LOGIN_PAGE, RESET_PAGE). Kein Build-Schritt, keine externen Dateien. Übersetzt wird über
+# das JS-Objekt I18N + t(); Ansichten werden per show() umgeschaltet.
+# ACHTUNG: Backslash-Escapes im JS hier IMMER verdoppeln (`\\n`) — sonst zerbricht das Skript.
 app = Flask(__name__)
 app.secret_key = app_secret()
 app.config["PERMANENT_SESSION_LIFETIME"] = 60*60*24*30
@@ -1598,6 +1734,11 @@ PUBLIC = {"/login","/api/login","/api/setup","/api/auth/status","/health","/rese
           "/manifest.webmanifest","/sw.js","/icon.svg","/api/openapi.json","/api/docs"}
 @app.before_request
 def _guard():
+    """Zentrale Auth-Schleuse VOR jeder Anfrage:
+      1. Pfade in PUBLIC (Login, Health, PWA-Assets, API-Doku …) ohne Prüfung durchlassen.
+      2. Gültiger API-Key (Header X-Api-Key oder ?apikey=) -> g.api_auth=True (Admin-äquivalent).
+      3. Sonst gültige Session verlangen; fehlt sie -> API: 401, Web: Redirect auf /login.
+    Die *_required-Decorators bauen darauf auf (sie erlauben zusätzlich g.api_auth)."""
     p = request.path
     if p in PUBLIC: return
     key = request.headers.get("X-Api-Key") or request.args.get("apikey")
