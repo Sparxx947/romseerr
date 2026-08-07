@@ -36,6 +36,21 @@ services:
       # mit "pa_context_connect() failed". / The capture library ignores
       # PULSE_RUNTIME_PATH and otherwise fails with pa_context_connect().
       PULSE_SERVER: "unix:/defaults/native"
+
+      # --- was die Init-Skripte brauchen / what the init scripts read ------------
+      # Ohne diese Zeilen laufen die Skripte mit leeren Variablen: der Start-Dienst
+      # verweigert mangels Token den Start, und die Emulatoren werden nicht geholt.
+      # Ein Compose reicht NICHT automatisch durch, was in .env steht.
+      # Without these the scripts see empty values: the launch service refuses to
+      # start for lack of a token and no emulator is fetched. Compose does not pass
+      # .env into the container by itself.
+      STREAM_AGENT_TOKEN: ${STREAM_AGENT_TOKEN:?STREAM_AGENT_TOKEN fehlt - siehe .env.example}
+      AGENT_PORT: ${AGENT_PORT:-8901}
+      INSTALL_PCSX2: ${INSTALL_PCSX2:-false}
+      INSTALL_DOLPHIN: ${INSTALL_DOLPHIN:-false}
+      INSTALL_SWITCH_EMU: ${INSTALL_SWITCH_EMU:-false}
+      SWITCH_EMU_URL: ${SWITCH_EMU_URL:-}
+      VGL_VERSION: ${VGL_VERSION:-3.1.4}
     volumes:
       - ${CONFIG_DIR:-./data}/config:/config
       # Init-Skripte MÜSSEN hierhin — /config/custom-cont-init.d wird ignoriert.
