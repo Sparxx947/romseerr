@@ -288,14 +288,37 @@ paths:
         '200':
           description: OK
       security: *id002
+  /api/ra/status:
+    get:
+      summary: 'RetroAchievements: indizierte Plattformen, Set-Zahl, Stand, nicht zugeordnete Slugs'
+      tags:
+      - Search
+      responses:
+        '200':
+          description: OK
+      security: *id002
+  /api/ra/refresh:
+    post:
+      summary: 'RetroAchievements: Set-Listen je Konsole neu holen (Hintergrundlauf)'
+      tags:
+      - Admin
+      responses:
+        '403': &id004
+          description: fehlende Berechtigung / missing permission
+        '200':
+          description: gestartet
+        '400':
+          description: kein API-Key hinterlegt
+        '409':
+          description: Lauf bereits aktiv
+      security: *id002
   /api/coverage/refresh:
     post:
       summary: Katalog-Momentaufnahme neu holen (Hintergrundlauf)
       tags:
       - Admin
       responses:
-        '403': &id004
-          description: fehlende Berechtigung / missing permission
+        '403': *id004
         '200':
           description: gestartet
         '400':
