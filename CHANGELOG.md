@@ -6,6 +6,15 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Geändert / Changed
+- **Alle Stores in SQLite** — die letzten JSON-Stores (**settings, issues, maillog, push_subs**)
+  liegen jetzt in einem `kv`-Table in `romseerr.db`; bestehende JSON werden beim Start
+  verlustfrei migriert (danach `.migrated`). Nur `secret.key`/`vapid.json` bleiben Dateien
+  (Secrets). Damit ist die gesamte Persistenz in der Datenbank. /
+  **All stores in SQLite** — the remaining JSON stores (settings, issues, maillog, push_subs)
+  now live in a `kv` table in `romseerr.db`, migrated losslessly on startup; only the key
+  files stay on disk.
+
 ### Sicherheit / Security
 - **Login-Bruteforce-Schutz** — max. 8 Fehlversuche je (IP, Benutzer) in 5 min, danach HTTP 429.
 - **Cookie-Härtung** — Session-Cookie `HttpOnly` + `SameSite=Strict` (CSRF-Schutz); `Secure`

@@ -273,6 +273,31 @@ def _migrate_json(c, count_sql, insert_sql, path, rows_fn):
     c.executemany(insert_sql, rows)
     return True
 
+# Kleiner Key-Value-Store in SQLite für kleine Ganzobjekt-Stores (settings/issues/maillog/push):
+# ein JSON-Blob je Schlüssel. Bewusst kein relationales Schema — diese Daten werden immer als
+# Ganzes geladen/gespeichert; so bleibt es einfach, aber alles liegt transaktionssicher in der DB.
+def kv_get(key, default):
+    try:
+        with closing(db_conn()) as c:
+            r = c.execute("SELECT data FROM kv WHERE k=?", (key,)).fetchone()
+            return json.loads(r[0]) if r else default
+    except Exception:
+        return default
+def kv_put(key, value):
+    try:
+        with DB_LOCK, closing(db_conn()) as c, c:
+            c.execute("INSERT OR REPLACE INTO kv(k,data) VALUES(?,?)", (key, json.dumps(value)))
+    except Exception as e:
+        log(f"kv-Speichern-Fehler {key}: {e}")
+def _migrate_kv(c, key, path):
+    """JSON-Datei einmalig als kv-Blob übernehmen (parametrisiert). rename erst nach Commit."""
+    if c.execute("SELECT COUNT(*) FROM kv WHERE k=?", (key,)).fetchone()[0] or not os.path.exists(path):
+        return False
+    try: data = json.load(open(path))
+    except Exception as e: log(f"kv-Migration {path}: {e}"); return False
+    c.execute("INSERT OR REPLACE INTO kv(k,data) VALUES(?,?)", (key, json.dumps(data)))
+    return True
+
 def db_init():
     try:
         # WAL/Init + Schema in einer Schreib-Transaktion
@@ -283,15 +308,22 @@ def db_init():
             c.execute("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)")
             c.execute("CREATE TABLE IF NOT EXISTS users(username TEXT PRIMARY KEY, data TEXT)")
             c.execute("CREATE TABLE IF NOT EXISTS jobs(seq INTEGER PRIMARY KEY AUTOINCREMENT, jid TEXT, data TEXT)")
+            c.execute("CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, data TEXT)")
             mig_u = _migrate_json(c, "SELECT COUNT(*) FROM users",
                                   "INSERT OR REPLACE INTO users(username,data) VALUES(?,?)", USERS_FILE,
                                   lambda d: [(k, json.dumps(v)) for k, v in d.items()] if isinstance(d, dict) else [])
             mig_j = _migrate_json(c, "SELECT COUNT(*) FROM jobs",
                                   "INSERT INTO jobs(jid,data) VALUES(?,?)", JOBDB,
                                   lambda d: [(j.get("id",""), json.dumps(j)) for j in d] if isinstance(d, list) else [])
+            kv_migs = [(SETTINGS_FILE, _migrate_kv(c, "settings", SETTINGS_FILE)),
+                       (ISSUES_FILE,   _migrate_kv(c, "issues",   ISSUES_FILE)),
+                       (MAILLOG_FILE,  _migrate_kv(c, "maillog",  MAILLOG_FILE)),
+                       (PUSH_FILE,     _migrate_kv(c, "push",     PUSH_FILE))]
         # rename der Quelldateien erst NACH erfolgreichem Commit (verlustfrei)
         if mig_u: os.rename(USERS_FILE, USERS_FILE + ".migrated"); log("users.json -> SQLite migriert")
         if mig_j: os.rename(JOBDB, JOBDB + ".migrated"); log("jobs.json -> SQLite migriert")
+        for path, done in kv_migs:
+            if done: os.rename(path, path + ".migrated"); log(f"{os.path.basename(path)} -> SQLite migriert")
     except Exception as e:
         log(f"DB-Init-Fehler: {e}")
 
@@ -865,22 +897,19 @@ def save_users(u):
     except Exception as e:
         log(f"users-Speichern-Fehler: {e}")
 def load_settings():
-    try:
-        with open(SETTINGS_FILE) as f: return json.load(f)
-    except Exception: return {}
+    return kv_get("settings", {})
 def save_settings(s):
-    with open(SETTINGS_FILE, "w") as f: json.dump(s, f)
+    kv_put("settings", s)
 def may_autoapprove(username):
     usr = load_users().get(username, {})
     return usr.get("role") == "admin" or "autoapprove" in (usr.get("perms") or []) or bool(usr.get("autoapprove"))
 
 def mail_log_add(to, subject, ok, err=""):
     try:
-        try: entries = json.load(open(MAILLOG_FILE))
-        except Exception: entries = []
+        entries = kv_get("maillog", [])
         entries.insert(0, {"ts": datetime.now().strftime("%Y-%m-%d %H:%M"), "to": to,
                            "subject": subject, "ok": bool(ok), "err": (err or "")[:120]})
-        json.dump(entries[:100], open(MAILLOG_FILE, "w"))
+        kv_put("maillog", entries[:100])
     except Exception: pass
 
 def send_mail(to, subject, body):
@@ -922,11 +951,9 @@ def ensure_vapid():
         log(f"VAPID-Fehler: {e}"); return None
 
 def load_push():
-    try: return json.load(open(PUSH_FILE))
-    except Exception: return {}
+    return kv_get("push", {})
 def save_push(d):
-    try: json.dump(d, open(PUSH_FILE, "w"))
-    except Exception: pass
+    kv_put("push", d)
 
 def send_push_to_user(user, title, body):
     """Web-Push an alle Abos eines Nutzers senden (VAPID). Abgelaufene Abos (404/410) werden
@@ -1866,16 +1893,13 @@ def api_blocklist_set():
 @app.route("/api/maillog")
 @admin_required
 def api_maillog():
-    try: return jsonify(json.load(open(MAILLOG_FILE)))
-    except Exception: return jsonify([])
+    return jsonify(kv_get("maillog", []))
 
 # ---- Probleme / Issues ----
 def load_issues():
-    try: return json.load(open(ISSUES_FILE))
-    except Exception: return []
+    return kv_get("issues", [])
 def save_issues(x):
-    try: json.dump(x, open(ISSUES_FILE, "w"))
-    except Exception: pass
+    kv_put("issues", x)
 
 @app.route("/api/issues", methods=["GET"])
 def api_issues_get():
