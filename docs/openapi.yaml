@@ -123,6 +123,30 @@ paths:
         '200':
           description: OK
       security: *id001
+  /assets/{h}/{rel}:
+    get:
+      summary: Statische Datei unter inhaltsgehashter URL (immutable)
+      tags:
+      - System
+      responses:
+        '200':
+          description: Datei
+        '404':
+          description: unbekannt oder falscher Hash
+      security: *id001
+      parameters:
+      - name: h
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Inhaltshash
+      - name: rel
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Pfad unter static/
   /:
     get:
       summary: Web-Oberfläche (HTML)
