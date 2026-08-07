@@ -3,6 +3,7 @@
 import os, re, json, time, threading, queue, subprocess, urllib.parse, html, secrets, smtplib, base64, sqlite3
 from datetime import datetime
 from functools import wraps
+from contextlib import closing
 from email.message import EmailMessage
 import requests
 try:
@@ -178,22 +179,46 @@ DB_LOCK = threading.Lock()
 def db_conn():
     c = sqlite3.connect(DB_FILE, check_same_thread=False, timeout=30)
     c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA busy_timeout=30000")
     return c
+
+def _migrate_json(c, table, path, rows_fn):
+    """JSON-Datei einmalig in eine leere Tabelle übernehmen. rename erst nach Commit."""
+    if c.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] or not os.path.exists(path):
+        return False
+    try:
+        data = json.load(open(path))
+    except Exception as e:
+        log(f"{table}-Migration: JSON-Fehler {e}"); return False
+    rows = rows_fn(data)
+    if not rows: return False
+    c.executemany(f"INSERT OR REPLACE INTO {table} VALUES({','.join('?'*len(rows[0]))})", rows)
+    return True
 
 def db_init():
     try:
-        with DB_LOCK, db_conn() as c:
+        # WAL/Init + Schema in einer Schreib-Transaktion
+        with DB_LOCK, closing(db_conn()) as c, c:
             c.execute("CREATE TABLE IF NOT EXISTS library(slug TEXT, norm TEXT)")
             c.execute("CREATE INDEX IF NOT EXISTS ix_lib_norm ON library(norm)")
             c.execute("CREATE INDEX IF NOT EXISTS ix_lib_slug ON library(slug, norm)")
             c.execute("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)")
+            c.execute("CREATE TABLE IF NOT EXISTS users(username TEXT PRIMARY KEY, data TEXT)")
+            c.execute("CREATE TABLE IF NOT EXISTS jobs(seq INTEGER PRIMARY KEY AUTOINCREMENT, jid TEXT, data TEXT)")
+            mig_u = _migrate_json(c, "users", USERS_FILE,
+                                  lambda d: [(k, json.dumps(v)) for k, v in d.items()] if isinstance(d, dict) else [])
+            mig_j = _migrate_json(c, "jobs", JOBDB,
+                                  lambda d: [(None, j.get("id",""), json.dumps(j)) for j in d] if isinstance(d, list) else [])
+        # rename der Quelldateien erst NACH erfolgreichem Commit (verlustfrei)
+        if mig_u: os.rename(USERS_FILE, USERS_FILE + ".migrated"); log("users.json -> SQLite migriert")
+        if mig_j: os.rename(JOBDB, JOBDB + ".migrated"); log("jobs.json -> SQLite migriert")
     except Exception as e:
         log(f"DB-Init-Fehler: {e}")
 
 def save_index_to_db(per, allset, slugs, ts):
     rows = [(slug, n) for slug, s in per.items() for n in s]
     try:
-        with DB_LOCK, db_conn() as c:
+        with DB_LOCK, closing(db_conn()) as c, c:
             c.execute("DELETE FROM library")
             c.executemany("INSERT INTO library(slug,norm) VALUES(?,?)", rows)
             c.executemany("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)",
@@ -205,7 +230,7 @@ def save_index_to_db(per, allset, slugs, ts):
 def load_index_from_db():
     """RAM-Index aus SQLite füllen. Gibt den Zeitstempel zurück oder None."""
     try:
-        with DB_LOCK, db_conn() as c:
+        with closing(db_conn()) as c:
             row = c.execute("SELECT value FROM meta WHERE key='index_ts'").fetchone()
             if not row: return None
             ts = float(row[0])
@@ -495,12 +520,18 @@ Q = queue.Queue()
 def load_jobs():
     global JOBS
     try:
-        with open(JOBDB) as f: JOBS = json.load(f)
-    except Exception: JOBS = []
+        with closing(db_conn()) as c:
+            JOBS = [json.loads(d) for (d,) in c.execute("SELECT data FROM jobs ORDER BY seq")]
+    except Exception as e:
+        log(f"Job-Laden-Fehler: {e}"); JOBS = []
 def save_jobs():
     try:
-        with open(JOBDB,"w") as f: json.dump(JOBS, f, ensure_ascii=False, indent=1)
-    except Exception as e: log(f"Job-Speichern-Fehler: {e}")
+        with DB_LOCK, closing(db_conn()) as c, c:
+            c.execute("DELETE FROM jobs")
+            c.executemany("INSERT INTO jobs(jid,data) VALUES(?,?)",
+                          [(j.get("id",""), json.dumps(j)) for j in JOBS])
+    except Exception as e:
+        log(f"Job-Speichern-Fehler: {e}")
 def set_state(jid, **kw):
     with JOBS_LOCK:
         for j in JOBS:
@@ -698,10 +729,18 @@ def folder_stable(path, wait=6):
 # ---------- Benutzerverwaltung / Auth ----------
 def load_users():
     try:
-        with open(USERS_FILE) as f: return json.load(f)
-    except Exception: return {}
+        with closing(db_conn()) as c:
+            return {u: json.loads(d) for u, d in c.execute("SELECT username,data FROM users")}
+    except Exception as e:
+        log(f"users-Laden-Fehler: {e}"); return {}
 def save_users(u):
-    with open(USERS_FILE, "w") as f: json.dump(u, f)
+    try:
+        with DB_LOCK, closing(db_conn()) as c, c:
+            c.execute("DELETE FROM users")
+            c.executemany("INSERT INTO users(username,data) VALUES(?,?)",
+                          [(k, json.dumps(v)) for k, v in u.items()])
+    except Exception as e:
+        log(f"users-Speichern-Fehler: {e}")
 def load_settings():
     try:
         with open(SETTINGS_FILE) as f: return json.load(f)
@@ -2025,7 +2064,7 @@ def periodic_index():
 
 if __name__ == "__main__":
     os.makedirs(STAGING, exist_ok=True)
-    load_jobs(); db_init()
+    db_init(); load_jobs()
     if load_index_from_db():
         log(f"Bibliotheks-Index aus DB geladen: {len(LIB['slugs'])} Plattformen, {len(LIB['all'])} Titel")
         threading.Thread(target=build_index, daemon=True).start()   # im Hintergrund auffrischen
