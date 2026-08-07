@@ -90,6 +90,14 @@ def test_session_cookie_hardened(appmod):
     assert appmod.app.config["SESSION_COOKIE_HTTPONLY"] is True
 
 
+def test_retry_unknown_job_404(client):
+    st = client.get("/api/auth/status").get_json()
+    if st["setup"]:
+        client.post("/api/setup", json={"username": "admin", "password": "pw123456", "display_name": "A"})
+    client.post("/api/login", json={"username": "admin", "password": "pw123456"})
+    assert client.post("/api/jobs/does-not-exist/retry").status_code == 404
+
+
 def test_protected_endpoint_requires_auth(client):
     # ohne Login liefert eine geschützte API 401 (nicht 200)
     r = client.get("/api/users")

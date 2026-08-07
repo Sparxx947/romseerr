@@ -1179,7 +1179,7 @@ const I18N={de:{
  hint_type:'Tippe einen Titel und drücke Enter.',loading_home:'Lade Startseite …',popular_on:'Beliebt auf',click_search:'klick zum Suchen',
  searching:'Suche läuft …',no_results:'Keine Treffer.',results:'Treffer',in_library:'✓ in Bibliothek',download:'⬇ Download',requested:'✓ angefragt',collection:'Sammlung',
  versions:'Versionen / Quellen',files:'Dateien',no_desc:'Keine Beschreibung verfügbar.',screenshots:'Screenshots',similar:'Ähnliche Spiele',
- no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',reset:'Alle zurücksetzen',
+ no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',retry:'Erneut',,reset:'Alle zurücksetzen',
  users:'Benutzer',new_user:'Neuen Benutzer anlegen',create:'Anlegen',del:'Löschen',autoapprove:'Auto-Freigabe',role_user:'Nutzer',role_admin:'Admin',username:'Benutzername',password:'Passwort',
  notif_discord:'Benachrichtigungen — Discord',active:'aktiv',test:'Test',save:'Speichern',saved:'gespeichert ✓',test_sent:'Test gesendet ✓',webhook_ph:'Discord Webhook-URL',
  st_pending:'⏳ Wartet auf Freigabe',st_queued:'Angefragt',st_downloading:'Lädt…',st_importing:'Wird verarbeitet',st_done:'✅ Verfügbar',st_error:'Fehler',st_denied:'Abgelehnt',st_exists:'vorhanden',
@@ -1193,7 +1193,7 @@ const I18N={de:{
  hint_type:'Type a title and press Enter.',loading_home:'Loading home …',popular_on:'Popular on',click_search:'click to search',
  searching:'Searching …',no_results:'No results.',results:'results',in_library:'✓ in library',download:'⬇ Download',requested:'✓ requested',collection:'Collection',
  versions:'Versions / sources',files:'Files',no_desc:'No description available.',screenshots:'Screenshots',similar:'Similar games',
- no_requests:'No requests yet.',approve:'Approve',deny:'Deny',reset:'Reset all',
+ no_requests:'No requests yet.',approve:'Approve',deny:'Deny',retry:'Retry',,reset:'Reset all',
  users:'Users',new_user:'Create new user',create:'Create',del:'Delete',autoapprove:'Auto-approve',role_user:'User',role_admin:'Admin',username:'Username',password:'Password',
  notif_discord:'Notifications — Discord',active:'enabled',test:'Test',save:'Save',saved:'saved ✓',test_sent:'test sent ✓',webhook_ph:'Discord webhook URL',
  st_pending:'⏳ Awaiting approval',st_queued:'Requested',st_downloading:'Downloading…',st_importing:'Processing',st_done:'✅ Available',st_error:'Error',st_denied:'Denied',st_exists:'in library',
@@ -1207,7 +1207,7 @@ const I18N={de:{
  hint_type:'Saisissez un titre et appuyez sur Entrée.',loading_home:'Chargement …',popular_on:'Populaire sur',click_search:'cliquer pour rechercher',
  searching:'Recherche …',no_results:'Aucun résultat.',results:'résultats',in_library:'✓ dans la bibliothèque',download:'⬇ Télécharger',requested:'✓ demandé',collection:'Collection',
  versions:'Versions / sources',files:'Fichiers',no_desc:'Aucune description disponible.',screenshots:'Captures',similar:'Jeux similaires',
- no_requests:'Aucune demande.',approve:'Approuver',deny:'Refuser',reset:'Tout réinitialiser',
+ no_requests:'Aucune demande.',approve:'Approuver',deny:'Refuser',retry:'Réessayer',,reset:'Tout réinitialiser',
  users:'Utilisateurs',new_user:'Créer un utilisateur',create:'Créer',del:'Supprimer',autoapprove:'Approbation auto',role_user:'Utilisateur',role_admin:'Admin',username:"Nom d'utilisateur",password:'Mot de passe',
  notif_discord:'Notifications — Discord',active:'activé',test:'Test',save:'Enregistrer',saved:'enregistré ✓',test_sent:'test envoyé ✓',webhook_ph:'URL du webhook Discord',
  st_pending:"⏳ En attente d'approbation",st_queued:'Demandé',st_downloading:'Téléchargement…',st_importing:'Traitement',st_done:'✅ Disponible',st_error:'Erreur',st_denied:'Refusé',st_exists:'présent',
@@ -1221,7 +1221,7 @@ const I18N={de:{
  hint_type:'Escribe un título y pulsa Intro.',loading_home:'Cargando …',popular_on:'Popular en',click_search:'clic para buscar',
  searching:'Buscando …',no_results:'Sin resultados.',results:'resultados',in_library:'✓ en la biblioteca',download:'⬇ Descargar',requested:'✓ solicitado',collection:'Colección',
  versions:'Versiones / fuentes',files:'Archivos',no_desc:'Sin descripción disponible.',screenshots:'Capturas',similar:'Juegos similares',
- no_requests:'Aún no hay solicitudes.',approve:'Aprobar',deny:'Rechazar',reset:'Restablecer todo',
+ no_requests:'Aún no hay solicitudes.',approve:'Aprobar',deny:'Rechazar',retry:'Reintentar',,reset:'Restablecer todo',
  users:'Usuarios',new_user:'Crear usuario',create:'Crear',del:'Eliminar',autoapprove:'Auto-aprobación',role_user:'Usuario',role_admin:'Admin',username:'Usuario',password:'Contraseña',
  notif_discord:'Notificaciones — Discord',active:'activo',test:'Prueba',save:'Guardar',saved:'guardado ✓',test_sent:'prueba enviada ✓',webhook_ph:'URL del webhook de Discord',
  st_pending:'⏳ Esperando aprobación',st_queued:'Solicitado',st_downloading:'Descargando…',st_importing:'Procesando',st_done:'✅ Disponible',st_error:'Error',st_denied:'Rechazado',st_exists:'presente',
@@ -1378,7 +1378,9 @@ async function loadJobs(){let r=await fetch('/api/jobs');let d=await r.json();le
  d.forEach(o=>{let e=document.createElement('div');e.className='job';let L=stlab(o.state);let right;
   if(o.state=='pending'&&canDo('manage_requests')){
    right=`<button onclick="approveJob('${o.id}')" style="background:#1e5e3a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;margin-right:6px">${t('approve')}</button><button onclick="denyJob('${o.id}')" style="background:#6e2a2a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer">${t('deny')}</button>`;
-  }else{right=`<span class="st ${L[1]}">${L[0]}</span>`;}
+  }else{right=`<span class="st ${L[1]}">${L[0]}</span>`;
+   if((o.state=='error'||o.state=='denied')&&canDo('manage_requests'))
+    right+=`<button onclick="retryJob('${o.id}')" style="background:#2a2f37;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;margin-left:8px" title="${t('retry')}">↻ ${t('retry')}</button>`;}
   e.innerHTML=`<div><div>${o.title.replace(/</g,'&lt;')}</div><div class=meta style="color:#8b929e;font-size:11px">👤 <b style="color:#b9c0cc">${(o.user||'—').replace(/</g,'&lt;')}</b> · ${o.platform} · ${o.source} · ${o.msg||''}</div></div><div>${right}</div>`;
   j.appendChild(e);});}
 // --- Plattform-Vorauswahl ---
@@ -1581,6 +1583,7 @@ async function testNotify(){let d={discord:{url:document.getElementById('dcurl')
  document.getElementById('serr').textContent=r.ok?t('test_sent'):(r.msg||t('st_error'));}
 async function approveJob(id){await fetch('/api/jobs/'+id+'/approve',{method:'POST'});loadJobs();}
 async function denyJob(id){await fetch('/api/jobs/'+id+'/deny',{method:'POST'});loadJobs();}
+async function retryJob(id){await fetch('/api/jobs/'+id+'/retry',{method:'POST'});loadJobs();}
 async function openUsers(){let m=document.getElementById('modal');m.style.display='block';
  let list=await(await fetch('/api/users')).json();
  let inp='style="flex:1;min-width:90px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px"';
@@ -2243,6 +2246,16 @@ def api_job_deny(jid):
     set_state(jid, state="denied", msg="abgelehnt")
     return jsonify({"ok": True})
 
+@app.route("/api/jobs/<jid>/retry", methods=["POST"])
+@perm_required("manage_requests")
+def api_job_retry(jid):
+    j = get_job(jid)
+    if not j: return jsonify({"ok": False}), 404
+    if j.get("state") not in ("error", "denied"):
+        return jsonify({"ok": False, "msg": "nur fehlgeschlagene/abgelehnte / only failed/denied"}), 400
+    set_state(jid, state="queued", msg="erneut / retried"); Q.put(jid)
+    return jsonify({"ok": True})
+
 @app.route("/api/users/<u>", methods=["DELETE"])
 @perm_required("manage_users")
 def api_users_del(u):
@@ -2347,6 +2360,8 @@ OPENAPI = {
             params=[_pp("jid", "Job-ID")], responses={**_R_PERM, "200": {"description": "OK"}})},
         "/api/jobs/{jid}/deny": {"post": _op("Anfrage ablehnen", "Requests",
             params=[_pp("jid", "Job-ID")], responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/jobs/{jid}/retry": {"post": _op("Fehlgeschlagene/abgelehnte Anfrage erneut versuchen", "Requests",
+            params=[_pp("jid", "Job-ID")], responses={**_R_PERM, "200": {"description": "erneut eingereiht"}})},
         "/api/jobs/clear-finished": {"post": _op("Abgeschlossene Anfragen entfernen", "Requests",
             responses={**_R_PERM, "200": {"description": "entfernt"}})},
         # --- Issues ---
@@ -2455,6 +2470,24 @@ def periodic_index():
     while True:
         time.sleep(600); build_index()
 
+def check_config():
+    """Beim Start einmal prüfen und WARNEN (nicht fatal), wenn optionale Dienste fehlen oder
+    nicht erreichbar sind — spart Rätselraten, warum z. B. keine Cover oder kein Usenet da sind.
+    Läuft im Hintergrund, damit die Erreichbarkeitsprüfung den Start nicht verzögert."""
+    def reach(url):
+        try: requests.get(url, timeout=4); return True
+        except Exception: return False
+    if not (IGDB_ID and IGDB_SECRET):
+        log("Konfig: IGDB nicht gesetzt — keine Cover/Discover.")
+    if not (SAB_URL and SAB_APIKEY):
+        log("Konfig: SABnzbd nicht gesetzt — Usenet-Download aus.")
+    elif not reach(SAB_URL):
+        log(f"Konfig-WARNUNG: SABnzbd ({SAB_URL}) nicht erreichbar.")
+    if not (PROW_URL and PROW_KEY):
+        log("Konfig: Prowlarr nicht gesetzt — Usenet-Suche aus.")
+    elif not reach(PROW_URL):
+        log(f"Konfig-WARNUNG: Prowlarr ({PROW_URL}) nicht erreichbar.")
+
 if __name__ == "__main__":
     os.makedirs(STAGING, exist_ok=True)
     db_init(); load_jobs()
@@ -2466,5 +2499,6 @@ if __name__ == "__main__":
     threading.Thread(target=worker_download, daemon=True).start()
     threading.Thread(target=worker_collect, daemon=True).start()
     threading.Thread(target=periodic_index, daemon=True).start()
+    threading.Thread(target=check_config, daemon=True).start()
     log(f"rom-suche startet auf :{PORT}")
     app.run(host="0.0.0.0", port=PORT, threaded=True)  # nosec B104 - Container-Dienst, bindet bewusst alle Interfaces

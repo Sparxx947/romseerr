@@ -373,6 +373,23 @@ paths:
         schema:
           type: string
         description: Job-ID
+  /api/jobs/{jid}/retry:
+    post:
+      summary: Fehlgeschlagene/abgelehnte Anfrage erneut versuchen
+      tags:
+      - Requests
+      responses:
+        '403': *id004
+        '200':
+          description: erneut eingereiht
+      security: *id002
+      parameters:
+      - name: jid
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Job-ID
   /api/jobs/clear-finished:
     post:
       summary: Abgeschlossene Anfragen entfernen
