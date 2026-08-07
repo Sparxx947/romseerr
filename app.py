@@ -113,6 +113,24 @@ PUSH_FILE     = os.path.join(CONFIG_DIR, "push_subs.json")
 VAPID_FILE    = os.path.join(CONFIG_DIR, "vapid.json")
 DB_FILE       = os.path.join(CONFIG_DIR, "romseerr.db")
 
+# ---------- Dienst-Verbindungen: UI-Einstellungen mit Env als Fallback ----------
+# Die obigen Konstanten sind nur noch die DEFAULTS aus der Umgebung. Zur Laufzeit werden
+# Verbindungswerte über cfg("key") gelesen: erst settings["connections"] (Admin-Oberfläche),
+# sonst der Env-Default. So ist alles über die Einstellungsseite konfigurierbar.
+_ENV_CONN = {"sab_url": SAB_URL, "sab_apikey": SAB_APIKEY, "sab_cat": SAB_CAT,
+             "prow_url": PROW_URL, "prow_apikey": PROW_KEY, "prow_cats": PROW_CATS,
+             "igdb_id": IGDB_ID, "igdb_secret": IGDB_SECRET,
+             "romm_url": ROMM_URL, "romm_user": ROMM_USER, "romm_pass": ROMM_PASS,
+             "jd_dl_base": JD_DL_BASE}
+CONN_KEYS = list(_ENV_CONN.keys())
+CONN_SECRET = {"sab_apikey", "prow_apikey", "igdb_secret", "romm_pass"}   # in der GUI maskiert
+def cfg(key):
+    """Verbindungswert holen: settings['connections'] (UI) hat Vorrang, sonst Env-Default."""
+    v = (load_settings().get("connections") or {}).get(key)
+    if v in (None, ""): v = _ENV_CONN.get(key, "")
+    return v.rstrip("/") if (key.endswith("_url") and isinstance(v, str)) else v
+# __CONN_HELPERS_END__
+
 ROM_EXT = {"sfc","smc","nes","fds","gb","gba","gbc","n64","z64","v64","ndd","md","gen","smd","sms",
            "gg","32x","pce","sgx","ngp","ngc","ws","wsc","iso","bin","cue","chd","img","cdi","gdi",
            "adf","d64","t64","rom","a26","a78","lnx","vec","3ds","cia","nsp","xci","wbfs","rvz","dol",
@@ -405,10 +423,10 @@ def resolve_slug(slug):
 # ---------- IGDB (optional, best effort): Cover, Beschreibung, Beliebt ----------
 IGDB = {"token": "", "exp": 0, "cache": {}}
 def igdb_token():
-    if not (IGDB_ID and IGDB_SECRET): return ""
+    if not (cfg("igdb_id") and cfg("igdb_secret")): return ""
     if time.time() > IGDB["exp"]:
         r = requests.post("https://id.twitch.tv/oauth2/token", params={
-            "client_id": IGDB_ID, "client_secret": IGDB_SECRET,
+            "client_id": cfg("igdb_id"), "client_secret": cfg("igdb_secret"),
             "grant_type": "client_credentials"}, timeout=8)
         j = r.json(); IGDB["token"] = j["access_token"]; IGDB["exp"] = time.time()+j.get("expires_in",3600)-60
     return IGDB["token"]
@@ -417,7 +435,7 @@ def igdb_query(endpoint, body):
     tok = igdb_token()
     if not tok: return []
     try:
-        h = {"Client-ID": IGDB_ID, "Authorization": f"Bearer {tok}"}
+        h = {"Client-ID": cfg("igdb_id"), "Authorization": f"Bearer {tok}"}
         return requests.post(f"https://api.igdb.com/v4/{endpoint}", headers=h, data=body, timeout=8).json()
     except Exception:
         return []
@@ -573,11 +591,11 @@ def search_archive(q, limit=30):
 
 def search_usenet(q, cats, limit=30):
     out = []
-    if not (PROW_URL and PROW_KEY and cats): return out
+    if not (cfg("prow_url") and cfg("prow_apikey") and cats): return out
     try:
-        u = f"{PROW_URL}/api/v1/search"
+        u = f"{cfg("prow_url")}/api/v1/search"
         r = requests.get(u, params={"query":q,"categories":cats,"type":"search","limit":limit},
-                         headers={"X-Api-Key":PROW_KEY}, timeout=25)
+                         headers={"X-Api-Key":cfg("prow_apikey")}, timeout=25)
         for it in r.json():
             if it.get("protocol") != "usenet": continue
             cats = [c.get("id") for c in it.get("categories",[]) if c.get("id")]
@@ -614,9 +632,9 @@ def do_search(q, platforms=None):
     # Usenet breit über Console (1000) abfragen und danach nach Plattform filtern —
     # Indexer taggen vieles nur unter der Oberkategorie. Retro-only-Auswahl -> Usenet aus.
     if platforms:
-        usenet_cats = PROW_CATS if any(SLUG2USE.get(p) for p in platforms) else ""
+        usenet_cats = cfg("prow_cats") if any(SLUG2USE.get(p) for p in platforms) else ""
     else:
-        usenet_cats = PROW_CATS
+        usenet_cats = cfg("prow_cats")
     res = []
     bl = [str(p).strip().lower() for p in load_settings().get("blocklist", []) if str(p).strip()]
     ar = search_archive(q); us = search_usenet(q, usenet_cats)
@@ -706,8 +724,8 @@ def quota_info(user):
 
 # ---------- Download-Aktionen ----------
 def sab_add(url, name):
-    r = requests.get(f"{SAB_URL}/api", params={"mode":"addurl","name":url,"nzbname":name,
-        "cat":SAB_CAT,"apikey":SAB_APIKEY,"output":"json"}, timeout=20)
+    r = requests.get(f"{cfg("sab_url")}/api", params={"mode":"addurl","name":url,"nzbname":name,
+        "cat":cfg("sab_cat"),"apikey":cfg("sab_apikey"),"output":"json"}, timeout=20)
     j = r.json()
     if not j.get("status"): raise RuntimeError(f"SAB: {j}")
     return j
@@ -767,7 +785,7 @@ def worker_download():
                 import_folder(jid, dst)
             elif job["source"]=="filehoster":
                 set_state(jid, state="downloading", msg="an JDownloader übergeben")
-                write_crawljob(jid, job["ref"], f"{JD_DL_BASE}/romsuche_{jid}", f"romsuche_{jid}")
+                write_crawljob(jid, job["ref"], f"{cfg("jd_dl_base")}/romsuche_{jid}", f"romsuche_{jid}")
         except Exception as e:
             set_state(jid, state="error", msg=str(e)[:200]); log(f"Job {jid} Fehler: {e}")
         finally:
@@ -839,11 +857,11 @@ def import_folder(jid, folder):
 # ---------- Worker: fertige SAB/JD-Downloads einsortieren ----------
 def romm_scan():
     """Optional: RomM zu einem schnellen Bibliotheks-Scan anstoßen (nur wenn konfiguriert)."""
-    if not (ROMM_URL and ROMM_USER and ROMM_PASS): return
+    if not (cfg("romm_url") and cfg("romm_user") and cfg("romm_pass")): return
     try:
         s = requests.Session()
-        s.post(f"{ROMM_URL}/api/login", auth=(ROMM_USER,ROMM_PASS), timeout=10)
-        s.post(f"{ROMM_URL}/api/scan", json={"platforms":[], "type":"quick"}, timeout=10)
+        s.post(f"{cfg("romm_url")}/api/login", auth=(cfg("romm_user"),cfg("romm_pass")), timeout=10)
+        s.post(f"{cfg("romm_url")}/api/scan", json={"platforms":[], "type":"quick"}, timeout=10)
     except Exception as e:
         log(f"RomM-Scan-Hinweis: {e}")
 
@@ -1183,7 +1201,7 @@ const I18N={de:{
  users:'Benutzer',new_user:'Neuen Benutzer anlegen',create:'Anlegen',del:'Löschen',autoapprove:'Auto-Freigabe',role_user:'Nutzer',role_admin:'Admin',username:'Benutzername',password:'Passwort',
  notif_discord:'Benachrichtigungen — Discord',active:'aktiv',test:'Test',save:'Speichern',saved:'gespeichert ✓',test_sent:'Test gesendet ✓',webhook_ph:'Discord Webhook-URL',
  st_pending:'⏳ Wartet auf Freigabe',st_queued:'Angefragt',st_downloading:'Lädt…',st_importing:'Wird verarbeitet',st_done:'✅ Verfügbar',st_error:'Fehler',st_denied:'Abgelehnt',st_exists:'vorhanden',
- settings:'Einstellungen',sec_general:'Allgemein',sec_notif:'Benachrichtigungen',sec_users:'Benutzer',sec_services:'Dienste',sec_about:'Über',app_name:'App-Name',default_lang:'Standardsprache',refresh:'Aktualisieren',version:'Version',about_txt:'Selbstgebauter Seerr-Klon für ROMs.',sec_maint:'Logs & Wartung',logs:'Protokoll',clear_cache:'Cache leeren',reindex:'Neu indexieren',clear_finished:'Fertige entfernen',done_word:'Erledigt',lbl_jobs:'Anfragen',lbl_lib:'Bibliothek',
+ settings:'Einstellungen',sec_general:'Allgemein',sec_notif:'Benachrichtigungen',sec_users:'Benutzer',sec_services:'Dienste',sec_about:'Über',app_name:'App-Name',default_lang:'Standardsprache',refresh:'Aktualisieren',version:'Version',about_txt:'Selbstgebauter Seerr-Klon für ROMs.',sec_maint:'Logs & Wartung',logs:'Protokoll',clear_cache:'Cache leeren',reindex:'Neu indexieren',clear_finished:'Fertige entfernen',done_word:'Erledigt',lbl_jobs:'Anfragen',lbl_lib:'Bibliothek',sec_conn:'Verbindungen',conn_hint:'Leere Felder nutzen den Wert aus der Umgebung (.env). Secrets sind maskiert — leer lassen behält den bestehenden Wert.',
  profile:'Profil',display_name:'Anzeigename',email:'E-Mail',language:'Sprache',avatar:'Avatar',pwebhook:'Persönlicher Discord-Webhook',change_pw:'Passwort ändern',cur_pw:'Aktuelles Passwort',new_pw:'Neues Passwort',choose_img:'Bild wählen',saved_ok:'gespeichert ✓',
  blocklist:'Sperrliste',add_btn:'Hinzufügen',pattern_ph:'Stichwort/Muster im Titel',
  nav_issues:'🐞 Probleme',issues:'Probleme',report_issue:'Problem melden',issue_msg:'Beschreibung',close_btn:'Schließen',st_open:'offen',st_closed:'geschlossen',submit:'Absenden',issue_type:'Art',comment_ph:'Kommentar schreiben …',comment_send:'Senden',push_enable:'🔔 Push aktivieren',push_disable:'🔕 Push deaktivieren',push_unsupported:'Push nicht verfügbar (HTTPS nötig)',push_denied:'Erlaubnis verweigert',push_on:'Push aktiviert ✓',push_off:'Push deaktiviert'
@@ -1197,7 +1215,7 @@ const I18N={de:{
  users:'Users',new_user:'Create new user',create:'Create',del:'Delete',autoapprove:'Auto-approve',role_user:'User',role_admin:'Admin',username:'Username',password:'Password',
  notif_discord:'Notifications — Discord',active:'enabled',test:'Test',save:'Save',saved:'saved ✓',test_sent:'test sent ✓',webhook_ph:'Discord webhook URL',
  st_pending:'⏳ Awaiting approval',st_queued:'Requested',st_downloading:'Downloading…',st_importing:'Processing',st_done:'✅ Available',st_error:'Error',st_denied:'Denied',st_exists:'in library',
- settings:'Settings',sec_general:'General',sec_notif:'Notifications',sec_users:'Users',sec_services:'Services',sec_about:'About',app_name:'App name',default_lang:'Default language',refresh:'Refresh',version:'Version',about_txt:'Self-built Seerr clone for ROMs.',sec_maint:'Logs & maintenance',logs:'Log',clear_cache:'Clear cache',reindex:'Reindex',clear_finished:'Clear finished',done_word:'Done',lbl_jobs:'Requests',lbl_lib:'Library',
+ settings:'Settings',sec_general:'General',sec_notif:'Notifications',sec_users:'Users',sec_services:'Services',sec_about:'About',app_name:'App name',default_lang:'Default language',refresh:'Refresh',version:'Version',about_txt:'Self-built Seerr clone for ROMs.',sec_maint:'Logs & maintenance',logs:'Log',clear_cache:'Clear cache',reindex:'Reindex',clear_finished:'Clear finished',done_word:'Done',lbl_jobs:'Requests',lbl_lib:'Library',sec_conn:'Connections',conn_hint:'Empty fields fall back to the environment (.env). Secrets are masked — leave blank to keep the current value.',
  profile:'Profile',display_name:'Display name',email:'Email',language:'Language',avatar:'Avatar',pwebhook:'Personal Discord webhook',change_pw:'Change password',cur_pw:'Current password',new_pw:'New password',choose_img:'Choose image',saved_ok:'saved ✓',
  blocklist:'Blocklist',add_btn:'Add',pattern_ph:'Keyword/pattern in title',
  nav_issues:'🐞 Issues',issues:'Issues',report_issue:'Report issue',issue_msg:'Message',close_btn:'Close',st_open:'open',st_closed:'closed',submit:'Submit',issue_type:'Type',comment_ph:'Write a comment …',comment_send:'Send',push_enable:'🔔 Enable push',push_disable:'🔕 Disable push',push_unsupported:'Push unavailable (needs HTTPS)',push_denied:'Permission denied',push_on:'Push enabled ✓',push_off:'Push disabled'
@@ -1211,7 +1229,7 @@ const I18N={de:{
  users:'Utilisateurs',new_user:'Créer un utilisateur',create:'Créer',del:'Supprimer',autoapprove:'Approbation auto',role_user:'Utilisateur',role_admin:'Admin',username:"Nom d'utilisateur",password:'Mot de passe',
  notif_discord:'Notifications — Discord',active:'activé',test:'Test',save:'Enregistrer',saved:'enregistré ✓',test_sent:'test envoyé ✓',webhook_ph:'URL du webhook Discord',
  st_pending:"⏳ En attente d'approbation",st_queued:'Demandé',st_downloading:'Téléchargement…',st_importing:'Traitement',st_done:'✅ Disponible',st_error:'Erreur',st_denied:'Refusé',st_exists:'présent',
- settings:'Paramètres',sec_general:'Général',sec_notif:'Notifications',sec_users:'Utilisateurs',sec_services:'Services',sec_about:'À propos',app_name:"Nom de l'app",default_lang:'Langue par défaut',refresh:'Actualiser',version:'Version',about_txt:'Clone de Seerr pour ROMs, fait maison.',sec_maint:'Journaux & maintenance',logs:'Journal',clear_cache:'Vider le cache',reindex:'Réindexer',clear_finished:'Effacer terminés',done_word:'Terminé',lbl_jobs:'Demandes',lbl_lib:'Bibliothèque',
+ settings:'Paramètres',sec_general:'Général',sec_notif:'Notifications',sec_users:'Utilisateurs',sec_services:'Services',sec_about:'À propos',app_name:"Nom de l'app",default_lang:'Langue par défaut',refresh:'Actualiser',version:'Version',about_txt:'Clone de Seerr pour ROMs, fait maison.',sec_maint:'Journaux & maintenance',logs:'Journal',clear_cache:'Vider le cache',reindex:'Réindexer',clear_finished:'Effacer terminés',done_word:'Terminé',lbl_jobs:'Demandes',lbl_lib:'Bibliothèque',sec_conn:'Connexions',conn_hint:'Les champs vides utilisent la valeur de l’environnement (.env). Les secrets sont masqués — laisser vide conserve la valeur.',
  profile:'Profil',display_name:'Nom affiché',email:'E-mail',language:'Langue',avatar:'Avatar',pwebhook:'Webhook Discord personnel',change_pw:'Changer le mot de passe',cur_pw:'Mot de passe actuel',new_pw:'Nouveau mot de passe',choose_img:'Choisir une image',saved_ok:'enregistré ✓',
  blocklist:'Liste de blocage',add_btn:'Ajouter',pattern_ph:'Mot-clé/motif dans le titre',
  nav_issues:'🐞 Problèmes',issues:'Problèmes',report_issue:'Signaler un problème',issue_msg:'Message',close_btn:'Fermer',st_open:'ouvert',st_closed:'fermé',submit:'Envoyer',issue_type:'Type',comment_ph:'Écrire un commentaire …',comment_send:'Envoyer',push_enable:'🔔 Activer push',push_disable:'🔕 Désactiver push',push_unsupported:'Push indisponible (HTTPS requis)',push_denied:'Permission refusée',push_on:'Push activé ✓',push_off:'Push désactivé'
@@ -1225,7 +1243,7 @@ const I18N={de:{
  users:'Usuarios',new_user:'Crear usuario',create:'Crear',del:'Eliminar',autoapprove:'Auto-aprobación',role_user:'Usuario',role_admin:'Admin',username:'Usuario',password:'Contraseña',
  notif_discord:'Notificaciones — Discord',active:'activo',test:'Prueba',save:'Guardar',saved:'guardado ✓',test_sent:'prueba enviada ✓',webhook_ph:'URL del webhook de Discord',
  st_pending:'⏳ Esperando aprobación',st_queued:'Solicitado',st_downloading:'Descargando…',st_importing:'Procesando',st_done:'✅ Disponible',st_error:'Error',st_denied:'Rechazado',st_exists:'presente',
- settings:'Ajustes',sec_general:'General',sec_notif:'Notificaciones',sec_users:'Usuarios',sec_services:'Servicios',sec_about:'Acerca de',app_name:'Nombre de la app',default_lang:'Idioma predeterminado',refresh:'Actualizar',version:'Versión',about_txt:'Clon de Seerr para ROMs, hecho en casa.',sec_maint:'Registros y mantenimiento',logs:'Registro',clear_cache:'Vaciar caché',reindex:'Reindexar',clear_finished:'Borrar terminados',done_word:'Hecho',lbl_jobs:'Solicitudes',lbl_lib:'Biblioteca',
+ settings:'Ajustes',sec_general:'General',sec_notif:'Notificaciones',sec_users:'Usuarios',sec_services:'Servicios',sec_about:'Acerca de',app_name:'Nombre de la app',default_lang:'Idioma predeterminado',refresh:'Actualizar',version:'Versión',about_txt:'Clon de Seerr para ROMs, hecho en casa.',sec_maint:'Registros y mantenimiento',logs:'Registro',clear_cache:'Vaciar caché',reindex:'Reindexar',clear_finished:'Borrar terminados',done_word:'Hecho',lbl_jobs:'Solicitudes',lbl_lib:'Biblioteca',sec_conn:'Conexiones',conn_hint:'Los campos vacíos usan el valor del entorno (.env). Los secretos se enmascaran — dejar vacío conserva el valor.',
  profile:'Perfil',display_name:'Nombre visible',email:'Correo',language:'Idioma',avatar:'Avatar',pwebhook:'Webhook de Discord personal',change_pw:'Cambiar contraseña',cur_pw:'Contraseña actual',new_pw:'Nueva contraseña',choose_img:'Elegir imagen',saved_ok:'guardado ✓',
  blocklist:'Lista de bloqueo',add_btn:'Añadir',pattern_ph:'Palabra clave/patrón en el título',
  nav_issues:'🐞 Problemas',issues:'Problemas',report_issue:'Informar problema',issue_msg:'Mensaje',close_btn:'Cerrar',st_open:'abierto',st_closed:'cerrado',submit:'Enviar',issue_type:'Tipo',comment_ph:'Escribe un comentario …',comment_send:'Enviar',push_enable:'🔔 Activar push',push_disable:'🔕 Desactivar push',push_unsupported:'Push no disponible (requiere HTTPS)',push_denied:'Permiso denegado',push_on:'Push activado ✓',push_off:'Push desactivado'
@@ -1468,7 +1486,7 @@ async function testPWebhook(){let wh=document.getElementById('pwh').value.trim()
 // --- Admin-Bereich / Einstellungen (Seite mit Unterbereichen) ---
 let SETSEC='general';
 function openSettingsView(){
- let secs=[['general',t('sec_general')],['notif',t('sec_notif')],['users',t('sec_users')],['blocklist',t('blocklist')],['services',t('sec_services')],['maint',t('sec_maint')],['about',t('sec_about')]];
+ let secs=[['general',t('sec_general')],['notif',t('sec_notif')],['conn',t('sec_conn')],['users',t('sec_users')],['blocklist',t('blocklist')],['services',t('sec_services')],['maint',t('sec_maint')],['about',t('sec_about')]];
  document.getElementById('settings').innerHTML='<div class=setwrap><div class=setnav>'+
   secs.map(x=>`<a class=snav data-sec="${x[0]}" onclick="setSection('${x[0]}')">${x[1]}</a>`).join('')+
   '</div><div id=setcontent></div></div>';
@@ -1476,7 +1494,27 @@ function openSettingsView(){
 function setSection(sec){SETSEC=sec;
  document.querySelectorAll('.snav').forEach(e=>e.classList.toggle('on',e.dataset.sec==sec));
  let c=document.getElementById('setcontent');
- ({general:secGeneral,notif:secNotif,users:secUsers,blocklist:secBlocklist,services:secServices,maint:secMaint,about:secAbout}[sec]||secGeneral)(c);}
+ ({general:secGeneral,notif:secNotif,conn:secConn,users:secUsers,blocklist:secBlocklist,services:secServices,maint:secMaint,about:secAbout}[sec]||secGeneral)(c);}
+async function secConn(c){let s=await(await fetch('/api/settings')).json();let cn=s.connections||{};
+ function fld(k,label,secret){let v=secret?'':(cn[k]||'');let ph=secret?(cn['has_'+k]?'•••• gesetzt / set':'—'):'';
+  return `<div class=frow><label style="min-width:150px">${label}</label><input id="c_${k}" ${secret?'type=password':''} value="${(''+v).replace(/"/g,'&quot;')}" placeholder="${ph}" style="flex:1"></div>`;}
+ c.innerHTML=`<h3>${t('sec_conn')}</h3><div class=meta style="margin-bottom:10px">${t('conn_hint')}</div>
+  <h3 style="font-size:13px">SABnzbd</h3>${fld('sab_url','URL')}${fld('sab_apikey','API-Key',1)}${fld('sab_cat','Kategorie / category')}
+  <h3 style="font-size:13px">Prowlarr</h3>${fld('prow_url','URL')}${fld('prow_apikey','API-Key',1)}${fld('prow_cats','Kategorien / categories')}
+  <h3 style="font-size:13px">IGDB</h3>${fld('igdb_id','Client-ID')}${fld('igdb_secret','Client-Secret',1)}
+  <h3 style="font-size:13px">RomM</h3>${fld('romm_url','URL')}${fld('romm_user','User')}${fld('romm_pass','Passwort / password',1)}
+  <h3 style="font-size:13px">JDownloader</h3>${fld('jd_dl_base','Download-Basis')}
+  <div class=frow><button onclick="saveConn()">${t('save')}</button><button onclick="testConn()" style="margin-left:8px;background:#2a2f37">${t('test')}</button><span id=cmsg class=meta></span></div>
+  <div id=csvc style="margin-top:10px"></div>`;}
+const CONN_ALL=['sab_url','sab_apikey','sab_cat','prow_url','prow_apikey','prow_cats','igdb_id','igdb_secret','romm_url','romm_user','romm_pass','jd_dl_base'];
+const CONN_SEC=['sab_apikey','prow_apikey','igdb_secret','romm_pass'];
+async function saveConn(){let conn={};CONN_ALL.forEach(k=>{let el=document.getElementById('c_'+k);if(!el)return;
+  if(CONN_SEC.includes(k)){if(el.value)conn[k]=el.value;}else{conn[k]=el.value;}});
+ let r=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({connections:conn})})).json();
+ document.getElementById('cmsg').textContent=r.ok?t('saved'):t('st_error');if(r.ok)setTimeout(()=>setSection('conn'),400);}
+async function testConn(){let b=document.getElementById('csvc');b.textContent='…';
+ let d=await(await fetch('/api/services/status')).json();
+ b.innerHTML=(d||[]).map(x=>`<div class=meta>${x.ok?'✅':'❌'} <b>${x.name}</b> ${(x.info||'').replace(/</g,'&lt;')}</div>`).join('');}
 async function secMaint(c){
  c.innerHTML=`<h3>${t('sec_maint')}</h3><div id=mstats class=meta>…</div>
   <div style="margin:10px 0;display:flex;gap:8px;flex-wrap:wrap">
@@ -2166,7 +2204,9 @@ def api_settings_get():
                         "webhook": {"enabled": bool(s.get("agents",{}).get("webhook",{}).get("enabled")),
                                     "url": s.get("agents",{}).get("webhook",{}).get("url","")},
                         "email": {"enabled": bool(s.get("agents",{}).get("email",{}).get("enabled"))}},
-                    "quota": s.get("quota", {"enabled": False, "count": 10, "days": 7})})
+                    "quota": s.get("quota", {"enabled": False, "count": 10, "days": 7}),
+                    "connections": {**{k: cfg(k) for k in CONN_KEYS if k not in CONN_SECRET},
+                                    **{"has_"+k: bool(cfg(k)) for k in CONN_SECRET}}})
 
 @app.route("/api/settings", methods=["POST"])
 @admin_required
@@ -2199,6 +2239,15 @@ def api_settings_set():
         qq = d["quota"]
         s["quota"] = {"enabled": bool(qq.get("enabled")), "count": int(qq.get("count") or 10),
                       "days": int(qq.get("days") or 7)}
+    if "connections" in d:
+        cn = d["connections"]; s.setdefault("connections", {})
+        for k in CONN_KEYS:
+            if k not in cn: continue
+            v = cn[k]
+            if k in CONN_SECRET:
+                if v: s["connections"][k] = v          # Secret nur bei neuem Wert überschreiben
+            else:
+                s["connections"][k] = (v or "").strip()  # leer = Env-Default nutzen
     save_settings(s); return jsonify({"ok": True})
 
 @app.route("/api/services/status")
@@ -2206,15 +2255,15 @@ def api_settings_set():
 def api_services_status():
     out = []
     try:
-        j = requests.get(f"{SAB_URL}/api", params={"mode":"version","output":"json","apikey":SAB_APIKEY}, timeout=6).json()
+        j = requests.get(f"{cfg("sab_url")}/api", params={"mode":"version","output":"json","apikey":cfg("sab_apikey")}, timeout=6).json()
         out.append({"name":"SABnzbd","ok":True,"info":"v"+str(j.get("version",""))})
     except Exception as e: out.append({"name":"SABnzbd","ok":False,"info":str(e)[:40]})
     try:
-        r = requests.get(f"{PROW_URL}/api/v1/system/status", headers={"X-Api-Key":PROW_KEY}, timeout=6)
+        r = requests.get(f"{cfg("prow_url")}/api/v1/system/status", headers={"X-Api-Key":cfg("prow_apikey")}, timeout=6)
         out.append({"name":"Prowlarr","ok":r.ok,"info":"v"+str(r.json().get("version",""))})
     except Exception as e: out.append({"name":"Prowlarr","ok":False,"info":str(e)[:40]})
     try:
-        r = requests.get(f"{ROMM_URL}/api/heartbeat", timeout=6)
+        r = requests.get(f"{cfg("romm_url")}/api/heartbeat", timeout=6)
         out.append({"name":"RomM","ok":r.ok,"info":"erreichbar"})
     except Exception as e: out.append({"name":"RomM","ok":False,"info":str(e)[:40]})
     out.append({"name":"IGDB","ok":bool(igdb_token()),"info":"Cover / Discover"})
@@ -2481,16 +2530,16 @@ def check_config():
     def reach(url):
         try: requests.get(url, timeout=4); return True
         except Exception: return False
-    if not (IGDB_ID and IGDB_SECRET):
+    if not (cfg("igdb_id") and cfg("igdb_secret")):
         log("Konfig: IGDB nicht gesetzt — keine Cover/Discover.")
-    if not (SAB_URL and SAB_APIKEY):
+    if not (cfg("sab_url") and cfg("sab_apikey")):
         log("Konfig: SABnzbd nicht gesetzt — Usenet-Download aus.")
-    elif not reach(SAB_URL):
-        log(f"Konfig-WARNUNG: SABnzbd ({SAB_URL}) nicht erreichbar.")
-    if not (PROW_URL and PROW_KEY):
+    elif not reach(cfg("sab_url")):
+        log(f"Konfig-WARNUNG: SABnzbd ({cfg("sab_url")}) nicht erreichbar.")
+    if not (cfg("prow_url") and cfg("prow_apikey")):
         log("Konfig: Prowlarr nicht gesetzt — Usenet-Suche aus.")
-    elif not reach(PROW_URL):
-        log(f"Konfig-WARNUNG: Prowlarr ({PROW_URL}) nicht erreichbar.")
+    elif not reach(cfg("prow_url")):
+        log(f"Konfig-WARNUNG: Prowlarr ({cfg("prow_url")}) nicht erreichbar.")
 
 if __name__ == "__main__":
     os.makedirs(STAGING, exist_ok=True)

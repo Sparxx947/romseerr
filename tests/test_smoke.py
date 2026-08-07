@@ -53,6 +53,15 @@ def test_kv_store_roundtrip(appmod):
     appmod.save_issues([])
 
 
+def test_cfg_connection_override(appmod):
+    """Verbindungswerte: Einstellung hat Vorrang vor Env-Default; URL wird getrimmt."""
+    appmod.save_settings({})
+    assert appmod.cfg("sab_url") == appmod._ENV_CONN["sab_url"]   # Fallback = Env
+    appmod.save_settings({"connections": {"sab_url": "http://sab.example:8080/"}})
+    assert appmod.cfg("sab_url") == "http://sab.example:8080"     # Override + rstrip
+    appmod.save_settings({})
+
+
 def test_blocklist(appmod):
     assert appmod.is_blocked("Pokemon Beta Build", ["beta"]) is True
     assert appmod.is_blocked("Super Mario World", ["beta"]) is False
