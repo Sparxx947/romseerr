@@ -27,7 +27,7 @@ a request workflow, user management and notifications.
 - **User management** — login/first-run setup, roles (admin/user), per-user
   **auto-approve** and **approval workflow** (requests without auto-approve need admin approval).
 - **Notifications** — Discord webhook configurable in the UI (with test).
-- **i18n** — German/English language switch.
+- **i18n** — language switch for German, English, French, Spanish and Italian.
 - **Sidebar** (Discover / Requests / Users / Settings) in Seerr style.
 
 **Planned** (see [CHANGELOG](CHANGELOG.md) / issues): SQLite backend, user profile,
