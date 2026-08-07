@@ -6,6 +6,17 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Behoben / Fixed
+- **Startseite lud keine Spiele / Admin-Menü tot** — in `loadLogs()` stand `join('\n')`
+  im **nicht-rohen** Python-`PAGE`-String; Python wandelte `\n` in einen echten Zeilenumbruch
+  um, sodass das ausgelieferte Inline-JavaScript ein **unterminiertes String-Literal** enthielt
+  und das gesamte Skript nicht lief (keine Discover-Spiele, kein funktionierendes Admin-Portal).
+  Gefixt zu `join('\\n')`. **Lehre:** JS-Escapes im `PAGE`-String immer verdoppeln — Syntaxprüfung
+  muss gegen den **interpretierten** String laufen (über den Python-AST), nicht gegen den Quelltext. /
+  **Home page loaded no games / admin menu dead** — `loadLogs()` used `join('\n')` inside the
+  non-raw Python `PAGE` string; Python turned `\n` into a real newline, so the served inline
+  JavaScript had an **unterminated string literal** and the whole script failed. Fixed to `join('\\n')`.
+
 ### Hinzugefügt / Added
 - **PWA + Web-Push** — Romseerr ist jetzt eine **installierbare PWA** (Manifest, Icon,
   Service-Worker) und kann **Web-Push-Benachrichtigungen** senden, wenn ein ROM verfügbar
