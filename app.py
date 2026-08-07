@@ -1839,6 +1839,93 @@ def romm_scan():
     except Exception as e:
         log(f"RomM-Scan-Hinweis: {e}")
 
+# ---------- Play im Browser: Verweis auf RomMs Spieler (#69) ----------
+# RomM bringt EmulatorJS fest eingebaut mit — kein zusaetzlicher Container, kein CDN.
+# Romseerr emuliert deshalb NICHTS selbst, sondern loest Titel -> RomM-ROM-ID auf und
+# verlinkt in RomMs Spieler. Route dort: /rom/<id>/ejs (belegt im RomM-Router).
+#
+# Der Knopf erscheint nur, wenn es fuer die Plattform ueberhaupt einen Kern gibt.
+# PS2, GameCube, Wii, Dreamcast und Switch haben KEINEN und bekommen auch nie einen —
+# das ist eine harte Grenze der WebAssembly-Emulation, kein "noch nicht". Sie duerfen
+# den Knopf deshalb niemals zeigen (dafuer gibt es #71).
+PLAYABLE = {   # Slug -> EmulatorJS-Kern (nur zur Nachvollziehbarkeit dokumentiert)
+    "nes": "fceumm", "snes": "snes9x", "n64": "mupen64plus_next", "gb": "gambatte",
+    "gbc": "gambatte", "gba": "mgba", "nds": "melonds", "virtualboy": "beetle_vb",
+    "sms": "smsplus", "genesis": "genesis_plus_gx", "segacd": "genesis_plus_gx",
+    "sega32x": "picodrive", "gamegear": "genesis_plus_gx", "saturn": "yabause",
+    "psx": "mednafen_psx_hw", "psp": "ppsspp", "turbografx16": "mednafen_pce",
+    "neogeopocket": "mednafen_ngp", "wonderswan": "mednafen_wswan", "lynx": "handy",
+    "jaguar": "virtualjaguar", "atari2600": "stella2014", "atari7800": "prosystem",
+    "3do": "opera", "amiga": "puae", "c64": "vice_x64", "dos": "dosbox_pure",
+    "arcade": "fbneo", "neogeo": "fbneo",
+}
+# Plattformen, deren Kern ohne BIOS startet und dann scheitert — der Nutzer soll das
+# VORHER lesen, statt vor einer schwarzen Flaeche zu sitzen.
+NEEDS_BIOS = {"psx", "3do", "saturn", "amiga", "segacd"}
+# Arcade-Kerne brauchen zum Kern passende Romsets; ein pauschaler Play-Knopf scheitert
+# bei den meisten Dumps. Nicht verstecken, aber ehrlich beschriften.
+CAVEAT = {"arcade": "romset", "neogeo": "romset"}
+PLAY_MAX_BYTES = int(os.environ.get("ROMSEERR_PLAY_MAX_MB", "2048")) * 1024 * 1024
+
+def romm_session():
+    """Angemeldete RomM-Sitzung oder None. Fehler sind still — Play ist eine Zugabe."""
+    if not (cfg("romm_url") and cfg("romm_user") and cfg("romm_pass")): return None
+    try:
+        s = requests.Session()
+        r = s.post(f"{cfg("romm_url")}/api/login", auth=(cfg("romm_user"), cfg("romm_pass")), timeout=10)
+        return s if r.ok else None
+    except Exception:
+        return None
+
+def romm_find(title, slug=""):
+    """Titel -> RomM-Eintrag. Exakter Abgleich des normalisierten Namens; bei mehreren
+    gleich guten Treffern wird der erste genommen, aber NUR wenn die Plattform passt."""
+    s = romm_session()
+    if not s: return None
+    try:
+        r = s.get(f"{cfg("romm_url")}/api/roms",
+                  params={"search_term": clean_query(title)[:80], "limit": 25}, timeout=12)
+        if not r.ok: return None
+        items = (r.json() or {}).get("items") or []
+    except Exception:
+        return None
+    want = norm(title)
+    for it in items:
+        if not isinstance(it, dict): continue
+        if slug and (it.get("platform_slug") or "") != slug: continue
+        for cand in (it.get("name"), it.get("fs_name_no_tags"), it.get("fs_name")):
+            if cand and norm(cand) == want:
+                return {"id": it.get("id"), "name": it.get("name") or cand,
+                        "platform": it.get("platform_slug") or slug,
+                        "size": int(it.get("fs_size_bytes") or 0)}
+    return None
+
+def play_info(title, slug=""):
+    """Kann dieser Titel im Browser gespielt werden — und wenn nein, warum nicht?
+
+    Gibt IMMER einen Grund zurueck. Ein Knopf, der nichts tut, ist schlimmer als keiner."""
+    slug = resolve_slug(slug) if slug else ""
+    if not cfg("romm_url"):
+        return {"playable": False, "reason": "no_romm"}
+    if slug and slug not in PLAYABLE:
+        # Harte Grenze: fuer diese Plattformen gibt es keinen Kern und wird es keinen geben.
+        return {"playable": False, "reason": "no_core", "platform": slug}
+    hit = romm_find(title, slug)
+    if not hit:
+        return {"playable": False, "reason": "not_in_library", "platform": slug}
+    plat = hit.get("platform") or slug
+    if plat not in PLAYABLE:
+        return {"playable": False, "reason": "no_core", "platform": plat}
+    if hit["size"] and hit["size"] > PLAY_MAX_BYTES:
+        # Grosse Abbilder landen komplett im Browser-Speicher — lieber eine Meldung
+        # als ein abstuerzender Tab.
+        return {"playable": False, "reason": "too_large", "platform": plat,
+                "size": hit["size"], "limit": PLAY_MAX_BYTES}
+    return {"playable": True, "platform": plat, "core": PLAYABLE[plat],
+            "rom_id": hit["id"], "name": hit["name"],
+            "url": f"{cfg("romm_url")}/rom/{hit['id']}/ejs",
+            "needs_bios": plat in NEEDS_BIOS, "caveat": CAVEAT.get(plat, "")}
+
 def worker_collect():
     """Dauerthread (alle 20 s): sucht für noch laufende usenet/filehoster-Jobs den fertigen
     Ausgabeordner (SAB_DONE bzw. JD_OUT, Name `romseerr_<jid>`). Ist er **stabil** (Größe
@@ -2319,6 +2406,14 @@ def api_detail():
         except Exception as e:
             out["error"] = str(e)[:150]
     return jsonify(out)
+
+@app.route("/api/play")
+@perm_required("request")
+def api_play():
+    """Kann der Titel im Browser gespielt werden? Antwortet immer mit einem Grund."""
+    title = (request.args.get("title") or "").strip()
+    if not title: return jsonify({"playable": False, "reason": "no_title"}), 400
+    return jsonify(play_info(title, (request.args.get("platform") or "").strip()))
 
 @app.route("/api/cover")
 def api_cover():
@@ -3609,6 +3704,10 @@ OPENAPI = {
         "/api/discover/rows": {"get": _op("Startseiten-Reihen (beliebt je Konsole + je Genre)", "Search")},
         "/api/detail": {"get": _op("Detaildaten inkl. IGDB (Wertung, Screenshots, Ähnliches) + Dateien", "Search",
             params=[_qp("source", "archive|usenet"), _qp("ref", "Quell-Referenz"), _qp("title", "Titel")])},
+        "/api/play": {"get": _op("Kann der Titel im Browser gespielt werden (RomM/EmulatorJS)?", "Search",
+            params=[_qp("title", "Titel"), _qp("platform", "Plattform-Slug")],
+            responses={**_R_PERM, "200": {"description": "playable + Grund/URL"},
+                       "400": {"description": "kein Titel"}})},
         "/api/cover": {"get": _op("Cover-URL zu einem Titel (lazy, via IGDB)", "Search",
             params=[_qp("title", "Titel")])},
         "/api/platforms": {"get": _op("Verfügbare Plattformen/Slugs", "Search")},

@@ -1241,3 +1241,66 @@ def test_filehoster_search_requires_all_tokens(appmod):
     assert appmod.search_filehoster("Chrono Zelda") == []
     with appmod.DB_LOCK, _closing(appmod.db_conn()) as c, c:
         c.execute("DELETE FROM fh_items")
+
+
+def test_play_never_offered_for_platforms_without_a_core(appmod):
+    """PS2, GameCube, Wii, Dreamcast und Switch haben keinen EmulatorJS-Kern und bekommen
+    auch nie einen — der Play-Knopf darf dort NIEMALS erscheinen. (#69)"""
+    appmod.save_settings({"connections": {"romm_url": "http://romm.invalid"}})
+    for slug in ("ps2", "ngc", "wii", "wiiu", "switch", "dreamcast", "3ds", "ps3", "xbox360", "psvita"):
+        d = appmod.play_info("Irgendein Spiel", slug)
+        assert d["playable"] is False, f"{slug} darf nicht spielbar sein"
+        assert d["reason"] == "no_core"
+        assert slug not in appmod.PLAYABLE
+    # und PSP ist umgekehrt sehr wohl dabei
+    assert "psp" in appmod.PLAYABLE
+    appmod.save_settings({})
+
+
+def test_play_always_gives_a_reason(appmod, monkeypatch):
+    """Jede Absage nennt ihren Grund — ein Knopf, der nichts tut, ist schlimmer als keiner. (#69)"""
+    appmod.save_settings({})
+    assert appmod.play_info("X", "snes")["reason"] == "no_romm"      # RomM gar nicht verbunden
+    appmod.save_settings({"connections": {"romm_url": "http://romm.invalid"}})
+    monkeypatch.setattr(appmod, "romm_find", lambda *a, **k: None)
+    assert appmod.play_info("X", "snes")["reason"] == "not_in_library"
+    monkeypatch.setattr(appmod, "romm_find",
+                        lambda *a, **k: {"id": 5, "name": "X", "platform": "psx",
+                                         "size": appmod.PLAY_MAX_BYTES + 1})
+    d = appmod.play_info("X", "psx")
+    assert d["playable"] is False and d["reason"] == "too_large"
+    assert d["limit"] == appmod.PLAY_MAX_BYTES        # die Grenze steht in der Antwort
+    appmod.save_settings({})
+
+
+def test_play_url_points_at_romm_player(appmod, monkeypatch):
+    """Aufgeloest wird auf RomMs eigene Spieler-Route /rom/<id>/ejs. (#69)"""
+    appmod.save_settings({"connections": {"romm_url": "http://romm.invalid"}})
+    monkeypatch.setattr(appmod, "romm_find",
+                        lambda *a, **k: {"id": 42, "name": "Super Metroid",
+                                         "platform": "snes", "size": 3 * 1024 * 1024})
+    d = appmod.play_info("Super Metroid", "snes")
+    assert d["playable"] is True
+    assert d["url"] == "http://romm.invalid/rom/42/ejs"
+    assert d["core"] == "snes9x"
+    assert d["needs_bios"] is False
+    # BIOS-Bedarf wird vorher gemeldet, nicht erst vor schwarzem Bildschirm
+    monkeypatch.setattr(appmod, "romm_find",
+                        lambda *a, **k: {"id": 7, "name": "Y", "platform": "psx", "size": 100})
+    assert appmod.play_info("Y", "psx")["needs_bios"] is True
+    assert appmod.play_info("Y", "psx")["playable"] is True
+    appmod.save_settings({})
+
+
+def test_play_endpoint_needs_request_permission(appmod, client):
+    """Der Knopf folgt denselben Rechten wie der Download. (#69)"""
+    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": []}})
+    with client.session_transaction() as sess:
+        sess["user"] = "lena"; sess["role"] = "user"
+    assert client.get("/api/play?title=X").status_code == 403
+    appmod.save_users({"max": {"pw": "x", "role": "user", "perms": ["request"]}})
+    with client.session_transaction() as sess:
+        sess["user"] = "max"; sess["role"] = "user"
+    assert client.get("/api/play?title=X&platform=ps2").get_json()["reason"] in ("no_core", "no_romm")
+    assert client.get("/api/play?title=").status_code == 400
+    appmod.save_users({})

@@ -460,6 +460,31 @@ paths:
         schema:
           type: string
         description: Titel
+  /api/play:
+    get:
+      summary: Kann der Titel im Browser gespielt werden (RomM/EmulatorJS)?
+      tags:
+      - Search
+      responses:
+        '403': *id004
+        '200':
+          description: playable + Grund/URL
+        '400':
+          description: kein Titel
+      security: *id002
+      parameters:
+      - name: title
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Titel
+      - name: platform
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Plattform-Slug
   /api/cover:
     get:
       summary: Cover-URL zu einem Titel (lazy, via IGDB)
