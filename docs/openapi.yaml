@@ -749,6 +749,16 @@ paths:
         '200':
           description: OK
       security: *id002
+  /api/settings/connections/reveal:
+    get:
+      summary: Verbindungswerte im Klartext (Admin)
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: key->value
+      security: *id002
   /api/settings/notify-test:
     post:
       summary: Benachrichtigungs-Agenten testen

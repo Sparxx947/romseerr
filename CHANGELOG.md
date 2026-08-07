@@ -7,6 +7,14 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Scraper-Quellen + Klartext-Anzeige in „Verbindungen"** — neue Felder für **SteamGridDB**
+  (Key, als **Cover-Fallback** verdrahtet, wenn IGDB kein Cover hat) und **ScreenScraper**
+  (User/Passwort). Secret-Felder haben jetzt einen **👁-Umschalter**, um den Wert im **Klartext**
+  anzuzeigen (Admin, via `GET /api/settings/connections/reveal`). SteamGridDB erscheint im
+  Dienste-Status/Test. /
+  **Scraper sources + reveal in "Connections"** — SteamGridDB (key, wired as a cover fallback)
+  and ScreenScraper (user/password); secret fields get a 👁 toggle to show the value in clear
+  text (admin, via `/api/settings/connections/reveal`).
 - **Dienst-Verbindungen über die Einstellungsseite** — SABnzbd/Prowlarr/IGDB/RomM/JDownloader
   (URLs, API-Keys, Kategorien, Pfade) sind jetzt im Admin-Bereich unter **„Verbindungen"**
   editierbar, mit **`.env` als Fallback** (leeres Feld = Env-Wert). Secrets werden maskiert und
