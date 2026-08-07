@@ -43,6 +43,16 @@ def test_index_persists_to_db(appmod):
     assert len(appmod.LIB["all"]) >= 1
 
 
+def test_kv_store_roundtrip(appmod):
+    """settings/issues/push liegen im SQLite-kv-Store — Schreiben/Lesen muss round-trippen."""
+    appmod.save_settings({"general": {"app_name": "RTtest"}})
+    assert appmod.load_settings().get("general", {}).get("app_name") == "RTtest"
+    appmod.save_issues([{"id": "x1", "title": "t"}])
+    assert appmod.load_issues()[0]["id"] == "x1"
+    appmod.save_settings({})   # aufräumen / cleanup
+    appmod.save_issues([])
+
+
 def test_blocklist(appmod):
     assert appmod.is_blocked("Pokemon Beta Build", ["beta"]) is True
     assert appmod.is_blocked("Super Mario World", ["beta"]) is False
