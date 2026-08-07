@@ -88,6 +88,11 @@ teilen sich **RomM** (Browser/Player) und **RetroNAS**.
   vor dem Schreiben: getroffen / mehrdeutig / nicht gefunden. Eine **Beispieldatei** im
   erwarteten Format gibt es im Dialog (bzw. unter `/api/wishlist/example.csv`).
 - **Anfrage-Verlauf** je Nutzer mit Zeitstempel (für Admins pro Nutzer filterbar).
+- 📊 **Abdeckung je Plattform**: „412 von 1.180" — und ein Klick öffnet die **fehlenden**
+  Titel (paginiert, filterbar, per Sammelauswahl auf die Wunschliste). Grundlage ist eine
+  Momentaufnahme aus IGDB; **Quelle und Stand stehen an jeder Zahl**, denn Metadatensätze
+  sind sich uneins, was als eigener Titel zählt. Plattformen ohne Momentaufnahme zeigen das
+  an, statt „0 %" zu behaupten.
 - **Export/Import der Konfiguration** (Einstellungen → Logs & Wartung): versioniertes JSON mit
   Einstellungen, Benutzern & Rechten, Anfragen und Wunschlisten. Geheimnisse bleiben ohne
   Passphrase draußen, mit Passphrase liegen sie verschlüsselt bei. Beim Import ist

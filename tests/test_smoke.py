@@ -730,3 +730,81 @@ def test_export_import_admin_only(appmod, client):
     assert client.post("/api/export", json={}).status_code == 403
     assert client.post("/api/import", json={"document": {}, "mode": "merge"}).status_code == 403
     appmod.save_users({})
+
+
+def _seed_catalog(appmod, slug, names):
+    """Katalog-Momentaufnahme direkt setzen — die Tests fassen IGDB nie an."""
+    from contextlib import closing as _closing
+    with appmod.DB_LOCK, _closing(appmod.db_conn()) as c, c:
+        c.execute("DELETE FROM catalog WHERE slug=?", (slug,))
+        c.executemany("INSERT INTO catalog(slug,norm,name) VALUES(?,?,?)",
+                      [(slug, appmod.norm(n), n) for n in names])
+
+
+def test_coverage_counts_and_missing(appmod, client):
+    """Abdeckung = Katalog minus Bibliothek; die fehlenden Titel sind abrufbar. (#78)"""
+    gba = os.path.join(appmod.ROMS, "gba")
+    os.makedirs(gba, exist_ok=True)
+    open(os.path.join(gba, "Metroid Fusion (USA).gba"), "w").close()
+    open(os.path.join(gba, "Golden Sun (Europe).gba"), "w").close()
+    appmod.build_index()
+    _seed_catalog(appmod, "gba", ["Metroid Fusion", "Golden Sun", "Advance Wars", "Mario Kart Super Circuit"])
+    appmod.refresh_coverage_counts()
+
+    cov = {p["slug"]: p for p in appmod.coverage_overview()}
+    assert cov["gba"]["known"] == 4
+    assert cov["gba"]["owned"] == 2
+    assert cov["gba"]["pct"] == 50.0
+    assert cov["gba"]["source"] == appmod.CATALOG_SOURCE
+    assert cov["gba"]["snapshot"]                      # jede Zahl nennt ihren Stand
+
+    d = appmod.missing_titles("gba")
+    assert d["total"] == 2
+    assert sorted(d["titles"]) == ["Advance Wars", "Mario Kart Super Circuit"]
+    # Filter + Pagination
+    assert appmod.missing_titles("gba", q="Advance")["total"] == 1
+    assert len(appmod.missing_titles("gba", offset=1, limit=1)["titles"]) == 1
+
+
+def test_coverage_no_snapshot_is_not_zero_percent(appmod, client):
+    """Ohne Momentaufnahme wird KEINE Prozentzahl behauptet — 0 % wäre die falscheste Zahl. (#78)"""
+    _seed_catalog(appmod, "gba", ["Irgendwas"])
+    appmod.refresh_coverage_counts()
+    rows = {p["slug"]: p for p in appmod.coverage_overview()}
+    assert rows["saturn"]["known"] is None and rows["saturn"]["pct"] is None
+    assert rows["gba"]["known"] == 1
+
+
+def test_coverage_endpoint_and_missing_route(appmod, client):
+    """Die Routen liefern Zahlen samt Quelle/Stand und die paginierte Fehlliste. (#78)"""
+    appmod.save_users({"c": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "c"; sess["role"] = "admin"
+    _seed_catalog(appmod, "nes", ["Zzz Alpha", "Zzz Beta", "Zzz Gamma"])
+    appmod.refresh_coverage_counts()
+    d = client.get("/api/coverage").get_json()
+    assert d["source"] == appmod.CATALOG_SOURCE
+    nes = next(p for p in d["platforms"] if p["slug"] == "nes")
+    assert nes["known"] == 3 and nes["snapshot"]
+    m = client.get("/api/coverage/nes/missing?limit=2").get_json()
+    assert m["total"] == 3 and len(m["titles"]) == 2
+    assert m["source"] == appmod.CATALOG_SOURCE
+    # krumme Parameter dürfen nicht mit 500 enden
+    assert client.get("/api/coverage/nes/missing?offset=abc&limit=xyz").status_code == 200
+    appmod.save_users({})
+
+
+def test_coverage_refresh_needs_permission_and_source(appmod, client):
+    """Katalogabruf nur mit manage_settings und nur mit konfigurierter Quelle. (#78)"""
+    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": ["request"]}})
+    with client.session_transaction() as sess:
+        sess["user"] = "lena"; sess["role"] = "user"
+    assert client.post("/api/coverage/refresh", json={}).status_code == 403
+    appmod.save_users({"c": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "c"; sess["role"] = "admin"
+    # Plattform ohne Katalogquelle -> klare Absage statt stiller Nulllauf
+    assert client.post("/api/coverage/refresh", json={"slug": "gibtsnicht"}).status_code == 400
+    # ohne IGDB-Zugang ebenfalls klare Absage
+    assert client.post("/api/coverage/refresh", json={}).status_code == 400
+    appmod.save_users({})
