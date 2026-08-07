@@ -1269,7 +1269,7 @@ const I18N={de:{
  hint_type:'Tippe einen Titel und drücke Enter.',loading_home:'Lade Startseite …',popular_on:'Beliebt auf',click_search:'klick zum Suchen',
  searching:'Suche läuft …',no_results:'Keine Treffer.',results:'Treffer',in_library:'✓ in Bibliothek',download:'⬇ Download',requested:'✓ angefragt',collection:'Sammlung',
  versions:'Versionen / Quellen',files:'Dateien',no_desc:'Keine Beschreibung verfügbar.',screenshots:'Screenshots',similar:'Ähnliche Spiele',
- no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',retry:'Erneut',reset:'Alle zurücksetzen',
+ no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',retry:'Erneut',reset:'Alle zurücksetzen',req_all:'Alle anfragen',flt_user:'Nutzer',flt_all:'Alle',
  users:'Benutzer',new_user:'Neuen Benutzer anlegen',create:'Anlegen',del:'Löschen',autoapprove:'Auto-Freigabe',role_user:'Nutzer',role_admin:'Admin',username:'Benutzername',password:'Passwort',
  notif_discord:'Benachrichtigungen — Discord',active:'aktiv',test:'Test',save:'Speichern',saved:'gespeichert ✓',test_sent:'Test gesendet ✓',webhook_ph:'Discord Webhook-URL',
  st_pending:'⏳ Wartet auf Freigabe',st_queued:'Angefragt',st_downloading:'Lädt…',st_importing:'Wird verarbeitet',st_done:'✅ Verfügbar',st_error:'Fehler',st_denied:'Abgelehnt',st_exists:'vorhanden',
@@ -1283,7 +1283,7 @@ const I18N={de:{
  hint_type:'Type a title and press Enter.',loading_home:'Loading home …',popular_on:'Popular on',click_search:'click to search',
  searching:'Searching …',no_results:'No results.',results:'results',in_library:'✓ in library',download:'⬇ Download',requested:'✓ requested',collection:'Collection',
  versions:'Versions / sources',files:'Files',no_desc:'No description available.',screenshots:'Screenshots',similar:'Similar games',
- no_requests:'No requests yet.',approve:'Approve',deny:'Deny',retry:'Retry',reset:'Reset all',
+ no_requests:'No requests yet.',approve:'Approve',deny:'Deny',retry:'Retry',reset:'Reset all',req_all:'Request all',flt_user:'User',flt_all:'All',
  users:'Users',new_user:'Create new user',create:'Create',del:'Delete',autoapprove:'Auto-approve',role_user:'User',role_admin:'Admin',username:'Username',password:'Password',
  notif_discord:'Notifications — Discord',active:'enabled',test:'Test',save:'Save',saved:'saved ✓',test_sent:'test sent ✓',webhook_ph:'Discord webhook URL',
  st_pending:'⏳ Awaiting approval',st_queued:'Requested',st_downloading:'Downloading…',st_importing:'Processing',st_done:'✅ Available',st_error:'Error',st_denied:'Denied',st_exists:'in library',
@@ -1297,7 +1297,7 @@ const I18N={de:{
  hint_type:'Saisissez un titre et appuyez sur Entrée.',loading_home:'Chargement …',popular_on:'Populaire sur',click_search:'cliquer pour rechercher',
  searching:'Recherche …',no_results:'Aucun résultat.',results:'résultats',in_library:'✓ dans la bibliothèque',download:'⬇ Télécharger',requested:'✓ demandé',collection:'Collection',
  versions:'Versions / sources',files:'Fichiers',no_desc:'Aucune description disponible.',screenshots:'Captures',similar:'Jeux similaires',
- no_requests:'Aucune demande.',approve:'Approuver',deny:'Refuser',retry:'Réessayer',reset:'Tout réinitialiser',
+ no_requests:'Aucune demande.',approve:'Approuver',deny:'Refuser',retry:'Réessayer',reset:'Tout réinitialiser',req_all:'Tout demander',flt_user:'Utilisateur',flt_all:'Tous',
  users:'Utilisateurs',new_user:'Créer un utilisateur',create:'Créer',del:'Supprimer',autoapprove:'Approbation auto',role_user:'Utilisateur',role_admin:'Admin',username:"Nom d'utilisateur",password:'Mot de passe',
  notif_discord:'Notifications — Discord',active:'activé',test:'Test',save:'Enregistrer',saved:'enregistré ✓',test_sent:'test envoyé ✓',webhook_ph:'URL du webhook Discord',
  st_pending:"⏳ En attente d'approbation",st_queued:'Demandé',st_downloading:'Téléchargement…',st_importing:'Traitement',st_done:'✅ Disponible',st_error:'Erreur',st_denied:'Refusé',st_exists:'présent',
@@ -1311,7 +1311,7 @@ const I18N={de:{
  hint_type:'Escribe un título y pulsa Intro.',loading_home:'Cargando …',popular_on:'Popular en',click_search:'clic para buscar',
  searching:'Buscando …',no_results:'Sin resultados.',results:'resultados',in_library:'✓ en la biblioteca',download:'⬇ Descargar',requested:'✓ solicitado',collection:'Colección',
  versions:'Versiones / fuentes',files:'Archivos',no_desc:'Sin descripción disponible.',screenshots:'Capturas',similar:'Juegos similares',
- no_requests:'Aún no hay solicitudes.',approve:'Aprobar',deny:'Rechazar',retry:'Reintentar',reset:'Restablecer todo',
+ no_requests:'Aún no hay solicitudes.',approve:'Aprobar',deny:'Rechazar',retry:'Reintentar',reset:'Restablecer todo',req_all:'Solicitar todo',flt_user:'Usuario',flt_all:'Todos',
  users:'Usuarios',new_user:'Crear usuario',create:'Crear',del:'Eliminar',autoapprove:'Auto-aprobación',role_user:'Usuario',role_admin:'Admin',username:'Usuario',password:'Contraseña',
  notif_discord:'Notificaciones — Discord',active:'activo',test:'Prueba',save:'Guardar',saved:'guardado ✓',test_sent:'prueba enviada ✓',webhook_ph:'URL del webhook de Discord',
  st_pending:'⏳ Esperando aprobación',st_queued:'Solicitado',st_downloading:'Descargando…',st_importing:'Procesando',st_done:'✅ Disponible',st_error:'Error',st_denied:'Rechazado',st_exists:'presente',
@@ -1413,8 +1413,18 @@ async function search(){let q=document.getElementById('q').value.trim();if(!q){l
  let r=await fetch('/api/search?q='+encodeURIComponent(q)+'&platforms='+[...SELP].join(','));let d=await r.json();
  window.LASTRES=d;let g=document.getElementById('grid');g.className='';g.innerHTML='';
  if(!d.length){document.getElementById('hint').textContent=t('no_results');return;}
- document.getElementById('hint').textContent=d.length+' '+t('results');
+ let games={};d.forEach(x=>{if(!x.in_library){let k=x.gkey||x.title;if(!games[k])games[k]=1;}});
+ let n=Object.keys(games).length;
+ hint.innerHTML=(d.length+' '+t('results')).replace(/</g,'&lt;');
+ if(n>1&&canDo('request')){let b=document.createElement('button');b.id='bulkbtn';
+  b.style.cssText='margin-left:12px;background:#2a2f37;border:none;color:#e6e8ec;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px';
+  b.textContent='⬇ '+t('req_all')+' ('+n+')';b.onclick=bulkRequest;hint.appendChild(b);}
  d.forEach(it=>g.appendChild(renderCard(it)));}
+async function bulkRequest(){let b=document.getElementById('bulkbtn');if(b)b.disabled=true;
+ let seen={},todo=[];(window.LASTRES||[]).forEach(it=>{if(it.in_library)return;let k=it.gkey||it.title;if(seen[k])return;seen[k]=1;todo.push(it);});
+ let ok=0;for(let it of todo){try{let r=await(await fetch('/api/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({},it,{for_user:window.reqFor||''}))})).json();if(r.ok)ok++;}catch(e){}
+  if(b)b.textContent='⬇ '+ok+'/'+todo.length;}
+ if(b)b.textContent='✓ '+ok+'/'+todo.length;}
 async function dl(btn,it){btn.disabled=true;btn.textContent='…';
  let payload=Object.assign({},it,{for_user:window.reqFor||''});
  let r=await fetch('/api/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -1490,14 +1500,22 @@ function toggleDiscCust(){let e=document.getElementById('disccust');e.style.disp
 const STCLS={downloading:'downloading',importing:'importing',done:'done',error:'error',denied:'error'};
 function stlab(s){return [t('st_'+s)||s, STCLS[s]||''];}
 async function loadJobs(){let r=await fetch('/api/jobs');let d=await r.json();let j=document.getElementById('jobs');
- j.innerHTML=d.length?'':('<div class=hint>'+t('no_requests')+'</div>');
+ j.innerHTML='';
+ if(canDo('manage_requests')){let users=[...new Set(d.map(o=>o.user||'—'))].sort();
+  if(users.length>1){let bar=document.createElement('div');bar.style.cssText='margin:0 0 10px;color:#8b929e;font-size:13px';
+   let opts='<option value="">'+t('flt_all')+'</option>'+users.map(u=>`<option${window.jobFilter===u?' selected':''}>${u.replace(/</g,'&lt;')}</option>`).join('');
+   bar.innerHTML=t('flt_user')+': <select id=jobflt onchange="window.jobFilter=this.value;loadJobs()" style="background:#1a1d23;color:#e6e8ec;border:1px solid #2a2f37;border-radius:6px;padding:4px 8px">'+opts+'</select>';
+   j.appendChild(bar);}}
+ if(window.jobFilter)d=d.filter(o=>(o.user||'—')===window.jobFilter);
+ if(!d.length){let h=document.createElement('div');h.className='hint';h.textContent=t('no_requests');j.appendChild(h);return;}
  d.forEach(o=>{let e=document.createElement('div');e.className='job';let L=stlab(o.state);let right;
   if(o.state=='pending'&&canDo('manage_requests')){
    right=`<button onclick="approveJob('${o.id}')" style="background:#1e5e3a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;margin-right:6px">${t('approve')}</button><button onclick="denyJob('${o.id}')" style="background:#6e2a2a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer">${t('deny')}</button>`;
   }else{right=`<span class="st ${L[1]}">${L[0]}</span>`;
    if((o.state=='error'||o.state=='denied')&&canDo('manage_requests'))
     right+=`<button onclick="retryJob('${o.id}')" style="background:#2a2f37;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;margin-left:8px" title="${t('retry')}">↻ ${t('retry')}</button>`;}
-  e.innerHTML=`<div><div>${o.title.replace(/</g,'&lt;')}</div><div class=meta style="color:#8b929e;font-size:11px">👤 <b style="color:#b9c0cc">${(o.user||'—').replace(/</g,'&lt;')}</b> · ${o.platform} · ${o.source} · ${o.msg||''}</div></div><div>${right}</div>`;
+  let dt=o.created?new Date(o.created*1000).toLocaleString():'';
+  e.innerHTML=`<div><div>${o.title.replace(/</g,'&lt;')}</div><div class=meta style="color:#8b929e;font-size:11px">👤 <b style="color:#b9c0cc">${(o.user||'—').replace(/</g,'&lt;')}</b> · ${o.platform} · ${o.source}${dt?' · '+dt:''} · ${o.msg||''}</div></div><div>${right}</div>`;
   j.appendChild(e);});}
 // --- Plattform-Vorauswahl ---
 let SELP=new Set(JSON.parse(localStorage.getItem('romp')||'[]'));
