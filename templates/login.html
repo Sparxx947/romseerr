@@ -1,0 +1,12 @@
+<!doctype html><html lang=de><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1"><title>Romseerr — Anmelden</title>
+<link rel=stylesheet href="__ASSET:css/login.css__"></head><body>
+<form class=card onsubmit="go(event)">
+<h1>🎮 Romseerr</h1><p class=sub id=sub>Anmelden</p>
+<input id=u placeholder=Benutzername autofocus autocomplete=username>
+<input id=p type=password placeholder=Passwort autocomplete=current-password>
+<button id=btn>Anmelden</button><div class=err id=err></div>
+<div style="text-align:center;margin-top:10px"><a href="#" id=fgt onclick="forgot();return false" style="color:#8b929e;font-size:12px">Passwort vergessen? / Forgot password?</a></div>
+<div style="text-align:center;margin-top:14px;color:#5c6270;font-size:11px" id=ver></div>
+</form>
+<script src="__ASSET:js/login.js__"></script></body></html>

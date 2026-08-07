@@ -110,9 +110,17 @@ Die ROM-Bibliothek selbst liegt unter `ROMS` (Default `/roms/<plattform>/…`).
 
 ## Code-Rundgang / Code tour (`app.py`)
 
-Die App ist **eine Datei ohne Build-Schritt** — Flask-Backend **und** das komplette Frontend
-(HTML/CSS/JS als Python-Strings) stecken in `app.py`. Ganz oben steht ein ausführliches
-Modul-Docstring; die Abschnitte in Lesereihenfolge:
+Die App braucht **keinen Build-Schritt**: `app.py` ist das Flask-Backend, das Frontend liegt
+daneben in `templates/*.html` und `static/{css,js}/` und wird unverändert ausgeliefert. Ganz
+oben in `app.py` steht ein ausführliches Modul-Docstring; die Abschnitte in Lesereihenfolge:
+
+```
+app.py            Backend (Routen, Worker, DB, OpenAPI)
+templates/        index.html · login.html · reset.html · redoc.html
+static/css/       index.css · login.css · reset.css · redoc.css
+static/js/        index.js (die gesamte App-Oberfläche) · login.js · reset.js · sw.js
+static/icon.svg   App-Icon (PWA)
+```
 
 | Abschnitt | Inhalt |
 |---|---|
@@ -126,7 +134,7 @@ Modul-Docstring; die Abschnitte in Lesereihenfolge:
 | Download/Import/Worker | `worker_download` (Queue) · `import_folder` (entpacken/dedup/einsortieren) · `worker_collect` (fertige Downloads einsammeln) |
 | Auth | `_guard` (Schleuse), `*_required`-Decorators, `has_perm` (granulare Rechte) |
 | Web-Push | VAPID-Schlüssel, Abos, Versand |
-| Web-UI | `PAGE`/`LOGIN_PAGE`/`RESET_PAGE` — das gesamte Frontend als String (i18n via `I18N`+`t()`) |
+| Web-UI | `load_assets`/`asset_url`/`render_page` — Vorlagen lesen, `__ASSET:…__` durch inhaltsgehashte URLs ersetzen; die Oberfläche selbst liegt in `static/js/index.js` (i18n via `I18N`+`t()`) |
 | Routen | REST-Endpunkte (vollständig dokumentiert unter `/api/docs`) |
 | OpenAPI | `OPENAPI`-Dict → `/api/openapi.json` + `/api/docs` (Redoc) |
 | Start | Index laden, Worker-Threads starten, Flask starten |
@@ -139,6 +147,10 @@ Modul-Docstring; die Abschnitte in Lesereihenfolge:
 4. `worker_collect` erkennt den fertigen Ordner → `import_folder` entpackt, dedupliziert und
    sortiert nach `ROMS/<slug>/` ein, baut den Index neu und **benachrichtigt** (Job → `done`).
 
+### Etwas an der Oberfläche ändern
+Datei unter `static/` oder `templates/` bearbeiten, App neu starten (der Hash und damit die
+URL ändern sich automatisch). Kein Build, kein Bündler.
+
 ### Eine neue Route hinzufügen
 1. Funktion mit `@app.route(...)` + passendem `*_required`-Decorator schreiben.
 2. Falls öffentlich: Pfad in die `PUBLIC`-Menge aufnehmen.
@@ -147,8 +159,14 @@ Modul-Docstring; die Abschnitte in Lesereihenfolge:
 5. Wenn möglich einen Smoke-Test in `tests/` ergänzen.
 
 ### Fallstricke / gotchas
-- **JS-Escapes im `PAGE`-String verdoppeln** (`\\n`) — sonst zerbricht das ganze Inline-Skript.
-  Der Test `test_inline_js_parses` wacht darüber.
+- **Frontend gehört NICHT in `app.py`.** Der Test `test_no_frontend_left_in_python` schlägt an,
+  sobald wieder HTML/CSS/JS in einem Python-String landet. (Die frühere Falle — Python
+  interpretierte die Backslash-Escapes des eingebetteten JS, `join('\\n')` wurde zum echten
+  Umbruch und legte das ganze Skript lahm — kann in echten `.js`-Dateien nicht mehr auftreten.)
+- **Statische Dateien** werden unter `/assets/<inhaltshash>/<pfad>` mit
+  `Cache-Control: immutable` ausgeliefert. In der Vorlage steht `__ASSET:js/index.js__`; die
+  URL entsteht beim Rendern. Neue Dateien einfach unter `static/` ablegen — `load_assets()`
+  liest beim Start alles ein. **Beide Verzeichnisse müssen ins Image** (`Dockerfile`).
 - **SQLite-Verbindungen** immer via `contextlib.closing` schließen (sonst FD-Leck pro Request).
 - **Deployment:** ein neues Image erfordert `docker rm`+`run` — `docker restart` lädt kein neues Image.
 - **Web-Push** funktioniert im Browser nur über **HTTPS** (oder localhost).

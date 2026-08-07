@@ -235,38 +235,74 @@ def test_openapi_served(client):
 
 
 def test_inline_js_parses():
-    """Der interpretierte PAGE/LOGIN/RESET-JS-Block muss gültiges JavaScript sein.
+    """Jede ausgelieferte .js-Datei muss gültiges JavaScript sein.
 
-    Guard gegen die Klasse Fehler, bei der ein Backslash-Escape im nicht-rohen
-    Python-String (z. B. join('\\n')) zu echtem Zeilenumbruch wird und das gesamte
-    Inline-Skript zerbricht. `python -m py_compile` fängt das NICHT.
+    Früher lag das Skript in einem NICHT-rohen Python-String (PAGE); dort wurde jeder
+    Backslash-Escape von Python interpretiert — aus join('\\n') wurde ein echter Umbruch
+    und damit ein unterminiertes Literal, das das ganze Skript lahmlegte. Seit #73 sind
+    es echte Dateien, in denen das nicht mehr passieren kann; geprüft wird trotzdem,
+    weil ein Syntaxfehler im 120-kB-Frontend sonst erst im Browser auffällt.
     """
     node = shutil.which("node")
     if not node:
         pytest.skip("node nicht verfügbar")
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    tree = ast.parse(open(os.path.join(root, "app.py")).read())
-    checked = 0
+    jsdir = os.path.join(root, "static", "js")
+    files = sorted(f for f in os.listdir(jsdir) if f.endswith(".js"))
+    assert files, "keine JS-Dateien unter static/js"
+    for fn in files:
+        r = subprocess.run([node, "--check", os.path.join(jsdir, fn)],
+                           capture_output=True, text=True)
+        assert r.returncode == 0, f"{fn}: {r.stderr.strip()}"
+
+
+def test_no_frontend_left_in_python():
+    """Kein HTML/CSS/JS mehr in app.py — das ist die eigentliche Zusage von #73. (#73)"""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src = open(os.path.join(root, "app.py"), encoding="utf-8").read()
+    tree = ast.parse(src)
+    offenders = []
     for n in ast.walk(tree):
-        if not (isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant)
-                and isinstance(n.value.value, str) and n.targets
-                and isinstance(n.targets[0], ast.Name)):
-            continue
-        if n.targets[0].id not in ("PAGE", "LOGIN_PAGE", "RESET_PAGE"):
-            continue
-        m = re.search(r"<script>([\s\S]*?)</script>", n.value.value, re.I)
-        if not m:
-            continue
-        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
-            f.write(m.group(1))
-            path = f.name
-        try:
-            r = subprocess.run([node, "--check", path], capture_output=True, text=True)
-            assert r.returncode == 0, f"{n.targets[0].id}: {r.stderr.strip()}"
-        finally:
-            os.unlink(path)
-        checked += 1
-    assert checked >= 1, "kein <script>-Block gefunden"
+        if isinstance(n, ast.Constant) and isinstance(n.value, str):
+            v = n.value
+            if re.search(r"<(script|style)\b", v, re.I) or "<!doctype html" in v.lower():
+                offenders.append(v[:60])
+    assert not offenders, f"Frontend-Bruchstücke in app.py: {offenders}"
+
+
+def test_assets_are_content_hashed_and_cacheable(appmod, client):
+    """Gehashte URL + `immutable`; ein falscher Hash liefert NICHT dieselbe Datei. (#73)"""
+    url = appmod.asset_url("js/index.js")
+    assert url.startswith("/assets/") and url.endswith("/js/index.js")
+    r = client.get(url)
+    assert r.status_code == 200
+    assert r.mimetype == "application/javascript"
+    assert "immutable" in r.headers.get("Cache-Control", "")
+    assert "max-age=31536000" in r.headers.get("Cache-Control", "")
+    # Hash haengt am Inhalt
+    assert appmod.asset_url("js/index.js") != appmod.asset_url("js/login.js")
+    # falscher Hash -> 404, sonst waere `immutable` gelogen
+    assert client.get("/assets/deadbeefcafe/js/index.js").status_code == 404
+    assert client.get("/assets/%s/gibts/nicht.js" % url.split("/")[2]).status_code == 404
+
+
+def test_pages_reference_external_assets_only(client):
+    """Die ausgelieferten Seiten enthalten keine Inline-Blöcke mehr — damit wird eine CSP
+    ohne `unsafe-inline` überhaupt erst möglich. (#73)"""
+    for path in ("/login", "/reset"):
+        html = client.get(path).get_data(as_text=True)
+        assert "<style>" not in html and "__ASSET:" not in html
+        assert re.search(r"<script(?![^>]*\bsrc=)", html) is None, f"Inline-Script in {path}"
+        assert "/assets/" in html
+
+
+def test_service_worker_served_at_root_without_long_cache(client):
+    """Der Service-Worker muss unter / liegen (Geltungsbereich) und darf nicht
+    festgenagelt werden. (#73)"""
+    r = client.get("/sw.js")
+    assert r.status_code == 200
+    assert b"addEventListener" in r.data
+    assert "immutable" not in r.headers.get("Cache-Control", "")
 
 
 def test_wishlist_roundtrip(appmod):

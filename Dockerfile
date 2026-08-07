@@ -7,6 +7,9 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY app.py /app/app.py
 # version.txt wird von release-please gepflegt und zur Laufzeit gelesen (/api/version).
 COPY version.txt /app/version.txt
+# Frontend: Vorlagen + statische Dateien (seit #73 nicht mehr in app.py eingebettet).
+COPY templates/ /app/templates/
+COPY static/ /app/static/
 WORKDIR /app
 
 # Build-Herkunft: vom CI per --build-arg gesetzt, im Quell-Checkout leer (dann meldet

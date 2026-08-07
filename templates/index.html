@@ -1,0 +1,34 @@
+<!doctype html><html lang=de><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1"><title>Romseerr</title>
+<link rel=manifest href="/manifest.webmanifest"><meta name=theme-color content="#0b0d10"><link rel=icon href="/icon.svg">
+<link rel=stylesheet href="__ASSET:css/index.css__"></head><body>
+<div id=side>
+ <div class=logo>🎮 Romseerr</div>
+ <a class="nav on" id=nS data-i18n=nav_discover onclick="show('s')">🔍 Entdecken</a>
+ <a class=nav id=nJ data-i18n=nav_requests onclick="show('j')">📥 Anfragen</a>
+ <a class=nav id=nI data-i18n=nav_issues onclick="show('issues')">🐞 Probleme</a>
+ <a class=nav id=nC data-i18n=nav_coverage onclick="show('cov')">📊 Abdeckung</a>
+ <a class=nav id=nM onclick="show('msg')">✉ <span data-i18n=nav_messages>Nachrichten</span><span id=msgbadge></span></a>
+ <a class=nav id=nSet data-i18n=nav_settings onclick="show('set')" style="display:none">⚙️ Einstellungen</a>
+ <div class=grow></div>
+ <div id=langsw><b data-l=de class=on onclick="setLang('de')">DE</b><b data-l=en onclick="setLang('en')">EN</b><b data-l=fr onclick="setLang('fr')">FR</b><b data-l=es onclick="setLang('es')">ES</b><b data-l=it onclick="setLang('it')">IT</b></div>
+ <div class=ubox><div id=who onclick="openProfile()" style="cursor:pointer"></div>
+  <a class=nav data-i18n=profile onclick="openProfile()">👤 Profil</a>
+  <a class=nav data-i18n=logout onclick="logout()">🚪 Abmelden</a></div>
+</div>
+<main>
+ <div id=topbar>
+  <input id=q data-i18n-ph=search_ph placeholder="Spiel suchen … (Enter)" autofocus>
+  <button class=fbtn id=tF onclick="toggleFilter()">🎛 Plattformen: Alle</button>
+  <button class=fbtn id=tRA onclick="toggleRA()" title="RetroAchievements">🏆</button>
+ </div>
+ <div id=filter></div>
+ <div id=discview><div id=grid></div><div class=hint id=hint data-i18n=hint_type>Tippe einen Titel und drücke Enter.</div></div>
+ <div id=jobs></div>
+ <div id=settings></div>
+ <div id=issues></div>
+ <div id=messages></div>
+ <div id=coverage></div>
+</main>
+<div id=modal></div>
+<script src="__ASSET:js/index.js__"></script></body></html>
