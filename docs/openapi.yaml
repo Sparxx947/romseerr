@@ -396,6 +396,50 @@ paths:
                   type: string
                 platform:
                   type: string
+  /api/wishlist/import:
+    post:
+      summary: Wunschliste aus Liste/Datei einspielen — ohne `confirm` nur Vorschau, mit `confirm` schreiben
+      tags:
+      - Requests
+      responses:
+        '403': &id004
+          description: fehlende Berechtigung / missing permission
+        '200':
+          description: Vorschau bzw. Ergebnis
+        '413':
+          description: Liste zu groß
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  description: Rohtext, ein Titel je Zeile (optional `Titel;Plattform`)
+                confirm:
+                  type: boolean
+                  description: true = die bestätigten `entries` schreiben
+                entries:
+                  type: array
+                  description: 'nur mit confirm: bestätigte Einträge'
+                  items:
+                    type: object
+                    properties:
+                      title:
+                        type: string
+                      platform:
+                        type: string
+  /api/wishlist/example.csv:
+    get:
+      summary: Beispieldatei im erwarteten Importformat
+      tags:
+      - Requests
+      responses:
+        '200':
+          description: OK
+      security: *id002
   /api/wishlist/remove:
     post:
       summary: Titel von der Wunschliste entfernen
@@ -424,8 +468,7 @@ paths:
       tags:
       - Requests
       responses:
-        '403': &id004
-          description: fehlende Berechtigung / missing permission
+        '403': *id004
         '200':
           description: OK
       security: *id002

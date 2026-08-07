@@ -83,7 +83,10 @@ teilen sich **RomM** (Browser/Player) und **RetroNAS**.
 - **Anfrage im Namen eines anderen Nutzers** (für Admins).
 - **Wunschliste**: Titel vormerken, auch wenn es noch keine Quelle gibt — ein Hintergrund-Worker
   sucht periodisch nach und lädt automatisch, sobald etwas Passendes auftaucht (strenger
-  Titel-Abgleich gegen Fehlgriffe).
+  Titel-Abgleich gegen Fehlgriffe). Die Liste lässt sich auch **aus einer Liste oder Datei
+  einspielen** (TXT/CSV, ein Titel je Zeile, optional `Titel;Plattform`) — mit **Vorschau**
+  vor dem Schreiben: getroffen / mehrdeutig / nicht gefunden. Eine **Beispieldatei** im
+  erwarteten Format gibt es im Dialog (bzw. unter `/api/wishlist/example.csv`).
 - **Anfrage-Verlauf** je Nutzer mit Zeitstempel (für Admins pro Nutzer filterbar).
 
 ### Import

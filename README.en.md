@@ -83,7 +83,10 @@ into the library and notifies when they are available. The library is shared by 
 - **Request on behalf of another user** (for admins).
 - **Wishlist**: watch titles even when no source exists yet — a background worker re-searches
   periodically and auto-downloads as soon as a matching source appears (strict title matching to
-  avoid false positives).
+  avoid false positives). The list can also be **imported from a pasted list or a file**
+  (TXT/CSV, one title per line, optionally `title;platform`) with a **preview** before anything
+  is written: matched / ambiguous / not found. An **example file** in the expected format is
+  offered in the dialog (also at `/api/wishlist/example.csv`).
 - **Per-user request history** with timestamps (admins can filter by user).
 
 ### Import
