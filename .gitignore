@@ -6,3 +6,8 @@ data/
 staging/
 __pycache__/
 *.pyc
+
+# SQLite (Laufzeitdaten) / runtime data
+*.db
+*.db-wal
+*.db-shm
