@@ -72,7 +72,7 @@ die URLs auf die Dienstnamen, **standalone** auf deine Hosts:
 | `SAB_URL` | `http://sabnzbd:8080` | `http://192.168.1.10:8081` |
 | `PROWLARR_URL` | `http://prowlarr:9696` | `http://192.168.1.10:9696` |
 | `ROMM_URL` | `http://romm:8080` | `http://192.168.1.10:8998` |
-| `JD_DL_BASE` | `/output/rom-suche` (Sicht des JD-Containers) | dito |
+| `JD_DL_BASE` | `/output/romseerr` (Sicht des JD-Containers) | dito |
 
 **Erststart-Reihenfolge** (Full-Stack): Stack hochfahren → in SABnzbd & Prowlarr
 je einen API-Key erzeugen und Indexer/Server einrichten → Keys in `.env` →
