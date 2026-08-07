@@ -24,6 +24,15 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
   JavaScript had an **unterminated string literal** and the whole script failed. Fixed to `join('\\n')`.
 
 ### Hinzugefügt / Added
+- **Beitragenden-Infrastruktur** — `CONTRIBUTING.md` (zweisprachig), `SECURITY.md`
+  (private Sicherheitsmeldung aktiviert), `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1),
+  Issue-Formulare (Bug/Feature) + PR-Vorlage, sowie **Dependency-Review** auf PRs
+  (blockiert neue Abhängigkeiten mit HIGH-Schwachstellen). /
+  **Contributor infrastructure** — bilingual `CONTRIBUTING.md`, `SECURITY.md` (private
+  vulnerability reporting enabled), `CODE_OF_CONDUCT.md`, issue forms + PR template, and
+  **dependency review** on PRs.
+
+### Hinzugefügt / Added
 - **Versioniertes Image nach GHCR** — bei jedem veröffentlichten Release baut ein Workflow
   das Docker-Image und pusht es nach `ghcr.io/sparxx947/romseerr` (Tags `X.Y.Z`, `X.Y`,
   `latest`); so lässt sich ein fertiges Image ziehen statt lokal zu bauen. /

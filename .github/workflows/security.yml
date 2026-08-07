@@ -61,3 +61,15 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependency-review:
+    # Blockiert PRs, die Abhängigkeiten mit bekannten Schwachstellen einführen.
+    # Nur auf PRs (vergleicht Base vs. Head). / Only on PRs.
+    name: Dependency review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high

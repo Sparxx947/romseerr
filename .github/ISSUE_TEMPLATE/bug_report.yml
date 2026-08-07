@@ -1,0 +1,41 @@
+name: Bug report / Fehler
+description: Report a reproducible problem / Ein reproduzierbares Problem melden
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke für den Bericht! Bitte **keine Geheimnisse** (Keys, Tokens, `.env`) einfügen.
+        Thanks! Please do **not** include secrets (keys, tokens, `.env`).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened? / Was ist passiert?
+      description: Beschreibe das Problem und was du stattdessen erwartet hast. / Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / Schritte zum Reproduzieren
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / Deployment
+      description: Version (siehe „Über"/About) und wie betrieben (docker-compose, Unraid, …).
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / Relevante Logs
+      description: Aus dem Admin-Bereich „Logs & Wartung" oder der Container-Ausgabe. Secrets vorher entfernen!
+      render: shell
+    validations:
+      required: false
