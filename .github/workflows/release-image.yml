@@ -40,7 +40,9 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            # `latest` nur für stabile Releases setzen — ein Pre-Release (Beta) darf
+            # es nicht verschieben. (metadata-action überspringt major.minor bei Pre-Releases automatisch.)
+            type=raw,value=latest,enable=${{ github.event_name != 'release' || !github.event.release.prerelease }}
 
       - name: Build and push (amd64 + arm64)
         uses: docker/build-push-action@v6
