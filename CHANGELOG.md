@@ -23,6 +23,15 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
   non-raw Python `PAGE` string; Python turned `\n` into a real newline, so the served inline
   JavaScript had an **unterminated string literal** and the whole script failed. Fixed to `join('\\n')`.
 
+### Geändert / Changed
+- **users + jobs in SQLite** — Benutzer und Anfragen liegen jetzt in `/config/romseerr.db`
+  (Tabellen `users`, `jobs`) statt in JSON-Dateien; bestehende `users.json`/`jobs.json` werden
+  beim ersten Start **automatisch übernommen** und als `.migrated` gesichert (verlustfrei, erst
+  nach erfolgreichem Commit umbenannt). Funktionssignaturen unverändert. /
+  **users + jobs in SQLite** — users and requests now live in `/config/romseerr.db`
+  (tables `users`, `jobs`) instead of JSON files; existing `users.json`/`jobs.json` are
+  auto-migrated on first start and kept as `.migrated` (lossless, renamed only after commit).
+
 ### Hinzugefügt / Added
 - **Persistenter Bibliotheks-Index (SQLite)** — der Dedup-Index (~96.000 Titel) wird jetzt in
   `/config/romseerr.db` gespeichert und beim Start **aus der DB geladen** statt jedes Mal aus dem
