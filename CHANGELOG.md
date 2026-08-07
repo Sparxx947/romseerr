@@ -7,6 +7,9 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Anfrage im Namen eines anderen Nutzers** — Admins (Recht `manage_requests`) können in der
+  Detailansicht einen Empfänger wählen; die Anfrage läuft dann auf dessen Konto (auto-freigegeben,
+  Push an den Empfänger). / **Request on behalf of another user** — admins can pick a recipient in the detail view.
 - **Weitere Melde-Agenten** — **Gotify**, **ntfy** und **Pushover** nativ in den Benachrichtigungen
   (zusätzlich zu Discord/Telegram/Webhook/E-Mail/Push). / **More notification agents** — native Gotify, ntfy and Pushover.
 - **Download-Fortschritt** — laufende Usenet-Downloads zeigen jetzt den Prozentsatz aus der
