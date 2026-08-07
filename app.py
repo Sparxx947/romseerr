@@ -2856,11 +2856,14 @@ def api_profile_pw():
 def api_profile_notify_test():
     wh = ((request.get_json(silent=True) or {}).get("url") or "").strip()
     if not wh: return jsonify({"ok":False,"msg":"keine URL"}), 400
+    # Zuerst FRAGEN, dann senden: die Begruendung kommt aus der festen Tabelle URL_REFUSED
+    # und nicht aus einem Ausnahmetext — der duerfte so oder so nicht nach aussen. (#89)
+    ok, why = url_allowed(wh)
+    if not ok:
+        return jsonify({"ok":False,"msg":URL_REFUSED.get(why, "abgelehnt / refused")}), 400
     try:
         safe_post(wh, json={"content":"✅ Romseerr — persönlicher Test / personal test"})
         return jsonify({"ok":True})
-    except PermissionError as e:
-        return jsonify({"ok":False,"msg":str(e)}), 400
     except Exception as e:
         log(f"Persoenlicher Webhook-Test: {e}")
         return jsonify({"ok":False,"msg":err_kind(e)}), 400
@@ -3631,11 +3634,12 @@ def api_services_status():
 def api_settings_test():
     d = request.get_json(silent=True) or {}; dc = d.get("discord") or {}
     if dc.get("url"):
+        ok_url, why = url_allowed(dc["url"])
+        if not ok_url:
+            return jsonify({"ok": False, "msg": URL_REFUSED.get(why, "abgelehnt / refused")}), 400
         try:
             safe_post(dc["url"], json={"content":"✅ Romseerr — Testbenachrichtigung / test notification"})
             return jsonify({"ok": True})
-        except PermissionError as e:
-            return jsonify({"ok": False, "msg": str(e)}), 400
         except Exception as e:
             log(f"Discord-Test: {e}")
             return jsonify({"ok": False, "msg": err_kind(e)}), 400
