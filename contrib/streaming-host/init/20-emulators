@@ -1,0 +1,96 @@
+#!/bin/bash
+# Emulatoren bereitstellen. / Provide the emulators.
+#
+# Es wird NICHTS mitgeliefert. Dieses Skript lädt auf Wunsch von den offiziellen
+# Projektquellen — welche Emulatoren zulässig sind und welche BIOS-/Firmware-Dateien
+# du besitzt, entscheidest du. Alles ist über .env abschaltbar.
+#
+# Nothing is bundled. This fetches from official project sources if you ask it to.
+# Which emulators are lawful for you, and which BIOS/firmware you own, is your call.
+#
+# FALLE: AppImages brauchen FUSE, das ein Container nicht hat. Der naheliegende
+# "Fix" wäre `--cap-add SYS_ADMIN` + /dev/fuse — dafür ist ein Spielestarter aber
+# kein ausreichender Grund. Deshalb werden AppImages ENTPACKT (--appimage-extract)
+# und daraus AppRun gestartet. Läuft ohne jedes Zusatzrecht.
+#
+# PITFALL: AppImages need FUSE, containers have none. The obvious fix is
+# `--cap-add SYS_ADMIN`, which is far too much for a game launcher. We extract the
+# AppImage instead and run its AppRun. No extra privileges at all.
+set -u
+EMU=/config/emulators
+mkdir -p "$EMU"
+
+fetch() {  # fetch <ziel> <url>
+  [ -s "$1" ] && return 0
+  [ -z "${2:-}" ] && return 1
+  echo "[emulators] hole $(basename "$1") / fetching"
+  curl -fsSL --max-time 900 -o "$1.part" "$2" && mv "$1.part" "$1" && chmod +x "$1"
+}
+
+unpack() {  # unpack <appimage> <zielordner>
+  [ -x "$EMU/$2/AppRun" ] && return 0
+  [ -s "$1" ] || return 1
+  echo "[emulators] entpacke $(basename "$1") / extracting"
+  ( cd "$EMU" && rm -rf squashfs-root "$2" \
+      && "./$(basename "$1")" --appimage-extract >/dev/null 2>&1 \
+      && mv squashfs-root "$2" )
+}
+
+desktop() {  # desktop <name> <system> <befehl>
+  mkdir -p /config/.local/share/applications
+  cat > "/config/.local/share/applications/$1.desktop" <<DESK
+[Desktop Entry]
+Type=Application
+Name=$1 ($2)
+Exec=$3
+Icon=applications-games
+Categories=Game;
+Terminal=false
+DESK
+}
+
+# ---------------------------------------------------------------- PlayStation 2
+if [ "${INSTALL_PCSX2:-false}" = "true" ]; then
+  URL=$(curl -fsSL https://api.github.com/repos/PCSX2/pcsx2/releases 2>/dev/null \
+        | grep -o 'https://[^"]*linux-appimage-x64-Qt.AppImage' | head -1)
+  fetch "$EMU/PCSX2.AppImage" "$URL" && unpack "$EMU/PCSX2.AppImage" pcsx2
+  [ -x "$EMU/pcsx2/AppRun" ] && desktop PCSX2 PS2 "$EMU/pcsx2/AppRun"
+fi
+
+# ---------------------------------------------------------------- GameCube / Wii
+# Dolphin liefert für Linux nur Flatpak; Flatpak im Container ist umständlich.
+# Das Distributionspaket ist älter, aber funktioniert und braucht nichts weiter.
+# Dolphin ships Flatpak only for Linux; the distro package is older but works.
+if [ "${INSTALL_DOLPHIN:-false}" = "true" ]; then
+  if ! command -v /usr/games/dolphin-emu >/dev/null 2>&1; then
+    echo "[emulators] installiere dolphin-emu / installing"
+    apt-get update -qq >/dev/null 2>&1
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq dolphin-emu >/dev/null 2>&1 || true
+  fi
+  command -v /usr/games/dolphin-emu >/dev/null 2>&1 \
+    && desktop Dolphin "GameCube/Wii" /usr/games/dolphin-emu
+fi
+
+# ---------------------------------------------------------------- Switch
+# Standardmässig AUS. Die grossen Switch-Emulatoren wurden nach Rechtsstreit
+# eingestellt; die verbliebenen Forks haben eine ungeklärte Rechtslage und wechseln
+# ihre Bezugsquelle. Deshalb keine eingebaute URL — wer das will, trägt sie selbst
+# ein und weiss, was er tut.
+#
+# Off by default. The major Switch emulators were discontinued after litigation and
+# the surviving forks are legally unsettled and move hosting. No URL is baked in.
+if [ "${INSTALL_SWITCH_EMU:-false}" = "true" ] && [ -n "${SWITCH_EMU_URL:-}" ]; then
+  fetch "$EMU/SwitchEmu.AppImage" "${SWITCH_EMU_URL}" \
+    && unpack "$EMU/SwitchEmu.AppImage" switchemu
+  [ -x "$EMU/switchemu/AppRun" ] && desktop SwitchEmu Switch "$EMU/switchemu/AppRun"
+fi
+
+# ---------------------------------------------------------------- BIOS
+# Manche Kerne starten ohne BIOS und scheitern dann still. Wir liefern keins.
+# Lege eigene Abbilder (aus deiner eigenen Konsole) in den Ordner des jeweiligen
+# Emulators unter /config — z. B. PCSX2: /config/.config/PCSX2/bios/
+# Some cores start without BIOS and then fail quietly. We ship none; place your own.
+mkdir -p /config/.config/PCSX2/bios 2>/dev/null || true
+
+chown -R "${PUID:-1000}:${PGID:-1000}" /config/emulators /config/.local 2>/dev/null || true
+echo "[emulators] bereit / ready: $(ls -d "$EMU"/*/ 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')"

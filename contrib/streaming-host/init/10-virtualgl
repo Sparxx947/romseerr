@@ -1,0 +1,67 @@
+#!/bin/bash
+# VirtualGL — der Weg zu echter GPU-Beschleunigung in diesem Container.
+# VirtualGL — how the GPU actually gets used in here.
+#
+# WARUM ÜBERHAUPT:
+# Der X-Server im Container ist ein Xvfb ohne DRI3. Ohne DRI3 fällt Mesa auf
+# `llvmpipe` zurück — reine Software-Rasterisierung auf der CPU. Das fällt nicht
+# auf, weil alles trotzdem läuft; nur eben zehnmal langsamer. Prüfen lässt es sich
+# mit `glxinfo -B | grep "OpenGL renderer"`: steht dort llvmpipe, arbeitet die CPU.
+# Vulkan verweigert in dem Fall ganz ("No DRI3 support detected - required for
+# presentation").
+#
+# VirtualGL umgeht das: es rendert per EGL direkt auf der Karte und schiebt die
+# fertigen Bilder in den X-Server. Kein DRI3 nötig, keine zusätzlichen Rechte.
+#
+# WHY: the container's Xvfb has no DRI3, so Mesa silently falls back to llvmpipe
+# (CPU). Everything still "works" — just far slower. VirtualGL renders via EGL on
+# the card and blits the result into X. No DRI3, no extra privileges.
+#
+# FALLE: VirtualGL will den CARD-Knoten, NICHT den Render-Knoten.
+#   vglrun -d /dev/dri/renderD128  ->  "[VGL] ERROR: 245: Invalid EGL device"
+#   vglrun -d /dev/dri/card0       ->  funktioniert
+# Welcher Knoten es ist, verrät `/opt/VirtualGL/bin/eglinfo -e`:
+#   "EGL device ID: egl0 ..., DRI device path: /dev/dri/cardN"
+#
+# PITFALL: VirtualGL wants the CARD node, not the render node. Check with
+# `eglinfo -e`, which prints the DRI device path it expects.
+set -u
+
+VGL_VERSION="${VGL_VERSION:-3.1.4}"
+VGL_DEB="virtualgl_${VGL_VERSION}_amd64.deb"
+
+if [ ! -x /opt/VirtualGL/bin/vglrun ]; then
+  echo "[virtualgl] installiere VirtualGL ${VGL_VERSION} / installing"
+  if curl -fsSL --max-time 300 -o /tmp/vgl.deb \
+      "https://github.com/VirtualGL/virtualgl/releases/download/${VGL_VERSION}/${VGL_DEB}"; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /tmp/vgl.deb >/dev/null 2>&1 \
+      || dpkg -i /tmp/vgl.deb >/dev/null 2>&1
+  else
+    echo "[virtualgl] FEHLER: Download fehlgeschlagen / download failed"
+  fi
+  rm -f /tmp/vgl.deb
+fi
+
+# glxinfo/eglinfo mitinstallieren — ohne sie lässt sich später nicht nachsehen,
+# ob die GPU wirklich benutzt wird. Genau diese Frage stellt sich immer wieder.
+# Keep the diagnostic tools; "is the GPU actually used" is the recurring question.
+dpkg -s mesa-utils >/dev/null 2>&1 || \
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mesa-utils >/dev/null 2>&1
+
+if [ -x /opt/VirtualGL/bin/vglrun ]; then
+  echo "[virtualgl] bereit / ready"
+  # Den passenden Card-Knoten ermitteln und für die anderen Skripte hinterlegen,
+  # damit niemand raten muss.
+  NODE=$(/opt/VirtualGL/bin/eglinfo -e 2>/dev/null \
+          | sed -n 's/.*DRI device path: \(\/dev\/dri\/[a-z0-9]*\).*/\1/p' | head -1)
+  if [ -n "${NODE}" ]; then
+    echo "${NODE}" > /config/.vgl-device
+    echo "[virtualgl] EGL-Gerät / EGL device: ${NODE}"
+  else
+    echo "[virtualgl] WARNUNG: kein EGL-Gerät gefunden — läuft die GPU-Durchreichung?"
+    echo "[virtualgl] WARNING: no EGL device found — is the GPU passed through?"
+  fi
+else
+  echo "[virtualgl] NICHT installiert — es wird auf der CPU gerendert werden"
+  echo "[virtualgl] NOT installed — rendering will happen on the CPU"
+fi
