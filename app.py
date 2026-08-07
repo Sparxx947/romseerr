@@ -1207,6 +1207,9 @@ def get_apikey():
 # und über has_perm()/den perm_required-Decorator geprüft.
 PERMS = ["request", "autoapprove", "manage_requests", "manage_users", "manage_issues",
          "manage_settings", "quota_exempt"]
+# Gültige Oberflächensprachen und -Designs (Design = Look, per Nutzer/global wählbar).
+LANGS = ("de", "en", "fr", "es", "it")
+DESIGNS = ("seerr", "glass", "clean")
 def has_perm(perm, user=None):
     """Hat der Nutzer (Default: der aktuelle) das Recht? API-Key und Admin -> immer True."""
     if g.get("api_auth"): return True
@@ -1242,28 +1245,52 @@ PAGE = """<!doctype html><html lang=de><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1"><title>Romseerr</title>
 <link rel=manifest href="/manifest.webmanifest"><meta name=theme-color content="#0b0d10"><link rel=icon href="/icon.svg">
 <style>
-:root{--bg:#14161a;--card:#1e2229;--acc:#7c5cff;--ok:#2ecc71;--txt:#e6e8ec;--mut:#8b929e}
-*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--txt)}
-#side{position:fixed;top:0;left:0;bottom:0;width:210px;background:#0f1114;border-right:1px solid #262b33;display:flex;flex-direction:column;padding:16px 12px;z-index:6}
+:root{--bg:#14161a;--card:#1e2229;--acc:#7c5cff;--acc2:#6c5ce7;--ok:#2ecc71;--txt:#e6e8ec;--mut:#8b929e;
+ --side:#0f1114;--topbar:#0f1114;--border:#262b33;--hover:#1a1e25;--input:#0b0d10;
+ --radius:12px;--shadow:0 1px 2px rgba(0,0,0,.25);--blur:0px;--navon:var(--acc);--navtxt:#fff}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--txt);transition:background .25s}
+/* ---- Designs (per Nutzer/global wählbar über <html data-design=…>) ---- */
+/* seerr = Standard (die :root-Werte oben, dunkel & poliert). glass & clean unten. */
+[data-design=glass]{--bg:#0b0e1a;--card:rgba(32,37,58,.55);--acc:#22d3ee;--acc2:#6366f1;--txt:#eaf2ff;--mut:#93a0c0;
+ --side:rgba(18,22,38,.55);--topbar:rgba(18,22,38,.45);--border:rgba(255,255,255,.10);--hover:rgba(255,255,255,.07);--input:rgba(10,13,24,.5);
+ --radius:16px;--shadow:0 10px 34px rgba(0,0,0,.40);--blur:16px;--navon:linear-gradient(90deg,#22d3ee,#6366f1);--navtxt:#04121a}
+[data-design=glass] body{background:
+  radial-gradient(1100px 560px at 12% -12%,rgba(99,102,241,.34),transparent 60%),
+  radial-gradient(1000px 520px at 108% -4%,rgba(14,165,183,.30),transparent 60%),
+  radial-gradient(900px 700px at 50% 120%,rgba(124,92,255,.18),transparent 60%),#0b0e1a;background-attachment:fixed}
+[data-design=glass] #side,[data-design=glass] #topbar,[data-design=glass] .card,[data-design=glass] #modal .box,
+[data-design=glass] .pcover,[data-design=glass] .job,[data-design=glass] .fbtn,[data-design=glass] input,
+[data-design=glass] #setcontent .frow input,[data-design=glass] .badge{backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur))}
+[data-design=glass] #side .logo{background:linear-gradient(90deg,#22d3ee,#818cf8);-webkit-background-clip:text;background-clip:text}
+[data-design=clean]{--bg:#0c0e11;--card:#14171b;--acc:#5b8cff;--acc2:#5b8cff;--txt:#e7eaef;--mut:#7d8695;
+ --side:#0c0e11;--topbar:#0c0e11;--border:#1c2026;--hover:#161a1f;--input:#0c0e11;
+ --radius:8px;--shadow:none;--blur:0px;--navon:transparent;--navtxt:var(--acc)}
+[data-design=clean] #side .logo{background:none;-webkit-text-fill-color:var(--txt);color:var(--txt)}
+[data-design=clean] .nav.on{box-shadow:inset 3px 0 0 var(--acc);border-radius:0 8px 8px 0}
+[data-design=clean] .card,[data-design=clean] .pcover{box-shadow:none}
+[data-design=clean] .pcard:hover .pcover{transform:none;border-color:var(--acc)}
+#side{position:fixed;top:0;left:0;bottom:0;width:210px;background:var(--side);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:16px 12px;z-index:6}
 #side .logo{font-size:20px;font-weight:700;margin:4px 8px 18px;background:linear-gradient(90deg,#8a7bff,#6c5ce7);-webkit-background-clip:text;background-clip:text;color:transparent}
 .nav{display:block;padding:10px 12px;border-radius:10px;color:var(--mut);font-size:14px;cursor:pointer;text-decoration:none;margin-bottom:4px}
-.nav:hover{background:#1a1e25;color:var(--txt)}
-.nav.on{background:var(--acc);color:#fff}
+.nav:hover{background:var(--hover);color:var(--txt)}
+.nav.on{background:var(--navon);color:var(--navtxt)}
 #side .grow{flex:1}
-#side .ubox{border-top:1px solid #262b33;padding-top:10px}
+#side .ubox{border-top:1px solid var(--border);padding-top:10px}
 #side .ubox #who{padding:4px 12px 8px;font-size:12px;color:var(--mut)}
 main{margin-left:210px}
-#topbar{position:sticky;top:0;background:#0f1114;padding:14px 18px;display:flex;gap:12px;align-items:center;border-bottom:1px solid #262b33;z-index:5}
-input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;background:#0b0d10;color:var(--txt);font-size:15px}
-.fbtn{background:#1e2229;border:1px solid #2c323b;color:var(--txt);font-size:13px;cursor:pointer;padding:10px 12px;border-radius:10px;white-space:nowrap}
+#topbar{position:sticky;top:0;background:var(--topbar);padding:14px 18px;display:flex;gap:12px;align-items:center;border-bottom:1px solid var(--border);z-index:5}
+input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid var(--border);background:var(--input);color:var(--txt);font-size:15px}
+.fbtn{background:var(--card);border:1px solid var(--border);color:var(--txt);font-size:13px;cursor:pointer;padding:10px 12px;border-radius:10px;white-space:nowrap}
 #langsw{display:flex;gap:8px;padding:6px 12px}
 #langsw b{cursor:pointer;font-size:12px;color:var(--mut);font-weight:700}
 #langsw b.on{color:var(--acc)}
+.dpick{background:var(--input);border:1px solid var(--border);color:var(--txt);padding:6px 11px;border-radius:8px;cursor:pointer;font-size:12px}
+.dpick.on{border-color:var(--acc);color:var(--acc);font-weight:600}
 #who{font-size:12px;color:var(--mut);display:flex;align-items:center;padding:4px 12px}
 #who img{width:30px;height:30px;border-radius:50%;object-fit:cover;margin-right:7px;border:1px solid #2c323b}
 @media(max-width:680px){#side{position:static;width:auto;flex-direction:row;flex-wrap:wrap;align-items:center;padding:10px}#side .logo{margin:0 12px 0 4px}#side .grow{display:none}#side .ubox{border:none;padding:0}main{margin-left:0}.nav{padding:8px 10px;margin:0}}
 #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;padding:18px}
-.card{background:var(--card);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;border:1px solid #262b33}
+.card{background:var(--card);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;border:1px solid var(--border);box-shadow:var(--shadow)}
 .cover{aspect-ratio:3/4;background:#0b0d10 center/cover no-repeat;position:relative}
 .badge{position:absolute;top:6px;left:6px;background:#000a;padding:2px 7px;border-radius:6px;font-size:11px}
 .src{position:absolute;top:6px;right:6px;background:#000a;padding:2px 7px;border-radius:6px;font-size:11px}
@@ -1287,7 +1314,7 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;backg
 #filter .fbtns{margin-top:8px}
 #filter .fbtns button{background:#2a2f37;border:none;color:var(--txt);padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;margin-right:6px}
 #modal{display:none;position:fixed;inset:0;background:#000b;z-index:20;overflow:auto}
-#modal .box{max-width:760px;margin:24px auto;background:var(--card);border:1px solid #262b33;border-radius:14px;overflow:hidden}
+#modal .box{max-width:760px;margin:24px auto;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
 #modal .x{float:right;background:#2a2f37;border:none;color:#fff;width:32px;height:32px;border-radius:16px;font-size:18px;cursor:pointer;margin:8px}
 #modal .top{display:flex;gap:16px;padding:16px;clear:both}
 #modal .mc{width:150px;flex:0 0 150px;aspect-ratio:3/4;border-radius:8px;background:#0b0d10 center/cover no-repeat}
@@ -1317,7 +1344,7 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;backg
 .rowh span{color:var(--mut);font-weight:400;font-size:12px}
 .strip{display:flex;gap:12px;overflow-x:auto;padding-bottom:8px}
 .pcard{flex:0 0 128px;cursor:pointer}
-.pcover{aspect-ratio:3/4;border-radius:10px;background:#0b0d10 center/cover no-repeat;position:relative;border:1px solid #262b33;transition:border-color .15s,transform .15s}
+.pcover{aspect-ratio:3/4;border-radius:var(--radius);background:#0b0d10 center/cover no-repeat;position:relative;border:1px solid var(--border);box-shadow:var(--shadow);transition:border-color .15s,transform .15s}
 .pcard:hover .pcover{border-color:var(--acc);transform:translateY(-3px)}
 .pcover .have2{position:absolute;top:6px;right:6px;background:#1e5e3a;color:#fff;border-radius:10px;padding:1px 7px;font-size:12px}
 .pt{font-size:12px;margin-top:6px;line-height:1.2;max-height:2.4em;overflow:hidden}
@@ -1373,7 +1400,7 @@ const I18N={de:{
  notif_discord:'Benachrichtigungen — Discord',active:'aktiv',test:'Test',save:'Speichern',saved:'gespeichert ✓',test_sent:'Test gesendet ✓',webhook_ph:'Discord Webhook-URL',
  st_pending:'⏳ Wartet auf Freigabe',st_queued:'Angefragt',st_downloading:'Lädt…',st_importing:'Wird verarbeitet',st_done:'✅ Verfügbar',st_error:'Fehler',st_denied:'Abgelehnt',st_exists:'vorhanden',
  settings:'Einstellungen',sec_general:'Allgemein',sec_notif:'Benachrichtigungen',sec_users:'Benutzer',sec_services:'Dienste',sec_about:'Über',app_name:'App-Name',default_lang:'Standardsprache',refresh:'Aktualisieren',version:'Version',about_txt:'Selbstgebauter Seerr-Klon für ROMs.',wiz_welcome:'Willkommen bei Romseerr',wiz_welcome_txt:'Dieser Assistent verbindet dich Schritt für Schritt mit den Diensten des Stacks (SABnzbd, Prowlarr, IGDB, RomM). Jeden Schritt kannst du testen oder überspringen.',wiz_done:'Fertig!',wiz_done_txt:'Die Grundkonfiguration steht. Alles lässt sich später unter Einstellungen → Verbindungen anpassen.',wiz_next:'Weiter',wiz_back:'Zurück',wiz_skip:'Überspringen',wiz_finish:'Loslegen',wiz_step:'Schritt',wiz_reopen:'Assistent erneut öffnen',about_lib:'Bibliothek',about_titles:'Titel',about_platforms:'Plattformen',about_jobs:'Anfragen',about_active:'aktiv',about_links:'Links',about_feat:'Funktionen',about_feat_txt:'Suche über Archive.org + Usenet, Dedup, Discover, Anfragen mit Freigabe, Benutzer & Rechte, Kontingente, Benachrichtigungen (Discord/Telegram/E-Mail/Web-Push), Probleme, PWA, API.',about_stack:'Stack',about_stack_txt:'Orchestriert Prowlarr, SABnzbd, JDownloader und RomM. Verbindungen in den Einstellungen konfigurierbar.',about_license:'Lizenz: MIT',sec_maint:'Logs & Wartung',logs:'Protokoll',clear_cache:'Cache leeren',reindex:'Neu indexieren',clear_finished:'Fertige entfernen',done_word:'Erledigt',lbl_jobs:'Anfragen',lbl_lib:'Bibliothek',sec_conn:'Verbindungen',reveal:'Klartext anzeigen',tls_hint:'Cert + Schlüssel (PEM) hinterlegen — die App startet dann zusätzlich einen HTTPS-Listener auf dem gewählten Port (Neustart nötig). Für Web-Push/PWA ohne separaten Reverse-Proxy.',tls_none:'kein Zertifikat hinterlegt',tls_expires:'gültig bis',tls_key_note:'privater Schlüssel — wird nie angezeigt',tls_restart:'Container neu starten zum Aktivieren',conn_hint:'Leere Felder nutzen den Wert aus der Umgebung (.env). Secrets sind maskiert — leer lassen behält den bestehenden Wert.',
- profile:'Profil',display_name:'Anzeigename',email:'E-Mail',language:'Sprache',avatar:'Avatar',pwebhook:'Persönlicher Discord-Webhook',change_pw:'Passwort ändern',cur_pw:'Aktuelles Passwort',new_pw:'Neues Passwort',choose_img:'Bild wählen',saved_ok:'gespeichert ✓',
+ profile:'Profil',display_name:'Anzeigename',email:'E-Mail',language:'Sprache',design:'Design',default_design:'Standard-Design',d_seerr:'Seerr',d_glass:'Glas',d_clean:'Klar',avatar:'Avatar',pwebhook:'Persönlicher Discord-Webhook',change_pw:'Passwort ändern',cur_pw:'Aktuelles Passwort',new_pw:'Neues Passwort',choose_img:'Bild wählen',saved_ok:'gespeichert ✓',
  blocklist:'Sperrliste',add_btn:'Hinzufügen',pattern_ph:'Stichwort/Muster im Titel',
  nav_issues:'🐞 Probleme',nav_messages:'Nachrichten',msg_to:'An',msg_none:'Noch keine Nachrichten.',msg_ph:'Nachricht schreiben …',msg_send:'Senden',msg_hint:'Strg+Enter sendet',msg_nousers:'Keine anderen Benutzer.',req_for:'Anfrage für',req_self:'mich selbst',issues:'Probleme',report_issue:'Problem melden',issue_msg:'Beschreibung',close_btn:'Schließen',st_open:'offen',st_closed:'geschlossen',submit:'Absenden',issue_type:'Art',comment_ph:'Kommentar schreiben …',comment_send:'Senden',push_enable:'🔔 Push aktivieren',push_disable:'🔕 Push deaktivieren',push_unsupported:'Push nicht verfügbar (HTTPS nötig)',push_denied:'Erlaubnis verweigert',push_on:'Push aktiviert ✓',push_off:'Push deaktiviert'
 },en:{
@@ -1387,7 +1414,7 @@ const I18N={de:{
  notif_discord:'Notifications — Discord',active:'enabled',test:'Test',save:'Save',saved:'saved ✓',test_sent:'test sent ✓',webhook_ph:'Discord webhook URL',
  st_pending:'⏳ Awaiting approval',st_queued:'Requested',st_downloading:'Downloading…',st_importing:'Processing',st_done:'✅ Available',st_error:'Error',st_denied:'Denied',st_exists:'in library',
  settings:'Settings',sec_general:'General',sec_notif:'Notifications',sec_users:'Users',sec_services:'Services',sec_about:'About',app_name:'App name',default_lang:'Default language',refresh:'Refresh',version:'Version',about_txt:'Self-built Seerr clone for ROMs.',wiz_welcome:'Welcome to Romseerr',wiz_welcome_txt:'This wizard connects you to the stack services (SABnzbd, Prowlarr, IGDB, RomM) step by step. You can test or skip each step.',wiz_done:'All set!',wiz_done_txt:'Basic configuration is done. You can adjust everything later under Settings → Connections.',wiz_next:'Next',wiz_back:'Back',wiz_skip:'Skip',wiz_finish:'Get started',wiz_step:'Step',wiz_reopen:'Reopen wizard',about_lib:'Library',about_titles:'titles',about_platforms:'platforms',about_jobs:'Requests',about_active:'active',about_links:'Links',about_feat:'Features',about_feat_txt:'Search across Archive.org + Usenet, dedup, discover, requests with approval, users & permissions, quotas, notifications (Discord/Telegram/email/web push), issues, PWA, API.',about_stack:'Stack',about_stack_txt:'Orchestrates Prowlarr, SABnzbd, JDownloader and RomM. Connections configurable under Settings.',about_license:'License: MIT',sec_maint:'Logs & maintenance',logs:'Log',clear_cache:'Clear cache',reindex:'Reindex',clear_finished:'Clear finished',done_word:'Done',lbl_jobs:'Requests',lbl_lib:'Library',sec_conn:'Connections',reveal:'Show in clear text',tls_hint:'Provide cert + key (PEM) — the app then also starts an HTTPS listener on the chosen port (restart required). For web push/PWA without a separate reverse proxy.',tls_none:'no certificate stored',tls_expires:'valid until',tls_key_note:'private key — never shown',tls_restart:'restart the container to activate',conn_hint:'Empty fields fall back to the environment (.env). Secrets are masked — leave blank to keep the current value.',
- profile:'Profile',display_name:'Display name',email:'Email',language:'Language',avatar:'Avatar',pwebhook:'Personal Discord webhook',change_pw:'Change password',cur_pw:'Current password',new_pw:'New password',choose_img:'Choose image',saved_ok:'saved ✓',
+ profile:'Profile',display_name:'Display name',email:'Email',language:'Language',design:'Design',default_design:'Default design',d_seerr:'Seerr',d_glass:'Glass',d_clean:'Clean',avatar:'Avatar',pwebhook:'Personal Discord webhook',change_pw:'Change password',cur_pw:'Current password',new_pw:'New password',choose_img:'Choose image',saved_ok:'saved ✓',
  blocklist:'Blocklist',add_btn:'Add',pattern_ph:'Keyword/pattern in title',
  nav_issues:'🐞 Issues',nav_messages:'Messages',msg_to:'To',msg_none:'No messages yet.',msg_ph:'Write a message …',msg_send:'Send',msg_hint:'Ctrl+Enter sends',msg_nousers:'No other users.',req_for:'Request for',req_self:'myself',issues:'Issues',report_issue:'Report issue',issue_msg:'Message',close_btn:'Close',st_open:'open',st_closed:'closed',submit:'Submit',issue_type:'Type',comment_ph:'Write a comment …',comment_send:'Send',push_enable:'🔔 Enable push',push_disable:'🔕 Disable push',push_unsupported:'Push unavailable (needs HTTPS)',push_denied:'Permission denied',push_on:'Push enabled ✓',push_off:'Push disabled'
 },fr:{
@@ -1401,7 +1428,7 @@ const I18N={de:{
  notif_discord:'Notifications — Discord',active:'activé',test:'Test',save:'Enregistrer',saved:'enregistré ✓',test_sent:'test envoyé ✓',webhook_ph:'URL du webhook Discord',
  st_pending:"⏳ En attente d'approbation",st_queued:'Demandé',st_downloading:'Téléchargement…',st_importing:'Traitement',st_done:'✅ Disponible',st_error:'Erreur',st_denied:'Refusé',st_exists:'présent',
  settings:'Paramètres',sec_general:'Général',sec_notif:'Notifications',sec_users:'Utilisateurs',sec_services:'Services',sec_about:'À propos',app_name:"Nom de l'app",default_lang:'Langue par défaut',refresh:'Actualiser',version:'Version',about_txt:'Clone de Seerr pour ROMs, fait maison.',wiz_welcome:'Bienvenue sur Romseerr',wiz_welcome_txt:'Cet assistant vous connecte aux services du stack (SABnzbd, Prowlarr, IGDB, RomM) étape par étape. Vous pouvez tester ou passer chaque étape.',wiz_done:'Terminé !',wiz_done_txt:'La configuration de base est prête. Vous pouvez tout ajuster plus tard dans Paramètres → Connexions.',wiz_next:'Suivant',wiz_back:'Retour',wiz_skip:'Passer',wiz_finish:'Commencer',wiz_step:'Étape',wiz_reopen:'Rouvrir l’assistant',about_lib:'Bibliothèque',about_titles:'titres',about_platforms:'plateformes',about_jobs:'Demandes',about_active:'actives',about_links:'Liens',about_feat:'Fonctions',about_feat_txt:'Recherche Archive.org + Usenet, dédup, découverte, demandes avec approbation, utilisateurs & droits, quotas, notifications, problèmes, PWA, API.',about_stack:'Stack',about_stack_txt:'Orchestre Prowlarr, SABnzbd, JDownloader et RomM. Connexions configurables dans Paramètres.',about_license:'Licence : MIT',sec_maint:'Journaux & maintenance',logs:'Journal',clear_cache:'Vider le cache',reindex:'Réindexer',clear_finished:'Effacer terminés',done_word:'Terminé',lbl_jobs:'Demandes',lbl_lib:'Bibliothèque',sec_conn:'Connexions',reveal:'Afficher en clair',tls_hint:'Fournir le certificat + la clé (PEM) — l’app démarre alors un écouteur HTTPS sur le port choisi (redémarrage requis).',tls_none:'aucun certificat',tls_expires:'valide jusqu’au',tls_key_note:'clé privée — jamais affichée',tls_restart:'redémarrer le conteneur pour activer',conn_hint:'Les champs vides utilisent la valeur de l’environnement (.env). Les secrets sont masqués — laisser vide conserve la valeur.',
- profile:'Profil',display_name:'Nom affiché',email:'E-mail',language:'Langue',avatar:'Avatar',pwebhook:'Webhook Discord personnel',change_pw:'Changer le mot de passe',cur_pw:'Mot de passe actuel',new_pw:'Nouveau mot de passe',choose_img:'Choisir une image',saved_ok:'enregistré ✓',
+ profile:'Profil',display_name:'Nom affiché',email:'E-mail',language:'Langue',design:'Thème',default_design:'Thème par défaut',d_seerr:'Seerr',d_glass:'Verre',d_clean:'Épuré',avatar:'Avatar',pwebhook:'Webhook Discord personnel',change_pw:'Changer le mot de passe',cur_pw:'Mot de passe actuel',new_pw:'Nouveau mot de passe',choose_img:'Choisir une image',saved_ok:'enregistré ✓',
  blocklist:'Liste de blocage',add_btn:'Ajouter',pattern_ph:'Mot-clé/motif dans le titre',
  nav_issues:'🐞 Problèmes',nav_messages:'Messages',msg_to:'À',msg_none:'Aucun message.',msg_ph:'Écrire un message …',msg_send:'Envoyer',msg_hint:'Ctrl+Entrée envoie',msg_nousers:'Aucun autre utilisateur.',req_for:'Demande pour',req_self:'moi-même',issues:'Problèmes',report_issue:'Signaler un problème',issue_msg:'Message',close_btn:'Fermer',st_open:'ouvert',st_closed:'fermé',submit:'Envoyer',issue_type:'Type',comment_ph:'Écrire un commentaire …',comment_send:'Envoyer',push_enable:'🔔 Activer push',push_disable:'🔕 Désactiver push',push_unsupported:'Push indisponible (HTTPS requis)',push_denied:'Permission refusée',push_on:'Push activé ✓',push_off:'Push désactivé'
 },es:{
@@ -1415,7 +1442,7 @@ const I18N={de:{
  notif_discord:'Notificaciones — Discord',active:'activo',test:'Prueba',save:'Guardar',saved:'guardado ✓',test_sent:'prueba enviada ✓',webhook_ph:'URL del webhook de Discord',
  st_pending:'⏳ Esperando aprobación',st_queued:'Solicitado',st_downloading:'Descargando…',st_importing:'Procesando',st_done:'✅ Disponible',st_error:'Error',st_denied:'Rechazado',st_exists:'presente',
  settings:'Ajustes',sec_general:'General',sec_notif:'Notificaciones',sec_users:'Usuarios',sec_services:'Servicios',sec_about:'Acerca de',app_name:'Nombre de la app',default_lang:'Idioma predeterminado',refresh:'Actualizar',version:'Versión',about_txt:'Clon de Seerr para ROMs, hecho en casa.',wiz_welcome:'Bienvenido a Romseerr',wiz_welcome_txt:'Este asistente te conecta con los servicios del stack (SABnzbd, Prowlarr, IGDB, RomM) paso a paso. Puedes probar u omitir cada paso.',wiz_done:'¡Listo!',wiz_done_txt:'La configuración básica está hecha. Puedes ajustar todo luego en Ajustes → Conexiones.',wiz_next:'Siguiente',wiz_back:'Atrás',wiz_skip:'Omitir',wiz_finish:'Empezar',wiz_step:'Paso',wiz_reopen:'Reabrir asistente',about_lib:'Biblioteca',about_titles:'títulos',about_platforms:'plataformas',about_jobs:'Solicitudes',about_active:'activas',about_links:'Enlaces',about_feat:'Funciones',about_feat_txt:'Búsqueda en Archive.org + Usenet, dedup, descubrir, solicitudes con aprobación, usuarios y permisos, cuotas, notificaciones, problemas, PWA, API.',about_stack:'Stack',about_stack_txt:'Orquesta Prowlarr, SABnzbd, JDownloader y RomM. Conexiones configurables en Ajustes.',about_license:'Licencia: MIT',sec_maint:'Registros y mantenimiento',logs:'Registro',clear_cache:'Vaciar caché',reindex:'Reindexar',clear_finished:'Borrar terminados',done_word:'Hecho',lbl_jobs:'Solicitudes',lbl_lib:'Biblioteca',sec_conn:'Conexiones',reveal:'Mostrar en texto plano',tls_hint:'Proporciona certificado + clave (PEM) — la app inicia además un listener HTTPS en el puerto elegido (requiere reinicio).',tls_none:'sin certificado',tls_expires:'válido hasta',tls_key_note:'clave privada — nunca se muestra',tls_restart:'reinicia el contenedor para activar',conn_hint:'Los campos vacíos usan el valor del entorno (.env). Los secretos se enmascaran — dejar vacío conserva el valor.',
- profile:'Perfil',display_name:'Nombre visible',email:'Correo',language:'Idioma',avatar:'Avatar',pwebhook:'Webhook de Discord personal',change_pw:'Cambiar contraseña',cur_pw:'Contraseña actual',new_pw:'Nueva contraseña',choose_img:'Elegir imagen',saved_ok:'guardado ✓',
+ profile:'Perfil',display_name:'Nombre visible',email:'Correo',language:'Idioma',design:'Diseño',default_design:'Diseño predeterminado',d_seerr:'Seerr',d_glass:'Cristal',d_clean:'Limpio',avatar:'Avatar',pwebhook:'Webhook de Discord personal',change_pw:'Cambiar contraseña',cur_pw:'Contraseña actual',new_pw:'Nueva contraseña',choose_img:'Elegir imagen',saved_ok:'guardado ✓',
  blocklist:'Lista de bloqueo',add_btn:'Añadir',pattern_ph:'Palabra clave/patrón en el título',
  nav_issues:'🐞 Problemas',nav_messages:'Mensajes',msg_to:'Para',msg_none:'Sin mensajes.',msg_ph:'Escribe un mensaje …',msg_send:'Enviar',msg_hint:'Ctrl+Enter envía',msg_nousers:'No hay otros usuarios.',req_for:'Solicitud para',req_self:'yo mismo',issues:'Problemas',report_issue:'Informar problema',issue_msg:'Mensaje',close_btn:'Cerrar',st_open:'abierto',st_closed:'cerrado',submit:'Enviar',issue_type:'Tipo',comment_ph:'Escribe un comentario …',comment_send:'Enviar',push_enable:'🔔 Activar push',push_disable:'🔕 Desactivar push',push_unsupported:'Push no disponible (requiere HTTPS)',push_denied:'Permiso denegado',push_on:'Push activado ✓',push_off:'Push desactivado'
 },it:{
@@ -1429,11 +1456,16 @@ const I18N={de:{
  notif_discord:'Notifiche — Discord',active:'attivo',test:'Test',save:'Salva',saved:'salvato ✓',test_sent:'test inviato ✓',webhook_ph:'URL webhook Discord',
  st_pending:'⏳ In attesa di approvazione',st_queued:'Richiesto',st_downloading:'Scaricamento…',st_importing:'Elaborazione',st_done:'✅ Disponibile',st_error:'Errore',st_denied:'Rifiutato',st_exists:'presente',
  settings:'Impostazioni',sec_general:'Generale',sec_notif:'Notifiche',sec_users:'Utenti',sec_services:'Servizi',sec_about:'Informazioni',app_name:'Nome dell’app',default_lang:'Lingua predefinita',refresh:'Aggiorna',version:'Versione',about_txt:'Clone di Seerr per ROM, fatto in casa.',wiz_welcome:'Benvenuto in Romseerr',wiz_welcome_txt:'Questa procedura ti collega ai servizi dello stack (SABnzbd, Prowlarr, IGDB, RomM) passo dopo passo. Puoi testare o saltare ogni passaggio.',wiz_done:'Fatto!',wiz_done_txt:'La configurazione di base è pronta. Puoi regolare tutto in seguito in Impostazioni → Connessioni.',wiz_next:'Avanti',wiz_back:'Indietro',wiz_skip:'Salta',wiz_finish:'Inizia',wiz_step:'Passo',wiz_reopen:'Riapri procedura',about_lib:'Libreria',about_titles:'titoli',about_platforms:'piattaforme',about_jobs:'Richieste',about_active:'attive',about_links:'Link',about_feat:'Funzioni',about_feat_txt:'Ricerca su Archive.org + Usenet, dedup, scoperta, richieste con approvazione, utenti e permessi, quote, notifiche, problemi, PWA, API.',about_stack:'Stack',about_stack_txt:'Orchestra Prowlarr, SABnzbd, JDownloader e RomM. Connessioni configurabili nelle Impostazioni.',about_license:'Licenza: MIT',sec_maint:'Log e manutenzione',logs:'Log',clear_cache:'Svuota cache',reindex:'Reindicizza',clear_finished:'Cancella completati',done_word:'Fatto',lbl_jobs:'Richieste',lbl_lib:'Libreria',sec_conn:'Connessioni',reveal:'Mostra in chiaro',tls_hint:'Fornisci certificato + chiave (PEM) — l’app avvia anche un listener HTTPS sulla porta scelta (riavvio necessario).',tls_none:'nessun certificato',tls_expires:'valido fino al',tls_key_note:'chiave privata — mai mostrata',tls_restart:'riavvia il container per attivare',conn_hint:'I campi vuoti usano il valore dell’ambiente (.env). I segreti sono mascherati — lasciare vuoto mantiene il valore.',
- profile:'Profilo',display_name:'Nome visualizzato',email:'E-mail',language:'Lingua',avatar:'Avatar',pwebhook:'Webhook Discord personale',change_pw:'Cambia password',cur_pw:'Password attuale',new_pw:'Nuova password',choose_img:'Scegli immagine',saved_ok:'salvato ✓',
+ profile:'Profilo',display_name:'Nome visualizzato',email:'E-mail',language:'Lingua',design:'Tema',default_design:'Tema predefinito',d_seerr:'Seerr',d_glass:'Vetro',d_clean:'Pulito',avatar:'Avatar',pwebhook:'Webhook Discord personale',change_pw:'Cambia password',cur_pw:'Password attuale',new_pw:'Nuova password',choose_img:'Scegli immagine',saved_ok:'salvato ✓',
  blocklist:'Lista di blocco',add_btn:'Aggiungi',pattern_ph:'Parola chiave/schema nel titolo',
  nav_issues:'🐞 Problemi',nav_messages:'Messaggi',msg_to:'A',msg_none:'Nessun messaggio.',msg_ph:'Scrivi un messaggio …',msg_send:'Invia',msg_hint:'Ctrl+Invio invia',msg_nousers:'Nessun altro utente.',req_for:'Richiesta per',req_self:'me stesso',issues:'Problemi',report_issue:'Segnala problema',issue_msg:'Messaggio',close_btn:'Chiudi',st_open:'aperto',st_closed:'chiuso',submit:'Invia',issue_type:'Tipo',comment_ph:'Scrivi un commento …',comment_send:'Invia',push_enable:'🔔 Attiva push',push_disable:'🔕 Disattiva push',push_unsupported:'Push non disponibile (richiede HTTPS)',push_denied:'Permesso negato',push_on:'Push attivato ✓',push_off:'Push disattivato'
 }};
 let LANG=localStorage.getItem('lang')||'de';
+// Design (Look) so früh wie möglich setzen, um ein Umflackern beim Laden zu vermeiden.
+const DESIGNS=['seerr','glass','clean'];
+function applyDesign(dz){if(!DESIGNS.includes(dz))dz='seerr';document.documentElement.dataset.design=dz;localStorage.setItem('design',dz);
+ document.querySelectorAll('.dpick').forEach(e=>e.classList.toggle('on',e.dataset.d==dz));}
+applyDesign(localStorage.getItem('design')||'seerr');
 function t(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.de[k]||k;}
 function setLang(l){LANG=l;localStorage.setItem('lang',l);applyI18n();
  document.querySelectorAll('#langsw b').forEach(e=>e.classList.toggle('on',e.dataset.l==l));
@@ -1676,6 +1708,7 @@ async function loadAuth(){let d=await(await fetch('/api/auth/status')).json();
  window.ROLE=d.role;window.VERSION=d.version||'';window.PERMS=d.perms||[];
  let lang=d.user_lang||localStorage.getItem('lang')||d.default_lang||'de';
  if(lang!=LANG){LANG=lang;localStorage.setItem('lang',lang);setLang(lang);}
+ applyDesign(d.user_design||localStorage.getItem('design')||d.default_design||'seerr');
  let who=document.getElementById('who');
  if(d.user){let nm=(d.display_name||d.user);
    who.innerHTML=`<img src="${d.avatar||defAvatar(nm)}">`+nm.replace(/</g,'&lt;');}
@@ -1694,6 +1727,7 @@ async function openProfile(){let m=document.getElementById('modal');m.style.disp
    <div class=row><input id=pdn ${inp} placeholder="${t('display_name')}" value="${(p.display_name||'').replace(/"/g,'&quot;')}"></div>
    <div class=row><input id=pmail ${inp} placeholder="${t('email')}" value="${(p.email||'').replace(/"/g,'&quot;')}"></div>
    <div class=row><label style="color:#8b929e;font-size:13px">${t('language')}</label><select id=plang ${inp}><option value="">—</option><option value=de ${p.lang=='de'?'selected':''}>Deutsch</option><option value=en ${p.lang=='en'?'selected':''}>English</option><option value=fr ${p.lang=='fr'?'selected':''}>Français</option><option value=es ${p.lang=='es'?'selected':''}>Español</option><option value=it ${p.lang=='it'?'selected':''}>Italiano</option></select></div>
+   <div class=row><label style="color:#8b929e;font-size:13px">${t('design')}</label><div style="display:flex;gap:8px;flex-wrap:wrap">${DESIGNS.map(dz=>`<button class="dpick${(p.design||'')==dz?' on':''}" data-d="${dz}" onclick="pickDesign('${dz}')">${t('d_'+dz)}</button>`).join('')}</div></div>
    <div class=row><input id=pwh ${inp} placeholder="${t('pwebhook')}" value="${(p.webhook||'').replace(/"/g,'&quot;')}"><button onclick="testPWebhook()">${t('test')}</button></div>
    <div class=row><button onclick="saveProfile()">${t('save')}</button><span id=pmsg class=meta></span></div>
    <div class=row><button onclick="togglePush()" id=pushbtn>${t('push_enable')}</button><span id=pushmsg class=meta></span></div>
@@ -1722,7 +1756,8 @@ async function togglePush(){let msg=document.getElementById('pushmsg');let st=aw
 function pickAvatar(e){let f=e.target.files[0];if(!f)return;
  if(f.size>280000){document.getElementById('pmsg').textContent='max ~280 KB';return;}
  let r=new FileReader();r.onload=()=>{PAV=r.result;document.getElementById('pav').style.backgroundImage="url('"+PAV+"')";};r.readAsDataURL(f);}
-async function saveProfile(){let d={display_name:document.getElementById('pdn').value,email:document.getElementById('pmail').value,lang:document.getElementById('plang').value,webhook:document.getElementById('pwh').value};
+function pickDesign(dz){applyDesign(dz);}
+async function saveProfile(){let d={display_name:document.getElementById('pdn').value,email:document.getElementById('pmail').value,lang:document.getElementById('plang').value,design:document.documentElement.dataset.design||'',webhook:document.getElementById('pwh').value};
  if(PAV)d.avatar=PAV;
  let r=await(await fetch('/api/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
  document.getElementById('pmsg').textContent=r.ok?t('saved_ok'):(r.msg||t('st_error'));
@@ -1833,6 +1868,7 @@ async function secGeneral(c){let s=await(await fetch('/api/settings')).json();le
  c.innerHTML=`<h3>${t('sec_general')}</h3>
   <div class=frow><label>${t('app_name')}</label><input id=gname value="${(gg.app_name||'Romseerr').replace(/"/g,'&quot;')}"></div>
   <div class=frow><label>${t('default_lang')}</label><select id=glang><option value=de ${(gg.default_lang||'de')=='de'?'selected':''}>Deutsch</option><option value=en ${gg.default_lang=='en'?'selected':''}>English</option><option value=fr ${gg.default_lang=='fr'?'selected':''}>Français</option><option value=es ${gg.default_lang=='es'?'selected':''}>Español</option><option value=it ${gg.default_lang=='it'?'selected':''}>Italiano</option></select></div>
+  <div class=frow><label>${t('default_design')}</label><select id=gdesign>${DESIGNS.map(dz=>`<option value="${dz}" ${(gg.default_design||'seerr')==dz?'selected':''}>${t('d_'+dz)}</option>`).join('')}</select></div>
   <button onclick="saveGeneral()">${t('save')}</button> <span id=gmsg class=meta></span>
   <h3 style="margin-top:20px">Kontingent / Quota</h3>
   <div class=frow><label style="min-width:auto"><input type=checkbox id=qen ${qo.enabled?'checked':''}> ${t('active')}</label><span></span></div>
@@ -1845,7 +1881,7 @@ async function secGeneral(c){let s=await(await fetch('/api/settings')).json();le
 async function regenKey(){if(!confirm('Neuen API-Key erzeugen? Alter wird ungültig. / Regenerate API key?'))return;
  let k=await(await fetch('/api/apikey/regenerate',{method:'POST'})).json();document.getElementById('akey').value=k.apikey||'';}
 function copyKey(){let e=document.getElementById('akey');e.select();if(navigator.clipboard)navigator.clipboard.writeText(e.value);}
-async function saveGeneral(){let d={general:{app_name:document.getElementById('gname').value.trim(),default_lang:document.getElementById('glang').value}};
+async function saveGeneral(){let d={general:{app_name:document.getElementById('gname').value.trim(),default_lang:document.getElementById('glang').value,default_design:document.getElementById('gdesign').value}};
  let r=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
  document.getElementById('gmsg').textContent=r.ok?t('saved'):t('st_error');}
 async function saveQuota(){let d={quota:{enabled:document.getElementById('qen').checked,count:+document.getElementById('qcount').value,days:+document.getElementById('qdays').value}};
@@ -2203,17 +2239,20 @@ def auth_status():
     return jsonify({"user":session.get("user"), "role":session.get("role"),
                     "setup": len(load_users())==0,
                     "default_lang": g.get("default_lang","de"),
+                    "default_design": g.get("default_design","seerr"),
                     "app_name": g.get("app_name","Romseerr"),
                     "version": VERSION,
                     "avatar": usr.get("avatar",""),
                     "display_name": usr.get("display_name",""),
                     "user_lang": usr.get("lang",""),
+                    "user_design": usr.get("design",""),
                     "perms": usr.get("perms", [])})
 
 @app.route("/api/profile", methods=["GET"])
 def api_profile_get():
     u = session.get("user"); usr = load_users().get(u, {})
     return jsonify({"username":u, "email":usr.get("email",""), "lang":usr.get("lang",""),
+                    "design":usr.get("design",""),
                     "display_name":usr.get("display_name",""), "avatar":usr.get("avatar",""),
                     "webhook":usr.get("webhook",""), "quota": quota_info(u)})
 
@@ -2225,7 +2264,8 @@ def api_profile_set():
     if "email" in d: users[u]["email"] = (d.get("email") or "").strip()[:120]
     if "display_name" in d: users[u]["display_name"] = (d.get("display_name") or "").strip()[:60]
     if "webhook" in d: users[u]["webhook"] = (d.get("webhook") or "").strip()[:300]
-    if "lang" in d: users[u]["lang"] = "en" if d.get("lang")=="en" else ("de" if d.get("lang")=="de" else "")
+    if "lang" in d: users[u]["lang"] = d.get("lang") if d.get("lang") in LANGS else ""
+    if "design" in d: users[u]["design"] = d.get("design") if d.get("design") in DESIGNS else ""
     if "avatar" in d:
         av = d.get("avatar") or ""
         if len(av) > 300000: return jsonify({"ok":False,"msg":"Bild zu groß (max ~300 KB)"}), 400
@@ -2602,7 +2642,7 @@ def api_users_patch(u):
 def api_settings_get():
     s = load_settings(); sm = s.get("smtp", {})
     return jsonify({"discord": s.get("discord", {"enabled": False, "url": ""}),
-                    "general": s.get("general", {"app_name": "Romseerr", "default_lang": "de"}),
+                    "general": s.get("general", {"app_name": "Romseerr", "default_lang": "de", "default_design": "seerr"}),
                     "smtp": {"enabled": bool(sm.get("enabled")), "host": sm.get("host",""),
                              "port": sm.get("port","587"), "user": sm.get("user",""),
                              "from": sm.get("from",""), "tls": sm.get("tls","starttls"),
@@ -2638,7 +2678,8 @@ def api_settings_set():
     if "general" in d:
         g = d["general"]
         s["general"] = {"app_name": (g.get("app_name") or "Romseerr")[:40],
-                        "default_lang": "en" if g.get("default_lang") == "en" else "de"}
+                        "default_lang": g.get("default_lang") if g.get("default_lang") in LANGS else "de",
+                        "default_design": g.get("default_design") if g.get("default_design") in DESIGNS else "seerr"}
     if "smtp" in d:
         m = d["smtp"]; cur = s.get("smtp", {})
         s["smtp"] = {"enabled": bool(m.get("enabled")), "host": (m.get("host") or "").strip(),
@@ -2973,10 +3014,11 @@ OPENAPI = {
         # --- Profile ---
         "/api/profile": {
             "get": _op("Eigenes Profil", "Profile"),
-            "post": _op("Profil ändern (Name, E-Mail, Sprache, Avatar, persönl. Webhook)", "Profile",
+            "post": _op("Profil ändern (Name, E-Mail, Sprache, Design, Avatar, persönl. Webhook)", "Profile",
                 body={"type": "object", "properties": {
                     "display_name": {"type": "string"}, "email": {"type": "string"},
-                    "lang": {"type": "string", "enum": ["de", "en", "fr", "es"]},
+                    "lang": {"type": "string", "enum": ["", "de", "en", "fr", "es", "it"]},
+                    "design": {"type": "string", "enum": ["", "seerr", "glass", "clean"]},
                     "avatar": {"type": "string", "description": "data-URI"}, "webhook": {"type": "string"}}})},
         "/api/profile/password": {"post": _op("Eigenes Passwort ändern", "Profile",
             body={"type": "object", "required": ["old", "new"],
