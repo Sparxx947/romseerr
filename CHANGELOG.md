@@ -7,6 +7,8 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Weitere Melde-Agenten** — **Gotify**, **ntfy** und **Pushover** nativ in den Benachrichtigungen
+  (zusätzlich zu Discord/Telegram/Webhook/E-Mail/Push). / **More notification agents** — native Gotify, ntfy and Pushover.
 - **Download-Fortschritt** — laufende Usenet-Downloads zeigen jetzt den Prozentsatz aus der
   SABnzbd-Warteschlange im Anfragen-Status (statt nur „Lädt…"). /
   **Download progress** — active Usenet downloads show the SABnzbd percentage in the request status.
