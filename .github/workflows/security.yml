@@ -10,6 +10,7 @@ on:
 permissions:
   contents: read
   security-events: write
+  pull-requests: read   # gitleaks liest auf PRs die Commit-Liste / gitleaks reads PR commits
 
 jobs:
   codeql:

@@ -1,0 +1,9 @@
+# Trivy-Ausnahmen / Trivy ignores — jeweils mit Begründung.
+
+# AVD-DS-0002: "Specify at least 1 USER command in Dockerfile with non-root user".
+# Bewusst: Der Container wird zur Laufzeit mit einem bereitgestellten Benutzer
+# betrieben (Unraid: --user 99:100 / PUID:PGID), damit Schreibzugriffe auf die
+# gemounteten Volumes (/config, /roms) mit den Host-Rechten passen. Ein fest im
+# Image verdrahteter USER würde genau das verhindern. / Container runs with a
+# runtime-provided user (Unraid PUID:PGID); a hardcoded USER would break volume writes.
+AVD-DS-0002
