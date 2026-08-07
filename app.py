@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # rom-suche — Seerr-artige ROM-Suche & Auto-Download (Archive.org + Usenet/SAB), Dedup gegen Bibliothek.
-import os, re, json, time, threading, queue, subprocess, urllib.parse, html, secrets, smtplib, base64
+import os, re, json, time, threading, queue, subprocess, urllib.parse, html, secrets, smtplib, base64, sqlite3
 from datetime import datetime
 from functools import wraps
 from email.message import EmailMessage
@@ -171,6 +171,56 @@ def norm(name):
 LIB = {"per": {}, "all": set(), "slugs": set(), "ts": 0}
 LIB_LOCK = threading.Lock()
 
+# ---------- SQLite: persistenter Bibliotheks-Index ----------
+DB_FILE = "/config/romseerr.db"
+DB_LOCK = threading.Lock()
+
+def db_conn():
+    c = sqlite3.connect(DB_FILE, check_same_thread=False, timeout=30)
+    c.execute("PRAGMA journal_mode=WAL")
+    return c
+
+def db_init():
+    try:
+        with DB_LOCK, db_conn() as c:
+            c.execute("CREATE TABLE IF NOT EXISTS library(slug TEXT, norm TEXT)")
+            c.execute("CREATE INDEX IF NOT EXISTS ix_lib_norm ON library(norm)")
+            c.execute("CREATE INDEX IF NOT EXISTS ix_lib_slug ON library(slug, norm)")
+            c.execute("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)")
+    except Exception as e:
+        log(f"DB-Init-Fehler: {e}")
+
+def save_index_to_db(per, allset, slugs, ts):
+    rows = [(slug, n) for slug, s in per.items() for n in s]
+    try:
+        with DB_LOCK, db_conn() as c:
+            c.execute("DELETE FROM library")
+            c.executemany("INSERT INTO library(slug,norm) VALUES(?,?)", rows)
+            c.executemany("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)",
+                          [("index_ts", str(ts)), ("index_titles", str(len(allset))),
+                           ("index_platforms", str(len(slugs))), ("slugs", json.dumps(sorted(slugs)))])
+    except Exception as e:
+        log(f"Index-DB-Speichern-Fehler: {e}")
+
+def load_index_from_db():
+    """RAM-Index aus SQLite füllen. Gibt den Zeitstempel zurück oder None."""
+    try:
+        with DB_LOCK, db_conn() as c:
+            row = c.execute("SELECT value FROM meta WHERE key='index_ts'").fetchone()
+            if not row: return None
+            ts = float(row[0])
+            per, allset = {}, set()
+            for slug, n in c.execute("SELECT slug,norm FROM library"):
+                per.setdefault(slug, set()).add(n); allset.add(n)
+            sl = c.execute("SELECT value FROM meta WHERE key='slugs'").fetchone()
+            slugs = set(json.loads(sl[0])) if sl else set(per.keys())
+            for s in slugs: per.setdefault(s, set())
+        with LIB_LOCK:
+            LIB["per"], LIB["all"], LIB["slugs"], LIB["ts"] = per, allset, slugs, ts
+        return ts
+    except Exception as e:
+        log(f"Index-DB-Laden-Fehler: {e}"); return None
+
 def build_index():
     per, allset, slugs = {}, set(), set()
     try:
@@ -190,9 +240,11 @@ def build_index():
             except Exception: pass
     except Exception as e:
         log(f"Index-Fehler: {e}")
+    ts = time.time()
     with LIB_LOCK:
-        LIB["per"], LIB["all"], LIB["slugs"], LIB["ts"] = per, allset, slugs, time.time()
-    log(f"Bibliotheks-Index: {len(slugs)} Plattformen, {len(allset)} Titel")
+        LIB["per"], LIB["all"], LIB["slugs"], LIB["ts"] = per, allset, slugs, ts
+    save_index_to_db(per, allset, slugs, ts)   # persistieren -> schneller Neustart
+    log(f"Bibliotheks-Index: {len(slugs)} Plattformen, {len(allset)} Titel (in DB gesichert)")
 
 def in_library(title, slug):
     n = norm(title)
@@ -1973,7 +2025,12 @@ def periodic_index():
 
 if __name__ == "__main__":
     os.makedirs(STAGING, exist_ok=True)
-    load_jobs(); build_index()
+    load_jobs(); db_init()
+    if load_index_from_db():
+        log(f"Bibliotheks-Index aus DB geladen: {len(LIB['slugs'])} Plattformen, {len(LIB['all'])} Titel")
+        threading.Thread(target=build_index, daemon=True).start()   # im Hintergrund auffrischen
+    else:
+        build_index()   # kein DB-Index -> erstmalig aus dem Dateisystem
     threading.Thread(target=worker_download, daemon=True).start()
     threading.Thread(target=worker_collect, daemon=True).start()
     threading.Thread(target=periodic_index, daemon=True).start()

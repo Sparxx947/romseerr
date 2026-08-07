@@ -24,6 +24,13 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
   JavaScript had an **unterminated string literal** and the whole script failed. Fixed to `join('\\n')`.
 
 ### Hinzugefügt / Added
+- **Persistenter Bibliotheks-Index (SQLite)** — der Dedup-Index (~96.000 Titel) wird jetzt in
+  `/config/romseerr.db` gespeichert und beim Start **aus der DB geladen** statt jedes Mal aus dem
+  Dateisystem aufgebaut: **Startzeit ~24 s → ~1 s**. Im Hintergrund frischt der Index weiter auf
+  (Start + alle 10 min); Dedup/`in_library` unverändert. /
+  **Persistent library index (SQLite)** — the dedup index (~96k titles) is stored in
+  `/config/romseerr.db` and loaded from the DB on startup instead of walking the filesystem
+  every time: **startup ~24 s → ~1 s**. Background refresh keeps it current; dedup unchanged.
 - **PWA + Web-Push** — Romseerr ist jetzt eine **installierbare PWA** (Manifest, Icon,
   Service-Worker) und kann **Web-Push-Benachrichtigungen** senden, wenn ein ROM verfügbar
   wird. Aktivierung pro Nutzer im Profil (🔔). VAPID-Schlüssel werden beim ersten Start
