@@ -6,6 +6,13 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Geändert / Changed
+- **Rebrand-Aufräumen** — restliche `rom-suche`/`romsuche_`-Verweise im Code durch `Romseerr`/
+  `romseerr_` ersetzt (Log „Romseerr startet…", Logdatei `romseerr.log`, Job-/Ordnernamen
+  `romseerr_<id>`, JD-Pfade). Gemeinsprachliches „ROM-Suche" bleibt. /
+  **Rebrand cleanup** — remaining `rom-suche`/`romsuche_` references replaced with `Romseerr`/
+  `romseerr_` (log line, log file, job/folder names, JD paths).
+
 ### Hinzugefügt / Added
 - **HTTPS-Zertifikat über die Weboberfläche** — Admin kann unter Einstellungen → **HTTPS** ein
   TLS-Zertifikat + Schlüssel (PEM) hinterlegen (validiert, `/config/tls`, 600). Ist es aktiviert,

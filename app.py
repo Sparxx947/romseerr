@@ -99,11 +99,11 @@ CONFIG_DIR = os.environ.get("ROMSEERR_CONFIG", "/config")
 ROMS       = os.environ.get("ROMSEERR_ROMS", "/roms")
 SAB_DONE   = "/sab-complete"
 JD_WATCH   = "/jd-watch"
-JD_OUT     = "/jd-output/rom-suche"           # Sicht der rom-suche (=/mnt/user/Downloads/rom-suche)
-JD_DL_BASE = os.environ.get("JD_DL_BASE","/output/rom-suche")  # Sicht des JD-Containers
+JD_OUT     = "/jd-output/romseerr"           # Sicht von Romseerr (=/mnt/user/Downloads/romseerr)
+JD_DL_BASE = os.environ.get("JD_DL_BASE","/output/romseerr")  # Sicht des JD-Containers
 STAGING    = os.path.join(CONFIG_DIR, "staging")
 JOBDB      = os.path.join(CONFIG_DIR, "jobs.json")
-LOGFILE    = os.path.join(CONFIG_DIR, "rom-suche.log")
+LOGFILE    = os.path.join(CONFIG_DIR, "romseerr.log")
 USERS_FILE = os.path.join(CONFIG_DIR, "users.json")
 SECRET_FILE= os.path.join(CONFIG_DIR, "secret.key")
 SETTINGS_FILE = os.path.join(CONFIG_DIR, "settings.json")
@@ -764,11 +764,11 @@ def sab_add(url, name):
     return j
 
 def write_crawljob(jid, links, folder, name):
-    # folder = JD-Container-Sicht (z.B. /output/rom-suche/...); JD legt sie selbst an.
+    # folder = JD-Container-Sicht (z.B. /output/romseerr/...); JD legt sie selbst an.
     data = [{"text":"\n".join(links) if isinstance(links,list) else links,
              "downloadFolder":folder,"packageName":name,"enabled":"true","autoStart":"true",
              "autoConfirm":"true","overwritePackagizerRules":"true"}]
-    path = os.path.join(JD_WATCH, f"romsuche_{jid}.crawljob")
+    path = os.path.join(JD_WATCH, f"romseerr_{jid}.crawljob")
     with open(path,"w") as f: json.dump(data,f)
     log(f"crawljob geschrieben: {path}")
 
@@ -801,13 +801,13 @@ def worker_download():
         try:
             if job["source"]=="usenet":
                 set_state(jid, state="downloading", msg="an SAB übergeben")
-                sab_add(job["ref"], f"romsuche_{jid}")
-                # Ordnername in SAB-complete = romsuche_<jid>
+                sab_add(job["ref"], f"romseerr_{jid}")
+                # Ordnername in SAB-complete = romseerr_<jid>
             elif job["source"]=="archive":
                 set_state(jid, state="downloading", msg="Archive.org-Download läuft")
                 urls = archive_file_urls(job["ref"])
                 if not urls: raise RuntimeError("keine ladbaren Dateien")
-                dst = os.path.join(STAGING, f"romsuche_{jid}")
+                dst = os.path.join(STAGING, f"romseerr_{jid}")
                 os.makedirs(dst, exist_ok=True)
                 inp = os.path.join(dst, ".urls")
                 with open(inp,"w") as f: f.write("\n".join(urls))
@@ -818,7 +818,7 @@ def worker_download():
                 import_folder(jid, dst)
             elif job["source"]=="filehoster":
                 set_state(jid, state="downloading", msg="an JDownloader übergeben")
-                write_crawljob(jid, job["ref"], f"{cfg("jd_dl_base")}/romsuche_{jid}", f"romsuche_{jid}")
+                write_crawljob(jid, job["ref"], f"{cfg("jd_dl_base")}/romseerr_{jid}", f"romseerr_{jid}")
         except Exception as e:
             set_state(jid, state="error", msg=str(e)[:200]); log(f"Job {jid} Fehler: {e}")
         finally:
@@ -900,7 +900,7 @@ def romm_scan():
 
 def worker_collect():
     """Dauerthread (alle 20 s): sucht für noch laufende usenet/filehoster-Jobs den fertigen
-    Ausgabeordner (SAB_DONE bzw. JD_OUT, Name `romsuche_<jid>`). Ist er **stabil** (Größe
+    Ausgabeordner (SAB_DONE bzw. JD_OUT, Name `romseerr_<jid>`). Ist er **stabil** (Größe
     ändert sich nicht mehr), wird import_folder aufgerufen. So werden asynchrone Downloads
     eingesammelt, die worker_download nur angestoßen hat."""
     while True:
@@ -908,7 +908,7 @@ def worker_collect():
             with JOBS_LOCK:
                 pending = [dict(j) for j in JOBS if j["state"]=="downloading" and j["source"] in ("usenet","filehoster")]
             for job in pending:
-                jid = job["id"]; name = f"romsuche_{jid}"
+                jid = job["id"]; name = f"romseerr_{jid}"
                 cand = None
                 if job["source"]=="usenet":
                     p = os.path.join(SAB_DONE, name)
@@ -2712,5 +2712,5 @@ if __name__ == "__main__":
         except Exception as e:
             log(f"HTTPS-Start-Fehler: {e}")
     threading.Thread(target=_start_https, daemon=True).start()
-    log(f"rom-suche startet auf :{PORT}")
+    log(f"Romseerr startet auf :{PORT}")
     app.run(host="0.0.0.0", port=PORT, threaded=True)  # nosec B104 - Container-Dienst, bindet bewusst alle Interfaces
