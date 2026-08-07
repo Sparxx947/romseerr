@@ -19,7 +19,9 @@ services:
     image: romseerr:local
     container_name: romseerr
     restart: unless-stopped
-    ports: ["${PORT:-8770}:8770"]
+    ports:
+      - "${PORT:-8770}:8770"
+      - "${HTTPS_PORT:-8443}:8443"   # HTTPS (nur aktiv, wenn ein Zertifikat hinterlegt ist)
     env_file: [.env]
     volumes:
       - ${ROMS_LIB:?bitte in .env setzen}:/roms          # RomM/RetroNAS-Bibliothek (Ziel + Dedup)
