@@ -808,3 +808,96 @@ def test_coverage_refresh_needs_permission_and_source(appmod, client):
     # ohne IGDB-Zugang ebenfalls klare Absage
     assert client.post("/api/coverage/refresh", json={}).status_code == 400
     appmod.save_users({})
+
+
+def _seed_ra(appmod, rows):
+    """RA-Sets direkt setzen — die Tests fassen RetroAchievements nie an."""
+    from contextlib import closing as _closing
+    with appmod.DB_LOCK, _closing(appmod.db_conn()) as c, c:
+        c.execute("DELETE FROM ra_games")
+        c.executemany("INSERT INTO ra_games(slug,norm,ra_id,title,achievements,points) VALUES(?,?,?,?,?,?)",
+                      [(s, appmod.norm(t), i, t, a, p) for s, t, i, a, p in rows])
+
+
+def test_ra_lookup_exact_only(appmod):
+    """Zuordnung nur bei exaktem normalisiertem Treffer — ein Fehlgriff wäre schlimmer
+    als gar keine Angabe. Mehrdeutige Treffer werden verworfen. (#79)"""
+    _seed_ra(appmod, [("snes", "Super Metroid", 100, 68, 550),
+                      ("gba", "Metroid Fusion", 200, 60, 500),
+                      ("nes", "Doppelgaenger Spiel", 300, 10, 50),
+                      ("snes", "Doppelgaenger Spiel", 301, 12, 60)])
+    hit = appmod.ra_lookup("Super Metroid (USA).sfc", "snes")
+    assert hit and hit["id"] == 100 and hit["achievements"] == 68
+    assert hit["url"] == "https://retroachievements.org/game/100"
+    assert appmod.ra_lookup("Super Metroid", "gba") is None          # falsche Plattform
+    assert appmod.ra_lookup("Super Metro", "snes") is None           # kein Fuzzy
+    assert appmod.ra_lookup("Doppelgaenger Spiel") is None           # mehrdeutig -> nichts
+    assert appmod.ra_lookup("Doppelgaenger Spiel", "nes")["id"] == 300
+    assert appmod.ra_has_set("Metroid Fusion", "gba") is True
+    _seed_ra(appmod, [])
+
+
+def test_ra_absent_without_key_and_without_set(appmod, client):
+    """Kein Key oder kein Set -> die Detailseite lässt den Abschnitt weg, ohne Fehler. (#79)"""
+    _seed_ra(appmod, [])
+    appmod.save_users({"r": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "r"; sess["role"] = "admin"
+    d = client.get("/api/detail?title=Voellig+Unbekanntes+Spiel&source=&ref=").get_json()
+    assert "achievements" not in d
+    assert "error" not in d
+    appmod.save_users({})
+
+
+def test_ra_detail_shows_set(appmod, client):
+    """Mit Set erscheint der Block samt Anzahl und Link. (#79)"""
+    _seed_ra(appmod, [("snes", "Super Metroid", 100, 68, 550)])
+    appmod.save_users({"r": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "r"; sess["role"] = "admin"
+    d = client.get("/api/detail?title=Super+Metroid&platform=snes&source=&ref=").get_json()
+    assert d["achievements"]["achievements"] == 68
+    assert d["achievements"]["url"].endswith("/game/100")
+    assert "progress" not in d["achievements"]      # ohne verknüpftes Konto kein Fortschritt
+    _seed_ra(appmod, []); appmod.save_users({})
+
+
+def test_ra_key_is_a_secret(appmod):
+    """Der RA-Key gehört zu den maskierten Verbindungswerten und darf nie im Klartext
+    im Export landen. (#79 + #75)"""
+    assert "ra_key" in appmod.CONN_SECRET
+    assert "ra_key" in appmod.CONN_KEYS
+    appmod.save_settings({"connections": {"ra_key": "ra-geheim-xyz"}})
+    assert "ra-geheim-xyz" not in json.dumps(appmod.build_export())
+    appmod.save_settings({})
+
+
+def test_ra_profile_account_roundtrip(appmod, client):
+    """Das RA-Konto ist freiwillig und pro Nutzer speicherbar. (#79)"""
+    appmod.save_users({"r": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "r"; sess["role"] = "admin"
+    assert client.post("/api/profile", json={"ra_user": "Spieler123"}).get_json()["ok"] is True
+    assert client.get("/api/profile").get_json()["ra_user"] == "Spieler123"
+    appmod.save_users({})
+
+
+def test_ra_refresh_requires_key_and_permission(appmod, client):
+    """Ohne Key klare Absage, ohne manage_settings 403. (#79)"""
+    appmod.save_settings({})
+    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": ["request"]}})
+    with client.session_transaction() as sess:
+        sess["user"] = "lena"; sess["role"] = "user"
+    assert client.post("/api/ra/refresh").status_code == 403
+    appmod.save_users({"r": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "r"; sess["role"] = "admin"
+    assert client.post("/api/ra/refresh").status_code == 400
+    appmod.save_users({})
+
+
+def test_ra_console_aliases_cover_platforms(appmod):
+    """Jeder Alias-Slug muss eine echte Plattform sein — ein Tippfehler wäre sonst
+    ein stiller Blindgänger. (#79)"""
+    unknown = [s for s in appmod.RA_ALIASES if s not in appmod.SLUG_NAME]
+    assert not unknown, f"RA_ALIASES kennt Slugs, die es nicht gibt: {unknown}"

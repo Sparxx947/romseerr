@@ -88,6 +88,12 @@ into the library and notifies when they are available. The library is shared by 
   is written: matched / ambiguous / not found. An **example file** in the expected format is
   offered in the dialog (also at `/api/wishlist/example.csv`).
 - **Per-user request history** with timestamps (admins can filter by user).
+- 🏆 **RetroAchievements** on the detail view: achievement count, points and a link to the set;
+  with an account linked in the profile, your own progress as well. Plus a "with achievements
+  only" search filter. Purely decorative — **without a key, or on any outage, the section
+  disappears and no error surfaces.** Matching runs against the per-console set list fetched in
+  advance and requires an **exact** title match; ambiguous matches are discarded, because a
+  wrong match is worse than no match.
 - 📊 **Per-platform coverage**: "412 of 1,180" — and one click opens the **missing** titles
   (paginated, filterable, bulk-select onto the wishlist). Based on a snapshot from IGDB;
   **source and date sit next to every number**, because metadata sets disagree about what

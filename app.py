@@ -145,10 +145,12 @@ _ENV_CONN = {"sab_url": SAB_URL, "sab_apikey": SAB_APIKEY, "sab_cat": SAB_CAT,
              # Scraper / Cover-Quellen
              "sgdb_key": os.environ.get("STEAMGRIDDB_KEY", ""),
              "ss_user":  os.environ.get("SCREENSCRAPER_USER", ""),
-             "ss_pass":  os.environ.get("SCREENSCRAPER_PASS", "")}
+             "ss_pass":  os.environ.get("SCREENSCRAPER_PASS", ""),
+             # RetroAchievements-Web-API-Key (optional, nur Dekoration auf der Detailseite)
+             "ra_key":   os.environ.get("RETROACHIEVEMENTS_KEY", "")}
 CONN_KEYS = list(_ENV_CONN.keys())
 CONN_SECRET = {"sab_apikey", "prow_apikey", "igdb_secret", "romm_pass",
-               "sgdb_key", "ss_pass"}   # in der GUI maskiert (Klartext-Anzeige via Reveal-Endpoint)
+               "sgdb_key", "ss_pass", "ra_key"}   # in der GUI maskiert (Klartext-Anzeige via Reveal-Endpoint)
 def cfg(key):
     """Verbindungswert holen: settings['connections'] (UI) hat Vorrang, sonst Env-Default."""
     v = (load_settings().get("connections") or {}).get(key)
@@ -353,6 +355,12 @@ def db_init():
             # Getrennt von `library` (= was wir haben); die Differenz ist die Abdeckung. (#78)
             c.execute("CREATE TABLE IF NOT EXISTS catalog(slug TEXT, norm TEXT, name TEXT)")
             c.execute("CREATE INDEX IF NOT EXISTS ix_cat_slug ON catalog(slug, norm)")
+            # RetroAchievements: je Konsole die Titel MIT Achievement-Set. Vorab geholt, damit
+            # die Detailseite ohne Netzzugriff auskommt und die Zuordnung über eine kuratierte
+            # Liste läuft statt über eine Freitextsuche. (#79)
+            c.execute("CREATE TABLE IF NOT EXISTS ra_games(slug TEXT, norm TEXT, ra_id INTEGER, "
+                      "title TEXT, achievements INTEGER, points INTEGER)")
+            c.execute("CREATE INDEX IF NOT EXISTS ix_ra_slug ON ra_games(slug, norm)")
             c.execute("CREATE TABLE IF NOT EXISTS users(username TEXT PRIMARY KEY, data TEXT)")
             c.execute("CREATE TABLE IF NOT EXISTS jobs(seq INTEGER PRIMARY KEY AUTOINCREMENT, jid TEXT, data TEXT)")
             c.execute("CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, data TEXT)")
@@ -546,6 +554,129 @@ def missing_titles(slug, offset=0, limit=100, q=""):
     except Exception as e:
         log(f"Fehlende-Titel {slug}: {e}"); return {"total": 0, "titles": []}
     return {"total": total, "titles": names}
+
+# ---------- RetroAchievements (optional, rein schmückend) (#79) ----------
+# Für eine Bibliothek voller Jahrzehnte alter Titel sagen Sternebewertungen wenig. Ein
+# Achievement-Set sagt zweierlei zugleich: dass ein Titel lohnt und dass ihn noch jemand spielt.
+#
+# Das Schwierige ist die ZUORDNUNG, nicht das Abrufen. Deshalb wird je Konsole einmal die
+# kuratierte Liste „Spiele mit Set" geholt und lokal abgelegt; zur Laufzeit ist die Zuordnung
+# dann ein exakter Abgleich der normalisierten Titel gegen diese Liste — kein Fuzzy-Matching,
+# denn eine falsche Zuordnung ist schlimmer als gar keine.
+#
+# Die Konsolen-IDs werden NICHT hartkodiert, sondern zur Laufzeit über die Systemliste von
+# RetroAchievements aufgelöst. Eine geratene ID würde stillschweigend die falsche Konsole
+# indizieren; ein nicht auflösbarer Name fällt dagegen als „keine Zuordnung" auf.
+RA_BASE = "https://retroachievements.org/API"
+RA_ALIASES = {
+    "nes": ["nes/famicom", "nes", "famicom"],
+    "snes": ["snes/super famicom", "snes", "super nintendo", "super famicom"],
+    "n64": ["nintendo 64"], "gb": ["game boy"], "gbc": ["game boy color"],
+    "gba": ["game boy advance"], "nds": ["nintendo ds"], "3ds": ["nintendo 3ds"],
+    "ngc": ["gamecube", "nintendo gamecube"], "wii": ["wii"], "virtualboy": ["virtual boy"],
+    "sms": ["master system"], "genesis": ["mega drive", "genesis", "mega drive/genesis", "sega genesis"],
+    "segacd": ["sega cd", "mega cd"], "sega32x": ["32x", "sega 32x"],
+    "gamegear": ["game gear"], "saturn": ["saturn", "sega saturn"], "dreamcast": ["dreamcast"],
+    "psx": ["playstation"], "ps2": ["playstation 2"], "psp": ["playstation portable", "psp"],
+    "turbografx16": ["pc engine", "turbografx-16", "pc engine/turbografx-16"],
+    "neogeopocket": ["neo geo pocket"], "wonderswan": ["wonderswan"],
+    "atari2600": ["atari 2600"], "atari7800": ["atari 7800"], "lynx": ["atari lynx"],
+    "jaguar": ["atari jaguar"], "3do": ["3do interactive multiplayer", "3do"],
+    "arcade": ["arcade"], "c64": ["commodore 64"], "amiga": ["amiga"], "dos": ["ms-dos", "dos"],
+}
+RA_LOCK = threading.Lock()
+RA_PROGRESS_TTL = 900        # Nutzerfortschritt ändert sich oft, muss aber nicht live sein
+_RA_PROGRESS = {}            # (user, ra_id) -> (ts, dict)
+
+def _ra_name(s):
+    return re.sub(r'[^a-z0-9]', '', str(s or "").lower())
+
+def ra_key(): return cfg("ra_key")
+
+def ra_get(endpoint, params, timeout=15):
+    """RA-Aufruf. Gibt bei jedem Fehler None zurück — diese Funktion ist Dekoration,
+    ihr Ausfall darf nirgends sichtbar werden."""
+    key = ra_key()
+    if not key: return None
+    try:
+        r = requests.get(f"{RA_BASE}/{endpoint}", params={**params, "y": key}, timeout=timeout)
+        return r.json() if r.ok else None
+    except Exception:
+        return None
+
+def ra_consoles():
+    """Slug -> RA-Konsolen-ID, zur Laufzeit über die Systemliste aufgelöst."""
+    data = ra_get("API_GetConsoleIDs.php", {"a": 1, "g": 1})
+    if not isinstance(data, list): return {}
+    by_name = {_ra_name(c.get("Name")): c.get("ID") for c in data if isinstance(c, dict)}
+    out = {}
+    for slug, names in RA_ALIASES.items():
+        for cand in names:
+            cid = by_name.get(_ra_name(cand))
+            if cid: out[slug] = int(cid); break
+    return out
+
+def ra_fetch_console(slug, cid):
+    """Alle Titel MIT Achievement-Set einer Konsole holen und lokal ablegen."""
+    data = ra_get("API_GetGameList.php", {"i": cid, "f": 1}, timeout=40)
+    if not isinstance(data, list) or not data: return None
+    rows, seen = [], set()
+    for g in data:
+        if not isinstance(g, dict): continue
+        title = g.get("Title") or ""
+        n = norm(title)
+        if not n or n in seen: continue
+        seen.add(n)
+        rows.append((slug, n, int(g.get("ID") or 0), title,
+                     int(g.get("NumAchievements") or 0), int(g.get("Points") or 0)))
+    if not rows: return None
+    try:
+        with DB_LOCK, closing(db_conn()) as c, c:
+            c.execute("DELETE FROM ra_games WHERE slug=?", (slug,))
+            c.executemany("INSERT INTO ra_games(slug,norm,ra_id,title,achievements,points) "
+                          "VALUES(?,?,?,?,?,?)", rows)
+    except Exception as e:
+        log(f"RA-Speichern {slug}: {e}"); return None
+    return len(rows)
+
+def ra_lookup(title, slug=""):
+    """Titel -> Achievement-Set. Exakter Abgleich des normalisierten Titels; ohne Plattform
+    wird plattformübergreifend gesucht und nur ein EINDEUTIGER Treffer akzeptiert."""
+    n = norm(title)
+    if not n: return None
+    try:
+        with closing(db_conn()) as c:
+            if slug:
+                rows = list(c.execute("SELECT slug,ra_id,title,achievements,points FROM ra_games "
+                                      "WHERE slug=? AND norm=? LIMIT 2", (slug, n)))
+            else:
+                rows = list(c.execute("SELECT slug,ra_id,title,achievements,points FROM ra_games "
+                                      "WHERE norm=? LIMIT 2", (n,)))
+    except Exception:
+        return None
+    if len(rows) != 1: return None      # mehrdeutig -> lieber nichts zeigen
+    s, rid, t, ach, pts = rows[0]
+    return {"id": rid, "title": t, "platform": s, "achievements": ach, "points": pts,
+            "url": f"https://retroachievements.org/game/{rid}"}
+
+def ra_user_progress(ra_user, ra_id):
+    """Fortschritt eines Nutzers für ein Set. Gecacht — muss nicht live sein."""
+    if not (ra_user and ra_id): return None
+    k = (ra_user, ra_id)
+    hit = _RA_PROGRESS.get(k)
+    if hit and time.time() - hit[0] < RA_PROGRESS_TTL: return hit[1]
+    d = ra_get("API_GetGameInfoAndUserProgress.php", {"u": ra_user, "g": ra_id})
+    out = None
+    if isinstance(d, dict):
+        out = {"earned": int(d.get("NumAwardedToUser") or 0),
+               "earned_hardcore": int(d.get("NumAwardedToUserHardcore") or 0),
+               "total": int(d.get("NumAchievements") or d.get("achievements_published") or 0),
+               "completion": d.get("UserCompletion") or ""}
+    _RA_PROGRESS[k] = (time.time(), out)
+    return out
+
+def ra_has_set(title, slug=""):
+    return ra_lookup(title, slug) is not None
 
 def in_library(title, slug):
     n = norm(title)
@@ -1724,6 +1855,7 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid var(--border)
  <div id=topbar>
   <input id=q data-i18n-ph=search_ph placeholder="Spiel suchen … (Enter)" autofocus>
   <button class=fbtn id=tF onclick="toggleFilter()">🎛 Plattformen: Alle</button>
+  <button class=fbtn id=tRA onclick="toggleRA()" title="RetroAchievements">🏆</button>
  </div>
  <div id=filter></div>
  <div id=discview><div id=grid></div><div class=hint id=hint data-i18n=hint_type>Tippe einen Titel und drücke Enter.</div></div>
@@ -1741,7 +1873,7 @@ const I18N={de:{
  hint_type:'Tippe einen Titel und drücke Enter.',loading_home:'Lade Startseite …',popular_on:'Beliebt auf',click_search:'klick zum Suchen',
  searching:'Suche läuft …',no_results:'Keine Treffer.',results:'Treffer',in_library:'✓ in Bibliothek',download:'⬇ Download',requested:'✓ angefragt',collection:'Sammlung',
  versions:'Versionen / Quellen',files:'Dateien',no_desc:'Keine Beschreibung verfügbar.',screenshots:'Screenshots',similar:'Ähnliche Spiele',series:'Reihe',because_you:'Weil du angefragt hast:',
- no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',retry:'Erneut',reset:'Alle zurücksetzen',req_all:'Alle anfragen',flt_user:'Nutzer',flt_all:'Alle',wishlist:'Wunschliste',nav_coverage:'Abdeckung',cov_of:'von',cov_src:'Quelle',cov_asof:'Stand',cov_files:'Dateien',cov_missing:'fehlende Titel',cov_refresh:'Katalog aktualisieren',cov_nosnap:'keine Momentaufnahme — Katalog noch nicht geholt',cov_nosource:'keine Katalogquelle für diese Plattform',cov_basis:'Grundlage ist eine Momentaufnahme aus {src} (max. {max} Titel je Plattform). Metadatensätze sind sich uneins, was als eigener Titel zählt — die Prozentzahl ist eine Orientierung, kein Messwert.',cov_search:'Suchen',cov_none:'Nichts fehlt (oder kein Katalog).',cov_filter:'Filtern …',cov_filter_do:'Filtern',cov_wish_sel:'Auswahl auf die Wunschliste',wl_import:'Import',wl_imp_hint:'Liste einfügen oder Datei wählen (TXT/CSV) — ein Titel je Zeile, optional Titel;Plattform. Nichts wird geschrieben, bevor du die Vorschau bestätigst.',wl_imp_example:'Beispieldatei herunterladen',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Vorschau',wl_imp_apply:'Übernehmen',wl_imp_none:'Nichts ausgewählt.',wl_imp_done:'{a} übernommen, {s} übersprungen.',wl_imp_trunc:'Nur die ersten {n} Zeilen werden geprüft.',wl_imp_toobig:'Datei zu groß (max. 200 kB).',wl_imp_nocheck:'Ohne IGDB-Zugang kein Katalogabgleich — Einträge werden ungeprüft übernommen.',wl_s_matched:'getroffen',wl_s_ambiguous:'mehrdeutig',wl_s_notfound:'nicht gefunden',wl_s_duplicate:'schon gemerkt',wl_s_inlib:'schon vorhanden',wl_s_unverified:'ungeprüft',add_wishlist:'⭐ Merken',wl_added:'⭐ gemerkt',wl_empty:'Wunschliste leer.',wl_remove:'Entfernen',
+ no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',retry:'Erneut',reset:'Alle zurücksetzen',req_all:'Alle anfragen',flt_user:'Nutzer',flt_all:'Alle',wishlist:'Wunschliste',nav_coverage:'Abdeckung',ra_achievements:'Achievements',ra_points:'Punkte',ra_earned:'erreicht',ra_user:'RetroAchievements-Konto (optional)',ra_refresh:'Sets holen',ra_sets:'Sets',ra_nokey:'kein API-Key hinterlegt',ra_unmapped:'ohne Konsolen-Zuordnung',ra_only:'nur mit Achievements',cov_of:'von',cov_src:'Quelle',cov_asof:'Stand',cov_files:'Dateien',cov_missing:'fehlende Titel',cov_refresh:'Katalog aktualisieren',cov_nosnap:'keine Momentaufnahme — Katalog noch nicht geholt',cov_nosource:'keine Katalogquelle für diese Plattform',cov_basis:'Grundlage ist eine Momentaufnahme aus {src} (max. {max} Titel je Plattform). Metadatensätze sind sich uneins, was als eigener Titel zählt — die Prozentzahl ist eine Orientierung, kein Messwert.',cov_search:'Suchen',cov_none:'Nichts fehlt (oder kein Katalog).',cov_filter:'Filtern …',cov_filter_do:'Filtern',cov_wish_sel:'Auswahl auf die Wunschliste',wl_import:'Import',wl_imp_hint:'Liste einfügen oder Datei wählen (TXT/CSV) — ein Titel je Zeile, optional Titel;Plattform. Nichts wird geschrieben, bevor du die Vorschau bestätigst.',wl_imp_example:'Beispieldatei herunterladen',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Vorschau',wl_imp_apply:'Übernehmen',wl_imp_none:'Nichts ausgewählt.',wl_imp_done:'{a} übernommen, {s} übersprungen.',wl_imp_trunc:'Nur die ersten {n} Zeilen werden geprüft.',wl_imp_toobig:'Datei zu groß (max. 200 kB).',wl_imp_nocheck:'Ohne IGDB-Zugang kein Katalogabgleich — Einträge werden ungeprüft übernommen.',wl_s_matched:'getroffen',wl_s_ambiguous:'mehrdeutig',wl_s_notfound:'nicht gefunden',wl_s_duplicate:'schon gemerkt',wl_s_inlib:'schon vorhanden',wl_s_unverified:'ungeprüft',add_wishlist:'⭐ Merken',wl_added:'⭐ gemerkt',wl_empty:'Wunschliste leer.',wl_remove:'Entfernen',
  users:'Benutzer',new_user:'Neuen Benutzer anlegen',create:'Anlegen',del:'Löschen',autoapprove:'Auto-Freigabe',role_user:'Nutzer',role_admin:'Admin',username:'Benutzername',password:'Passwort',
  notif_discord:'Benachrichtigungen — Discord',active:'aktiv',test:'Test',save:'Speichern',saved:'gespeichert ✓',test_sent:'Test gesendet ✓',webhook_ph:'Discord Webhook-URL',
  st_pending:'⏳ Wartet auf Freigabe',st_queued:'Angefragt',st_downloading:'Lädt…',st_importing:'Wird verarbeitet',st_done:'✅ Verfügbar',st_error:'Fehler',st_denied:'Abgelehnt',st_exists:'vorhanden',
@@ -1755,7 +1887,7 @@ const I18N={de:{
  hint_type:'Type a title and press Enter.',loading_home:'Loading home …',popular_on:'Popular on',click_search:'click to search',
  searching:'Searching …',no_results:'No results.',results:'results',in_library:'✓ in library',download:'⬇ Download',requested:'✓ requested',collection:'Collection',
  versions:'Versions / sources',files:'Files',no_desc:'No description available.',screenshots:'Screenshots',similar:'Similar games',series:'Series',because_you:'Because you requested:',
- no_requests:'No requests yet.',approve:'Approve',deny:'Deny',retry:'Retry',reset:'Reset all',req_all:'Request all',flt_user:'User',flt_all:'All',wishlist:'Wishlist',nav_coverage:'Coverage',cov_of:'of',cov_src:'Source',cov_asof:'as of',cov_files:'files',cov_missing:'missing titles',cov_refresh:'Refresh catalogue',cov_nosnap:'no snapshot — catalogue not fetched yet',cov_nosource:'no catalogue source for this platform',cov_basis:'Based on a snapshot from {src} (max {max} titles per platform). Metadata sets disagree about what counts as a distinct title — the percentage is an orientation, not a measurement.',cov_search:'Search',cov_none:'Nothing missing (or no catalogue).',cov_filter:'Filter …',cov_filter_do:'Filter',cov_wish_sel:'Selection to wishlist',wl_import:'Import',wl_imp_hint:'Paste a list or pick a file (TXT/CSV) — one title per line, optionally title;platform. Nothing is written until you confirm the preview.',wl_imp_example:'Download example file',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Preview',wl_imp_apply:'Import',wl_imp_none:'Nothing selected.',wl_imp_done:'{a} imported, {s} skipped.',wl_imp_trunc:'Only the first {n} lines are checked.',wl_imp_toobig:'File too large (max 200 kB).',wl_imp_nocheck:'No IGDB credentials — no catalogue check; entries are imported unverified.',wl_s_matched:'matched',wl_s_ambiguous:'ambiguous',wl_s_notfound:'not found',wl_s_duplicate:'already listed',wl_s_inlib:'already in library',wl_s_unverified:'unverified',add_wishlist:'⭐ Watch',wl_added:'⭐ watched',wl_empty:'Wishlist empty.',wl_remove:'Remove',
+ no_requests:'No requests yet.',approve:'Approve',deny:'Deny',retry:'Retry',reset:'Reset all',req_all:'Request all',flt_user:'User',flt_all:'All',wishlist:'Wishlist',nav_coverage:'Coverage',ra_achievements:'achievements',ra_points:'points',ra_earned:'earned',ra_user:'RetroAchievements account (optional)',ra_refresh:'Fetch sets',ra_sets:'sets',ra_nokey:'no API key stored',ra_unmapped:'no console mapping',ra_only:'with achievements only',cov_of:'of',cov_src:'Source',cov_asof:'as of',cov_files:'files',cov_missing:'missing titles',cov_refresh:'Refresh catalogue',cov_nosnap:'no snapshot — catalogue not fetched yet',cov_nosource:'no catalogue source for this platform',cov_basis:'Based on a snapshot from {src} (max {max} titles per platform). Metadata sets disagree about what counts as a distinct title — the percentage is an orientation, not a measurement.',cov_search:'Search',cov_none:'Nothing missing (or no catalogue).',cov_filter:'Filter …',cov_filter_do:'Filter',cov_wish_sel:'Selection to wishlist',wl_import:'Import',wl_imp_hint:'Paste a list or pick a file (TXT/CSV) — one title per line, optionally title;platform. Nothing is written until you confirm the preview.',wl_imp_example:'Download example file',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Preview',wl_imp_apply:'Import',wl_imp_none:'Nothing selected.',wl_imp_done:'{a} imported, {s} skipped.',wl_imp_trunc:'Only the first {n} lines are checked.',wl_imp_toobig:'File too large (max 200 kB).',wl_imp_nocheck:'No IGDB credentials — no catalogue check; entries are imported unverified.',wl_s_matched:'matched',wl_s_ambiguous:'ambiguous',wl_s_notfound:'not found',wl_s_duplicate:'already listed',wl_s_inlib:'already in library',wl_s_unverified:'unverified',add_wishlist:'⭐ Watch',wl_added:'⭐ watched',wl_empty:'Wishlist empty.',wl_remove:'Remove',
  users:'Users',new_user:'Create new user',create:'Create',del:'Delete',autoapprove:'Auto-approve',role_user:'User',role_admin:'Admin',username:'Username',password:'Password',
  notif_discord:'Notifications — Discord',active:'enabled',test:'Test',save:'Save',saved:'saved ✓',test_sent:'test sent ✓',webhook_ph:'Discord webhook URL',
  st_pending:'⏳ Awaiting approval',st_queued:'Requested',st_downloading:'Downloading…',st_importing:'Processing',st_done:'✅ Available',st_error:'Error',st_denied:'Denied',st_exists:'in library',
@@ -1769,7 +1901,7 @@ const I18N={de:{
  hint_type:'Saisissez un titre et appuyez sur Entrée.',loading_home:'Chargement …',popular_on:'Populaire sur',click_search:'cliquer pour rechercher',
  searching:'Recherche …',no_results:'Aucun résultat.',results:'résultats',in_library:'✓ dans la bibliothèque',download:'⬇ Télécharger',requested:'✓ demandé',collection:'Collection',
  versions:'Versions / sources',files:'Fichiers',no_desc:'Aucune description disponible.',screenshots:'Captures',similar:'Jeux similaires',series:'Série',because_you:'Parce que vous avez demandé :',
- no_requests:'Aucune demande.',approve:'Approuver',deny:'Refuser',retry:'Réessayer',reset:'Tout réinitialiser',req_all:'Tout demander',flt_user:'Utilisateur',flt_all:'Tous',wishlist:'Liste de souhaits',nav_coverage:'Couverture',cov_of:'sur',cov_src:'Source',cov_asof:'au',cov_files:'fichiers',cov_missing:'titres manquants',cov_refresh:'Actualiser le catalogue',cov_nosnap:'pas d’instantané — catalogue pas encore récupéré',cov_nosource:'pas de source de catalogue pour cette plateforme',cov_basis:'Basé sur un instantané de {src} (max {max} titres par plateforme). Les jeux de métadonnées ne s’accordent pas sur ce qui compte comme titre distinct — le pourcentage est une orientation, pas une mesure.',cov_search:'Chercher',cov_none:'Rien ne manque (ou pas de catalogue).',cov_filter:'Filtrer …',cov_filter_do:'Filtrer',cov_wish_sel:'Sélection vers la liste',wl_import:'Import',wl_imp_hint:'Collez une liste ou choisissez un fichier (TXT/CSV) — un titre par ligne, éventuellement titre;plateforme. Rien n’est écrit avant votre confirmation.',wl_imp_example:'Télécharger un exemple',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Aperçu',wl_imp_apply:'Importer',wl_imp_none:'Rien de sélectionné.',wl_imp_done:'{a} importés, {s} ignorés.',wl_imp_trunc:'Seules les {n} premières lignes sont vérifiées.',wl_imp_toobig:'Fichier trop grand (max 200 ko).',wl_imp_nocheck:'Sans accès IGDB, pas de vérification — les entrées sont importées telles quelles.',wl_s_matched:'trouvé',wl_s_ambiguous:'ambigu',wl_s_notfound:'introuvable',wl_s_duplicate:'déjà suivi',wl_s_inlib:'déjà présent',wl_s_unverified:'non vérifié',add_wishlist:'⭐ Suivre',wl_added:'⭐ suivi',wl_empty:'Liste vide.',wl_remove:'Retirer',
+ no_requests:'Aucune demande.',approve:'Approuver',deny:'Refuser',retry:'Réessayer',reset:'Tout réinitialiser',req_all:'Tout demander',flt_user:'Utilisateur',flt_all:'Tous',wishlist:'Liste de souhaits',nav_coverage:'Couverture',ra_achievements:'succès',ra_points:'points',ra_earned:'obtenus',ra_user:'Compte RetroAchievements (optionnel)',ra_refresh:'Récupérer les sets',ra_sets:'sets',ra_nokey:'aucune clé API',ra_unmapped:'sans correspondance de console',ra_only:'avec succès seulement',cov_of:'sur',cov_src:'Source',cov_asof:'au',cov_files:'fichiers',cov_missing:'titres manquants',cov_refresh:'Actualiser le catalogue',cov_nosnap:'pas d’instantané — catalogue pas encore récupéré',cov_nosource:'pas de source de catalogue pour cette plateforme',cov_basis:'Basé sur un instantané de {src} (max {max} titres par plateforme). Les jeux de métadonnées ne s’accordent pas sur ce qui compte comme titre distinct — le pourcentage est une orientation, pas une mesure.',cov_search:'Chercher',cov_none:'Rien ne manque (ou pas de catalogue).',cov_filter:'Filtrer …',cov_filter_do:'Filtrer',cov_wish_sel:'Sélection vers la liste',wl_import:'Import',wl_imp_hint:'Collez une liste ou choisissez un fichier (TXT/CSV) — un titre par ligne, éventuellement titre;plateforme. Rien n’est écrit avant votre confirmation.',wl_imp_example:'Télécharger un exemple',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Aperçu',wl_imp_apply:'Importer',wl_imp_none:'Rien de sélectionné.',wl_imp_done:'{a} importés, {s} ignorés.',wl_imp_trunc:'Seules les {n} premières lignes sont vérifiées.',wl_imp_toobig:'Fichier trop grand (max 200 ko).',wl_imp_nocheck:'Sans accès IGDB, pas de vérification — les entrées sont importées telles quelles.',wl_s_matched:'trouvé',wl_s_ambiguous:'ambigu',wl_s_notfound:'introuvable',wl_s_duplicate:'déjà suivi',wl_s_inlib:'déjà présent',wl_s_unverified:'non vérifié',add_wishlist:'⭐ Suivre',wl_added:'⭐ suivi',wl_empty:'Liste vide.',wl_remove:'Retirer',
  users:'Utilisateurs',new_user:'Créer un utilisateur',create:'Créer',del:'Supprimer',autoapprove:'Approbation auto',role_user:'Utilisateur',role_admin:'Admin',username:"Nom d'utilisateur",password:'Mot de passe',
  notif_discord:'Notifications — Discord',active:'activé',test:'Test',save:'Enregistrer',saved:'enregistré ✓',test_sent:'test envoyé ✓',webhook_ph:'URL du webhook Discord',
  st_pending:"⏳ En attente d'approbation",st_queued:'Demandé',st_downloading:'Téléchargement…',st_importing:'Traitement',st_done:'✅ Disponible',st_error:'Erreur',st_denied:'Refusé',st_exists:'présent',
@@ -1783,7 +1915,7 @@ const I18N={de:{
  hint_type:'Escribe un título y pulsa Intro.',loading_home:'Cargando …',popular_on:'Popular en',click_search:'clic para buscar',
  searching:'Buscando …',no_results:'Sin resultados.',results:'resultados',in_library:'✓ en la biblioteca',download:'⬇ Descargar',requested:'✓ solicitado',collection:'Colección',
  versions:'Versiones / fuentes',files:'Archivos',no_desc:'Sin descripción disponible.',screenshots:'Capturas',similar:'Juegos similares',series:'Serie',because_you:'Porque solicitaste:',
- no_requests:'Aún no hay solicitudes.',approve:'Aprobar',deny:'Rechazar',retry:'Reintentar',reset:'Restablecer todo',req_all:'Solicitar todo',flt_user:'Usuario',flt_all:'Todos',wishlist:'Lista de deseos',nav_coverage:'Cobertura',cov_of:'de',cov_src:'Fuente',cov_asof:'a fecha',cov_files:'archivos',cov_missing:'títulos que faltan',cov_refresh:'Actualizar catálogo',cov_nosnap:'sin instantánea — catálogo aún no obtenido',cov_nosource:'sin fuente de catálogo para esta plataforma',cov_basis:'Basado en una instantánea de {src} (máx. {max} títulos por plataforma). Los conjuntos de metadatos no coinciden en qué cuenta como título propio — el porcentaje orienta, no mide.',cov_search:'Buscar',cov_none:'No falta nada (o no hay catálogo).',cov_filter:'Filtrar …',cov_filter_do:'Filtrar',cov_wish_sel:'Selección a la lista',wl_import:'Importar',wl_imp_hint:'Pega una lista o elige un archivo (TXT/CSV) — un título por línea, opcionalmente título;plataforma. No se escribe nada hasta que confirmes.',wl_imp_example:'Descargar archivo de ejemplo',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Vista previa',wl_imp_apply:'Importar',wl_imp_none:'Nada seleccionado.',wl_imp_done:'{a} importados, {s} omitidos.',wl_imp_trunc:'Solo se comprueban las primeras {n} líneas.',wl_imp_toobig:'Archivo demasiado grande (máx. 200 kB).',wl_imp_nocheck:'Sin acceso a IGDB no hay comprobación — se importan sin verificar.',wl_s_matched:'encontrado',wl_s_ambiguous:'ambiguo',wl_s_notfound:'no encontrado',wl_s_duplicate:'ya en la lista',wl_s_inlib:'ya en biblioteca',wl_s_unverified:'sin verificar',add_wishlist:'⭐ Seguir',wl_added:'⭐ en lista',wl_empty:'Lista vacía.',wl_remove:'Quitar',
+ no_requests:'Aún no hay solicitudes.',approve:'Aprobar',deny:'Rechazar',retry:'Reintentar',reset:'Restablecer todo',req_all:'Solicitar todo',flt_user:'Usuario',flt_all:'Todos',wishlist:'Lista de deseos',nav_coverage:'Cobertura',ra_achievements:'logros',ra_points:'puntos',ra_earned:'obtenidos',ra_user:'Cuenta RetroAchievements (opcional)',ra_refresh:'Obtener sets',ra_sets:'sets',ra_nokey:'sin clave API',ra_unmapped:'sin correspondencia de consola',ra_only:'solo con logros',cov_of:'de',cov_src:'Fuente',cov_asof:'a fecha',cov_files:'archivos',cov_missing:'títulos que faltan',cov_refresh:'Actualizar catálogo',cov_nosnap:'sin instantánea — catálogo aún no obtenido',cov_nosource:'sin fuente de catálogo para esta plataforma',cov_basis:'Basado en una instantánea de {src} (máx. {max} títulos por plataforma). Los conjuntos de metadatos no coinciden en qué cuenta como título propio — el porcentaje orienta, no mide.',cov_search:'Buscar',cov_none:'No falta nada (o no hay catálogo).',cov_filter:'Filtrar …',cov_filter_do:'Filtrar',cov_wish_sel:'Selección a la lista',wl_import:'Importar',wl_imp_hint:'Pega una lista o elige un archivo (TXT/CSV) — un título por línea, opcionalmente título;plataforma. No se escribe nada hasta que confirmes.',wl_imp_example:'Descargar archivo de ejemplo',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Vista previa',wl_imp_apply:'Importar',wl_imp_none:'Nada seleccionado.',wl_imp_done:'{a} importados, {s} omitidos.',wl_imp_trunc:'Solo se comprueban las primeras {n} líneas.',wl_imp_toobig:'Archivo demasiado grande (máx. 200 kB).',wl_imp_nocheck:'Sin acceso a IGDB no hay comprobación — se importan sin verificar.',wl_s_matched:'encontrado',wl_s_ambiguous:'ambiguo',wl_s_notfound:'no encontrado',wl_s_duplicate:'ya en la lista',wl_s_inlib:'ya en biblioteca',wl_s_unverified:'sin verificar',add_wishlist:'⭐ Seguir',wl_added:'⭐ en lista',wl_empty:'Lista vacía.',wl_remove:'Quitar',
  users:'Usuarios',new_user:'Crear usuario',create:'Crear',del:'Eliminar',autoapprove:'Auto-aprobación',role_user:'Usuario',role_admin:'Admin',username:'Usuario',password:'Contraseña',
  notif_discord:'Notificaciones — Discord',active:'activo',test:'Prueba',save:'Guardar',saved:'guardado ✓',test_sent:'prueba enviada ✓',webhook_ph:'URL del webhook de Discord',
  st_pending:'⏳ Esperando aprobación',st_queued:'Solicitado',st_downloading:'Descargando…',st_importing:'Procesando',st_done:'✅ Disponible',st_error:'Error',st_denied:'Rechazado',st_exists:'presente',
@@ -1797,7 +1929,7 @@ const I18N={de:{
  hint_type:'Digita un titolo e premi Invio.',loading_home:'Caricamento …',popular_on:'Popolari su',click_search:'clicca per cercare',
  searching:'Ricerca …',no_results:'Nessun risultato.',results:'risultati',in_library:'✓ in libreria',download:'⬇ Scarica',requested:'✓ richiesto',collection:'Collezione',
  versions:'Versioni / fonti',files:'File',no_desc:'Nessuna descrizione disponibile.',screenshots:'Screenshot',similar:'Giochi simili',series:'Serie',because_you:'Perché hai richiesto:',
- no_requests:'Ancora nessuna richiesta.',approve:'Approva',deny:'Rifiuta',retry:'Riprova',reset:'Reimposta tutto',req_all:'Richiedi tutto',flt_user:'Utente',flt_all:'Tutti',wishlist:'Lista dei desideri',nav_coverage:'Copertura',cov_of:'di',cov_src:'Fonte',cov_asof:'al',cov_files:'file',cov_missing:'titoli mancanti',cov_refresh:'Aggiorna catalogo',cov_nosnap:'nessuna istantanea — catalogo non ancora recuperato',cov_nosource:'nessuna fonte di catalogo per questa piattaforma',cov_basis:'Basato su un’istantanea da {src} (max {max} titoli per piattaforma). I set di metadati non concordano su cosa sia un titolo distinto — la percentuale orienta, non misura.',cov_search:'Cerca',cov_none:'Non manca nulla (o nessun catalogo).',cov_filter:'Filtra …',cov_filter_do:'Filtra',cov_wish_sel:'Selezione alla lista',wl_import:'Importa',wl_imp_hint:'Incolla un elenco o scegli un file (TXT/CSV) — un titolo per riga, opzionalmente titolo;piattaforma. Nulla viene scritto prima della conferma.',wl_imp_example:'Scarica file di esempio',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Anteprima',wl_imp_apply:'Importa',wl_imp_none:'Niente selezionato.',wl_imp_done:'{a} importati, {s} saltati.',wl_imp_trunc:'Vengono controllate solo le prime {n} righe.',wl_imp_toobig:'File troppo grande (max 200 kB).',wl_imp_nocheck:'Senza accesso IGDB nessun controllo — le voci vengono importate non verificate.',wl_s_matched:'trovato',wl_s_ambiguous:'ambiguo',wl_s_notfound:'non trovato',wl_s_duplicate:'già in lista',wl_s_inlib:'già in libreria',wl_s_unverified:'non verificato',add_wishlist:'⭐ Segui',wl_added:'⭐ seguito',wl_empty:'Lista vuota.',wl_remove:'Rimuovi',
+ no_requests:'Ancora nessuna richiesta.',approve:'Approva',deny:'Rifiuta',retry:'Riprova',reset:'Reimposta tutto',req_all:'Richiedi tutto',flt_user:'Utente',flt_all:'Tutti',wishlist:'Lista dei desideri',nav_coverage:'Copertura',ra_achievements:'obiettivi',ra_points:'punti',ra_earned:'ottenuti',ra_user:'Account RetroAchievements (opzionale)',ra_refresh:'Recupera i set',ra_sets:'set',ra_nokey:'nessuna chiave API',ra_unmapped:'senza mappatura console',ra_only:'solo con obiettivi',cov_of:'di',cov_src:'Fonte',cov_asof:'al',cov_files:'file',cov_missing:'titoli mancanti',cov_refresh:'Aggiorna catalogo',cov_nosnap:'nessuna istantanea — catalogo non ancora recuperato',cov_nosource:'nessuna fonte di catalogo per questa piattaforma',cov_basis:'Basato su un’istantanea da {src} (max {max} titoli per piattaforma). I set di metadati non concordano su cosa sia un titolo distinto — la percentuale orienta, non misura.',cov_search:'Cerca',cov_none:'Non manca nulla (o nessun catalogo).',cov_filter:'Filtra …',cov_filter_do:'Filtra',cov_wish_sel:'Selezione alla lista',wl_import:'Importa',wl_imp_hint:'Incolla un elenco o scegli un file (TXT/CSV) — un titolo per riga, opzionalmente titolo;piattaforma. Nulla viene scritto prima della conferma.',wl_imp_example:'Scarica file di esempio',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Anteprima',wl_imp_apply:'Importa',wl_imp_none:'Niente selezionato.',wl_imp_done:'{a} importati, {s} saltati.',wl_imp_trunc:'Vengono controllate solo le prime {n} righe.',wl_imp_toobig:'File troppo grande (max 200 kB).',wl_imp_nocheck:'Senza accesso IGDB nessun controllo — le voci vengono importate non verificate.',wl_s_matched:'trovato',wl_s_ambiguous:'ambiguo',wl_s_notfound:'non trovato',wl_s_duplicate:'già in lista',wl_s_inlib:'già in libreria',wl_s_unverified:'non verificato',add_wishlist:'⭐ Segui',wl_added:'⭐ seguito',wl_empty:'Lista vuota.',wl_remove:'Rimuovi',
  users:'Utenti',new_user:'Crea utente',create:'Crea',del:'Elimina',autoapprove:'Auto-approvazione',role_user:'Utente',role_admin:'Admin',username:'Utente',password:'Password',
  notif_discord:'Notifiche — Discord',active:'attivo',test:'Test',save:'Salva',saved:'salvato ✓',test_sent:'test inviato ✓',webhook_ph:'URL webhook Discord',
  st_pending:'⏳ In attesa di approvazione',st_queued:'Richiesto',st_downloading:'Scaricamento…',st_importing:'Elaborazione',st_done:'✅ Disponibile',st_error:'Errore',st_denied:'Rifiutato',st_exists:'presente',
@@ -1960,9 +2092,13 @@ function renderCard(it){let c=document.createElement('div');c.className='card';
   if(d.cover){it.cover=d.cover;c.querySelector('.cover').style.backgroundImage="url('"+d.cover+"')";}});
  return c;}
 
+let RAONLY=false;
+function toggleRA(){RAONLY=!RAONLY;let b=document.getElementById('tRA');
+ b.classList.toggle('on',RAONLY);b.textContent=RAONLY?'🏆 '+t('ra_only'):'🏆';
+ if(document.getElementById('q').value.trim())search();}
 async function search(){let q=document.getElementById('q').value.trim();if(!q){loadDiscover();return;}
  let hint=document.getElementById('hint');hint.style.display='';hint.textContent=t('searching');
- let r=await fetch('/api/search?q='+encodeURIComponent(q)+'&platforms='+[...SELP].join(','));let d=await r.json();
+ let r=await fetch('/api/search?q='+encodeURIComponent(q)+'&platforms='+[...SELP].join(',')+(RAONLY?'&achievements=1':''));let d=await r.json();
  window.LASTRES=d;let g=document.getElementById('grid');g.className='';g.innerHTML='';
  if(!d.length){document.getElementById('hint').textContent=t('no_results');return;}
  let games={};d.forEach(x=>{if(!x.in_library){let k=x.gkey||x.title;if(!games[k])games[k]=1;}});
@@ -1993,6 +2129,7 @@ async function openDetail(it){let m=document.getElementById('modal');m.style.dis
     <button id=wlbtn onclick="addWishlist(this)" style="margin-top:8px;margin-left:6px;background:#2a2f37;border:none;color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px">${t('add_wishlist')}</button>
     <div class=desc id=mdesc>…</div></div></div>
   <div class=sec id=mshots style="display:none"><h3>${t('screenshots')}</h3><div class=shots id=mshotsw></div></div>
+  <div id=mra style="display:none;margin:6px 0"></div>
   <div class=sec><h3>${t('versions')} (${vars.length})</h3><div id=reqforbar></div><div id=mvar></div></div>
   <div class=sec id=mfiles></div>
   <div class=sec id=mser style="display:none"><h3 id=mserh>${t('series')}</h3><div class=chips id=mserw></div></div>
@@ -2006,9 +2143,19 @@ async function openDetail(it){let m=document.getElementById('modal');m.style.dis
  if(canDo('manage_requests')){try{let us=await(await fetch('/api/users')).json();let names=Object.keys(us||{});
    if(names.length){let bar=document.getElementById('reqforbar');
     bar.innerHTML=`<div class=frow style="margin-bottom:8px"><label style="min-width:auto;color:#8b929e;font-size:12px">${t('req_for')}</label><select id=reqforsel onchange="window.reqFor=this.value"><option value="">${t('req_self')}</option>${names.map(u=>`<option value="${u}">${u.replace(/</g,'&lt;')}</option>`).join('')}</select></div>`;}}catch(e){}}
- let r=await fetch('/api/detail?source='+encodeURIComponent(it.source)+'&ref='+encodeURIComponent(it.ref||'')+'&title='+encodeURIComponent(it.title));
+ let r=await fetch('/api/detail?source='+encodeURIComponent(it.source)+'&ref='+encodeURIComponent(it.ref||'')+'&title='+encodeURIComponent(it.title)+'&platform='+encodeURIComponent(it.platform_slug||''));
  let d=await r.json();
  window._detname=d.name||'';
+ // RetroAchievements: nur wenn ein Set zugeordnet ist. Kein Set / kein Dienst -> gar nichts. (#79)
+ let rabox=document.getElementById('mra');
+ if(rabox){if(d.achievements){let a=d.achievements;
+   let pr=a.progress?` · <b>${a.progress.earned}/${a.progress.total||a.achievements}</b> ${t('ra_earned')}`
+        +(a.progress.completion?` (${a.progress.completion})`:''):'';
+   rabox.style.display='';
+   rabox.innerHTML=`<span class=badge>🏆 ${a.achievements} ${t('ra_achievements')}</span> `
+    +`<span class=meta>${a.points} ${t('ra_points')}${pr} · `
+    +`<a href="${a.url}" target=_blank rel=noopener style="color:#5b8cff">RetroAchievements</a></span>`;}
+  else rabox.style.display='none';}
  document.getElementById('mdesc').textContent=d.description||t('no_desc');
  let rb=[];
  if(d.rating)rb.push(`<span class=badge>★ ${d.rating}</span>`);
@@ -2186,6 +2333,7 @@ async function openProfile(){let m=document.getElementById('modal');m.style.disp
    <div class=row><label style="color:#8b929e;font-size:13px">${t('language')}</label><select id=plang ${inp}><option value="">—</option><option value=de ${p.lang=='de'?'selected':''}>Deutsch</option><option value=en ${p.lang=='en'?'selected':''}>English</option><option value=fr ${p.lang=='fr'?'selected':''}>Français</option><option value=es ${p.lang=='es'?'selected':''}>Español</option><option value=it ${p.lang=='it'?'selected':''}>Italiano</option></select></div>
    <div class=row><label style="color:#8b929e;font-size:13px">${t('design')}</label><div style="display:flex;gap:8px;flex-wrap:wrap">${DESIGNS.map(dz=>`<button class="dpick${(p.design||'')==dz?' on':''}" data-d="${dz}" onclick="pickDesign('${dz}')">${t('d_'+dz)}</button>`).join('')}</div></div>
    <div class=row><input id=pwh ${inp} placeholder="${t('pwebhook')}" value="${(p.webhook||'').replace(/"/g,'&quot;')}"><button onclick="testPWebhook()">${t('test')}</button></div>
+   <div class=row><input id=pra ${inp} placeholder="${t('ra_user')}" value="${(p.ra_user||'').replace(/"/g,'&quot;')}"></div>
    <div class=row><button onclick="saveProfile()">${t('save')}</button><span id=pmsg class=meta></span></div>
    <div class=row><button onclick="togglePush()" id=pushbtn>${t('push_enable')}</button><span id=pushmsg class=meta></span></div>
    <div class=row><span class=meta>Kontingent / Quota</span><span class=meta>${p.quota&&p.quota.enabled?(p.quota.remaining+' / '+p.quota.count+' ('+p.quota.days+'d)'):'—'}</span></div></div>
@@ -2214,7 +2362,7 @@ function pickAvatar(e){let f=e.target.files[0];if(!f)return;
  if(f.size>280000){document.getElementById('pmsg').textContent='max ~280 KB';return;}
  let r=new FileReader();r.onload=()=>{PAV=r.result;document.getElementById('pav').style.backgroundImage="url('"+PAV+"')";};r.readAsDataURL(f);}
 function pickDesign(dz){applyDesign(dz);}
-async function saveProfile(){let d={display_name:document.getElementById('pdn').value,email:document.getElementById('pmail').value,lang:document.getElementById('plang').value,design:document.documentElement.dataset.design||'',webhook:document.getElementById('pwh').value};
+async function saveProfile(){let d={display_name:document.getElementById('pdn').value,email:document.getElementById('pmail').value,lang:document.getElementById('plang').value,design:document.documentElement.dataset.design||'',webhook:document.getElementById('pwh').value,ra_user:(document.getElementById('pra')||{}).value||''};
  if(PAV)d.avatar=PAV;
  let r=await(await fetch('/api/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
  document.getElementById('pmsg').textContent=r.ok?t('saved_ok'):(r.msg||t('st_error'));
@@ -2247,9 +2395,22 @@ async function secConn(c){let vals=await(await fetch('/api/settings/connections/
   <h3 style="font-size:13px">IGDB</h3>${fld('igdb_id','Client-ID')}${fld('igdb_secret','Client-Secret',1)}
   <h3 style="font-size:13px">Scraper / Cover-Quellen</h3>${fld('sgdb_key','SteamGridDB-Key',1)}${fld('ss_user','ScreenScraper-User')}${fld('ss_pass','ScreenScraper-Passwort',1)}
   <h3 style="font-size:13px">RomM</h3>${fld('romm_url','URL')}${fld('romm_user','User')}${fld('romm_pass','Passwort / password',1)}
+  <h3 style="font-size:13px">RetroAchievements</h3>${fld('ra_key','API-Key',1)}
+  <div class=frow><span class=meta id=rastat style="flex:1">…</span>
+   <button type=button onclick="raRefresh()" style="background:#2a2f37">${t('ra_refresh')}</button></div>
   <h3 style="font-size:13px">JDownloader</h3>${fld('jd_dl_base','Download-Basis')}
   <div class=frow><button onclick="saveConn()">${t('save')}</button><button onclick="testConn()" style="margin-left:8px;background:#2a2f37">${t('test')}</button><span id=cmsg class=meta></span></div>
-  <div id=csvc style="margin-top:10px"></div>`;}
+  <div id=csvc style="margin-top:10px"></div>`;raStatus();}
+async function raStatus(){let el=document.getElementById('rastat');if(!el)return;
+ let d=await(await fetch('/api/ra/status')).json();
+ if(!d.enabled){el.textContent=t('ra_nokey');return;}
+ if(d.build&&d.build.running){el.textContent=`${d.build.current||''} ${d.build.done}/${d.build.total}`;setTimeout(raStatus,2000);return;}
+ el.textContent=`${d.total} ${t('ra_sets')} · ${Object.keys(d.platforms||{}).length} ${t('about_platforms')}`
+  +(d.snapshot?` · ${t('cov_asof')} ${d.snapshot.slice(0,10)}`:'')
+  +((d.unmapped||[]).length?` · ${t('ra_unmapped')}: ${d.unmapped.join(', ')}`:'');}
+async function raRefresh(){let el=document.getElementById('rastat');el.textContent='…';
+ let d=await(await fetch('/api/ra/refresh',{method:'POST'})).json();
+ if(!d.ok){el.textContent=d.msg||t('st_error');return;}setTimeout(raStatus,1500);}
 function togEye(id,btn){let el=document.getElementById(id);if(!el)return;el.type=el.type=='password'?'text':'password';btn.style.color=el.type=='text'?'#e6e8ec':'#8b929e';}
 async function secTls(c){let d=await(await fetch('/api/settings/tls')).json();
  let ta='flex:1;min-height:110px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px;font-family:ui-monospace,monospace;font-size:11px';
@@ -2296,7 +2457,7 @@ async function wizTest(svc){wizCollect();document.getElementById('wtest').textCo
  let d=await(await fetch('/api/services/status')).json();let x=(d||[]).find(o=>o.name===svc);
  document.getElementById('wtest').textContent=x?((x.ok?'✅ ':'❌ ')+(x.info||'')):'—';}
 async function wizFinish(){await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({onboarded:true})});closeModal();if(cur=='s')loadDiscover();}
-const CONN_ALL=['sab_url','sab_apikey','sab_cat','prow_url','prow_apikey','prow_cats','igdb_id','igdb_secret','sgdb_key','ss_user','ss_pass','romm_url','romm_user','romm_pass','jd_dl_base'];
+const CONN_ALL=['sab_url','sab_apikey','sab_cat','prow_url','prow_apikey','prow_cats','igdb_id','igdb_secret','sgdb_key','ss_user','ss_pass','romm_url','romm_user','romm_pass','jd_dl_base','ra_key'];
 const CONN_SEC=['sab_apikey','prow_apikey','igdb_secret','sgdb_key','ss_pass','romm_pass'];
 async function saveConn(){let conn={};CONN_ALL.forEach(k=>{let el=document.getElementById('c_'+k);if(!el)return;
   if(CONN_SEC.includes(k)){if(el.value)conn[k]=el.value;}else{conn[k]=el.value;}});
@@ -2602,7 +2763,10 @@ def api_search():
     q = request.args.get("q","").strip()
     if not q: return jsonify([])
     plats = [p for p in request.args.get("platforms","").split(",") if p]
-    return jsonify(do_search(q, plats))
+    res = do_search(q, plats)
+    if request.args.get("achievements") == "1":
+        res = [r for r in res if ra_has_set(r.get("title", ""), r.get("platform", ""))]
+    return jsonify(res)
 
 @app.route("/api/platforms")
 def api_platforms():
@@ -2658,6 +2822,53 @@ def api_coverage_refresh():
     threading.Thread(target=run, daemon=True).start()
     return jsonify({"ok": True, "platforms": len(slugs)})
 
+RA_BUILD = {"running": False, "done": 0, "total": 0, "current": ""}
+
+@app.route("/api/ra/status")
+def api_ra_status():
+    """Stand der RetroAchievements-Zuordnung: welche Plattformen indiziert sind, wie viele
+    Sets, und welche Slugs sich NICHT auf eine RA-Konsole abbilden ließen."""
+    try:
+        with closing(db_conn()) as c:
+            per = dict(c.execute("SELECT slug, COUNT(*) FROM ra_games GROUP BY slug"))
+    except Exception:
+        per = {}
+    meta = kv_get("ra_meta", {})
+    return jsonify({"enabled": bool(ra_key()), "platforms": per, "total": sum(per.values()),
+                    "snapshot": meta.get("snapshot", ""), "unmapped": meta.get("unmapped", []),
+                    "build": dict(RA_BUILD)})
+
+@app.route("/api/ra/refresh", methods=["POST"])
+@perm_required("manage_settings")
+def api_ra_refresh():
+    """Set-Listen neu holen. Hintergrundlauf — je Konsole eine Abfrage, das dauert."""
+    if not ra_key():
+        return jsonify({"ok": False, "msg": "kein RetroAchievements-Key hinterlegt / no API key"}), 400
+    with RA_LOCK:
+        if RA_BUILD["running"]:
+            return jsonify({"ok": False, "msg": "läuft bereits / already running"}), 409
+        RA_BUILD.update({"running": True, "done": 0, "total": 0, "current": ""})
+
+    def run():
+        try:
+            consoles = ra_consoles()
+            unmapped = [s for s in RA_ALIASES if s not in consoles]
+            if unmapped: log(f"RA: keine Konsolen-Zuordnung für {', '.join(sorted(unmapped))}")
+            RA_BUILD["total"] = len(consoles)
+            for slug, cid in consoles.items():
+                RA_BUILD["current"] = slug
+                n = ra_fetch_console(slug, cid)
+                log(f"RA {slug} (Konsole {cid}): {n if n else 'keine Daten'}")
+                RA_BUILD["done"] += 1
+            kv_put("ra_meta", {"snapshot": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                               "unmapped": sorted(unmapped)})
+        except Exception as e:
+            log(f"RA-Lauf-Fehler: {e}")
+        finally:
+            RA_BUILD.update({"running": False, "current": ""})
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({"ok": True})
+
 @app.route("/api/coverage/status")
 def api_coverage_status():
     return jsonify(dict(COVERAGE_BUILD))
@@ -2683,6 +2894,15 @@ def api_detail():
            "rating": rich.get("rating"), "year": rich.get("year",""), "developer": rich.get("developer",""),
            "genres": rich.get("genres", []), "screenshots": rich.get("screenshots", []), "similar": rich.get("similar", []),
            "series": rich.get("series", ""), "series_games": rich.get("series_games", [])}
+    # RetroAchievements: rein additiv. Kein Set, kein Key, kein Dienst -> Abschnitt faellt weg,
+    # es erscheint KEIN Fehler. (#79)
+    ra = ra_lookup(title, request.args.get("platform", "")) if title else None
+    if ra:
+        out["achievements"] = ra
+        me = load_users().get(session.get("user", ""), {}).get("ra_user", "")
+        if me:
+            prog = ra_user_progress(me, ra["id"])
+            if prog: out["achievements"]["progress"] = prog
     if source == "archive" and ref:
         try:
             m = requests.get(f"https://archive.org/metadata/{ref}", timeout=15).json()
@@ -3019,7 +3239,8 @@ def api_profile_get():
     return jsonify({"username":u, "email":usr.get("email",""), "lang":usr.get("lang",""),
                     "design":usr.get("design",""),
                     "display_name":usr.get("display_name",""), "avatar":usr.get("avatar",""),
-                    "webhook":usr.get("webhook",""), "quota": quota_info(u)})
+                    "webhook":usr.get("webhook",""), "ra_user":usr.get("ra_user",""),
+                    "quota": quota_info(u)})
 
 @app.route("/api/profile", methods=["POST"])
 def api_profile_set():
@@ -3031,6 +3252,8 @@ def api_profile_set():
     if "webhook" in d: users[u]["webhook"] = (d.get("webhook") or "").strip()[:300]
     if "lang" in d: users[u]["lang"] = d.get("lang") if d.get("lang") in LANGS else ""
     if "design" in d: users[u]["design"] = d.get("design") if d.get("design") in DESIGNS else ""
+    # RetroAchievements-Konto: freiwillig, nur fuer den eigenen Fortschritt (#79)
+    if "ra_user" in d: users[u]["ra_user"] = (d.get("ra_user") or "").strip()[:60]
     if "avatar" in d:
         av = d.get("avatar") or ""
         if len(av) > 300000: return jsonify({"ok":False,"msg":"Bild zu groß (max ~300 KB)"}), 400
@@ -3948,6 +4171,11 @@ OPENAPI = {
             responses={**_R_AUTH, "200": {"description": "Trefferliste"}})},
         "/api/coverage": {"get": _op("Abdeckung je Plattform (besessen/bekannt/Prozent, mit Quelle und Stand)", "Search")},
         "/api/coverage/status": {"get": _op("Fortschritt eines laufenden Katalogabrufs", "Search")},
+        "/api/ra/status": {"get": _op("RetroAchievements: indizierte Plattformen, Set-Zahl, Stand, nicht zugeordnete Slugs", "Search")},
+        "/api/ra/refresh": {"post": _op("RetroAchievements: Set-Listen je Konsole neu holen (Hintergrundlauf)", "Admin",
+            responses={**_R_PERM, "200": {"description": "gestartet"},
+                       "400": {"description": "kein API-Key hinterlegt"},
+                       "409": {"description": "Lauf bereits aktiv"}})},
         "/api/coverage/refresh": {"post": _op("Katalog-Momentaufnahme neu holen (Hintergrundlauf)", "Admin",
             body={"type": "object", "properties": {"slug": {"type": "string", "description": "nur diese Plattform; leer = alle"}}},
             responses={**_R_PERM, "200": {"description": "gestartet"},

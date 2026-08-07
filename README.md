@@ -88,6 +88,12 @@ teilen sich **RomM** (Browser/Player) und **RetroNAS**.
   vor dem Schreiben: getroffen / mehrdeutig / nicht gefunden. Eine **Beispieldatei** im
   erwarteten Format gibt es im Dialog (bzw. unter `/api/wishlist/example.csv`).
 - **Anfrage-Verlauf** je Nutzer mit Zeitstempel (für Admins pro Nutzer filterbar).
+- 🏆 **RetroAchievements** auf der Detailseite: Anzahl der Achievements, Punkte und Link zum
+  Set; mit hinterlegtem Konto (Profil) zusätzlich der eigene Fortschritt. Dazu ein Suchfilter
+  „nur mit Achievements". Rein schmückend — **ohne Key oder bei Ausfall verschwindet der
+  Abschnitt, es erscheint kein Fehler.** Die Zuordnung läuft über die vorab geholte Set-Liste
+  je Konsole und verlangt einen **exakten** Titeltreffer; mehrdeutige Treffer werden verworfen,
+  weil eine falsche Zuordnung schlimmer ist als gar keine.
 - 📊 **Abdeckung je Plattform**: „412 von 1.180" — und ein Klick öffnet die **fehlenden**
   Titel (paginiert, filterbar, per Sammelauswahl auf die Wunschliste). Grundlage ist eine
   Momentaufnahme aus IGDB; **Quelle und Stand stehen an jeder Zahl**, denn Metadatensätze
