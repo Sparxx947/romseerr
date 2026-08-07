@@ -23,7 +23,21 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
   non-raw Python `PAGE` string; Python turned `\n` into a real newline, so the served inline
   JavaScript had an **unterminated string literal** and the whole script failed. Fixed to `join('\\n')`.
 
+### Hinzugefügt / Added
+- **Smoke-Tests (pytest) + Inline-JS-Guard** — die CI prüft jetzt **Verhalten**, nicht nur
+  Syntax: Health, Titel-Normalisierung/Dedup, Bibliotheks-Index, Sperrliste, Setup/Login,
+  Auth-Schutz. Zusätzlich verifiziert ein Test, dass das **eingebettete JavaScript gültig
+  parst** (via `node --check` des interpretierten `PAGE`-Strings) — genau die Fehlerklasse,
+  die `py_compile` nicht fängt. Neuer CI-Job **Tests**. /
+  **Smoke tests (pytest) + inline-JS guard** — CI now checks behavior, not just syntax
+  (health, normalization/dedup, index, blocklist, setup/login, auth); plus a test that the
+  embedded JavaScript parses (`node --check` on the interpreted `PAGE`). New CI job **Tests**.
+
 ### Geändert / Changed
+- **Basis-Pfade per Env überschreibbar** — `ROMSEERR_CONFIG` (Default `/config`) und
+  `ROMSEERR_ROMS` (Default `/roms`) steuern die Datenverzeichnisse; nötig für Tests, nützlich
+  für flexible Deployments. Verhalten mit Defaults unverändert. /
+  **Configurable base paths** — `ROMSEERR_CONFIG` / `ROMSEERR_ROMS` (defaults unchanged).
 - **users + jobs in SQLite** — Benutzer und Anfragen liegen jetzt in `/config/romseerr.db`
   (Tabellen `users`, `jobs`) statt in JSON-Dateien; bestehende `users.json`/`jobs.json` werden
   beim ersten Start **automatisch übernommen** und als `.migrated` gesichert (verlustfrei, erst

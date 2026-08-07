@@ -31,21 +31,24 @@ ROMM_PASS    = os.environ.get("ROMM_PASS", "")
 PORT         = int(os.environ.get("PORT", "8770"))
 VERSION      = "0.1.0"
 
-ROMS       = "/roms"
+# Basis-Verzeichnisse (per Env überschreibbar — Default = Container-Mounts; nötig für Tests)
+CONFIG_DIR = os.environ.get("ROMSEERR_CONFIG", "/config")
+ROMS       = os.environ.get("ROMSEERR_ROMS", "/roms")
 SAB_DONE   = "/sab-complete"
 JD_WATCH   = "/jd-watch"
 JD_OUT     = "/jd-output/rom-suche"           # Sicht der rom-suche (=/mnt/user/Downloads/rom-suche)
 JD_DL_BASE = os.environ.get("JD_DL_BASE","/output/rom-suche")  # Sicht des JD-Containers
-STAGING    = "/config/staging"
-JOBDB      = "/config/jobs.json"
-LOGFILE    = "/config/rom-suche.log"
-USERS_FILE = "/config/users.json"
-SECRET_FILE= "/config/secret.key"
-SETTINGS_FILE = "/config/settings.json"
-MAILLOG_FILE  = "/config/maillog.json"
-ISSUES_FILE   = "/config/issues.json"
-PUSH_FILE     = "/config/push_subs.json"
-VAPID_FILE    = "/config/vapid.json"
+STAGING    = os.path.join(CONFIG_DIR, "staging")
+JOBDB      = os.path.join(CONFIG_DIR, "jobs.json")
+LOGFILE    = os.path.join(CONFIG_DIR, "rom-suche.log")
+USERS_FILE = os.path.join(CONFIG_DIR, "users.json")
+SECRET_FILE= os.path.join(CONFIG_DIR, "secret.key")
+SETTINGS_FILE = os.path.join(CONFIG_DIR, "settings.json")
+MAILLOG_FILE  = os.path.join(CONFIG_DIR, "maillog.json")
+ISSUES_FILE   = os.path.join(CONFIG_DIR, "issues.json")
+PUSH_FILE     = os.path.join(CONFIG_DIR, "push_subs.json")
+VAPID_FILE    = os.path.join(CONFIG_DIR, "vapid.json")
+DB_FILE       = os.path.join(CONFIG_DIR, "romseerr.db")
 
 ROM_EXT = {"sfc","smc","nes","fds","gb","gba","gbc","n64","z64","v64","ndd","md","gen","smd","sms",
            "gg","32x","pce","sgx","ngp","ngc","ws","wsc","iso","bin","cue","chd","img","cdi","gdi",
@@ -173,7 +176,6 @@ LIB = {"per": {}, "all": set(), "slugs": set(), "ts": 0}
 LIB_LOCK = threading.Lock()
 
 # ---------- SQLite: persistenter Bibliotheks-Index ----------
-DB_FILE = "/config/romseerr.db"
 DB_LOCK = threading.Lock()
 
 def db_conn():
