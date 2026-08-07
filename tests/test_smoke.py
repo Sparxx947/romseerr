@@ -336,3 +336,28 @@ def test_logs_bad_n_no_500(appmod, client):
         sess["user"] = "a"; sess["role"] = "admin"
     assert client.get("/api/logs?n=abc").status_code == 200
     appmod.save_users({})
+
+
+def test_jobs_visibility_per_user(appmod, client):
+    """Ohne manage_requests sieht ein Nutzer nur die eigenen Anfragen; ein Manager alle."""
+    appmod.save_users({
+        "boss": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)},
+        "lena": {"pw": "x", "role": "user", "perms": ["request"]},
+    })
+    with appmod.JOBS_LOCK:
+        appmod.JOBS[:] = [
+            {"id": "1", "title": "Boss Game", "user": "boss", "state": "queued", "source": "", "ref": "", "platform": "", "size": 0},
+            {"id": "2", "title": "Lena Game", "user": "lena", "state": "queued", "source": "", "ref": "", "platform": "", "size": 0},
+        ]
+        appmod.save_jobs()
+    with client.session_transaction() as sess:
+        sess["user"] = "lena"; sess["role"] = "user"
+    titles = [j["title"] for j in client.get("/api/jobs").get_json()]
+    assert titles == ["Lena Game"]            # nur die eigene
+    with client.session_transaction() as sess:
+        sess["user"] = "boss"; sess["role"] = "admin"
+    titles = sorted(j["title"] for j in client.get("/api/jobs").get_json())
+    assert titles == ["Boss Game", "Lena Game"]   # Manager sieht alle
+    with appmod.JOBS_LOCK:
+        appmod.JOBS[:] = []; appmod.save_jobs()
+    appmod.save_users({})
