@@ -1380,3 +1380,23 @@ def test_personal_webhook_test_blocks_internal_targets(appmod, client):
     msg = r.get_json()["msg"]
     assert "privat" in msg.lower() or "private" in msg.lower()
     appmod.save_users({})
+
+
+def test_no_exception_text_reaches_responses(appmod, client):
+    """Kein Ausnahmetext in einer Antwort — die Meldungen sind bewusst geschriebene
+    Nutzertexte, alles andere gehört ins Log. (#89)"""
+    appmod.save_users({"a": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "a"; sess["role"] = "admin"
+    # Import mit kaputtem Dokument: klare Meldung, aber keine Interna
+    r = client.post("/api/import", json={"document": {"app": "romseerr", "schema": 999}, "mode": "merge"})
+    assert r.status_code == 400
+    msg = r.get_json()["msg"]
+    assert "Schema 999" in msg                     # nützliche Auskunft bleibt
+    assert "Traceback" not in msg and "/config" not in msg and "app.py" not in msg
+    # TLS-Upload mit Unsinn: generische Meldung, keine Dateipfade
+    r = client.post("/api/settings/tls", json={"cert": "kein pem", "key": "auch nicht"})
+    assert r.status_code == 400
+    m2 = r.get_json()["msg"]
+    assert "/" not in m2.replace(" / ", "")        # kein Pfad (der Sprachtrenner zählt nicht)
+    appmod.save_users({})

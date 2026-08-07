@@ -1264,7 +1264,9 @@ def refresh_catalogs(force=False):
                          "fetched": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))}
             log(f"Katalogquelle '{name}': {n} Einträge")
         except Exception as e:
-            meta[url] = {**m, "ts": now, "error": str(e)[:150],
+            # Auch hier nur die Fehlerart: der Katalogstatus ist fuer Admins sichtbar,
+            # der Ausnahmetext koennte interne Pfade tragen. (#89)
+            meta[url] = {**m, "ts": now, "error": err_kind(e) if isinstance(e, Exception) else "Fehler",
                          "fetched": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))}
             log(f"Katalogquelle {url}: {e}")
     for url in list(meta):
@@ -3391,15 +3393,17 @@ def build_export(passphrase=""):
     return doc
 
 def _restore_secrets(doc, passphrase):
-    """Verschlüsselte Geheimnisse zurückholen. Falsche Passphrase -> ValueError."""
+    """Verschlüsselte Geheimnisse zurückholen -> (stash, fehlermeldung). Kein Werfen:
+    kein Ausnahmetext soll je in eine Antwort geraten."""
     sec = doc.get("secrets") or {}
-    if sec.get("mode") != "encrypted": return {}
-    if not passphrase: raise ValueError("Passphrase fehlt / passphrase missing")
+    if sec.get("mode") != "encrypted": return {}, ""
+    if not passphrase: return None, "Passphrase fehlt / passphrase missing"
     try:
         f = _fernet(passphrase, base64.b64decode(sec["salt"]), int(sec.get("iterations") or 200_000))
-        return json.loads(f.decrypt(sec["data"].encode()).decode())
-    except Exception:
-        raise ValueError("Passphrase falsch oder Daten beschädigt / wrong passphrase or corrupt data")
+        return json.loads(f.decrypt(sec["data"].encode()).decode()), ""
+    except Exception as e:
+        log(f"Import-Entschluesselung: {e}")
+        return None, "Passphrase falsch oder Daten beschädigt / wrong passphrase or corrupt data"
 
 def _unredact(value, current):
     """REDACTED heißt „behalte, was da ist" — auch im replace-Modus. Ein Export ohne
@@ -3408,20 +3412,24 @@ def _unredact(value, current):
 
 def apply_import(doc, mode, passphrase=""):
     """Dokument übernehmen. `mode` muss der Aufrufer ausdrücklich wählen:
-    `replace` ersetzt den jeweiligen Bereich vollständig, `merge` legt ihn darüber."""
+    `replace` ersetzt den jeweiligen Bereich vollständig, `merge` legt ihn darüber.
+
+    Gibt `(counts, fehlermeldung)` zurück statt zu werfen: die Meldungen sind bewusste,
+    für Nutzer geschriebene Texte — kein Ausnahmetext soll je in eine Antwort geraten."""
     if not isinstance(doc, dict) or doc.get("app") != "romseerr":
-        raise ValueError("kein Romseerr-Export / not a Romseerr export")
+        return None, "kein Romseerr-Export / not a Romseerr export"
     schema = doc.get("schema")
     if not isinstance(schema, int):
-        raise ValueError("Schema-Version fehlt / schema version missing")
+        return None, "Schema-Version fehlt / schema version missing"
     if schema > EXPORT_SCHEMA:
-        raise ValueError(f"Schema {schema} ist neuer als diese Version (max {EXPORT_SCHEMA}) — "
-                         f"bitte Romseerr aktualisieren / newer than this build, please update")
+        return None, (f"Schema {schema} ist neuer als diese Version (max {EXPORT_SCHEMA}) — "
+                      f"bitte Romseerr aktualisieren / newer than this build, please update")
     if schema < 1:
-        raise ValueError(f"Schema {schema} wird nicht unterstützt / unsupported")
+        return None, f"Schema {schema} wird nicht unterstützt / unsupported"
     if mode not in ("merge", "replace"):
-        raise ValueError("mode muss 'merge' oder 'replace' sein / must be 'merge' or 'replace'")
-    stash = _restore_secrets(doc, passphrase)
+        return None, "mode muss 'merge' oder 'replace' sein / must be 'merge' or 'replace'"
+    stash, err = _restore_secrets(doc, passphrase)
+    if err: return None, err
     counts = {}
 
     if isinstance(doc.get("settings"), dict):
@@ -3452,8 +3460,8 @@ def apply_import(doc, mode, passphrase=""):
         result = new if mode == "replace" else {**cur, **new}
         # Ein Import darf niemanden aussperren: ohne Admin (mit Kennwort) wäre die Instanz tot.
         if not any(u.get("role") == "admin" and u.get("pw") for u in result.values()):
-            raise ValueError("Import würde keinen Administrator mit Kennwort hinterlassen / "
-                             "would leave no admin with a password")
+            return None, ("Import würde keinen Administrator mit Kennwort hinterlassen / "
+                          "would leave no admin with a password")
         save_users(result); counts["users"] = len(result)
 
     if isinstance(doc.get("wishlist"), dict):
@@ -3478,7 +3486,7 @@ def apply_import(doc, mode, passphrase=""):
                 JOBS.extend(j for j in doc["requests"] if j.get("id") not in known)
             save_jobs()
             counts["requests"] = len(JOBS)
-    return counts
+    return counts, ""
 
 @app.route("/api/export")
 @admin_required
@@ -3511,12 +3519,12 @@ def api_import():
     doc = d.get("document")
     if doc is None: doc = d if "schema" in d else None
     try:
-        counts = apply_import(doc, d.get("mode"), d.get("passphrase") or "")
-    except ValueError as e:
-        return jsonify({"ok": False, "msg": str(e)}), 400
+        counts, err = apply_import(doc, d.get("mode"), d.get("passphrase") or "")
     except Exception as e:
         log(f"Import-Fehler: {e}")
         return jsonify({"ok": False, "msg": "Import fehlgeschlagen / failed"}), 500
+    if err:
+        return jsonify({"ok": False, "msg": err}), 400
     log(f"Konfiguration importiert ({d.get('mode')}): {counts}")
     return jsonify({"ok": True, "mode": d.get("mode"), "counts": counts})
 
@@ -3578,7 +3586,10 @@ def api_tls_set():
         try:
             _tls_validate(cert, key)
         except Exception as e:
-            return jsonify({"ok": False, "msg": "ungültig / invalid: " + str(e)[:140]}), 400
+            # Der Text von load_cert_chain kann Dateipfade enthalten -> nur ins Log.
+            log(f"TLS-Upload ungueltig: {e}")
+            return jsonify({"ok": False, "msg": "Zertifikat oder Schlüssel ungültig / "
+                                                "certificate or key invalid"}), 400
         os.makedirs(TLS_DIR, exist_ok=True)
         with open(TLS_CERT, "w") as f: f.write(cert)
         with open(TLS_KEY, "w") as f: f.write(key)
