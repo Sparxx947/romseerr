@@ -107,6 +107,40 @@ def test_retry_unknown_job_404(client):
     assert client.post("/api/jobs/does-not-exist/retry").status_code == 404
 
 
+def test_tls_upload_and_status(client):
+    """TLS-Upload: ungültig -> 400; gültiges self-signed -> gespeichert, Status zeigt CN."""
+    st = client.get("/api/auth/status").get_json()
+    if st["setup"]:
+        client.post("/api/setup", json={"username": "admin", "password": "pw123456", "display_name": "A"})
+    client.post("/api/login", json={"username": "admin", "password": "pw123456"})
+    assert client.post("/api/settings/tls", json={"cert": "x", "key": "y"}).status_code == 400
+    try:
+        import datetime
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+    except ImportError:
+        pytest.skip("cryptography nicht verfügbar")
+    k = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subj = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test.local")])
+    crt = (x509.CertificateBuilder().subject_name(subj).issuer_name(subj)
+           .public_key(k.public_key()).serial_number(x509.random_serial_number())
+           .not_valid_before(datetime.datetime.utcnow())
+           .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=30))
+           .sign(k, hashes.SHA256()))
+    cert_pem = crt.public_bytes(serialization.Encoding.PEM).decode()
+    key_pem = k.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL,
+                              serialization.NoEncryption()).decode()
+    r = client.post("/api/settings/tls", json={"cert": cert_pem, "key": key_pem, "enabled": True, "port": 8443})
+    assert r.status_code == 200
+    info = client.get("/api/settings/tls").get_json()
+    assert info["has_cert"] is True
+    assert "test.local" in info["cn"]
+    client.post("/api/settings/tls/remove")
+    assert client.get("/api/settings/tls").get_json()["has_cert"] is False
+
+
 def test_protected_endpoint_requires_auth(client):
     # ohne Login liefert eine geschützte API 401 (nicht 200)
     r = client.get("/api/users")

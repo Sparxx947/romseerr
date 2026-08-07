@@ -7,6 +7,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY app.py /app/app.py
 WORKDIR /app
 EXPOSE 8770
+EXPOSE 8443
 
 # Als NON-ROOT laufen (uid 1000). Die gemounteten Volumes (/config, /roms, …) müssen dem
 # Benutzer gehören, unter dem der Container läuft. Auf Unraid o. ä. per `--user 99:100`

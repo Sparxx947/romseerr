@@ -759,6 +759,53 @@ paths:
         '200':
           description: key->value
       security: *id002
+  /api/settings/tls:
+    get:
+      summary: HTTPS/TLS-Status (CN, Ablauf, Port)
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+    post:
+      summary: TLS-Zertifikat + Schlüssel hinterlegen (Neustart nötig)
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: gespeichert
+        '400':
+          description: ungültig
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cert:
+                  type: string
+                  description: PEM
+                key:
+                  type: string
+                  description: PEM
+                port:
+                  type: integer
+                enabled:
+                  type: boolean
+  /api/settings/tls/remove:
+    post:
+      summary: TLS-Zertifikat entfernen
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
   /api/settings/notify-test:
     post:
       summary: Benachrichtigungs-Agenten testen

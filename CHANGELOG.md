@@ -7,6 +7,15 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **HTTPS-Zertifikat über die Weboberfläche** — Admin kann unter Einstellungen → **HTTPS** ein
+  TLS-Zertifikat + Schlüssel (PEM) hinterlegen (validiert, `/config/tls`, 600). Ist es aktiviert,
+  startet die App zusätzlich einen **HTTPS-Listener** auf einem eigenen Port (Default **8443**);
+  HTTP auf 8770 bleibt. Ermöglicht Web-Push/PWA ohne separaten Reverse-Proxy. Status zeigt
+  CN/Ablauf; der private Schlüssel wird nie ausgegeben. `GET/POST /api/settings/tls`,
+  `POST /api/settings/tls/remove`. /
+  **HTTPS certificate via the web UI** — admins can upload a TLS cert+key (PEM) under Settings →
+  HTTPS; when enabled the app also serves HTTPS on a separate port (default 8443). Status shows
+  CN/expiry; the private key is never returned.
 - **Scraper-Quellen + Klartext-Anzeige in „Verbindungen"** — neue Felder für **SteamGridDB**
   (Key, als **Cover-Fallback** verdrahtet, wenn IGDB kein Cover hat) und **ScreenScraper**
   (User/Passwort). Secret-Felder haben jetzt einen **👁-Umschalter**, um den Wert im **Klartext**
