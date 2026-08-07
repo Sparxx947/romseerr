@@ -1187,7 +1187,7 @@ def test_catalog_parse_matches_hydra_schema(appmod, monkeypatch):
         ok = True
         status_code = 200
         def json(self): return HYDRA_SAMPLE
-    monkeypatch.setattr(appmod.requests, "get", lambda *a, **k: FakeResp())
+    monkeypatch.setattr(appmod, "safe_get", lambda *a, **k: FakeResp())
     name, n = appmod.fetch_catalog_source("https://beispiel.invalid/s.json")
     assert name == "Beispielquelle"
     assert n == 3          # "Ohne Links" faellt raus, Magnet-Eintrag bleibt in der DB
@@ -1208,7 +1208,7 @@ def test_catalog_rejects_foreign_json(appmod, monkeypatch):
         ok = True
         status_code = 200
         def json(self): return {"irgendwas": [1, 2, 3]}
-    monkeypatch.setattr(appmod.requests, "get", lambda *a, **k: FakeResp())
+    monkeypatch.setattr(appmod, "safe_get", lambda *a, **k: FakeResp())
     with pytest.raises(RuntimeError) as e:
         appmod.fetch_catalog_source("https://falsch.invalid/s.json")
     assert "Katalog-JSON" in str(e.value) or "catalogue" in str(e.value)
@@ -1303,4 +1303,80 @@ def test_play_endpoint_needs_request_permission(appmod, client):
         sess["user"] = "max"; sess["role"] = "user"
     assert client.get("/api/play?title=X&platform=ps2").get_json()["reason"] in ("no_core", "no_romm")
     assert client.get("/api/play?title=").status_code == 400
+    appmod.save_users({})
+
+
+def test_url_allowed_refuses_internal_targets(appmod):
+    """Ausgehende Anfragen an selbst gesetzte URLs: privat/Loopback/Link-Local nur mit
+    ausdrücklicher Admin-Einstellung, andere Schemata nie. (#89)"""
+    appmod.save_settings({})
+    for bad, why in (("file:///etc/passwd", "scheme"), ("ftp://host/x", "scheme"),
+                     ("gopher://host/x", "scheme"), ("nicht mal eine url", "scheme")):
+        ok, reason = appmod.url_allowed(bad)
+        assert ok is False and reason == why, bad
+    for bad in ("http://127.0.0.1:8080/x", "http://localhost/x", "https://[::1]/x",
+                "http://169.254.169.254/latest/meta-data/", "http://10.0.0.5/",
+                "http://192.168.1.1/admin", "http://172.16.4.4/"):
+        ok, reason = appmod.url_allowed(bad)
+        assert ok is False and reason in ("private", "dns"), f"{bad} -> {reason}"
+    # Ausdrückliche Freigabe (viele betreiben ihr Ziel im selben Netz)
+    appmod.save_settings({"allow_private_webhooks": True})
+    ok, _ = appmod.url_allowed("http://192.168.1.1/admin")
+    assert ok is True
+    # ... aber ein fremdes Schema bleibt auch dann verboten
+    assert appmod.url_allowed("file:///etc/passwd")[0] is False
+    appmod.save_settings({})
+
+
+def test_safe_request_refuses_before_sending(appmod, monkeypatch):
+    """Die Absage passiert VOR dem Absenden — es darf kein Paket rausgehen. (#89)"""
+    appmod.save_settings({})
+    called = []
+    monkeypatch.setattr(appmod.requests, "request", lambda *a, **k: called.append(a) or None)
+    with pytest.raises(PermissionError):
+        appmod.safe_post("http://127.0.0.1:9/x", json={"a": 1})
+    with pytest.raises(PermissionError):
+        appmod.safe_post("file:///etc/passwd")
+    assert called == [], "es wurde trotz Absage gesendet"
+
+
+def test_safe_request_rechecks_redirects(appmod, monkeypatch):
+    """Eine Umleitung auf ein internes Ziel muss ebenfalls scheitern — sonst genügt ein
+    Redirect, um die Prüfung der Ausgangs-URL zu umgehen. (#89)"""
+    appmod.save_settings({})
+    monkeypatch.setattr(appmod, "url_allowed",
+                        lambda u: (False, "private") if "127.0.0.1" in u else (True, ""))
+
+    class Redirect:
+        is_redirect = True
+        headers = {"Location": "http://127.0.0.1:8080/intern"}
+    monkeypatch.setattr(appmod.requests, "request", lambda *a, **k: Redirect())
+    with pytest.raises(PermissionError):
+        appmod.safe_post("https://extern.example/hook")
+
+
+def test_errors_are_categories_not_exception_text(appmod):
+    """Antworten tragen eine Fehlerart, keinen rohen Ausnahmetext (der verriete Pfade
+    und Hostnamen). (#89)"""
+    assert appmod.err_kind(appmod.requests.Timeout("verbindung zu /interner/pfad")) == "timeout"
+    assert "erreichbar" in appmod.err_kind(appmod.requests.ConnectionError("host geheim.intern"))
+    assert appmod.err_kind(ValueError("json kaputt bei /config/romseerr.db")).startswith("ungueltige")
+    # Entscheidend: der Originaltext der Ausnahme taucht nirgends auf
+    for txt in ("/interner/pfad", "geheim.intern", "/config/romseerr.db"):
+        for e in (appmod.requests.Timeout(txt), appmod.requests.ConnectionError(txt), ValueError(txt)):
+            assert txt not in appmod.err_kind(e)
+
+
+def test_personal_webhook_test_blocks_internal_targets(appmod, client):
+    """Der kritische Fall: ein GEWÖHNLICHER angemeldeter Nutzer darf den Server nicht
+    auf interne Adressen schicken. (#89)"""
+    appmod.save_settings({})
+    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": ["request"],
+                                "webhook": "http://127.0.0.1:8080/intern"}})
+    with client.session_transaction() as sess:
+        sess["user"] = "lena"; sess["role"] = "user"
+    r = client.post("/api/profile/notify-test", json={"url": "http://127.0.0.1:8080/intern"})
+    assert r.status_code == 400
+    msg = r.get_json()["msg"]
+    assert "privat" in msg.lower() or "private" in msg.lower()
     appmod.save_users({})
