@@ -7,6 +7,12 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Behoben / Fixed
+- **CI grün** — `match` als Variablenname (Ruff hielt das Soft-Keyword für ein `match`-Statement)
+  → in `matched` umbenannt; bewusste `0.0.0.0`-Bindung mit `# nosec B104` markiert (Bandit);
+  Trivy-Action auf gültige Version `0.35.0` gepinnt (0.24.0 existierte nicht mehr); CodeQL auf
+  privaten Repos übersprungen statt rot. /
+  **Green CI** — renamed `match` variable (tripped Ruff), annotated the intentional `0.0.0.0`
+  bind with `# nosec B104`, pinned Trivy to a valid version, skip CodeQL on private repos.
 - **Startseite lud keine Spiele / Admin-Menü tot** — in `loadLogs()` stand `join('\n')`
   im **nicht-rohen** Python-`PAGE`-String; Python wandelte `\n` in einen echten Zeilenumbruch
   um, sodass das ausgelieferte Inline-JavaScript ein **unterminiertes String-Literal** enthielt

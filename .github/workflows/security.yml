@@ -10,13 +10,15 @@ on:
 permissions:
   contents: read
   security-events: write
+  pull-requests: read   # gitleaks liest auf PRs die Commit-Liste / gitleaks reads PR commits
 
 jobs:
   codeql:
     # CodeQL ist auf öffentlichen Repos kostenlos; auf privaten braucht es GHAS.
-    # continue-on-error, damit die private Phase nicht rot wird. / free on public repos.
+    # Daher auf privaten Repos überspringen (statt rot). / skipped on private repos.
     name: CodeQL (Python)
     runs-on: ubuntu-latest
+    if: ${{ !github.event.repository.private }}
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: aquasecurity/trivy-action@0.24.0
+      - uses: aquasecurity/trivy-action@0.35.0
         with:
           scan-type: fs
           scanners: vuln,secret,misconfig
