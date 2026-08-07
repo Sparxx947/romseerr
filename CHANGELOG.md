@@ -7,6 +7,15 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Dienst-Verbindungen über die Einstellungsseite** — SABnzbd/Prowlarr/IGDB/RomM/JDownloader
+  (URLs, API-Keys, Kategorien, Pfade) sind jetzt im Admin-Bereich unter **„Verbindungen"**
+  editierbar, mit **`.env` als Fallback** (leeres Feld = Env-Wert). Secrets werden maskiert und
+  nur bei Neueingabe überschrieben; „Test"-Knopf prüft die Erreichbarkeit. Werte werden zur
+  Laufzeit über `cfg()` gelesen. Die Secrets liegen nur in der Laufzeit-DB unter `/config`
+  (gitignoriert), nie im Repo. /
+  **Service connections editable in Settings** — SABnzbd/Prowlarr/IGDB/RomM/JDownloader are now
+  configurable in the admin "Connections" section, with `.env` as fallback (empty = env value);
+  secrets are masked and only overwritten on new input; a test button checks reachability.
 - **Default-Avatar** — Nutzer ohne Profilbild bekommen jetzt einen erzeugten Avatar
   (Initiale auf farbigem Kreis) in Sidebar und Profil statt eines leeren Kreises. /
   **Default avatar** — users without a picture get a generated initials avatar.
