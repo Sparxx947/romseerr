@@ -1401,13 +1401,17 @@ function updateFLabel(){let e=document.getElementById('tF');if(e)e.textContent='
 function toggleFilter(){let f=document.getElementById('filter');f.style.display=f.style.display=='block'?'none':'block';}
 // --- Benutzerverwaltung ---
 function canDo(perm){return window.ROLE=='admin'||(window.PERMS||[]).includes(perm);}
+function defAvatar(name){let n=(name||'?').trim()||'?';let ini=(n[0]||'?').toUpperCase();
+ let cols=['#5b8cff','#e0679a','#5bbf8a','#d9a441','#9b6dd6','#4bb7c6'];let c=cols[(n.charCodeAt(0)||0)%cols.length];
+ let svg='<svg xmlns="http://www.w3.org/2000/svg" width="66" height="66"><rect width="66" height="66" rx="33" fill="'+c+'"/><text x="33" y="45" font-size="34" text-anchor="middle" fill="#fff" font-family="sans-serif">'+ini+'</text></svg>';
+ return 'data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(svg)));}
 async function loadAuth(){let d=await(await fetch('/api/auth/status')).json();
  window.ROLE=d.role;window.VERSION=d.version||'';window.PERMS=d.perms||[];
  let lang=d.user_lang||localStorage.getItem('lang')||d.default_lang||'de';
  if(lang!=LANG){LANG=lang;localStorage.setItem('lang',lang);setLang(lang);}
  let who=document.getElementById('who');
  if(d.user){let nm=(d.display_name||d.user);
-   who.innerHTML=(d.avatar?`<img src="${d.avatar}">`:'👋 ')+nm.replace(/</g,'&lt;');}
+   who.innerHTML=`<img src="${d.avatar||defAvatar(nm)}">`+nm.replace(/</g,'&lt;');}
  else who.textContent='';
  if(d.role=='admin')document.getElementById('nSet').style.display='';}
 // --- Benutzerprofil (#23) ---
@@ -1417,7 +1421,7 @@ async function openProfile(){let m=document.getElementById('modal');m.style.disp
  let inp='style="flex:1;min-width:120px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px"';
  m.innerHTML=`<div class=box><button class=x onclick="closeModal()">×</button>
   <div class=sec><h3>${t('profile')} — ${(p.username||'').replace(/</g,'&lt;')}</h3>
-   <div class=row><div id=pav style="width:66px;flex:0 0 66px;height:66px;border-radius:50%;background:#0b0d10 center/cover no-repeat;border:1px solid #2c323b;${p.avatar?`background-image:url('${p.avatar}')`:''}"></div>
+   <div class=row><div id=pav style="width:66px;flex:0 0 66px;height:66px;border-radius:50%;background:#0b0d10 center/cover no-repeat;border:1px solid #2c323b;background-image:url('${p.avatar||defAvatar(p.display_name||p.username)}')"></div>
     <label style="flex:1;font-size:12px;color:#8b929e">${t('avatar')}<br><input type=file accept="image/*" onchange="pickAvatar(event)"></label></div>
    <div class=row><input id=pdn ${inp} placeholder="${t('display_name')}" value="${(p.display_name||'').replace(/"/g,'&quot;')}"></div>
    <div class=row><input id=pmail ${inp} placeholder="${t('email')}" value="${(p.email||'').replace(/"/g,'&quot;')}"></div>

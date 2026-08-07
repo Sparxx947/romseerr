@@ -7,6 +7,9 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Default-Avatar** — Nutzer ohne Profilbild bekommen jetzt einen erzeugten Avatar
+  (Initiale auf farbigem Kreis) in Sidebar und Profil statt eines leeren Kreises. /
+  **Default avatar** — users without a picture get a generated initials avatar.
 - **Fehlgeschlagene/abgelehnte Anfragen erneut versuchen** — Knopf „↻ Erneut" in den Anfragen
   (Recht `manage_requests`); `POST /api/jobs/{id}/retry` reiht den Job wieder ein. /
   **Retry failed/denied requests** — "↻ Retry" button; `POST /api/jobs/{id}/retry`.
