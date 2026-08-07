@@ -5,7 +5,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY app.py /app/app.py
+# version.txt wird von release-please gepflegt und zur Laufzeit gelesen (/api/version).
+COPY version.txt /app/version.txt
 WORKDIR /app
+
+# Build-Herkunft: vom CI per --build-arg gesetzt, im Quell-Checkout leer (dann meldet
+# /api/version schlicht null statt zu raten).
+ARG ROMSEERR_COMMIT=""
+ARG ROMSEERR_BUILT_AT=""
+ENV ROMSEERR_COMMIT=$ROMSEERR_COMMIT \
+    ROMSEERR_BUILT_AT=$ROMSEERR_BUILT_AT
 EXPOSE 8770
 EXPOSE 8443
 

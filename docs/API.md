@@ -54,7 +54,7 @@ ohne gültige Session/Key mit **401**.
 ### Endpunkt-Gruppen
 | Gruppe | Beispiele |
 |---|---|
-| System | `GET /health`, `GET /api/auth/status` |
+| System | `GET /health`, `GET /api/version`, `GET /api/auth/status` |
 | Auth | `POST /api/setup`, `/api/login`, `/api/logout`, `/api/forgot`, `/api/reset` |
 | Suche | `GET /api/search`, `/api/discover/rows`, `/api/detail`, `/api/platforms` |
 | Anfragen | `POST /api/download`, `GET /api/jobs`, `POST /api/jobs/{id}/approve\|deny` |
