@@ -154,7 +154,10 @@ _ENV_CONN = {"sab_url": SAB_URL, "sab_apikey": SAB_APIKEY, "sab_cat": SAB_CAT,
              "ss_user":  os.environ.get("SCREENSCRAPER_USER", ""),
              "ss_pass":  os.environ.get("SCREENSCRAPER_PASS", ""),
              # RetroAchievements-Web-API-Key (optional, nur Dekoration auf der Detailseite)
-             "ra_key":   os.environ.get("RETROACHIEVEMENTS_KEY", "")}
+             "ra_key":   os.environ.get("RETROACHIEVEMENTS_KEY", ""),
+             # Katalog-JSON-Quellen fuer den Filehoster-Zweig — eine URL je Zeile.
+             # Bewusst NUR konfigurierbar, nie im Repo hinterlegt. (#63)
+             "catalog_urls": os.environ.get("CATALOG_URLS", "")}
 CONN_KEYS = list(_ENV_CONN.keys())
 CONN_SECRET = {"sab_apikey", "prow_apikey", "igdb_secret", "romm_pass",
                "sgdb_key", "ss_pass", "ra_key"}   # in der GUI maskiert (Klartext-Anzeige via Reveal-Endpoint)
@@ -510,6 +513,11 @@ def db_init():
             c.execute("CREATE TABLE IF NOT EXISTS ra_games(slug TEXT, norm TEXT, ra_id INTEGER, "
                       "title TEXT, achievements INTEGER, points INTEGER)")
             c.execute("CREATE INDEX IF NOT EXISTS ix_ra_slug ON ra_games(slug, norm)")
+            # Filehoster-Katalog: Momentaufnahmen der in den Einstellungen hinterlegten
+            # Katalog-JSONs. Die QUELLEN stehen nie im Repo — nur der Parser. (#63)
+            c.execute("CREATE TABLE IF NOT EXISTS fh_items(norm TEXT, title TEXT, uris TEXT, "
+                      "size TEXT, uploaded TEXT, src TEXT, url TEXT)")
+            c.execute("CREATE INDEX IF NOT EXISTS ix_fh_norm ON fh_items(norm)")
             c.execute("CREATE TABLE IF NOT EXISTS users(username TEXT PRIMARY KEY, data TEXT)")
             c.execute("CREATE TABLE IF NOT EXISTS jobs(seq INTEGER PRIMARY KEY AUTOINCREMENT, jid TEXT, data TEXT)")
             c.execute("CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, data TEXT)")
@@ -1122,6 +1130,128 @@ def search_archive(q, limit=30):
         log(f"Archive-Suche-Fehler: {e}")
     return out
 
+# ---------- Filehoster: generischer Katalog-JSON-Indexer (#63) ----------
+# Der Filehoster-Zweig (write_crawljob -> JDownloader) existierte, aber KEINE Quelle lieferte
+# je `source=filehoster` — er war damit unerreichbar. Statt einen einzelnen Anbieter fest
+# einzubauen, liest Romseerr das verbreitete Katalog-JSON-Format:
+#
+#   {"name": "...", "downloads": [{"title","uris":[...],"uploadDate","fileSize"}, ...]}
+#
+# Belegt am Original-Validator des Hydra-Launchers (v2.1.0,
+# src/main/events/helpers/validators.ts) — nicht aus Sekundärquellen abgeschrieben.
+#
+# **Die Quell-URLs gehören in die Einstellungen, NIE in dieses Repo.** Wir liefern den
+# Parser, der Betreiber die Quellen. `uploadDate`/`fileSize` sind dort Strings, keine Zahlen.
+CATALOG_TTL = int(os.environ.get("ROMSEERR_CATALOG_TTL", "21600"))   # 6 h
+CATALOG_LOCK = threading.Lock()
+
+def catalog_urls():
+    """Quell-URLs aus den Einstellungen (eine je Zeile oder komma-getrennt)."""
+    raw = cfg("catalog_urls") or ""
+    return [u.strip() for u in re.split(r"[\s,]+", raw) if u.strip().startswith(("http://", "https://"))]
+
+def fetch_catalog_source(url):
+    """Eine Katalogquelle holen, prüfen und ihre Einträge ablegen. Rückgabe (name, anzahl)
+    oder eine Ausnahme mit lesbarem Grund — eine unbrauchbare Quelle soll auffallen."""
+    r = requests.get(url, timeout=30, headers={"Accept": "application/json"})
+    if not r.ok: raise RuntimeError(f"HTTP {r.status_code}")
+    data = r.json()
+    if not isinstance(data, dict) or not isinstance(data.get("downloads"), list):
+        raise RuntimeError("kein Katalog-JSON (erwartet {name, downloads[]}) / not a catalogue JSON")
+    name = str(data.get("name") or url)[:255]
+    rows, seen = [], set()
+    for it in data["downloads"]:
+        if not isinstance(it, dict): continue
+        title = str(it.get("title") or "")[:255]
+        uris = [str(u) for u in (it.get("uris") or []) if isinstance(u, str)]
+        n = norm(title)
+        if not (n and uris) or n in seen: continue
+        seen.add(n)
+        rows.append((n, title, json.dumps(uris), str(it.get("fileSize") or "")[:64],
+                     str(it.get("uploadDate") or "")[:64], name, url))
+    with DB_LOCK, closing(db_conn()) as c, c:
+        c.execute("DELETE FROM fh_items WHERE url=?", (url,))
+        c.executemany("INSERT INTO fh_items(norm,title,uris,size,uploaded,src,url) "
+                      "VALUES(?,?,?,?,?,?,?)", rows)
+    return name, len(rows)
+
+def refresh_catalogs(force=False):
+    """Alle hinterlegten Quellen auffrischen. Linkfäule ist hier die Regel, deshalb TTL
+    und ein sichtbarer Stand je Quelle statt stiller Ewigkeit."""
+    meta = kv_get("catalog_meta", {})
+    now = time.time()
+    for url in catalog_urls():
+        m = meta.get(url) or {}
+        if not force and now - float(m.get("ts") or 0) < CATALOG_TTL: continue
+        try:
+            name, n = fetch_catalog_source(url)
+            meta[url] = {"name": name, "count": n, "ts": now, "error": "",
+                         "fetched": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))}
+            log(f"Katalogquelle '{name}': {n} Einträge")
+        except Exception as e:
+            meta[url] = {**m, "ts": now, "error": str(e)[:150],
+                         "fetched": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))}
+            log(f"Katalogquelle {url}: {e}")
+    for url in list(meta):
+        if url not in catalog_urls():
+            meta.pop(url)
+            try:
+                with DB_LOCK, closing(db_conn()) as c, c:
+                    c.execute("DELETE FROM fh_items WHERE url=?", (url,))
+            except Exception: pass
+    kv_put("catalog_meta", meta)
+    return meta
+
+def split_uris(uris):
+    """URIs sind gemischt und brauchen verschiedene Wege: `magnet:` ist ein Torrent
+    (hier ausdrücklich NICHT zuständig), direktes HTTP laden wir selbst, alles andere
+    ist ein Filehoster und geht an JDownloader."""
+    direct, hoster, magnet = [], [], []
+    for u in uris:
+        low = str(u).lower()
+        if low.startswith("magnet:"): magnet.append(u)
+        elif re.search(r"\.(zip|rar|7z|iso|bin|chd|nsp|xci|gz|tar|[a-z0-9]{2,4})(\?|$)", low) \
+             and low.startswith(("http://", "https://")) and not re.search(
+                 r"(mega\.nz|mediafire|1fichier|pixeldrain|gofile|rapidgator|turbobit|katfile|"
+                 r"drive\.google|dropbox|buzzheavier|datanodes|qiwi|fuckingfast)", low):
+            direct.append(u)
+        elif low.startswith(("http://", "https://")): hoster.append(u)
+    return direct, hoster, magnet
+
+def search_filehoster(q, limit=30):
+    """Katalogtreffer als normale Suchergebnisse mit `source="filehoster"`."""
+    toks = [t for t in norm(q).split() if t]
+    if not toks: return []
+    sql = "SELECT title, uris, size, uploaded, src FROM fh_items WHERE " + \
+          " AND ".join(["norm LIKE ?"] * len(toks)) + " ORDER BY LENGTH(title) LIMIT ?"
+    try:
+        with closing(db_conn()) as c:
+            rows = list(c.execute(sql, [f"%{t}%" for t in toks] + [int(limit)]))
+    except Exception as e:
+        log(f"Filehoster-Suche-Fehler: {e}"); return []
+    out = []
+    for title, uris_json, size, uploaded, src in rows:
+        try: uris = json.loads(uris_json)
+        except Exception: continue
+        direct, hoster, _magnet = split_uris(uris)
+        if not (direct or hoster): continue       # nur Magnet -> hier nicht zuständig
+        if NOISE_RE.search(title): continue
+        out.append({"source": "filehoster", "ref": "\n".join(direct + hoster),
+                    "title": title[:140], "platform": guess_platform(title),
+                    "size": 0, "cover": "", "extra": f"{src} · {size} · {uploaded}".strip(" ·")})
+    return out
+
+def worker_catalog():
+    """Katalogquellen im Hintergrund frisch halten (Linkfäule!)."""
+    time.sleep(45)
+    while True:
+        beat("catalog")
+        try:
+            if catalog_urls(): refresh_catalogs()
+        except Exception as e:
+            log(f"Katalog-Worker: {e}")
+        time.sleep(max(600, CATALOG_TTL // 4))
+
 def search_usenet(q, cats, limit=30):
     out = []
     if not (cfg("prow_url") and cfg("prow_apikey") and cats): return out
@@ -1171,7 +1301,8 @@ def do_search(q, platforms=None):
     res = []
     bl = [str(p).strip().lower() for p in load_settings().get("blocklist", []) if str(p).strip()]
     ar = search_archive(q); us = search_usenet(q, usenet_cats)
-    for idx, r in enumerate(ar+us):
+    fh = search_filehoster(q) if catalog_urls() else []
+    for idx, r in enumerate(ar+us+fh):
         if is_blocked(r["title"], bl): continue        # Sperrliste
         if platforms:
             # bekannte Fremd-Plattform raus (beide Quellen)
@@ -1577,9 +1708,31 @@ def worker_download():
                 os.remove(inp)
                 import_folder(jid, dst)
             elif job["source"]=="filehoster":
-                set_state(jid, state="downloading", msg="an JDownloader übergeben")
-                dn = dl_name(jid, job.get("title",""))
-                write_crawljob(jid, job["ref"], f"{cfg("jd_dl_base")}/{dn}", dn)
+                # URI-Weiche: direktes HTTP laden wir selbst (kein JDownloader noetig),
+                # alles andere geht als .crawljob an JDownloader. (#63)
+                links = [u for u in str(job["ref"]).split("\n") if u.strip()]
+                if not links: raise RuntimeError("keine Links / no links")
+                direct, hoster, _magnet = split_uris(links)
+                if direct:
+                    set_state(jid, state="downloading", msg="direkter Download läuft")
+                    dst = os.path.join(STAGING, f"romseerr_{jid}")
+                    os.makedirs(dst, exist_ok=True)
+                    inp = os.path.join(dst, ".urls")
+                    with open(inp, "w") as f: f.write("\n".join(direct))
+                    rc = subprocess.run(["aria2c","-x8","-s8","-j4","--auto-file-renaming=false",
+                                         "--continue=true","--max-tries=3","-d",dst,"-i",inp],
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+                    try: os.remove(inp)
+                    except OSError: pass
+                    if rc != 0:
+                        # Linkfaeule ist hier der Normalfall — als klarer Fehler melden,
+                        # statt den Job stumm haengen zu lassen.
+                        raise RuntimeError("Link tot oder nicht ladbar / link dead or unreachable")
+                    import_folder(jid, dst)
+                else:
+                    set_state(jid, state="downloading", msg="an JDownloader übergeben")
+                    dn = dl_name(jid, job.get("title",""))
+                    write_crawljob(jid, hoster, f"{cfg("jd_dl_base")}/{dn}", dn)
         except Exception as e:
             set_state(jid, state="error", msg=str(e)[:200]); log(f"Job {jid} Fehler: {e}")
             count_import("failure", "exception")
@@ -2042,6 +2195,31 @@ def api_coverage_refresh():
     return jsonify({"ok": True, "platforms": len(slugs)})
 
 RA_BUILD = {"running": False, "done": 0, "total": 0, "current": ""}
+
+@app.route("/api/catalog/status")
+def api_catalog_status():
+    """Stand der Filehoster-Katalogquellen: Name, Anzahl, Abrufzeitpunkt, Fehler.
+    Der Stand gehört sichtbar hin — Katalogquellen veralten schnell (Linkfäule). (#63)"""
+    meta = kv_get("catalog_meta", {})
+    try:
+        with closing(db_conn()) as c:
+            total = c.execute("SELECT COUNT(*) FROM fh_items").fetchone()[0]
+    except Exception:
+        total = 0
+    jd = jd_check()
+    return jsonify({"sources": [{"url": u, **{k: v for k, v in (meta.get(u) or {}).items() if k != "ts"}}
+                                for u in catalog_urls()],
+                    "configured": len(catalog_urls()), "items": total, "ttl": CATALOG_TTL,
+                    "jd": {"ok": jd["ok"], "info": jd["info"]}})
+
+@app.route("/api/catalog/refresh", methods=["POST"])
+@perm_required("manage_settings")
+def api_catalog_refresh():
+    if not catalog_urls():
+        return jsonify({"ok": False, "msg": "keine Katalogquelle hinterlegt / no catalogue source"}), 400
+    with CATALOG_LOCK:
+        threading.Thread(target=lambda: refresh_catalogs(force=True), daemon=True).start()
+    return jsonify({"ok": True, "sources": len(catalog_urls())})
 
 @app.route("/api/ra/status")
 def api_ra_status():
@@ -3403,6 +3581,10 @@ OPENAPI = {
             responses={**_R_AUTH, "200": {"description": "Trefferliste"}})},
         "/api/coverage": {"get": _op("Abdeckung je Plattform (besessen/bekannt/Prozent, mit Quelle und Stand)", "Search")},
         "/api/coverage/status": {"get": _op("Fortschritt eines laufenden Katalogabrufs", "Search")},
+        "/api/catalog/status": {"get": _op("Filehoster-Katalogquellen: Stand, Anzahl, Fehler", "Search")},
+        "/api/catalog/refresh": {"post": _op("Katalogquellen sofort neu holen", "Admin",
+            responses={**_R_PERM, "200": {"description": "gestartet"},
+                       "400": {"description": "keine Quelle hinterlegt"}})},
         "/api/ra/status": {"get": _op("RetroAchievements: indizierte Plattformen, Set-Zahl, Stand, nicht zugeordnete Slugs", "Search")},
         "/api/ra/refresh": {"post": _op("RetroAchievements: Set-Listen je Konsole neu holen (Hintergrundlauf)", "Admin",
             responses={**_R_PERM, "200": {"description": "gestartet"},
@@ -3632,6 +3814,7 @@ if __name__ == "__main__":
     threading.Thread(target=periodic_index, daemon=True).start()
     threading.Thread(target=check_config, daemon=True).start()
     threading.Thread(target=worker_wishlist, daemon=True).start()
+    threading.Thread(target=worker_catalog, daemon=True).start()
     # Optionaler HTTPS-Listener (eigener Port), wenn ein Zertifikat hinterlegt & aktiviert ist.
     def _start_https():
         info = tls_info()

@@ -312,6 +312,28 @@ paths:
         '200':
           description: OK
       security: *id002
+  /api/catalog/status:
+    get:
+      summary: 'Filehoster-Katalogquellen: Stand, Anzahl, Fehler'
+      tags:
+      - Search
+      responses:
+        '200':
+          description: OK
+      security: *id002
+  /api/catalog/refresh:
+    post:
+      summary: Katalogquellen sofort neu holen
+      tags:
+      - Admin
+      responses:
+        '403': &id004
+          description: fehlende Berechtigung / missing permission
+        '200':
+          description: gestartet
+        '400':
+          description: keine Quelle hinterlegt
+      security: *id002
   /api/ra/status:
     get:
       summary: 'RetroAchievements: indizierte Plattformen, Set-Zahl, Stand, nicht zugeordnete Slugs'
@@ -327,8 +349,7 @@ paths:
       tags:
       - Admin
       responses:
-        '403': &id004
-          description: fehlende Berechtigung / missing permission
+        '403': *id004
         '200':
           description: gestartet
         '400':
