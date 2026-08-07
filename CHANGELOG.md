@@ -6,6 +6,15 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Dokumentation / Documentation
+- **Ausführliche Code-Kommentierung** — Modul-Docstring (Architektur, Datenhaltung, Auth,
+  Fallstricke), Docstrings auf den nicht-trivialen Funktionen (Index, Worker, Import, Auth,
+  Push) und erklärte Abschnitts-Header in `app.py`; `docs/ARCHITECTURE.md` um einen
+  **Code-Rundgang** erweitert (Dateiaufbau, Anfrage-Lebenszyklus, „neue Route hinzufügen",
+  Fallstricke). /
+  **Extensive code documentation** — module docstring, docstrings on the non-trivial functions,
+  and a code tour in `docs/ARCHITECTURE.md`.
+
 ### Behoben / Fixed
 - **CI grün** — `match` als Variablenname (Ruff hielt das Soft-Keyword für ein `match`-Statement)
   → in `matched` umbenannt; bewusste `0.0.0.0`-Bindung mit `# nosec B104` markiert (Bandit);
