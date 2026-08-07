@@ -87,6 +87,12 @@ into the library and notifies when they are available. The library is shared by 
   (TXT/CSV, one title per line, optionally `title;platform`) with a **preview** before anything
   is written: matched / ambiguous / not found. An **example file** in the expected format is
   offered in the dialog (also at `/api/wishlist/example.csv`).
+- ▶ **Play in the browser**: if the title exists in RomM and the platform has an EmulatorJS
+  core, a button on the detail view opens RomM's built-in player. Romseerr emulates nothing
+  itself. **PS2, GameCube, Wii, Dreamcast and Switch never show the button** — no core exists
+  and none will. Every refusal states its reason (not in the library, too large for the
+  browser, no RomM connection); BIOS requirements and the arcade romset caveat are stated up
+  front rather than after a black screen.
 - 📦 **Filehoster path (experimental)**: a generic **catalogue JSON indexer** for the common
   `{name, downloads:[{title, uris, uploadDate, fileSize}]}` format. **Romseerr ships the parser
   only — the operator supplies the source URLs under Settings -> Connections; none are in this
@@ -232,6 +238,7 @@ Two complementary ways — **the web UI takes precedence, `.env` is the fallback
 | `ROMSEERR_WISH_INTERVAL` | wishlist worker interval in seconds (default 1800) |
 | `CATALOG_URLS` | catalogue JSON sources for the filehoster path (empty = inactive, see below) |
 | `ROMSEERR_CATALOG_TTL` | catalogue refresh interval in seconds (default 21600) |
+| `ROMSEERR_PLAY_MAX_MB` | size limit for "play in browser" in MB (default 2048) |
 | `SAB_URL` / `SAB_APIKEY` / `SAB_CAT` | SABnzbd |
 | `PROW_URL` / `PROW_APIKEY` / `PROW_CATS` | Prowlarr |
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | IGDB (covers, metadata, recommendations) |

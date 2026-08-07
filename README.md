@@ -87,6 +87,12 @@ teilen sich **RomM** (Browser/Player) und **RetroNAS**.
   einspielen** (TXT/CSV, ein Titel je Zeile, optional `Titel;Plattform`) — mit **Vorschau**
   vor dem Schreiben: getroffen / mehrdeutig / nicht gefunden. Eine **Beispieldatei** im
   erwarteten Format gibt es im Dialog (bzw. unter `/api/wishlist/example.csv`).
+- ▶ **Play im Browser**: liegt der Titel in RomM und gibt es für die Plattform einen
+  EmulatorJS-Kern, führt ein Knopf auf der Detailseite direkt in RomMs eingebauten Spieler.
+  Romseerr emuliert selbst nichts. **PS2, GameCube, Wii, Dreamcast und Switch zeigen den Knopf
+  nie** — dafür existiert kein Kern und wird keiner existieren. Jede Absage nennt ihren Grund
+  (nicht in der Bibliothek, zu groß für den Browser, keine RomM-Verbindung); BIOS-Bedarf und
+  die Romset-Eigenheit von Arcade stehen vorher da, nicht erst vor einem schwarzen Bild.
 - 📦 **Filehoster-Weg (experimentell)**: ein generischer **Katalog-JSON-Indexer** im
   verbreiteten Format `{name, downloads:[{title, uris, uploadDate, fileSize}]}`. **Romseerr
   liefert nur den Parser — die Quell-URLs trägt der Betreiber unter Einstellungen →
@@ -235,6 +241,7 @@ Zwei Wege, die sich ergänzen — **die Weboberfläche hat Vorrang, `.env` ist d
 | `ROMSEERR_WISH_INTERVAL` | Intervall des Wunschlisten-Workers in Sekunden (Default 1800) |
 | `CATALOG_URLS` | Katalog-JSON-Quellen für den Filehoster-Weg (leer = inaktiv, s. u.) |
 | `ROMSEERR_CATALOG_TTL` | Auffrischintervall der Kataloge in Sekunden (Default 21600) |
+| `ROMSEERR_PLAY_MAX_MB` | Größengrenze für „Im Browser spielen" in MB (Default 2048) |
 | `SAB_URL` / `SAB_APIKEY` / `SAB_CAT` | SABnzbd-Anbindung |
 | `PROW_URL` / `PROW_APIKEY` / `PROW_CATS` | Prowlarr-Anbindung |
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | IGDB (Cover, Metadaten, Empfehlungen) |
