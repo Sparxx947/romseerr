@@ -1222,15 +1222,22 @@ def search_filehoster(q, limit=30):
     """Katalogtreffer als normale Suchergebnisse mit `source="filehoster"`."""
     toks = [t for t in norm(q).split() if t]
     if not toks: return []
-    sql = "SELECT title, uris, size, uploaded, src FROM fh_items WHERE " + \
-          " AND ".join(["norm LIKE ?"] * len(toks)) + " ORDER BY LENGTH(title) LIMIT ?"
+    # Bewusst EIN literaler SQL-String: das erste Token grenzt in der DB ein, die
+    # restlichen Token werden in Python geprüft. Eine dynamisch zusammengesetzte
+    # WHERE-Kette wäre zwar ebenso parametrisiert, aber Bandit meldet sie als B608 —
+    # und literales SQL ist hier ohnehin die einfachere Lösung.
     try:
         with closing(db_conn()) as c:
-            rows = list(c.execute(sql, [f"%{t}%" for t in toks] + [int(limit)]))
+            rows = list(c.execute(
+                "SELECT title, uris, size, uploaded, src, norm FROM fh_items "
+                "WHERE norm LIKE ? ORDER BY LENGTH(title) LIMIT ?",
+                (f"%{toks[0]}%", int(limit) * 8)))
     except Exception as e:
         log(f"Filehoster-Suche-Fehler: {e}"); return []
     out = []
-    for title, uris_json, size, uploaded, src in rows:
+    for title, uris_json, size, uploaded, src, n in rows:
+        if len(out) >= limit: break
+        if not all(t in n for t in toks[1:]): continue
         try: uris = json.loads(uris_json)
         except Exception: continue
         direct, hoster, _magnet = split_uris(uris)

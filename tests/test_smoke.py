@@ -1225,3 +1225,19 @@ def test_catalog_status_reports_staleness_and_jd(appmod, client):
     assert "jd" in d and "ok" in d["jd"]
     assert client.post("/api/catalog/refresh").status_code == 400   # ohne Quelle klare Absage
     appmod.save_users({})
+
+
+def test_filehoster_search_requires_all_tokens(appmod):
+    """Mehrwort-Suche: alle Token müssen treffen, obwohl nur das erste in SQL steht. (#63)"""
+    from contextlib import closing as _closing
+    with appmod.DB_LOCK, _closing(appmod.db_conn()) as c, c:
+        c.execute("DELETE FROM fh_items")
+        c.executemany("INSERT INTO fh_items(norm,title,uris,size,uploaded,src,url) VALUES(?,?,?,?,?,?,?)",
+                      [(appmod.norm(t), t, '["https://h.invalid/x"]', "1", "", "S", "u")
+                       for t in ("Chrono Trigger (USA)", "Chrono Cross", "Super Metroid")])
+    assert sorted(r["title"] for r in appmod.search_filehoster("Chrono")) == \
+        ["Chrono Cross", "Chrono Trigger (USA)"]
+    assert [r["title"] for r in appmod.search_filehoster("Chrono Trigger")] == ["Chrono Trigger (USA)"]
+    assert appmod.search_filehoster("Chrono Zelda") == []
+    with appmod.DB_LOCK, _closing(appmod.db_conn()) as c, c:
+        c.execute("DELETE FROM fh_items")
