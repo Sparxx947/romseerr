@@ -157,7 +157,10 @@ _ENV_CONN = {"sab_url": SAB_URL, "sab_apikey": SAB_APIKEY, "sab_cat": SAB_CAT,
              "ra_key":   os.environ.get("RETROACHIEVEMENTS_KEY", ""),
              # Katalog-JSON-Quellen fuer den Filehoster-Zweig — eine URL je Zeile.
              # Bewusst NUR konfigurierbar, nie im Repo hinterlegt. (#63)
-             "catalog_urls": os.environ.get("CATALOG_URLS", "")}
+             "catalog_urls": os.environ.get("CATALOG_URLS", ""),
+             # Streaming-Host (#71): Browser-URL des Hosts + optionaler Start-Dienst
+             "stream_url": os.environ.get("STREAM_URL", ""),
+             "stream_launch": os.environ.get("STREAM_LAUNCH", "")}
 CONN_KEYS = list(_ENV_CONN.keys())
 CONN_SECRET = {"sab_apikey", "prow_apikey", "igdb_secret", "romm_pass",
                "sgdb_key", "ss_pass", "ra_key"}   # in der GUI maskiert (Klartext-Anzeige via Reveal-Endpoint)
@@ -2003,6 +2006,107 @@ def play_info(title, slug=""):
             "url": f"{cfg("romm_url")}/rom/{hit['id']}/ejs",
             "needs_bios": plat in NEEDS_BIOS, "caveat": CAVEAT.get(plat, "")}
 
+# ---------- Stream: nativ emulierte Plattformen in den Browser (#71) ----------
+# EmulatorJS deckt PS2, GameCube, Wii und Switch NICHT ab und wird es nie — dafuer gibt es
+# keinen Kern und keiner ist baubar (siehe #69). Fuer diese Plattformen laeuft der Emulator
+# server-seitig auf einem Streaming-Host; der Browser bekommt Bild und schickt Eingaben.
+#
+# Romseerr emuliert nichts, liefert keinen Emulator und keine Firmware aus. Es loest einen
+# Titel auf eine Datei auf und bittet den Host, sie zu starten. Mehr nicht.
+#
+# EINZELPLATZ: mit einer GPU ist das eine Sitzung gleichzeitig. Das muss die Oberflaeche
+# klar sagen, statt beim zweiten Versuch zu scheitern.
+STREAMABLE = {"ps2", "ngc", "wii", "wiiu", "switch", "dreamcast", "3ds"}
+# Verzeichnisname je Plattform. Der Umweg ueber diese feste Tabelle ist Absicht: der
+# Pfad wird damit aus einer KONSTANTE gebaut, nicht aus der Eingabe. Ein '../'-Versuch
+# findet hier schlicht keinen Eintrag, statt bis in os.path.join durchzureichen.
+STREAM_DIR = {s: s for s in STREAMABLE}
+STREAM_TTL = int(os.environ.get("ROMSEERR_STREAM_TTL", "7200"))   # 2 h, dann faellt der Platz frei
+STREAM_LOCK = threading.Lock()
+
+def stream_cfg():
+    return {"url": cfg("stream_url"), "launch": cfg("stream_launch")}
+
+def stream_session():
+    """Laufende Sitzung oder None. Abgelaufene Sitzungen geben den Platz von selbst frei —
+    ein vergessener Browser-Tab darf den Einzelplatz nicht dauerhaft blockieren."""
+    ses = kv_get("stream_session", None)
+    if not ses: return None
+    if time.time() > float(ses.get("expires") or 0):
+        kv_put("stream_session", None); return None
+    return ses
+
+def stream_find_file(title, slug):
+    """Titel -> Datei in der Bibliothek. Ohne Datei kein Stream (dieselbe Regel wie bei Play).
+
+    Der Slug kommt vom Aufrufer und geht in einen Pfad. Er wird deshalb HIER gegen die
+    feste Menge geprueft und nicht nur beim Aufrufer — sonst haenge die Sicherheit an der
+    Reihenfolge der Pruefungen in stream_info(), und die kann sich aendern."""
+    safe = STREAM_DIR.get(slug)          # Nachschlagen statt Durchreichen
+    if not safe: return None
+    want = norm(title)
+    base = os.path.join(ROMS, safe)
+    if not (want and os.path.isdir(base)): return None
+    try:
+        for root, _dirs, files in os.walk(base):
+            for fn in files:
+                ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else ""
+                if ext in ROM_EXT and norm(fn) == want:
+                    return os.path.join(root, fn)
+            if root != base and os.path.relpath(root, base).count(os.sep) >= 1:
+                break
+    except OSError:
+        return None
+    return None
+
+def stream_info(title, slug, user=""):
+    """Ist der Titel streambar — und wenn nein, warum nicht? Antwortet immer mit Grund."""
+    slug = resolve_slug(slug) if slug else ""
+    conf = stream_cfg()
+    if not conf["url"]:
+        return {"streamable": False, "reason": "no_host"}
+    if slug in PLAYABLE:
+        # Dafuer gibt es einen Browser-Kern — Stream waere die schlechtere Wahl.
+        return {"streamable": False, "reason": "use_play", "platform": slug}
+    if slug not in STREAMABLE:
+        return {"streamable": False, "reason": "not_supported", "platform": slug}
+    path = stream_find_file(title, slug)
+    if not path:
+        return {"streamable": False, "reason": "not_in_library", "platform": slug}
+    ses = stream_session()
+    busy = bool(ses and ses.get("user") != user)
+    return {"streamable": not busy, "platform": slug, "path": path,
+            "reason": "busy" if busy else "",
+            "busy_with": (ses or {}).get("title", "") if busy else "",
+            "busy_user": (ses or {}).get("user", "") if busy else "",
+            "url": conf["url"]}
+
+def stream_start(user, title, slug):
+    """Einzelplatz belegen und — falls ein Start-Dienst hinterlegt ist — den Titel starten."""
+    info = stream_info(title, slug, user)
+    if not info.get("streamable"):
+        return info, 409 if info.get("reason") == "busy" else 400
+    with STREAM_LOCK:
+        ses = stream_session()
+        if ses and ses.get("user") != user:      # zweite Pruefung IM Lock (Wettlauf)
+            return {"streamable": False, "reason": "busy",
+                    "busy_with": ses.get("title", ""), "busy_user": ses.get("user", "")}, 409
+        conf = stream_cfg()
+        launched = False
+        if conf["launch"]:
+            try:
+                r = safe_post(conf["launch"], json={"path": info["path"], "platform": info["platform"]},
+                              timeout=15)
+                launched = bool(r.ok)
+                if not r.ok: log(f"Stream-Start abgelehnt: HTTP {r.status_code}")
+            except Exception as e:
+                log(f"Stream-Start-Fehler: {e}")
+        kv_put("stream_session", {"user": user, "title": title, "platform": info["platform"],
+                                  "started": int(time.time()),
+                                  "expires": time.time() + STREAM_TTL, "launched": launched})
+    return {"streamable": True, "url": conf["url"], "launched": launched,
+            "platform": info["platform"], "expires_in": STREAM_TTL}, 200
+
 def worker_collect():
     """Dauerthread (alle 20 s): sucht für noch laufende usenet/filehoster-Jobs den fertigen
     Ausgabeordner (SAB_DONE bzw. JD_OUT, Name `romseerr_<jid>`). Ist er **stabil** (Größe
@@ -2491,6 +2595,47 @@ def api_play():
     title = (request.args.get("title") or "").strip()
     if not title: return jsonify({"playable": False, "reason": "no_title"}), 400
     return jsonify(play_info(title, (request.args.get("platform") or "").strip()))
+
+@app.route("/api/stream")
+@perm_required("request")
+def api_stream_info():
+    """Ist der Titel streambar? Antwortet immer mit einem Grund."""
+    title = (request.args.get("title") or "").strip()
+    if not title: return jsonify({"streamable": False, "reason": "no_title"}), 400
+    return jsonify(stream_info(title, (request.args.get("platform") or "").strip(),
+                               session.get("user", "")))
+
+@app.route("/api/stream/start", methods=["POST"])
+@perm_required("request")
+def api_stream_start():
+    d = request.get_json(silent=True) or {}
+    title = (d.get("title") or "").strip()
+    if not title: return jsonify({"streamable": False, "reason": "no_title"}), 400
+    out, code = stream_start(session.get("user", ""), title, (d.get("platform") or "").strip())
+    return jsonify(out), code
+
+@app.route("/api/stream/stop", methods=["POST"])
+@perm_required("request")
+def api_stream_stop():
+    """Platz freigeben. Nur der Inhaber oder ein Anfragen-Verwalter — sonst koennte
+    jeder jedem die laufende Sitzung abdrehen."""
+    me = session.get("user", "")
+    ses = stream_session()
+    if not ses: return jsonify({"ok": True, "was_running": False})
+    if ses.get("user") != me and not has_perm("manage_requests"):
+        return jsonify({"ok": False, "msg": "fremde Sitzung / not your session"}), 403
+    kv_put("stream_session", None)
+    return jsonify({"ok": True, "was_running": True})
+
+@app.route("/api/stream/status")
+@perm_required("request")
+def api_stream_status():
+    ses = stream_session()
+    conf = stream_cfg()
+    return jsonify({"configured": bool(conf["url"]), "has_launcher": bool(conf["launch"]),
+                    "seats": 1, "ttl": STREAM_TTL,
+                    "session": {k: ses[k] for k in ("user", "title", "platform", "started", "launched")}
+                               if ses else None})
 
 @app.route("/api/cover")
 def api_cover():
@@ -3806,6 +3951,16 @@ OPENAPI = {
             params=[_qp("title", "Titel"), _qp("platform", "Plattform-Slug")],
             responses={**_R_PERM, "200": {"description": "playable + Grund/URL"},
                        "400": {"description": "kein Titel"}})},
+        "/api/stream": {"get": _op("Ist der Titel streambar (Plattform ohne Browser-Kern)?", "Search",
+            params=[_qp("title", "Titel"), _qp("platform", "Plattform-Slug")], responses=_R_PERM)},
+        "/api/stream/start": {"post": _op("Einzelplatz belegen und Titel auf dem Streaming-Host starten", "Requests",
+            body={"type": "object", "required": ["title"],
+                  "properties": {"title": {"type": "string"}, "platform": {"type": "string"}}},
+            responses={**_R_PERM, "200": {"description": "gestartet"},
+                       "409": {"description": "Platz belegt"}})},
+        "/api/stream/stop": {"post": _op("Sitzung beenden (Inhaber oder manage_requests)", "Requests",
+            responses={**_R_PERM, "200": {"description": "freigegeben"}})},
+        "/api/stream/status": {"get": _op("Zustand des Einzelplatzes", "Requests", responses=_R_PERM)},
         "/api/cover": {"get": _op("Cover-URL zu einem Titel (lazy, via IGDB)", "Search",
             params=[_qp("title", "Titel")])},
         "/api/platforms": {"get": _op("Verfügbare Plattformen/Slugs", "Search")},

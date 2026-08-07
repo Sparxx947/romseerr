@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 
 import pytest
 
@@ -1400,3 +1401,116 @@ def test_no_exception_text_reaches_responses(appmod, client):
     m2 = r.get_json()["msg"]
     assert "/" not in m2.replace(" / ", "")        # kein Pfad (der Sprachtrenner zählt nicht)
     appmod.save_users({})
+
+
+def _stream_ready(appmod, slug="ps2", name="Zzz Streamtitel.iso"):
+    d = os.path.join(appmod.ROMS, slug)
+    os.makedirs(d, exist_ok=True)
+    open(os.path.join(d, name), "w").close()
+    appmod.build_index()
+    appmod.save_settings({"connections": {"stream_url": "http://stream.example:3000/"}})
+
+
+def test_stream_only_for_platforms_without_a_browser_core(appmod):
+    """Der Stream-Knopf ergaenzt Play, er ersetzt ihn nicht: wo ein EmulatorJS-Kern
+    existiert, gibt es keinen Stream. (#71)"""
+    _stream_ready(appmod)
+    appmod.kv_put("stream_session", None)
+    for slug in ("snes", "psx", "gba", "n64"):
+        assert appmod.stream_info("X", slug)["reason"] == "use_play", slug
+    for slug in ("ps2", "ngc", "wii", "switch"):
+        assert slug in appmod.STREAMABLE
+        assert slug not in appmod.PLAYABLE       # sonst widersprechen sich #69 und #71
+    assert appmod.stream_info("X", "amiga")["reason"] == "use_play"
+    appmod.save_settings({})
+
+
+def test_stream_requires_a_file_and_a_host(appmod):
+    """Ohne Host kein Knopf, ohne Datei kein Stream. (#71)"""
+    appmod.save_settings({})
+    assert appmod.stream_info("Zzz Streamtitel", "ps2")["reason"] == "no_host"
+    _stream_ready(appmod)
+    assert appmod.stream_info("Gibt Es Nicht 9912", "ps2")["reason"] == "not_in_library"
+    d = appmod.stream_info("Zzz Streamtitel", "ps2")
+    assert d["streamable"] is True and d["path"].endswith("Zzz Streamtitel.iso")
+    appmod.save_settings({})
+
+
+def test_stream_is_single_seat(appmod, client):
+    """Einzelplatz: die zweite Sitzung wird mit 409 und dem Namen des Belegers abgewiesen,
+    nicht mit einem stillen Fehlschlag. (#71)"""
+    _stream_ready(appmod)
+    appmod.kv_put("stream_session", None)
+    appmod.save_users({"anna": {"pw": "x", "role": "user", "perms": ["request"]},
+                       "bert": {"pw": "x", "role": "user", "perms": ["request"]}})
+    with client.session_transaction() as sess:
+        sess["user"] = "anna"; sess["role"] = "user"
+    r = client.post("/api/stream/start", json={"title": "Zzz Streamtitel", "platform": "ps2"})
+    assert r.status_code == 200 and r.get_json()["streamable"] is True
+    # derselbe Nutzer darf erneut starten
+    assert client.post("/api/stream/start",
+                       json={"title": "Zzz Streamtitel", "platform": "ps2"}).status_code == 200
+    with client.session_transaction() as sess:
+        sess["user"] = "bert"; sess["role"] = "user"
+    r = client.post("/api/stream/start", json={"title": "Zzz Streamtitel", "platform": "ps2"})
+    assert r.status_code == 409
+    d = r.get_json()
+    assert d["reason"] == "busy" and d["busy_user"] == "anna"
+    # ... und darf sie nicht einfach abdrehen
+    assert client.post("/api/stream/stop").status_code == 403
+    with client.session_transaction() as sess:
+        sess["user"] = "anna"; sess["role"] = "user"
+    assert client.post("/api/stream/stop").get_json()["was_running"] is True
+    assert appmod.stream_session() is None
+    appmod.save_users({}); appmod.save_settings({})
+
+
+def test_stream_session_expires(appmod):
+    """Ein vergessener Tab darf den Einzelplatz nicht dauerhaft blockieren. (#71)"""
+    appmod.kv_put("stream_session", {"user": "anna", "title": "X", "platform": "ps2",
+                                     "started": 0, "expires": time.time() - 1})
+    assert appmod.stream_session() is None      # abgelaufen -> Platz frei
+    appmod.kv_put("stream_session", {"user": "anna", "title": "X", "platform": "ps2",
+                                     "started": 0, "expires": time.time() + 600})
+    assert appmod.stream_session()["user"] == "anna"
+    appmod.kv_put("stream_session", None)
+
+
+def test_stream_needs_permission(appmod, client):
+    """Gleiche Rechte wie Download und Play. (#71)"""
+    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": []}})
+    with client.session_transaction() as sess:
+        sess["user"] = "lena"; sess["role"] = "user"
+    assert client.get("/api/stream?title=X").status_code == 403
+    assert client.post("/api/stream/start", json={"title": "X"}).status_code == 403
+    assert client.get("/api/stream/status").status_code == 403
+    appmod.save_users({})
+
+
+def test_stream_agent_refuses_paths_outside_the_library(appmod):
+    """Der Start-Dienst darf ausschliesslich Dateien aus der Bibliothek starten —
+    sonst waere er ein Fernstart fuer beliebige Dateien. (#71)"""
+    import importlib.util
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(root, "contrib", "stream-agent.py")
+    os.environ["STREAM_AGENT_TOKEN"] = "testtoken"
+    os.environ["STREAM_ROMS"] = appmod.ROMS
+    spec = importlib.util.spec_from_file_location("stream_agent", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    ok, msg = mod.launch("/etc/passwd", "ps2")
+    assert ok is False and "ausserhalb" in msg
+    ok, msg = mod.launch(os.path.join(appmod.ROMS, "gibt-es-nicht.iso"), "ps2")
+    assert ok is False and "nicht gefunden" in msg
+    ok, msg = mod.launch(os.path.join(appmod.ROMS, "x.iso"), "voellig-unbekannt")
+    assert ok is False and "kein Emulator" in msg
+
+
+def test_stream_find_file_validates_the_slug_itself(appmod):
+    """Der Slug geht in einen Pfad. Er wird IN stream_find_file geprüft, nicht nur beim
+    Aufrufer — sonst haengt die Sicherheit an der Reihenfolge der Pruefungen. (#71)"""
+    appmod.save_settings({"connections": {"stream_url": "http://s.example/"}})
+    for evil in ("../../etc", "..", "/etc", "ps2/../../etc"):
+        assert appmod.stream_find_file("passwd", evil) is None, evil
+    assert appmod.stream_find_file("X", "snes") is None      # nicht streambar -> kein Pfadzugriff
+    appmod.save_settings({})

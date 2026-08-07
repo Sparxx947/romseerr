@@ -87,6 +87,12 @@ into the library and notifies when they are available. The library is shared by 
   (TXT/CSV, one title per line, optionally `title;platform`) with a **preview** before anything
   is written: matched / ambiguous / not found. An **example file** in the expected format is
   offered in the dialog (also at `/api/wishlist/example.csv`).
+- 📺 **Stream** for the platforms the browser **cannot** emulate (PS2, GameCube, Wii, Switch):
+  the emulator runs on a streaming host and the browser receives video and audio. Romseerr
+  emulates nothing and ships neither emulator nor firmware — it resolves a title to a file and
+  asks the host to launch it. **Single seat**: one session at a time, showing who holds it,
+  with an expiry and an explicit stop. The thin launch service ships as
+  `contrib/stream-agent.py`.
 - ▶ **Play in the browser**: if the title exists in RomM and the platform has an EmulatorJS
   core, a button on the detail view opens RomM's built-in player. Romseerr emulates nothing
   itself. **PS2, GameCube, Wii, Dreamcast and Switch never show the button** — no core exists
@@ -239,6 +245,8 @@ Two complementary ways — **the web UI takes precedence, `.env` is the fallback
 | `CATALOG_URLS` | catalogue JSON sources for the filehoster path (empty = inactive, see below) |
 | `ROMSEERR_CATALOG_TTL` | catalogue refresh interval in seconds (default 21600) |
 | `ROMSEERR_PLAY_MAX_MB` | size limit for "play in browser" in MB (default 2048) |
+| `STREAM_URL` / `STREAM_LAUNCH` | streaming host: browser URL and optional launch service |
+| `ROMSEERR_STREAM_TTL` | streaming session expiry in seconds (default 7200) |
 | `SAB_URL` / `SAB_APIKEY` / `SAB_CAT` | SABnzbd |
 | `PROW_URL` / `PROW_APIKEY` / `PROW_CATS` | Prowlarr |
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | IGDB (covers, metadata, recommendations) |
