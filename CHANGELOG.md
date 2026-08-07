@@ -24,6 +24,13 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
   JavaScript had an **unterminated string literal** and the whole script failed. Fixed to `join('\\n')`.
 
 ### Hinzugefügt / Added
+- **Versioniertes Image nach GHCR** — bei jedem veröffentlichten Release baut ein Workflow
+  das Docker-Image und pusht es nach `ghcr.io/sparxx947/romseerr` (Tags `X.Y.Z`, `X.Y`,
+  `latest`); so lässt sich ein fertiges Image ziehen statt lokal zu bauen. /
+  **Versioned image to GHCR** — on each published release a workflow builds and pushes the
+  image to `ghcr.io/sparxx947/romseerr` (tags `X.Y.Z`, `X.Y`, `latest`).
+
+### Hinzugefügt / Added
 - **Smoke-Tests (pytest) + Inline-JS-Guard** — die CI prüft jetzt **Verhalten**, nicht nur
   Syntax: Health, Titel-Normalisierung/Dedup, Bibliotheks-Index, Sperrliste, Setup/Login,
   Auth-Schutz. Zusätzlich verifiziert ein Test, dass das **eingebettete JavaScript gültig
