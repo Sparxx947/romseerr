@@ -495,7 +495,7 @@ def igdb_rich(title):
     if key in IGDB["cache"]: return IGDB["cache"][key]
     d = igdb_query("games", f'search "{title[:60]}"; fields name,summary,rating,aggregated_rating,'
         f'genres.name,first_release_date,involved_companies.company.name,involved_companies.developer,'
-        f'screenshots.image_id,similar_games.name; limit 1;')
+        f'screenshots.image_id,similar_games.name,collection.name,collection.games.name; limit 1;')
     g = d[0] if isinstance(d, list) and d else {}
     rating = g.get("aggregated_rating") or g.get("rating")
     year = ""
@@ -510,8 +510,47 @@ def igdb_rich(title):
            "screenshots": [f"https://images.igdb.com/igdb/image/upload/t_screenshot_med/{s['image_id']}.jpg"
                            for s in (g.get("screenshots",[]) or [])[:6] if s.get("image_id")],
            "similar": [x.get("name") for x in (g.get("similar_games",[]) or [])[:8] if x.get("name")]}
+    col = g.get("collection") or {}
+    if col.get("name") and col.get("games"):
+        me = norm(g.get("name",""))
+        series = [x.get("name") for x in (col.get("games") or []) if x.get("name") and norm(x["name"]) != me]
+        if series:
+            out["series"] = col["name"]
+            out["series_games"] = series[:12]
     IGDB["cache"][key] = out
     return out
+
+def igdb_similar_games(title, limit=20):
+    """Ähnliche Spiele (mit Cover) zu einem Titel – Grundlage für „Weil du … angefragt hast"."""
+    key = "simg:" + norm(title)
+    if key in IGDB["cache"]: return IGDB["cache"][key]
+    d = igdb_query("games", f'search "{title[:60]}"; '
+        f'fields name,similar_games.name,similar_games.cover.image_id; limit 1;')
+    g = d[0] if isinstance(d, list) and d else {}
+    out = [{"title": s.get("name",""), "cover": _cover_url(s)}
+           for s in (g.get("similar_games", []) or []) if s.get("name") and s.get("cover")][:limit]
+    IGDB["cache"][key] = out
+    return out
+
+def recommend_for_user(user, limit=20):
+    """Personalisierte Empfehlung: nimmt die zuletzt vom Nutzer angefragten Titel als
+    Saat und liefert dazu ähnliche Spiele, die noch nicht in der Bibliothek sind.
+    Gibt {seed, games} oder None zurück (None = keine Anfragen / keine Treffer)."""
+    if not user: return None
+    with JOBS_LOCK:
+        titles = [j.get("title","") for j in reversed(JOBS)
+                  if j.get("user") == user and j.get("state") != "denied"]
+    seeds = []
+    for tq in titles:
+        q = clean_query(tq)
+        if q and q.lower() not in [s.lower() for s in seeds]:
+            seeds.append(q)
+        if len(seeds) >= 4: break
+    for seed in seeds:
+        sims = [s for s in igdb_similar_games(seed, limit) if not in_library(s["title"], None)]
+        if sims:
+            return {"seed": seed, "games": sims}
+    return None
 
 def clean_query(t):
     # Verrauschte Release-/Usenet-Titel auf den Spielnamen kürzen (für IGDB-Cover-Suche)
@@ -1268,7 +1307,7 @@ const I18N={de:{
  search_ph:'Spiel suchen … (Enter)',platforms:'Plattformen',all:'Alle',selected:'gewählt',
  hint_type:'Tippe einen Titel und drücke Enter.',loading_home:'Lade Startseite …',popular_on:'Beliebt auf',click_search:'klick zum Suchen',
  searching:'Suche läuft …',no_results:'Keine Treffer.',results:'Treffer',in_library:'✓ in Bibliothek',download:'⬇ Download',requested:'✓ angefragt',collection:'Sammlung',
- versions:'Versionen / Quellen',files:'Dateien',no_desc:'Keine Beschreibung verfügbar.',screenshots:'Screenshots',similar:'Ähnliche Spiele',
+ versions:'Versionen / Quellen',files:'Dateien',no_desc:'Keine Beschreibung verfügbar.',screenshots:'Screenshots',similar:'Ähnliche Spiele',series:'Reihe',because_you:'Weil du angefragt hast:',
  no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',retry:'Erneut',reset:'Alle zurücksetzen',req_all:'Alle anfragen',flt_user:'Nutzer',flt_all:'Alle',
  users:'Benutzer',new_user:'Neuen Benutzer anlegen',create:'Anlegen',del:'Löschen',autoapprove:'Auto-Freigabe',role_user:'Nutzer',role_admin:'Admin',username:'Benutzername',password:'Passwort',
  notif_discord:'Benachrichtigungen — Discord',active:'aktiv',test:'Test',save:'Speichern',saved:'gespeichert ✓',test_sent:'Test gesendet ✓',webhook_ph:'Discord Webhook-URL',
@@ -1282,7 +1321,7 @@ const I18N={de:{
  search_ph:'Search a game … (Enter)',platforms:'Platforms',all:'All',selected:'selected',
  hint_type:'Type a title and press Enter.',loading_home:'Loading home …',popular_on:'Popular on',click_search:'click to search',
  searching:'Searching …',no_results:'No results.',results:'results',in_library:'✓ in library',download:'⬇ Download',requested:'✓ requested',collection:'Collection',
- versions:'Versions / sources',files:'Files',no_desc:'No description available.',screenshots:'Screenshots',similar:'Similar games',
+ versions:'Versions / sources',files:'Files',no_desc:'No description available.',screenshots:'Screenshots',similar:'Similar games',series:'Series',because_you:'Because you requested:',
  no_requests:'No requests yet.',approve:'Approve',deny:'Deny',retry:'Retry',reset:'Reset all',req_all:'Request all',flt_user:'User',flt_all:'All',
  users:'Users',new_user:'Create new user',create:'Create',del:'Delete',autoapprove:'Auto-approve',role_user:'User',role_admin:'Admin',username:'Username',password:'Password',
  notif_discord:'Notifications — Discord',active:'enabled',test:'Test',save:'Save',saved:'saved ✓',test_sent:'test sent ✓',webhook_ph:'Discord webhook URL',
@@ -1296,7 +1335,7 @@ const I18N={de:{
  search_ph:'Rechercher un jeu … (Entrée)',platforms:'Plateformes',all:'Toutes',selected:'sélectionné',
  hint_type:'Saisissez un titre et appuyez sur Entrée.',loading_home:'Chargement …',popular_on:'Populaire sur',click_search:'cliquer pour rechercher',
  searching:'Recherche …',no_results:'Aucun résultat.',results:'résultats',in_library:'✓ dans la bibliothèque',download:'⬇ Télécharger',requested:'✓ demandé',collection:'Collection',
- versions:'Versions / sources',files:'Fichiers',no_desc:'Aucune description disponible.',screenshots:'Captures',similar:'Jeux similaires',
+ versions:'Versions / sources',files:'Fichiers',no_desc:'Aucune description disponible.',screenshots:'Captures',similar:'Jeux similaires',series:'Série',because_you:'Parce que vous avez demandé :',
  no_requests:'Aucune demande.',approve:'Approuver',deny:'Refuser',retry:'Réessayer',reset:'Tout réinitialiser',req_all:'Tout demander',flt_user:'Utilisateur',flt_all:'Tous',
  users:'Utilisateurs',new_user:'Créer un utilisateur',create:'Créer',del:'Supprimer',autoapprove:'Approbation auto',role_user:'Utilisateur',role_admin:'Admin',username:"Nom d'utilisateur",password:'Mot de passe',
  notif_discord:'Notifications — Discord',active:'activé',test:'Test',save:'Enregistrer',saved:'enregistré ✓',test_sent:'test envoyé ✓',webhook_ph:'URL du webhook Discord',
@@ -1310,7 +1349,7 @@ const I18N={de:{
  search_ph:'Buscar un juego … (Intro)',platforms:'Plataformas',all:'Todas',selected:'seleccionado',
  hint_type:'Escribe un título y pulsa Intro.',loading_home:'Cargando …',popular_on:'Popular en',click_search:'clic para buscar',
  searching:'Buscando …',no_results:'Sin resultados.',results:'resultados',in_library:'✓ en la biblioteca',download:'⬇ Descargar',requested:'✓ solicitado',collection:'Colección',
- versions:'Versiones / fuentes',files:'Archivos',no_desc:'Sin descripción disponible.',screenshots:'Capturas',similar:'Juegos similares',
+ versions:'Versiones / fuentes',files:'Archivos',no_desc:'Sin descripción disponible.',screenshots:'Capturas',similar:'Juegos similares',series:'Serie',because_you:'Porque solicitaste:',
  no_requests:'Aún no hay solicitudes.',approve:'Aprobar',deny:'Rechazar',retry:'Reintentar',reset:'Restablecer todo',req_all:'Solicitar todo',flt_user:'Usuario',flt_all:'Todos',
  users:'Usuarios',new_user:'Crear usuario',create:'Crear',del:'Eliminar',autoapprove:'Auto-aprobación',role_user:'Usuario',role_admin:'Admin',username:'Usuario',password:'Contraseña',
  notif_discord:'Notificaciones — Discord',active:'activo',test:'Prueba',save:'Guardar',saved:'guardado ✓',test_sent:'prueba enviada ✓',webhook_ph:'URL del webhook de Discord',
@@ -1442,6 +1481,7 @@ async function openDetail(it){let m=document.getElementById('modal');m.style.dis
   <div class=sec id=mshots style="display:none"><h3>${t('screenshots')}</h3><div class=shots id=mshotsw></div></div>
   <div class=sec><h3>${t('versions')} (${vars.length})</h3><div id=reqforbar></div><div id=mvar></div></div>
   <div class=sec id=mfiles></div>
+  <div class=sec id=mser style="display:none"><h3 id=mserh>${t('series')}</h3><div class=chips id=mserw></div></div>
   <div class=sec id=msim style="display:none"><h3>${t('similar')}</h3><div class=chips id=msimw></div></div></div>`;
  let mv=document.getElementById('mvar');
  vars.forEach(v=>{let row=document.createElement('div');row.className='row';
@@ -1465,6 +1505,9 @@ async function openDetail(it){let m=document.getElementById('modal');m.style.dis
    document.getElementById('mshotsw').innerHTML=d.screenshots.map(s=>`<img src="${s}" loading=lazy>`).join('');}
  if(d.similar&&d.similar.length){document.getElementById('msim').style.display='';
    document.getElementById('msimw').innerHTML=d.similar.map(n=>`<button class=chip onclick="simSearch(this.dataset.n)" data-n="${n.replace(/"/g,'&quot;')}">${n.replace(/</g,'&lt;')}</button>`).join('');}
+ if(d.series&&d.series_games&&d.series_games.length){document.getElementById('mser').style.display='';
+   document.getElementById('mserh').textContent=t('series')+': '+d.series;
+   document.getElementById('mserw').innerHTML=d.series_games.map(n=>`<button class=chip onclick="simSearch(this.dataset.n)" data-n="${n.replace(/"/g,'&quot;')}">${n.replace(/</g,'&lt;')}</button>`).join('');}
  if(d.files&&d.files.length)document.getElementById('mfiles').innerHTML='<h3>'+t('files')+'</h3><div class=flist>'+
    d.files.map(f=>`<div>${f.name.replace(/</g,'&lt;')} — ${sz(f.size)}</div>`).join('')+'</div>';}
 function simSearch(n){closeModal();document.getElementById('q').value=n;show('s');search();}
@@ -1486,7 +1529,8 @@ async function loadDiscover(){let hint=document.getElementById('hint');hint.styl
   lbl.appendChild(cb);lbl.appendChild(document.createTextNode(r.console));cust.appendChild(lbl);});
  g.appendChild(cust);
  rows.filter(r=>!hid.has(r.key)).forEach(r=>{let sec=document.createElement('div');sec.className='drow';
-  sec.innerHTML=`<div class=rowh>${r.slug?t('popular_on')+' ':''}<b>${r.console}</b> <span>· ${t('click_search')}</span></div><div class=strip></div>`;
+  let pre=r.reco?t('because_you')+' ':(r.slug?t('popular_on')+' ':'');
+  sec.innerHTML=`<div class=rowh>${pre}<b>${(r.console||'').replace(/</g,'&lt;')}</b> <span>· ${t('click_search')}</span></div><div class=strip></div>`;
   let strip=sec.querySelector('.strip');
   r.games.forEach(it=>{let c=document.createElement('div');c.className='pcard';
    c.innerHTML=`<div class=pcover style="${it.cover?`background-image:url('${it.cover}')`:''}">${it.in_library?'<span class=have2>✓</span>':''}</div><div class=pt>${it.title.replace(/</g,'&lt;')}</div>`;
@@ -1973,7 +2017,16 @@ def api_discover():
 
 @app.route("/api/discover/rows")
 def api_discover_rows():
-    return jsonify(discover_rows())
+    rows = discover_rows()
+    rec = recommend_for_user(session.get("user", ""))
+    if rec:
+        bl = [str(p).strip().lower() for p in load_settings().get("blocklist", []) if str(p).strip()]
+        games = [{**gm, "in_library": in_library(gm["title"], None)}
+                 for gm in rec["games"] if not is_blocked(gm["title"], bl)]
+        if games:
+            rows = [{"slug": "", "key": "reco", "console": rec["seed"],
+                     "reco": True, "games": games}] + rows
+    return jsonify(rows)
 
 @app.route("/api/download", methods=["POST"])
 def api_download():
