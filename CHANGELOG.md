@@ -40,6 +40,17 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
   image to `ghcr.io/sparxx947/romseerr` (tags `X.Y.Z`, `X.Y`, `latest`).
 
 ### Hinzugefügt / Added
+- **API-Dokumentation (OpenAPI 3.1)** — vollständige, maschinenlesbare Spezifikation als
+  einzige Quelle der Wahrheit (`app.OPENAPI`), ausgeliefert unter **`/api/openapi.json`** und
+  interaktiv unter **`/api/docs`** (Redoc). Zweisprachige Anleitung in [`docs/API.md`](docs/API.md),
+  generierte [`docs/openapi.yaml`](docs/openapi.yaml) (via `scripts/build_openapi.py`). Tests
+  erzwingen, dass **jede Route dokumentiert** ist und die Repo-YAML nicht abdriftet. /
+  **API documentation (OpenAPI 3.1)** — complete machine-readable spec (single source
+  `app.OPENAPI`), served at **`/api/openapi.json`** and rendered at **`/api/docs`** (Redoc);
+  bilingual guide in `docs/API.md`, generated `docs/openapi.yaml`. Tests enforce that every
+  route is documented and the YAML stays in sync.
+
+### Hinzugefügt / Added
 - **Smoke-Tests (pytest) + Inline-JS-Guard** — die CI prüft jetzt **Verhalten**, nicht nur
   Syntax: Health, Titel-Normalisierung/Dedup, Bibliotheks-Index, Sperrliste, Setup/Login,
   Auth-Schutz. Zusätzlich verifiziert ein Test, dass das **eingebettete JavaScript gültig

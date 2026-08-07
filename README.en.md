@@ -53,6 +53,17 @@ docker compose up -d --build
 **Romseerr only** (existing stack): use just the `romseerr` service in
 `docker-compose.yml` and point its `.env` URLs at your hosts.
 
+## API
+
+Full documentation:
+
+- **Interactive:** `http://<host>:8770/api/docs` (Redoc) · **Spec:** `/api/openapi.json`
+- **Guide + auth (API key/session):** [`docs/API.md`](docs/API.md)
+- **OpenAPI 3.1 in the repo:** [`docs/openapi.yaml`](docs/openapi.yaml)
+
+Programmatic access via API key (header `X-Api-Key` or `?apikey=`), e.g.
+`curl -H "X-Api-Key: $KEY" http://<host>:8770/api/jobs`.
+
 ## Stack components
 
 | Service | Role | Port |
