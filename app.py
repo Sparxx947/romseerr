@@ -988,12 +988,17 @@ def import_folder(jid, folder):
     set_state(jid, state="importing", msg="entpacken/einsortieren")
     extract_archives(folder)
     job_slug = job.get("platform")
-    moved, by_plat = 0, {}
+    moved, skipped, by_plat = 0, 0, {}
     for root,_,files in os.walk(folder):
         for fn in files:
             if SKIP_FILES.search(fn) or fn == ".urls": continue
             src = os.path.join(root,fn)
             ext = fn.rsplit(".",1)[-1].lower() if "." in fn else ""
+            # NUR bekannte ROM-/Disk-Endungen importieren. Alles andere (entpackte
+            # Fangames, .exe/.dll/.ogg, Emulatoren …) übersprin­gen, statt die
+            # Bibliothek zu vermüllen. (#61)
+            if ext not in ROM_EXT:
+                skipped += 1; continue
             # Plattform pro Datei: eindeutige Endung schlägt den Job-Hinweis
             slug = resolve_slug(EXT2PLAT.get(ext) or job_slug)
             if in_library(fn, slug):
@@ -1011,9 +1016,16 @@ def import_folder(jid, folder):
     except Exception: pass
     build_index()
     romm_scan()
+    # Nichts importiert UND nichts war schon vorhanden, aber es lagen Nicht-ROM-Dateien vor
+    # -> als Fehler melden (mislabeltes Item ohne echte ROM), statt „done" vorzutäuschen. (#61)
+    if moved == 0 and not by_plat and skipped:
+        set_state(jid, state="error", msg=f"keine ROM-Dateien gefunden / no ROM files ({skipped} übersprungen)")
+        log(f"Job {jid}: keine ROM-Dateien, {skipped} Nicht-ROM übersprungen")
+        return
     where = ", ".join(f"{v}×{k}" for k,v in by_plat.items()) or "nichts (schon vorhanden?)"
-    set_state(jid, state="done", msg=f"{moved} Datei(en) → {where}")
-    log(f"Job {jid} fertig: {moved} Dateien → {where}")
+    tail = f" · {skipped} Nicht-ROM übersprungen" if skipped else ""
+    set_state(jid, state="done", msg=f"{moved} Datei(en) → {where}{tail}")
+    log(f"Job {jid} fertig: {moved} Dateien → {where}{tail}")
     if moved:
         notify_available(job.get("title",""), where)
         send_push_to_user(job.get("user",""), "Romseerr",

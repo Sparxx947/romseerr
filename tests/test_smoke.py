@@ -361,3 +361,40 @@ def test_jobs_visibility_per_user(appmod, client):
     with appmod.JOBS_LOCK:
         appmod.JOBS[:] = []; appmod.save_jobs()
     appmod.save_users({})
+
+
+def _staging(appmod, jid, files):
+    import os
+    folder = os.path.join(appmod.STAGING, f"test_{jid}")
+    os.makedirs(folder, exist_ok=True)
+    for name, data in files.items():
+        with open(os.path.join(folder, name), "wb") as f: f.write(data)
+    return folder
+
+
+def test_import_only_rom_extensions(appmod):
+    """import_folder importiert nur bekannte ROM-Endungen; Nicht-ROM-Müll wird übersprungen. (#61)"""
+    import os
+    job = appmod.new_job({"title": "T1", "source": "archive", "ref": "r", "platform_slug": "gb", "size": 0},
+                         user="", approved=False)
+    jid = job["id"]
+    folder = _staging(appmod, jid, {"game.gb": b"\x00" * 32, "junk.exe": b"MZ", "music.ogg": b"OggS"})
+    appmod.import_folder(jid, folder)
+    assert appmod.get_job(jid)["state"] == "done"
+    found = [f for _, _, fs in os.walk(appmod.ROMS) for f in fs]
+    assert "game.gb" in found
+    assert "junk.exe" not in found and "music.ogg" not in found
+    with appmod.JOBS_LOCK:
+        appmod.JOBS[:] = [x for x in appmod.JOBS if x["id"] != jid]; appmod.save_jobs()
+
+
+def test_import_all_junk_errors(appmod):
+    """Enthält ein Item gar keine ROM, endet der Job als Fehler statt 'done'. (#61)"""
+    job = appmod.new_job({"title": "T2", "source": "archive", "ref": "r", "platform_slug": "Mixed", "size": 0},
+                         user="", approved=False)
+    jid = job["id"]
+    folder = _staging(appmod, jid, {"setup.exe": b"MZ", "lib.dll": b"MZ", "data.win": b"x"})
+    appmod.import_folder(jid, folder)
+    assert appmod.get_job(jid)["state"] == "error"
+    with appmod.JOBS_LOCK:
+        appmod.JOBS[:] = [x for x in appmod.JOBS if x["id"] != jid]; appmod.save_jobs()
