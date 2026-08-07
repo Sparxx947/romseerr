@@ -883,12 +883,51 @@ def quota_info(user):
     return {"enabled": True, "count": cnt, "days": days, "used": used, "remaining": max(0, cnt-used)}
 
 # ---------- Download-Aktionen ----------
+def dl_name(jid, title):
+    """Download-/Ordnername für SAB & JDownloader: stabiles Präfix `romseerr_<jid>` plus
+    (nach `__`) der bereinigte ROM-Titel, damit die Anfrage in SABnzbd/JDownloader
+    erkennbar ist. `worker_collect` findet den fertigen Ordner über das Präfix. (#64)"""
+    safe = re.sub(r'[^A-Za-z0-9]+', '.', (title or '')).strip('.')[:80]
+    return f"romseerr_{jid}__{safe}" if safe else f"romseerr_{jid}"
+
+def find_output(base, jid):
+    """Fertigen Ausgabeordner zu einem Job über das `romseerr_<jid>`-Präfix finden
+    (exakt oder mit Titel-Suffix). Robust gegen die Namensbereinigung von SAB/JD:
+    der jid ist fixer Länge, ein direkt folgendes Zeichen darf keine Ziffer sein
+    (sonst wäre es ein längerer jid), damit keine Verwechslung entsteht."""
+    pref = f"romseerr_{jid}"
+    try:
+        for e in os.scandir(base):
+            if not e.is_dir() or not e.name.startswith(pref): continue
+            rest = e.name[len(pref):]
+            if rest == "" or not rest[0].isdigit():
+                return e.path
+    except (FileNotFoundError, NotADirectoryError): pass
+    return None
+
 def sab_add(url, name):
     r = requests.get(f"{cfg("sab_url")}/api", params={"mode":"addurl","name":url,"nzbname":name,
         "cat":cfg("sab_cat"),"apikey":cfg("sab_apikey"),"output":"json"}, timeout=20)
     j = r.json()
     if not j.get("status"): raise RuntimeError(f"SAB: {j}")
     return j
+
+def sab_cleanup(jid):
+    """Nach dem Import den SAB-History-Eintrag samt Dateien entfernen (del_files=1),
+    damit erledigte Downloads nicht in SABnzbd liegen bleiben. Über das
+    `romseerr_<jid>`-Präfix zugeordnet. (#65)"""
+    if not (cfg("sab_url") and cfg("sab_apikey")): return
+    pref = f"romseerr_{jid}"
+    try:
+        j = requests.get(f"{cfg('sab_url')}/api", params={"mode":"history","output":"json",
+            "apikey":cfg("sab_apikey"),"limit":200}, timeout=10).json()
+        for s in (j.get("history",{}) or {}).get("slots",[]) or []:
+            nm = (s.get("name","") or "") + " " + (s.get("nzb_name","") or "")
+            if pref in nm and s.get("nzo_id"):
+                requests.get(f"{cfg('sab_url')}/api", params={"mode":"history","name":"delete",
+                    "value":s["nzo_id"],"del_files":1,"apikey":cfg("sab_apikey"),"output":"json"}, timeout=10)
+    except Exception as e:
+        log(f"SAB-Cleanup {jid}: {e}")
 
 def sab_queue():
     """SAB-Warteschlange -> {Dateiname: Prozent}. Best effort (für die Fortschrittsanzeige)."""
@@ -941,8 +980,8 @@ def worker_download():
         try:
             if job["source"]=="usenet":
                 set_state(jid, state="downloading", msg="an SAB übergeben")
-                sab_add(job["ref"], f"romseerr_{jid}")
-                # Ordnername in SAB-complete = romseerr_<jid>
+                sab_add(job["ref"], dl_name(jid, job.get("title","")))
+                # Ordnername in SAB-complete = romseerr_<jid>__<titel> (Präfix romseerr_<jid>)
             elif job["source"]=="archive":
                 set_state(jid, state="downloading", msg="Archive.org-Download läuft")
                 urls = archive_file_urls(job["ref"])
@@ -958,7 +997,8 @@ def worker_download():
                 import_folder(jid, dst)
             elif job["source"]=="filehoster":
                 set_state(jid, state="downloading", msg="an JDownloader übergeben")
-                write_crawljob(jid, job["ref"], f"{cfg("jd_dl_base")}/romseerr_{jid}", f"romseerr_{jid}")
+                dn = dl_name(jid, job.get("title",""))
+                write_crawljob(jid, job["ref"], f"{cfg("jd_dl_base")}/{dn}", dn)
         except Exception as e:
             set_state(jid, state="error", msg=str(e)[:200]); log(f"Job {jid} Fehler: {e}")
         finally:
@@ -1061,20 +1101,25 @@ def worker_collect():
                 pending = [dict(j) for j in JOBS if j["state"]=="downloading" and j["source"] in ("usenet","filehoster")]
             sabq = None
             for job in pending:
-                jid = job["id"]; name = f"romseerr_{jid}"
+                jid = job["id"]; pref = f"romseerr_{jid}"
                 cand = None
                 if job["source"]=="usenet":
-                    p = os.path.join(SAB_DONE, name)
-                    if os.path.isdir(p): cand = p
-                    else:  # noch in der SAB-Queue -> Fortschritt anzeigen
+                    cand = find_output(SAB_DONE, jid)
+                    if not cand:  # noch in der SAB-Queue -> Fortschritt anzeigen
                         if sabq is None: sabq = sab_queue()
-                        pct = next((v for k, v in sabq.items() if name in k), None)
+                        pct = next((v for k, v in sabq.items() if pref in k), None)
                         if pct not in (None, ""): set_state(jid, msg=f"{pct}%")
                 else:
-                    p = os.path.join(JD_OUT, name)
-                    if os.path.isdir(p) and any(os.scandir(p)): cand = p
+                    p = find_output(JD_OUT, jid)
+                    if p and any(os.scandir(p)): cand = p
                 if cand and folder_stable(cand):
                     import_folder(jid, cand)
+                    # Erledigten Download aus SAB/JD und von der Platte entfernen. (#65)
+                    if job["source"] == "usenet": sab_cleanup(jid)
+                    try:
+                        if os.path.isdir(cand) and (cand.startswith(SAB_DONE) or cand.startswith(JD_OUT)):
+                            subprocess.run(["rm", "-rf", cand])
+                    except Exception as e: log(f"Ausgabe-Cleanup {jid}: {e}")
         except Exception as e:
             log(f"collect-Fehler: {e}")
         time.sleep(20)

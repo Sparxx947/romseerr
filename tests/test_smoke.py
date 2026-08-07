@@ -398,3 +398,20 @@ def test_import_all_junk_errors(appmod):
     assert appmod.get_job(jid)["state"] == "error"
     with appmod.JOBS_LOCK:
         appmod.JOBS[:] = [x for x in appmod.JOBS if x["id"] != jid]; appmod.save_jobs()
+
+
+def test_dl_name_and_find_output(appmod, tmp_path):
+    """Download-Name traegt den Titel; find_output findet den Ordner ueber das jid-Praefix. (#64)"""
+    import os
+    jid = "1786095257002"
+    assert appmod.dl_name(jid, "Super Mario Bros. 2 (Japan)").startswith(f"romseerr_{jid}__")
+    assert appmod.dl_name(jid, "") == f"romseerr_{jid}"          # ohne Titel
+    base = str(tmp_path)
+    os.mkdir(os.path.join(base, f"romseerr_{jid}__Super.Mario"))  # mit Titel-Suffix
+    os.mkdir(os.path.join(base, "romseerr_9999999999999"))         # fremder Job
+    assert appmod.find_output(base, jid).endswith("__Super.Mario")
+    # exakter Name ohne Titel
+    base2 = str(tmp_path / "b2"); os.mkdir(base2); os.mkdir(os.path.join(base2, f"romseerr_{jid}"))
+    assert appmod.find_output(base2, jid).endswith(f"romseerr_{jid}")
+    # kein passender Ordner
+    assert appmod.find_output(str(tmp_path / "nope"), jid) is None
