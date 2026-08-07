@@ -254,7 +254,7 @@ def test_inline_js_parses():
             continue
         if n.targets[0].id not in ("PAGE", "LOGIN_PAGE", "RESET_PAGE"):
             continue
-        m = re.search(r"<script>([\s\S]*?)</script>", n.value.value)
+        m = re.search(r"<script>([\s\S]*?)</script>", n.value.value, re.I)
         if not m:
             continue
         with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
@@ -901,3 +901,124 @@ def test_ra_console_aliases_cover_platforms(appmod):
     ein stiller Blindgänger. (#79)"""
     unknown = [s for s in appmod.RA_ALIASES if s not in appmod.SLUG_NAME]
     assert not unknown, f"RA_ALIASES kennt Slugs, die es nicht gibt: {unknown}"
+
+
+def test_parse_release_conventions(appmod):
+    """Region, Sprache, Revision und Dump-Status aus den üblichen Namenskonventionen. (#77)"""
+    pr = appmod.parse_release
+
+    v = pr("Chrono Trigger (USA).sfc")
+    assert v["regions"] == ["USA"] and v["known"] is True
+
+    v = pr("Super Mario World (Europe) (Rev 1).sfc")
+    assert v["regions"] == ["Europe"] and v["revision"] == "Rev 1"
+
+    v = pr("Terranigma (Germany) (En,De,Fr,Es).sfc")
+    assert v["regions"] == ["Germany"]
+    assert set(v["languages"]) == {"en", "de", "fr", "es"}
+
+    # GoodTools: EIN Buchstabe ist Region, ZWEI sind Sprache — genau hier geht Raten schief
+    assert pr("Zelda (E) [!].nes")["regions"] == ["Europe"]
+    assert pr("Zelda (En).nes")["languages"] == ["en"]
+
+    v = pr("Star Fox 2 (Japan) (Proto).sfc")
+    assert v["dump"] == "prototype" and v["regions"] == ["Japan"]
+    assert pr("Irgendwas (Beta).md")["dump"] == "beta"
+    assert pr("Irgendwas (Demo).md")["dump"] == "demo"
+    assert pr("Irgendwas (Unl).nes")["dump"] == "unlicensed"
+
+    v = pr("Mother 3 (Japan) [T+Eng1.3].gba")
+    assert v["dump"] in ("translation", "hack")
+
+    # Mehrere Regionen in einem Tag
+    assert pr("Spiel (USA, Europe).bin")["regions"] == ["USA", "Europe"]
+
+
+def test_parse_release_never_invents(appmod):
+    """Ein unlesbarer Name wird zu „unspezifiziert" — nie zu einem falschen Etikett. (#77)"""
+    v = appmod.parse_release("irgendwas_kryptisches_2024.bin")
+    assert v["regions"] == [] and v["languages"] == [] and v["revision"] == "" and v["dump"] == ""
+    assert v["known"] is False
+    assert appmod.variant_label(v) == ""
+    assert appmod.parse_release("")["known"] is False
+
+
+def test_variant_rank_follows_preference_not_a_ladder(appmod):
+    """Die Reihenfolge der Regionen IST die Vorliebe — es wird nicht nach „Qualität" sortiert. (#77)"""
+    pr, rank = appmod.parse_release, appmod.variant_rank
+    prefs = {"regions": ["Japan", "USA"], "lang": "", "prerelease": False}
+    jp, us, eu = pr("X (Japan).sfc"), pr("X (USA).sfc"), pr("X (Europe).sfc")
+    assert rank(jp, prefs) < rank(us, prefs) < rank(eu, prefs)
+    # umgekehrte Vorliebe kehrt die Reihenfolge um — keine feste Rangordnung im Code
+    prefs2 = {"regions": ["USA", "Japan"], "lang": "", "prerelease": False}
+    assert rank(us, prefs2) < rank(jp, prefs2)
+    # Vorabfassungen hinten, solange nicht ausdrücklich gewollt
+    beta = pr("X (Japan) (Beta).sfc")
+    assert rank(jp, prefs) < rank(beta, prefs)
+    prefs3 = {"regions": ["Japan"], "lang": "", "prerelease": True}
+    assert rank(beta, prefs3) < rank(pr("X (Europe).sfc"), prefs3)
+    # Sprachwunsch schlägt bei gleicher Region durch
+    prefs4 = {"regions": ["Europe"], "lang": "de", "prerelease": False}
+    assert rank(pr("X (Europe) (De).sfc"), prefs4) < rank(pr("X (Europe) (En).sfc"), prefs4)
+
+
+def test_variant_prefs_layering(appmod):
+    """Nutzer schlägt Instanz schlägt Standard; unsinnige Eingaben werden verworfen. (#77)"""
+    appmod.save_settings({}); appmod.save_users({})
+    assert appmod.variant_prefs()["regions"] == appmod.DEFAULT_VARIANT_PREFS["regions"]
+    appmod.save_settings({"variant": {"regions": ["Japan"], "lang": "ja", "prerelease": False}})
+    assert appmod.variant_prefs()["regions"] == ["Japan"]
+    appmod.save_users({"u": {"pw": "x", "role": "user",
+                             "variant": {"regions": ["USA"], "lang": "", "prerelease": True}}})
+    p = appmod.variant_prefs("u")
+    assert p["regions"] == ["USA"] and p["prerelease"] is True
+    assert p["lang"] == "ja"      # nicht gesetzt -> Instanzwert bleibt stehen
+    # Unsinn fällt raus, statt gespeichert zu werden
+    san = appmod.sanitize_variant_prefs({"regions": ["Mordor", "USA"], "lang": "klingonisch", "prerelease": "ja"})
+    assert san == {"regions": ["USA"], "lang": "", "prerelease": True}
+    appmod.save_settings({}); appmod.save_users({})
+
+
+def test_request_records_variant(appmod, client):
+    """Die angefragte Fassung UND der Wunsch werden an der Anfrage festgehalten. (#77)"""
+    appmod.save_users({"v": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "v"; sess["role"] = "admin"
+    r = client.post("/api/download", json={"title": "Zzz Fassungstest (Europe) (Rev 1)",
+                                           "source": "archive", "ref": "x", "platform_slug": "snes"})
+    jid = r.get_json()["id"]
+    job = appmod.get_job(jid)
+    assert job["variant"]["regions"] == ["Europe"]
+    assert job["variant"]["revision"] == "Rev 1"
+    assert job["variant_label"].startswith("Europe")
+    assert job["variant_wanted"]["regions"]          # was gewünscht war, ist belegt
+    with appmod.JOBS_LOCK:
+        appmod.JOBS[:] = [x for x in appmod.JOBS if x["id"] != jid]; appmod.save_jobs()
+    appmod.save_users({})
+
+
+def test_unparseable_release_is_still_requestable(appmod, client):
+    """Ein nicht lesbarer Release-Name bleibt anfragbar und wird nicht etikettiert. (#77)"""
+    appmod.save_users({"v": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "v"; sess["role"] = "admin"
+    r = client.post("/api/download", json={"title": "zzz_kryptisch_9981", "source": "archive",
+                                           "ref": "x", "platform_slug": "snes"})
+    assert r.get_json()["ok"] is True
+    job = appmod.get_job(r.get_json()["id"])
+    assert job["variant"]["known"] is False
+    assert job["variant_label"] == ""
+    with appmod.JOBS_LOCK:
+        appmod.JOBS[:] = [x for x in appmod.JOBS if x["id"] != job["id"]]; appmod.save_jobs()
+    appmod.save_users({})
+
+
+def test_long_hostile_titles_stay_fast(appmod):
+    """Titel kommen aus fremden Indexern: viele unbalancierte Klammern dürfen die
+    Klammer-Regexe nicht quadratisch werden lassen (CodeQL py/polynomial-redos)."""
+    import time as _t
+    evil = "(" * 40000 + "Spiel"
+    t0 = _t.perf_counter()
+    appmod.norm(evil); appmod.parse_release(evil); appmod.clean_query(evil)
+    assert _t.perf_counter() - t0 < 1.0
+    assert appmod.parse_release(evil)["known"] is False
