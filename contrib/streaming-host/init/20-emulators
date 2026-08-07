@@ -1,12 +1,22 @@
 #!/bin/bash
-# Emulatoren bereitstellen. / Provide the emulators.
+# Emulatoren bereitstellen und aktuell halten. / Provide and update the emulators.
 #
 # Es wird NICHTS mitgeliefert. Dieses Skript lädt auf Wunsch von den offiziellen
 # Projektquellen — welche Emulatoren zulässig sind und welche BIOS-/Firmware-Dateien
-# du besitzt, entscheidest du. Alles ist über .env abschaltbar.
+# du besitzt, entscheidest du. Jeder einzelne ist über .env abschaltbar.
 #
 # Nothing is bundled. This fetches from official project sources if you ask it to.
 # Which emulators are lawful for you, and which BIOS/firmware you own, is your call.
+#
+# AKTUALISIEREN: Läuft bei jedem Containerstart. Mit EMU_AUTO_UPDATE=true wird die
+# aktuelle Release-URL geholt und mit der zuletzt installierten verglichen —
+# unterscheiden sie sich, wird ersetzt. Ein Neustart des Containers ist damit der
+# Aktualisierungslauf; Romseerr kann ihn über den Start-Dienst auch direkt auslösen.
+# Bei false wird nur installiert, was fehlt.
+#
+# UPDATING: runs on every container start. With EMU_AUTO_UPDATE=true the current
+# release URL is compared to the installed one and replaced when it differs, so a
+# container restart is the update run. Romseerr can trigger it via the launch service.
 #
 # FALLE: AppImages brauchen FUSE, das ein Container nicht hat. Der naheliegende
 # "Fix" wäre `--cap-add SYS_ADMIN` + /dev/fuse — dafür ist ein Spielestarter aber
@@ -14,26 +24,20 @@
 # und daraus AppRun gestartet. Läuft ohne jedes Zusatzrecht.
 #
 # PITFALL: AppImages need FUSE, containers have none. The obvious fix is
-# `--cap-add SYS_ADMIN`, which is far too much for a game launcher. We extract the
-# AppImage instead and run its AppRun. No extra privileges at all.
+# `--cap-add SYS_ADMIN`, far too much for a game launcher. We extract instead.
 set -u
 EMU=/config/emulators
 mkdir -p "$EMU"
+AUTO_UPDATE="${EMU_AUTO_UPDATE:-true}"
 
-fetch() {  # fetch <ziel> <url>
-  [ -s "$1" ] && return 0
-  [ -z "${2:-}" ] && return 1
-  echo "[emulators] hole $(basename "$1") / fetching"
-  curl -fsSL --max-time 900 -o "$1.part" "$2" && mv "$1.part" "$1" && chmod +x "$1"
-}
-
-unpack() {  # unpack <appimage> <zielordner>
-  [ -x "$EMU/$2/AppRun" ] && return 0
-  [ -s "$1" ] || return 1
-  echo "[emulators] entpacke $(basename "$1") / extracting"
-  ( cd "$EMU" && rm -rf squashfs-root "$2" \
-      && "./$(basename "$1")" --appimage-extract >/dev/null 2>&1 \
-      && mv squashfs-root "$2" )
+# Aktuelle Asset-URL aus einer Release-API holen. Funktioniert mit GitHub UND mit
+# Forgejo/Gitea — beide liefern `assets[].browser_download_url`. Deshalb steht in der
+# Konfiguration eine API-URL und kein fest verdrahteter Anbieter: Projekte ziehen um.
+# Works with GitHub and Forgejo/Gitea alike; both expose browser_download_url.
+release_asset() {  # release_asset <api-url> <regex>
+  curl -fsSL --max-time 60 "$1" 2>/dev/null \
+    | grep -o '"browser_download_url": *"[^"]*"' | cut -d'"' -f4 \
+    | grep -E "$2" | head -1
 }
 
 desktop() {  # desktop <name> <system> <befehl>
@@ -49,48 +53,172 @@ Terminal=false
 DESK
 }
 
-# ---------------------------------------------------------------- PlayStation 2
-if [ "${INSTALL_PCSX2:-false}" = "true" ]; then
-  URL=$(curl -fsSL https://api.github.com/repos/PCSX2/pcsx2/releases 2>/dev/null \
-        | grep -o 'https://[^"]*linux-appimage-x64-Qt.AppImage' | head -1)
-  fetch "$EMU/PCSX2.AppImage" "$URL" && unpack "$EMU/PCSX2.AppImage" pcsx2
-  [ -x "$EMU/pcsx2/AppRun" ] && desktop PCSX2 PS2 "$EMU/pcsx2/AppRun"
+# Kern: herunterladen, entpacken, Quelle merken. Die zuletzt installierte URL steht in
+# <ordner>.url — sie enthält bei praktisch allen Projekten die Versionsnummer und ist
+# damit der einfachste verlässliche Vergleich. Ein Prüfsummen-Abgleich wäre genauer,
+# würde aber bei jedem Lauf die ganze Datei ziehen.
+install_appimage() {  # install_appimage <name> <ordner> <system> <url>
+  local name="$1" dir="$2" sys="$3" url="$4"
+  local marker="$EMU/$dir.url" have=""
+  [ -f "$marker" ] && have=$(cat "$marker" 2>/dev/null)
+
+  if [ -z "$url" ]; then
+    echo "[emulators] $name: keine Quelle ermittelt / no source resolved"
+    return 1
+  fi
+
+  if [ -x "$EMU/$dir/AppRun" ]; then
+    if [ "$AUTO_UPDATE" != "true" ] || [ "$have" = "$url" ]; then
+      desktop "$name" "$sys" "$EMU/$dir/AppRun"
+      return 0
+    fi
+    echo "[emulators] $name: neue Fassung gefunden / newer build found"
+  fi
+
+  echo "[emulators] $name: hole / fetching $(basename "$url")"
+  if ! curl -fsSL --max-time 900 -o "$EMU/$name.AppImage.part" "$url"; then
+    # Ein fehlgeschlagener Download darf die laufende Fassung NICHT beschaedigen.
+    # A failed download must never damage the working build.
+    echo "[emulators] $name: Download fehlgeschlagen — behalte die vorhandene Fassung"
+    echo "[emulators] $name: download failed — keeping the existing build"
+    rm -f "$EMU/$name.AppImage.part"
+    return 1
+  fi
+  mv "$EMU/$name.AppImage.part" "$EMU/$name.AppImage"
+  chmod +x "$EMU/$name.AppImage"
+
+  # Erst daneben entpacken und nur bei Erfolg tauschen — aus demselben Grund.
+  ( cd "$EMU" && rm -rf squashfs-root "$dir.neu" \
+      && "./$name.AppImage" --appimage-extract >/dev/null 2>&1 \
+      && mv squashfs-root "$dir.neu" ) || {
+    echo "[emulators] $name: Entpacken fehlgeschlagen / extraction failed"
+    rm -rf "$EMU/$dir.neu"; return 1; }
+  # Die VORIGE Fassung wird aufgehoben, nicht geloescht: ein Update kann eine
+  # Regression bringen, und dann will man ohne Netz und ohne Suchen zurueck.
+  # Genau eine Generation — mehr waere Speicherverschwendung.
+  # The previous build is kept, not deleted: an update can regress, and then you
+  # want to go back without network access and without hunting for a version.
+  rm -rf "$EMU/$dir.alt"
+  if [ -d "$EMU/$dir" ]; then
+    mv "$EMU/$dir" "$EMU/$dir.alt"
+    [ -f "$marker" ] && cp "$marker" "$EMU/$dir.url.alt"
+  fi
+  mv "$EMU/$dir.neu" "$EMU/$dir"
+  printf '%s' "$url" > "$marker"
+  desktop "$name" "$sys" "$EMU/$dir/AppRun"
+  echo "[emulators] $name: bereit / ready"
+}
+
+from_release() {  # <schalter> <name> <ordner> <system> <api-url> <regex>
+  [ "${1:-false}" = "true" ] || return 0
+  # Feste Version? <NAME>_URL schlaegt die Release-Abfrage. Damit laesst sich gezielt
+  # auf eine aeltere Fassung gehen und dort bleiben — auch ueber Neustarts hinweg,
+  # denn die automatische Aktualisierung vergleicht dann gegen genau diese URL.
+  # A pinned <NAME>_URL beats the release lookup, so a chosen older build sticks.
+  local pin
+  eval "pin=\${$(echo "$2" | tr '[:lower:]-' '[:upper:]_')_URL:-}"
+  if [ -n "$pin" ]; then
+    echo "[emulators] $2: feste Version gesetzt / pinned"
+    install_appimage "$2" "$3" "$4" "$pin"
+    return
+  fi
+  install_appimage "$2" "$3" "$4" "$(release_asset "$5" "$6")"
+}
+
+# Zurueck zur vorigen Fassung. Wird vom Start-Dienst aufgerufen (Romseerr-Knopf).
+rollback() {  # rollback <ordner>
+  local dir="$1"
+  [ -x "$EMU/$dir.alt/AppRun" ] || { echo "[emulators] $dir: keine vorige Fassung / none kept"; return 1; }
+  rm -rf "$EMU/$dir.zurueck"
+  mv "$EMU/$dir" "$EMU/$dir.zurueck" 2>/dev/null
+  mv "$EMU/$dir.alt" "$EMU/$dir"
+  mv "$EMU/$dir.zurueck" "$EMU/$dir.alt" 2>/dev/null
+  [ -f "$EMU/$dir.url" ] && mv "$EMU/$dir.url" "$EMU/$dir.url.zurueck"
+  [ -f "$EMU/$dir.url.alt" ] && mv "$EMU/$dir.url.alt" "$EMU/$dir.url"
+  [ -f "$EMU/$dir.url.zurueck" ] && mv "$EMU/$dir.url.zurueck" "$EMU/$dir.url.alt"
+  echo "[emulators] $dir: auf die vorige Fassung zurueckgesetzt / rolled back"
+}
+
+# Aufruf als "20-emulators --rollback <ordner>" -> nur zuruecksetzen, nichts holen.
+if [ "${1:-}" = "--rollback" ] && [ -n "${2:-}" ]; then
+  rollback "$2"; exit $?
 fi
+
+from_url() {  # <schalter> <name> <ordner> <system> <url>
+  [ "${1:-false}" = "true" ] || return 0
+  [ -n "${5:-}" ] || { echo "[emulators] $2: keine URL gesetzt / no URL configured"; return 0; }
+  install_appimage "$2" "$3" "$4" "$5"
+}
+
+GH="https://api.github.com/repos"
+
+# ---------------------------------------------------------------- PlayStation 2
+from_release "${INSTALL_PCSX2:-false}" PCSX2 pcsx2 PS2 \
+  "$GH/PCSX2/pcsx2/releases" 'linux-appimage-x64-Qt\.AppImage$'
 
 # ---------------------------------------------------------------- GameCube / Wii
 # Dolphin liefert für Linux nur Flatpak; Flatpak im Container ist umständlich.
-# Das Distributionspaket ist älter, aber funktioniert und braucht nichts weiter.
-# Dolphin ships Flatpak only for Linux; the distro package is older but works.
+# Das Distributionspaket ist älter, aktualisiert sich dafür über apt.
 if [ "${INSTALL_DOLPHIN:-false}" = "true" ]; then
   if ! command -v /usr/games/dolphin-emu >/dev/null 2>&1; then
     echo "[emulators] installiere dolphin-emu / installing"
     apt-get update -qq >/dev/null 2>&1
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq dolphin-emu >/dev/null 2>&1 || true
+  elif [ "$AUTO_UPDATE" = "true" ]; then
+    apt-get update -qq >/dev/null 2>&1
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --only-upgrade dolphin-emu >/dev/null 2>&1 || true
   fi
   command -v /usr/games/dolphin-emu >/dev/null 2>&1 \
     && desktop Dolphin "GameCube/Wii" /usr/games/dolphin-emu
 fi
 
+# ---------------------------------------------------------------- Dreamcast
+from_release "${INSTALL_FLYCAST:-false}" Flycast flycast Dreamcast \
+  "$GH/flyinghead/flycast/releases/latest" 'flycast-x86_64\.AppImage$'
+
+# ---------------------------------------------------------------- Xbox
+from_release "${INSTALL_XEMU:-false}" xemu xemu Xbox \
+  "$GH/xemu-project/xemu/releases/latest" 'xemu-[0-9.]+-x86_64\.AppImage$'
+
+# ---------------------------------------------------------------- Wii U
+from_release "${INSTALL_CEMU:-false}" Cemu cemu "Wii U" \
+  "$GH/cemu-project/Cemu/releases/latest" 'Cemu-[0-9.]+-x86_64\.AppImage$'
+
+# ---------------------------------------------------------------- Nintendo 3DS
+from_release "${INSTALL_AZAHAR:-false}" Azahar azahar 3DS \
+  "$GH/azahar-emu/azahar/releases/latest" 'azahar\.AppImage$'
+
+# ---------------------------------------------------------------- PlayStation Vita
+from_release "${INSTALL_VITA3K:-false}" Vita3K vita3k "PS Vita" \
+  "$GH/Vita3K/Vita3K/releases/latest" 'Vita3K-x86_64\.AppImage$'
+
+# ---------------------------------------------------------------- PlayStation 3
+# RPCS3 legt keine Release-Dateien auf GitHub ab, und der offizielle Direktlink weist
+# automatisierte Abrufe mit HTTP 403 ab. Deshalb URL selbst eintragen — ein fest
+# verdrahteter Link waere von Anfang an tot.
+from_url "${INSTALL_RPCS3:-false}" RPCS3 rpcs3 PS3 "${RPCS3_URL:-}"
+
 # ---------------------------------------------------------------- Switch
-# Standardmässig AUS. Die grossen Switch-Emulatoren wurden nach Rechtsstreit
-# eingestellt; die verbliebenen Forks haben eine ungeklärte Rechtslage und wechseln
-# ihre Bezugsquelle. Deshalb keine eingebaute URL — wer das will, trägt sie selbst
-# ein und weiss, was er tut.
+# Standardmaessig AUS. Die grossen Switch-Emulatoren wurden nach Rechtsstreit
+# eingestellt; die verbliebenen Forks haben eine ungeklaerte Rechtslage und wechseln
+# ihre Bezugsquelle. Deshalb keine eingebaute Adresse.
 #
-# Off by default. The major Switch emulators were discontinued after litigation and
-# the surviving forks are legally unsettled and move hosting. No URL is baked in.
-if [ "${INSTALL_SWITCH_EMU:-false}" = "true" ] && [ -n "${SWITCH_EMU_URL:-}" ]; then
-  fetch "$EMU/SwitchEmu.AppImage" "${SWITCH_EMU_URL}" \
-    && unpack "$EMU/SwitchEmu.AppImage" switchemu
-  [ -x "$EMU/switchemu/AppRun" ] && desktop SwitchEmu Switch "$EMU/switchemu/AppRun"
+# Zwei Wege, je nachdem was das Projekt anbietet:
+#   SWITCH_EMU_API + SWITCH_EMU_ASSET -> Release-API (GitHub oder Forgejo/Gitea),
+#                                        aktualisiert sich damit selbst
+#   SWITCH_EMU_URL                    -> feste URL, kein automatisches Update
+if [ -n "${SWITCH_EMU_API:-}" ]; then
+  from_release "${INSTALL_SWITCH_EMU:-false}" SwitchEmu switchemu Switch \
+    "${SWITCH_EMU_API}" "${SWITCH_EMU_ASSET:-\.AppImage$}"
+else
+  from_url "${INSTALL_SWITCH_EMU:-false}" SwitchEmu switchemu Switch "${SWITCH_EMU_URL:-}"
 fi
 
 # ---------------------------------------------------------------- BIOS
-# Manche Kerne starten ohne BIOS und scheitern dann still. Wir liefern keins.
-# Lege eigene Abbilder (aus deiner eigenen Konsole) in den Ordner des jeweiligen
+# Manche Kerne starten ohne BIOS und scheitern dann still. Wir liefern keins. Lege
+# eigene Abbilder (aus Hardware, die dir gehoert) in den Ordner des jeweiligen
 # Emulators unter /config — z. B. PCSX2: /config/.config/PCSX2/bios/
-# Some cores start without BIOS and then fail quietly. We ship none; place your own.
 mkdir -p /config/.config/PCSX2/bios 2>/dev/null || true
 
 chown -R "${PUID:-1000}:${PGID:-1000}" /config/emulators /config/.local 2>/dev/null || true
-echo "[emulators] bereit / ready: $(ls -d "$EMU"/*/ 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')"
+echo "[emulators] installiert / installed: $(ls -d "$EMU"/*/ 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')"
