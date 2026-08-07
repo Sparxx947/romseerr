@@ -434,3 +434,56 @@ def test_api_version_semver_compare(appmod):
     assert appmod._semver("v1.10.0") > appmod._semver("1.9.9")
     assert appmod._semver("1.0.0-beta.1") == appmod._semver("1.0.0")   # Suffix ignoriert
     assert appmod._semver("krumm") == (0, 0, 0)
+
+
+def test_metrics_requires_auth(client):
+    """/metrics ist nicht öffentlich und antwortet einem Scraper mit 401, nicht mit einem
+    Redirect auf /login (der als HTTP 200 mit HTML ankäme und wie Erfolg aussähe). (#74)"""
+    client.post("/api/logout")
+    r = client.get("/metrics")
+    assert r.status_code == 401
+    assert b"<html" not in r.data.lower()
+
+
+def test_metrics_exposition(appmod, client):
+    """Textformat, feste Zustandsreihe, Zähler und Worker-Herzschlag. (#74)"""
+    appmod.save_users({"m": {"pw": "x", "role": "admin"}})
+    appmod.beat("collect")
+    appmod.count_import("success")
+    appmod.count_import("failure", "no_rom_files")
+    appmod.count_import("failure", "voellig frei erfunden")   # muss auf "other" fallen
+    with client.session_transaction() as sess:
+        sess["user"] = "m"; sess["role"] = "admin"
+    r = client.get("/metrics")
+    assert r.status_code == 200
+    assert r.mimetype == "text/plain"
+    body = r.get_data(as_text=True)
+    for name in ("romseerr_requests", "romseerr_queue_depth", "romseerr_queue_oldest_age_seconds",
+                 "romseerr_imports_total", "romseerr_wishlist_entries", "romseerr_library_titles",
+                 "romseerr_worker_last_run_timestamp_seconds", "romseerr_build_info"):
+        assert f"# TYPE {name} " in body, f"{name} fehlt"
+    # jeder Job-Zustand hat eine Zeitreihe, auch wenn gerade 0 Jobs darin sind
+    for st in appmod.JOB_STATES:
+        assert f'romseerr_requests{{state="{st}"}}' in body
+    # Wert nicht festnageln — andere Tests importieren ebenfalls; die Zeitreihe muss da sein
+    assert re.search(r'romseerr_imports_total\{result="failure",reason="no_rom_files"\} \d+', body)
+    assert 'reason="other"' in body               # unbekannter Grund wird gedeckelt
+    assert 'reason="voellig frei erfunden"' not in body
+    assert 'worker="collect"' in body
+    assert f'version="{appmod.VERSION}"' in body
+    # Kardinalität: kein Titel-/Nutzer-Label
+    assert "title=" not in body and "user=" not in body
+    appmod.save_users({})
+
+
+def test_metrics_import_counter_single_outcome(appmod):
+    """Ein Import erzeugt genau EINEN Zählerausschlag, nicht einen je Datei. (#74)"""
+    before = sum(appmod.IMPORTS.values())
+    job = appmod.new_job({"title": "M1", "source": "archive", "ref": "r", "platform_slug": "gb", "size": 0},
+                         user="", approved=False)
+    jid = job["id"]
+    folder = _staging(appmod, jid, {"a.gb": b"\x01" * 32, "b.gb": b"\x02" * 32, "junk.exe": b"MZ"})
+    appmod.import_folder(jid, folder)
+    assert sum(appmod.IMPORTS.values()) == before + 1
+    with appmod.JOBS_LOCK:
+        appmod.JOBS[:] = [x for x in appmod.JOBS if x["id"] != jid]; appmod.save_jobs()

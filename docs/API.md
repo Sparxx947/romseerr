@@ -54,7 +54,7 @@ ohne gültige Session/Key mit **401**.
 ### Endpunkt-Gruppen
 | Gruppe | Beispiele |
 |---|---|
-| System | `GET /health`, `GET /api/version`, `GET /api/auth/status` |
+| System | `GET /health`, `GET /api/version`, `GET /metrics`, `GET /api/auth/status` |
 | Auth | `POST /api/setup`, `/api/login`, `/api/logout`, `/api/forgot`, `/api/reset` |
 | Suche | `GET /api/search`, `/api/discover/rows`, `/api/detail`, `/api/platforms` |
 | Anfragen | `POST /api/download`, `GET /api/jobs`, `POST /api/jobs/{id}/approve\|deny` |
@@ -64,6 +64,25 @@ ohne gültige Session/Key mit **401**.
 | Admin | `/api/users`, `/api/settings`, `/api/blocklist`, `/api/logs`, `/api/apikey` |
 
 Details (Parameter, Bodies, Antworten) → `/api/docs`.
+
+### Metriken (Prometheus)
+`GET /metrics` liefert Betriebsmetriken im Prometheus-Textformat (0.0.4). Der Endpunkt ist
+**nicht** öffentlich — Metriken verraten Nutzungsmuster —, sondern hängt an derselben
+Schleuse wie die API. Ein Scraper nutzt daher den API-Key:
+
+```yaml
+scrape_configs:
+  - job_name: romseerr
+    static_configs: [{targets: ["romseerr:8770"]}]
+    params:
+      apikey: ["<API-Key aus Einstellungen>"]
+```
+
+Enthalten sind Anfragen je Zustand, Warteschlangen-Tiefe und Alter des ältesten wartenden
+Eintrags, Import-Ausgänge als Zähler (`result`/`reason`), Wunschlisten-Größe, Zeitpunkt des
+letzten Durchlaufs je Hintergrund-Worker, Bibliotheks-Kennzahlen und `romseerr_build_info`.
+Es gibt bewusst **keine Label je Titel oder Nutzer** — die Kardinalität würde sonst mit der
+Bibliothek wachsen.
 
 ---
 
@@ -94,3 +113,21 @@ permission returns **403**; missing/invalid auth returns **401**.
   status. `/api/forgot` responds generically (does not reveal whether an account exists).
 
 Full details (parameters, bodies, responses) live in the interactive docs at `/api/docs`.
+
+### Metrics (Prometheus)
+`GET /metrics` serves operational metrics in the Prometheus text format (0.0.4). The endpoint is
+**not** public — metrics leak usage patterns — it sits behind the same gate as the API, so a
+scraper authenticates with the API key:
+
+```yaml
+scrape_configs:
+  - job_name: romseerr
+    static_configs: [{targets: ["romseerr:8770"]}]
+    params:
+      apikey: ["<API key from settings>"]
+```
+
+Exposed: requests by state, queue depth and age of the oldest waiting item, import outcomes as a
+counter (`result`/`reason`), wishlist size, last-run timestamp per background worker, library
+figures and `romseerr_build_info`. There are deliberately **no per-title or per-user labels** —
+cardinality would otherwise grow with the library.
