@@ -4,6 +4,7 @@ Prüfen Verhalten (nicht nur Syntax): Health, Titel-Normalisierung/Dedup, Biblio
 Sperrliste, Setup-/Login-Fluss und dass das eingebettete JavaScript gültig ist.
 """
 import ast
+import json
 import os
 import re
 import shutil
@@ -601,4 +602,131 @@ def test_wishlist_example_file_is_importable(appmod, client):
     assert ("Super Metroid", "snes") in [(t, p) for t, p, _r in rows]
     assert ("Pokemon Crystal", "gb") in [(t, p) for t, p, _r in rows]
     assert not any(t.startswith("#") for t in titles)     # keine Kommentarzeile als Titel
+    appmod.save_users({})
+
+
+def _admin(appmod, client, name="exp"):
+    appmod.save_users({name: {"pw": "hash-des-kennworts", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = name; sess["role"] = "admin"
+
+
+def test_export_omits_secrets_by_default(appmod, client):
+    """Ein Export ist eine Datei, die herumgereicht wird — ohne Passphrase KEIN Klartext. (#75)"""
+    appmod.save_settings({"apikey": "geheimer-api-key", "smtp": {"host": "mail.example", "pass": "smtp-geheim"},
+                          "discord": {"enabled": True, "url": "https://discord.example/webhook/geheim"},
+                          "connections": {"sab_url": "http://sab.example:8080", "sab_apikey": "sab-geheim"}})
+    _admin(appmod, client)
+    doc = client.get("/api/export").get_json()
+    raw = json.dumps(doc)
+    for secret in ("geheimer-api-key", "smtp-geheim", "sab-geheim", "discord.example/webhook/geheim",
+                   "hash-des-kennworts"):
+        assert secret not in raw, f"Geheimnis im Klartext exportiert: {secret}"
+    assert doc["schema"] == appmod.EXPORT_SCHEMA
+    assert doc["secrets"]["mode"] == "omitted"
+    assert doc["settings"]["apikey"] == appmod.REDACTED
+    assert doc["settings"]["connections"]["sab_url"] == "http://sab.example:8080"   # kein Geheimnis, bleibt lesbar
+    appmod.save_settings({}); appmod.save_users({})
+
+
+def test_export_import_roundtrip_encrypted(appmod, client):
+    """Round-Trip mit Passphrase: exportieren, alles löschen, importieren, Zustand stimmt. (#75)"""
+    pytest.importorskip("cryptography")
+    appmod.save_settings({"apikey": "key-A", "general": {"app_name": "Vorher"},
+                          "connections": {"sab_apikey": "sab-A"}})
+    appmod.save_users({"boss": {"pw": "hash-A", "role": "admin", "perms": list(appmod.PERMS)},
+                       "lena": {"pw": "hash-B", "role": "user", "perms": ["request"]}})
+    appmod.kv_put("wishlist", {"lena": [{"title": "Zzz Wunsch", "platform": "snes", "added": 1}]})
+    with client.session_transaction() as sess:
+        sess["user"] = "boss"; sess["role"] = "admin"
+    doc = client.post("/api/export", json={"secrets": "encrypt", "passphrase": "geheime-passphrase"}).get_json()
+    assert doc["secrets"]["mode"] == "encrypted"
+    assert "key-A" not in json.dumps(doc) and "hash-A" not in json.dumps(doc)
+
+    # alles wegwerfen -> frischer Zustand
+    appmod.save_settings({}); appmod.kv_put("wishlist", {})
+    appmod.save_users({"tmp": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "tmp"; sess["role"] = "admin"
+    r = client.post("/api/import", json={"document": doc, "mode": "replace",
+                                         "passphrase": "geheime-passphrase"})
+    assert r.status_code == 200, r.get_json()
+    assert appmod.load_settings()["apikey"] == "key-A"
+    assert appmod.load_settings()["connections"]["sab_apikey"] == "sab-A"
+    assert appmod.load_settings()["general"]["app_name"] == "Vorher"
+    users = appmod.load_users()
+    assert set(users) == {"boss", "lena"} and users["boss"]["pw"] == "hash-A"
+    assert appmod.load_wishlist()["lena"][0]["title"] == "Zzz Wunsch"
+    appmod.save_settings({}); appmod.save_users({}); appmod.kv_put("wishlist", {})
+
+
+def test_import_wrong_passphrase_rejected(appmod, client):
+    """Falsche Passphrase -> klare Fehlermeldung, kein halb übernommener Zustand. (#75)"""
+    pytest.importorskip("cryptography")
+    appmod.save_settings({"apikey": "key-X"})
+    _admin(appmod, client)
+    doc = client.post("/api/export", json={"secrets": "encrypt", "passphrase": "richtige-passphrase"}).get_json()
+    appmod.save_settings({"apikey": "unveraendert"})
+    r = client.post("/api/import", json={"document": doc, "mode": "merge", "passphrase": "falsch-falsch"})
+    assert r.status_code == 400
+    assert "assphrase" in r.get_json()["msg"]
+    assert appmod.load_settings()["apikey"] == "unveraendert"   # nichts angefasst
+    appmod.save_settings({}); appmod.save_users({})
+
+
+def test_import_rejects_unknown_or_newer_schema(appmod, client):
+    """Unbekannte oder neuere Schema-Version wird mit klarer Meldung abgelehnt. (#75)"""
+    _admin(appmod, client)
+    newer = {"app": "romseerr", "schema": appmod.EXPORT_SCHEMA + 1, "settings": {}}
+    r = client.post("/api/import", json={"document": newer, "mode": "merge"})
+    assert r.status_code == 400 and "neuer" in r.get_json()["msg"]
+    r = client.post("/api/import", json={"document": {"app": "romseerr"}, "mode": "merge"})
+    assert r.status_code == 400
+    r = client.post("/api/import", json={"document": {"app": "etwas-anderes", "schema": 1}, "mode": "merge"})
+    assert r.status_code == 400
+    appmod.save_users({})
+
+
+def test_import_requires_explicit_mode(appmod, client):
+    """`mode` muss der Aufrufer wählen — kein stiller Standard zwischen merge und replace. (#75)"""
+    _admin(appmod, client)
+    doc = client.get("/api/export").get_json()
+    assert client.post("/api/import", json={"document": doc}).status_code == 400
+    assert client.post("/api/import", json={"document": doc, "mode": "irgendwas"}).status_code == 400
+    appmod.save_users({})
+
+
+def test_import_keeps_existing_secrets(appmod, client):
+    """REDACTED heißt „behalte, was da ist" — ein Export ohne Geheimnisse darf den
+    laufenden API-Key nicht wegwischen, auch nicht im replace-Modus. (#75)"""
+    appmod.save_settings({"apikey": "laufender-key", "general": {"app_name": "Alt"}})
+    _admin(appmod, client)
+    doc = client.get("/api/export").get_json()
+    doc["settings"]["general"]["app_name"] = "Neu"
+    r = client.post("/api/import", json={"document": doc, "mode": "replace"})
+    assert r.status_code == 200
+    assert appmod.load_settings()["apikey"] == "laufender-key"
+    assert appmod.load_settings()["general"]["app_name"] == "Neu"
+    appmod.save_settings({}); appmod.save_users({})
+
+
+def test_import_refuses_to_lock_everyone_out(appmod, client):
+    """Ein Import, der keinen Administrator mit Kennwort übrig ließe, wird abgelehnt. (#75)"""
+    _admin(appmod, client)
+    doc = {"app": "romseerr", "schema": appmod.EXPORT_SCHEMA,
+           "users": {"nur_user": {"pw": "h", "role": "user", "perms": ["request"]}}}
+    r = client.post("/api/import", json={"document": doc, "mode": "replace"})
+    assert r.status_code == 400 and "dmin" in r.get_json()["msg"]
+    assert "exp" in appmod.load_users()      # bestehender Admin unangetastet
+    appmod.save_users({})
+
+
+def test_export_import_admin_only(appmod, client):
+    """Beide Richtungen nur für Admins. (#75)"""
+    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": ["request"]}})
+    with client.session_transaction() as sess:
+        sess["user"] = "lena"; sess["role"] = "user"
+    assert client.get("/api/export").status_code == 403
+    assert client.post("/api/export", json={}).status_code == 403
+    assert client.post("/api/import", json={"document": {}, "mode": "merge"}).status_code == 403
     appmod.save_users({})

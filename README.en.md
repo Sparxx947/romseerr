@@ -88,6 +88,10 @@ into the library and notifies when they are available. The library is shared by 
   is written: matched / ambiguous / not found. An **example file** in the expected format is
   offered in the dialog (also at `/api/wishlist/example.csv`).
 - **Per-user request history** with timestamps (admins can filter by user).
+- **Configuration export/import** (Settings -> Logs & maintenance): versioned JSON holding
+  settings, users & permissions, requests and wishlists. Secrets stay out without a passphrase
+  and are attached encrypted with one. On import, `merge` or `replace` must be chosen
+  explicitly.
 
 ### Import
 - Unpacking with `unar`, **platform detection** by file extension, **dedup** and sorting into

@@ -88,6 +88,10 @@ teilen sich **RomM** (Browser/Player) und **RetroNAS**.
   vor dem Schreiben: getroffen / mehrdeutig / nicht gefunden. Eine **Beispieldatei** im
   erwarteten Format gibt es im Dialog (bzw. unter `/api/wishlist/example.csv`).
 - **Anfrage-Verlauf** je Nutzer mit Zeitstempel (für Admins pro Nutzer filterbar).
+- **Export/Import der Konfiguration** (Einstellungen → Logs & Wartung): versioniertes JSON mit
+  Einstellungen, Benutzern & Rechten, Anfragen und Wunschlisten. Geheimnisse bleiben ohne
+  Passphrase draußen, mit Passphrase liegen sie verschlüsselt bei. Beim Import ist
+  `Zusammenführen` oder `Ersetzen` ausdrücklich zu wählen.
 
 ### Import
 - Entpacken mit `unar`, **Plattform-Erkennung** an der Dateiendung, **Dedup** und Einsortierung

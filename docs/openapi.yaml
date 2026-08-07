@@ -931,6 +931,75 @@ paths:
         '200':
           description: OK
       security: *id002
+  /api/export:
+    get:
+      summary: Konfiguration exportieren (ohne Geheimnisse)
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: versioniertes JSON-Dokument
+      security: *id002
+    post:
+      summary: Konfiguration exportieren, Geheimnisse optional mit Passphrase verschlüsselt
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: versioniertes JSON-Dokument
+        '400':
+          description: Passphrase zu kurz
+        '501':
+          description: Verschlüsselung nicht verfügbar
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                secrets:
+                  type: string
+                  enum:
+                  - omit
+                  - encrypt
+                passphrase:
+                  type: string
+                  description: min. 8 Zeichen, nur bei secrets=encrypt
+  /api/import:
+    post:
+      summary: 'Konfiguration importieren (mode: merge|replace, ausdrücklich zu wählen)'
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: übernommen
+        '400':
+          description: Schema/Modus/Passphrase ungültig
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - document
+              - mode
+              properties:
+                document:
+                  type: object
+                  description: Export-Dokument
+                mode:
+                  type: string
+                  enum:
+                  - merge
+                  - replace
+                passphrase:
+                  type: string
+                  description: nötig, wenn der Export verschlüsselte Geheimnisse enthält
   /api/settings/connections/reveal:
     get:
       summary: Verbindungswerte im Klartext (Admin)

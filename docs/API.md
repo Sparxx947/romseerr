@@ -61,9 +61,23 @@ ohne gültige Session/Key mit **401**.
 | Probleme | `GET/POST /api/issues`, `/api/issues/{id}/comment\|close` |
 | Profil | `GET/POST /api/profile`, `/api/profile/password` |
 | Push | `GET /api/push/pubkey`, `POST /api/push/subscribe` |
-| Admin | `/api/users`, `/api/settings`, `/api/blocklist`, `/api/logs`, `/api/apikey` |
+| Admin | `/api/users`, `/api/settings`, `/api/blocklist`, `/api/logs`, `/api/apikey`, `/api/export`, `/api/import` |
 
 Details (Parameter, Bodies, Antworten) → `/api/docs`.
+
+### Export / Import
+`GET /api/export` liefert ein versioniertes JSON-Dokument (Einstellungen, Benutzer & Rechte,
+Anfragen, Wunschlisten) — **ohne Geheimnisse**. An deren Stelle steht `__REDACTED__`, damit der
+Import „war gesetzt, kenne ich aber nicht" von „war leer" unterscheiden kann.
+
+Sollen Geheimnisse mit, geht das nur über `POST /api/export` mit
+`{"secrets":"encrypt","passphrase":"…"}` — die Passphrase gehört nicht in eine URL. Sie werden
+dann mit PBKDF2-SHA256 (200 000 Runden) + Fernet verschlüsselt beigelegt.
+
+`POST /api/import` verlangt `document` **und** `mode` (`merge` oder `replace`) — es gibt bewusst
+keinen Standard. Abgelehnt wird: fremdes oder fehlendes Schema, eine neuere Schema-Version,
+eine falsche Passphrase und jeder Import, der **keinen Administrator mit Kennwort** übrig ließe.
+`__REDACTED__` bedeutet auch im `replace`-Modus „behalte den bestehenden Wert".
 
 ### Metriken (Prometheus)
 `GET /metrics` liefert Betriebsmetriken im Prometheus-Textformat (0.0.4). Der Endpunkt ist
@@ -113,6 +127,20 @@ permission returns **403**; missing/invalid auth returns **401**.
   status. `/api/forgot` responds generically (does not reveal whether an account exists).
 
 Full details (parameters, bodies, responses) live in the interactive docs at `/api/docs`.
+
+### Export / import
+`GET /api/export` returns a versioned JSON document (settings, users & permissions, requests,
+wishlists) **without secrets** — `__REDACTED__` stands in their place so an import can tell
+"was set, but I do not know it" from "was empty".
+
+To include secrets, use `POST /api/export` with `{"secrets":"encrypt","passphrase":"…"}` — a
+passphrase does not belong in a URL. They are then attached encrypted with PBKDF2-SHA256
+(200,000 iterations) + Fernet.
+
+`POST /api/import` requires `document` **and** `mode` (`merge` or `replace`); there is
+deliberately no default. Rejected: a foreign or missing schema, a newer schema version, a wrong
+passphrase, and any import that would leave **no admin with a password**. `__REDACTED__` means
+"keep the existing value" even in `replace` mode.
 
 ### Metrics (Prometheus)
 `GET /metrics` serves operational metrics in the Prometheus text format (0.0.4). The endpoint is

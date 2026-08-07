@@ -1629,7 +1629,7 @@ const I18N={de:{
  users:'Benutzer',new_user:'Neuen Benutzer anlegen',create:'Anlegen',del:'Löschen',autoapprove:'Auto-Freigabe',role_user:'Nutzer',role_admin:'Admin',username:'Benutzername',password:'Passwort',
  notif_discord:'Benachrichtigungen — Discord',active:'aktiv',test:'Test',save:'Speichern',saved:'gespeichert ✓',test_sent:'Test gesendet ✓',webhook_ph:'Discord Webhook-URL',
  st_pending:'⏳ Wartet auf Freigabe',st_queued:'Angefragt',st_downloading:'Lädt…',st_importing:'Wird verarbeitet',st_done:'✅ Verfügbar',st_error:'Fehler',st_denied:'Abgelehnt',st_exists:'vorhanden',
- settings:'Einstellungen',sec_general:'Allgemein',sec_notif:'Benachrichtigungen',sec_users:'Benutzer',sec_services:'Dienste',sec_about:'Über',app_name:'App-Name',default_lang:'Standardsprache',refresh:'Aktualisieren',version:'Version',about_build:'Build',upd_avail:'Update verfügbar:',upd_current:'aktuell',about_txt:'Selbstgebauter Seerr-Klon für ROMs.',wiz_welcome:'Willkommen bei Romseerr',wiz_welcome_txt:'Dieser Assistent verbindet dich Schritt für Schritt mit den Diensten des Stacks (SABnzbd, Prowlarr, IGDB, RomM). Jeden Schritt kannst du testen oder überspringen.',wiz_done:'Fertig!',wiz_done_txt:'Die Grundkonfiguration steht. Alles lässt sich später unter Einstellungen → Verbindungen anpassen.',wiz_next:'Weiter',wiz_back:'Zurück',wiz_skip:'Überspringen',wiz_finish:'Loslegen',wiz_step:'Schritt',wiz_reopen:'Assistent erneut öffnen',about_lib:'Bibliothek',about_titles:'Titel',about_platforms:'Plattformen',about_jobs:'Anfragen',about_active:'aktiv',about_links:'Links',about_feat:'Funktionen',about_feat_txt:'Suche über Archive.org + Usenet, Dedup, Discover, Anfragen mit Freigabe, Benutzer & Rechte, Kontingente, Benachrichtigungen (Discord/Telegram/E-Mail/Web-Push), Probleme, PWA, API.',about_stack:'Stack',about_stack_txt:'Orchestriert Prowlarr, SABnzbd, JDownloader und RomM. Verbindungen in den Einstellungen konfigurierbar.',about_license:'Lizenz: MIT',sec_maint:'Logs & Wartung',logs:'Protokoll',clear_cache:'Cache leeren',reindex:'Neu indexieren',clear_finished:'Fertige entfernen',done_word:'Erledigt',lbl_jobs:'Anfragen',lbl_lib:'Bibliothek',sec_conn:'Verbindungen',reveal:'Klartext anzeigen',tls_hint:'Cert + Schlüssel (PEM) hinterlegen — die App startet dann zusätzlich einen HTTPS-Listener auf dem gewählten Port (Neustart nötig). Für Web-Push/PWA ohne separaten Reverse-Proxy.',tls_none:'kein Zertifikat hinterlegt',tls_expires:'gültig bis',tls_key_note:'privater Schlüssel — wird nie angezeigt',tls_restart:'Container neu starten zum Aktivieren',conn_hint:'Leere Felder nutzen den Wert aus der Umgebung (.env). Secrets sind maskiert — leer lassen behält den bestehenden Wert.',
+ settings:'Einstellungen',sec_general:'Allgemein',sec_notif:'Benachrichtigungen',sec_users:'Benutzer',sec_services:'Dienste',sec_about:'Über',app_name:'App-Name',default_lang:'Standardsprache',refresh:'Aktualisieren',version:'Version',about_build:'Build',upd_avail:'Update verfügbar:',upd_current:'aktuell',about_txt:'Selbstgebauter Seerr-Klon für ROMs.',wiz_welcome:'Willkommen bei Romseerr',wiz_welcome_txt:'Dieser Assistent verbindet dich Schritt für Schritt mit den Diensten des Stacks (SABnzbd, Prowlarr, IGDB, RomM). Jeden Schritt kannst du testen oder überspringen.',wiz_done:'Fertig!',wiz_done_txt:'Die Grundkonfiguration steht. Alles lässt sich später unter Einstellungen → Verbindungen anpassen.',wiz_next:'Weiter',wiz_back:'Zurück',wiz_skip:'Überspringen',wiz_finish:'Loslegen',wiz_step:'Schritt',wiz_reopen:'Assistent erneut öffnen',about_lib:'Bibliothek',about_titles:'Titel',about_platforms:'Plattformen',about_jobs:'Anfragen',about_active:'aktiv',about_links:'Links',about_feat:'Funktionen',about_feat_txt:'Suche über Archive.org + Usenet, Dedup, Discover, Anfragen mit Freigabe, Benutzer & Rechte, Kontingente, Benachrichtigungen (Discord/Telegram/E-Mail/Web-Push), Probleme, PWA, API.',about_stack:'Stack',about_stack_txt:'Orchestriert Prowlarr, SABnzbd, JDownloader und RomM. Verbindungen in den Einstellungen konfigurierbar.',about_license:'Lizenz: MIT',sec_maint:'Logs & Wartung',exp_title:'Export / Import',exp_hint:'Sichert Einstellungen, Benutzer & Rechte, Anfragen und Wunschlisten als JSON. Ohne Passphrase bleiben Geheimnisse (Kennwörter, API-Keys, Webhook-URLs) AUSSEN VOR — mit Passphrase werden sie verschlüsselt beigelegt. Dieselbe Passphrase wird beim Import gebraucht.',exp_pass:'Passphrase',exp_pass_ph:'leer = ohne Geheimnisse',exp_do:'Exportieren',exp_merge:'Zusammenführen',exp_replace:'Ersetzen',imp_do:'Importieren',exp_done_plain:'Exportiert (ohne Geheimnisse).',exp_done_enc:'Exportiert (Geheimnisse verschlüsselt).',imp_nofile:'Keine Datei gewählt.',imp_badjson:'Datei ist kein gültiges JSON.',imp_conf_merge:'Import zusammenführen? Bestehende Werte werden überschrieben, nicht genannte bleiben.',imp_conf_replace:'ERSETZEN? Benutzer, Anfragen und Wunschlisten werden vollständig durch die Datei ersetzt.',imp_done:'Importiert:',logs:'Protokoll',clear_cache:'Cache leeren',reindex:'Neu indexieren',clear_finished:'Fertige entfernen',done_word:'Erledigt',lbl_jobs:'Anfragen',lbl_lib:'Bibliothek',sec_conn:'Verbindungen',reveal:'Klartext anzeigen',tls_hint:'Cert + Schlüssel (PEM) hinterlegen — die App startet dann zusätzlich einen HTTPS-Listener auf dem gewählten Port (Neustart nötig). Für Web-Push/PWA ohne separaten Reverse-Proxy.',tls_none:'kein Zertifikat hinterlegt',tls_expires:'gültig bis',tls_key_note:'privater Schlüssel — wird nie angezeigt',tls_restart:'Container neu starten zum Aktivieren',conn_hint:'Leere Felder nutzen den Wert aus der Umgebung (.env). Secrets sind maskiert — leer lassen behält den bestehenden Wert.',
  profile:'Profil',display_name:'Anzeigename',email:'E-Mail',language:'Sprache',design:'Design',default_design:'Standard-Design',d_seerr:'Seerr',d_glass:'Glas',d_clean:'Klar',avatar:'Avatar',pwebhook:'Persönlicher Discord-Webhook',change_pw:'Passwort ändern',cur_pw:'Aktuelles Passwort',new_pw:'Neues Passwort',choose_img:'Bild wählen',saved_ok:'gespeichert ✓',
  blocklist:'Sperrliste',add_btn:'Hinzufügen',pattern_ph:'Stichwort/Muster im Titel',
  nav_issues:'🐞 Probleme',nav_messages:'Nachrichten',msg_to:'An',msg_none:'Noch keine Nachrichten.',msg_ph:'Nachricht schreiben …',msg_send:'Senden',msg_hint:'Strg+Enter sendet',msg_nousers:'Keine anderen Benutzer.',req_for:'Anfrage für',req_self:'mich selbst',issues:'Probleme',report_issue:'Problem melden',issue_msg:'Beschreibung',close_btn:'Schließen',st_open:'offen',st_closed:'geschlossen',submit:'Absenden',issue_type:'Art',comment_ph:'Kommentar schreiben …',comment_send:'Senden',push_enable:'🔔 Push aktivieren',push_disable:'🔕 Push deaktivieren',push_unsupported:'Push nicht verfügbar (HTTPS nötig)',push_denied:'Erlaubnis verweigert',push_on:'Push aktiviert ✓',push_off:'Push deaktiviert'
@@ -1643,7 +1643,7 @@ const I18N={de:{
  users:'Users',new_user:'Create new user',create:'Create',del:'Delete',autoapprove:'Auto-approve',role_user:'User',role_admin:'Admin',username:'Username',password:'Password',
  notif_discord:'Notifications — Discord',active:'enabled',test:'Test',save:'Save',saved:'saved ✓',test_sent:'test sent ✓',webhook_ph:'Discord webhook URL',
  st_pending:'⏳ Awaiting approval',st_queued:'Requested',st_downloading:'Downloading…',st_importing:'Processing',st_done:'✅ Available',st_error:'Error',st_denied:'Denied',st_exists:'in library',
- settings:'Settings',sec_general:'General',sec_notif:'Notifications',sec_users:'Users',sec_services:'Services',sec_about:'About',app_name:'App name',default_lang:'Default language',refresh:'Refresh',version:'Version',about_build:'Build',upd_avail:'Update available:',upd_current:'up to date',about_txt:'Self-built Seerr clone for ROMs.',wiz_welcome:'Welcome to Romseerr',wiz_welcome_txt:'This wizard connects you to the stack services (SABnzbd, Prowlarr, IGDB, RomM) step by step. You can test or skip each step.',wiz_done:'All set!',wiz_done_txt:'Basic configuration is done. You can adjust everything later under Settings → Connections.',wiz_next:'Next',wiz_back:'Back',wiz_skip:'Skip',wiz_finish:'Get started',wiz_step:'Step',wiz_reopen:'Reopen wizard',about_lib:'Library',about_titles:'titles',about_platforms:'platforms',about_jobs:'Requests',about_active:'active',about_links:'Links',about_feat:'Features',about_feat_txt:'Search across Archive.org + Usenet, dedup, discover, requests with approval, users & permissions, quotas, notifications (Discord/Telegram/email/web push), issues, PWA, API.',about_stack:'Stack',about_stack_txt:'Orchestrates Prowlarr, SABnzbd, JDownloader and RomM. Connections configurable under Settings.',about_license:'License: MIT',sec_maint:'Logs & maintenance',logs:'Log',clear_cache:'Clear cache',reindex:'Reindex',clear_finished:'Clear finished',done_word:'Done',lbl_jobs:'Requests',lbl_lib:'Library',sec_conn:'Connections',reveal:'Show in clear text',tls_hint:'Provide cert + key (PEM) — the app then also starts an HTTPS listener on the chosen port (restart required). For web push/PWA without a separate reverse proxy.',tls_none:'no certificate stored',tls_expires:'valid until',tls_key_note:'private key — never shown',tls_restart:'restart the container to activate',conn_hint:'Empty fields fall back to the environment (.env). Secrets are masked — leave blank to keep the current value.',
+ settings:'Settings',sec_general:'General',sec_notif:'Notifications',sec_users:'Users',sec_services:'Services',sec_about:'About',app_name:'App name',default_lang:'Default language',refresh:'Refresh',version:'Version',about_build:'Build',upd_avail:'Update available:',upd_current:'up to date',about_txt:'Self-built Seerr clone for ROMs.',wiz_welcome:'Welcome to Romseerr',wiz_welcome_txt:'This wizard connects you to the stack services (SABnzbd, Prowlarr, IGDB, RomM) step by step. You can test or skip each step.',wiz_done:'All set!',wiz_done_txt:'Basic configuration is done. You can adjust everything later under Settings → Connections.',wiz_next:'Next',wiz_back:'Back',wiz_skip:'Skip',wiz_finish:'Get started',wiz_step:'Step',wiz_reopen:'Reopen wizard',about_lib:'Library',about_titles:'titles',about_platforms:'platforms',about_jobs:'Requests',about_active:'active',about_links:'Links',about_feat:'Features',about_feat_txt:'Search across Archive.org + Usenet, dedup, discover, requests with approval, users & permissions, quotas, notifications (Discord/Telegram/email/web push), issues, PWA, API.',about_stack:'Stack',about_stack_txt:'Orchestrates Prowlarr, SABnzbd, JDownloader and RomM. Connections configurable under Settings.',about_license:'License: MIT',sec_maint:'Logs & maintenance',exp_title:'Export / import',exp_hint:'Saves settings, users & permissions, requests and wishlists as JSON. Without a passphrase, secrets (passwords, API keys, webhook URLs) are LEFT OUT — with one they are attached encrypted. The same passphrase is needed on import.',exp_pass:'Passphrase',exp_pass_ph:'empty = without secrets',exp_do:'Export',exp_merge:'Merge',exp_replace:'Replace',imp_do:'Import',exp_done_plain:'Exported (without secrets).',exp_done_enc:'Exported (secrets encrypted).',imp_nofile:'No file selected.',imp_badjson:'File is not valid JSON.',imp_conf_merge:'Merge this import? Existing values are overwritten, anything not mentioned stays.',imp_conf_replace:'REPLACE? Users, requests and wishlists are fully replaced by the file.',imp_done:'Imported:',logs:'Log',clear_cache:'Clear cache',reindex:'Reindex',clear_finished:'Clear finished',done_word:'Done',lbl_jobs:'Requests',lbl_lib:'Library',sec_conn:'Connections',reveal:'Show in clear text',tls_hint:'Provide cert + key (PEM) — the app then also starts an HTTPS listener on the chosen port (restart required). For web push/PWA without a separate reverse proxy.',tls_none:'no certificate stored',tls_expires:'valid until',tls_key_note:'private key — never shown',tls_restart:'restart the container to activate',conn_hint:'Empty fields fall back to the environment (.env). Secrets are masked — leave blank to keep the current value.',
  profile:'Profile',display_name:'Display name',email:'Email',language:'Language',design:'Design',default_design:'Default design',d_seerr:'Seerr',d_glass:'Glass',d_clean:'Clean',avatar:'Avatar',pwebhook:'Personal Discord webhook',change_pw:'Change password',cur_pw:'Current password',new_pw:'New password',choose_img:'Choose image',saved_ok:'saved ✓',
  blocklist:'Blocklist',add_btn:'Add',pattern_ph:'Keyword/pattern in title',
  nav_issues:'🐞 Issues',nav_messages:'Messages',msg_to:'To',msg_none:'No messages yet.',msg_ph:'Write a message …',msg_send:'Send',msg_hint:'Ctrl+Enter sends',msg_nousers:'No other users.',req_for:'Request for',req_self:'myself',issues:'Issues',report_issue:'Report issue',issue_msg:'Message',close_btn:'Close',st_open:'open',st_closed:'closed',submit:'Submit',issue_type:'Type',comment_ph:'Write a comment …',comment_send:'Send',push_enable:'🔔 Enable push',push_disable:'🔕 Disable push',push_unsupported:'Push unavailable (needs HTTPS)',push_denied:'Permission denied',push_on:'Push enabled ✓',push_off:'Push disabled'
@@ -1657,7 +1657,7 @@ const I18N={de:{
  users:'Utilisateurs',new_user:'Créer un utilisateur',create:'Créer',del:'Supprimer',autoapprove:'Approbation auto',role_user:'Utilisateur',role_admin:'Admin',username:"Nom d'utilisateur",password:'Mot de passe',
  notif_discord:'Notifications — Discord',active:'activé',test:'Test',save:'Enregistrer',saved:'enregistré ✓',test_sent:'test envoyé ✓',webhook_ph:'URL du webhook Discord',
  st_pending:"⏳ En attente d'approbation",st_queued:'Demandé',st_downloading:'Téléchargement…',st_importing:'Traitement',st_done:'✅ Disponible',st_error:'Erreur',st_denied:'Refusé',st_exists:'présent',
- settings:'Paramètres',sec_general:'Général',sec_notif:'Notifications',sec_users:'Utilisateurs',sec_services:'Services',sec_about:'À propos',app_name:"Nom de l'app",default_lang:'Langue par défaut',refresh:'Actualiser',version:'Version',about_build:'Build',upd_avail:'Mise à jour disponible :',upd_current:'à jour',about_txt:'Clone de Seerr pour ROMs, fait maison.',wiz_welcome:'Bienvenue sur Romseerr',wiz_welcome_txt:'Cet assistant vous connecte aux services du stack (SABnzbd, Prowlarr, IGDB, RomM) étape par étape. Vous pouvez tester ou passer chaque étape.',wiz_done:'Terminé !',wiz_done_txt:'La configuration de base est prête. Vous pouvez tout ajuster plus tard dans Paramètres → Connexions.',wiz_next:'Suivant',wiz_back:'Retour',wiz_skip:'Passer',wiz_finish:'Commencer',wiz_step:'Étape',wiz_reopen:'Rouvrir l’assistant',about_lib:'Bibliothèque',about_titles:'titres',about_platforms:'plateformes',about_jobs:'Demandes',about_active:'actives',about_links:'Liens',about_feat:'Fonctions',about_feat_txt:'Recherche Archive.org + Usenet, dédup, découverte, demandes avec approbation, utilisateurs & droits, quotas, notifications, problèmes, PWA, API.',about_stack:'Stack',about_stack_txt:'Orchestre Prowlarr, SABnzbd, JDownloader et RomM. Connexions configurables dans Paramètres.',about_license:'Licence : MIT',sec_maint:'Journaux & maintenance',logs:'Journal',clear_cache:'Vider le cache',reindex:'Réindexer',clear_finished:'Effacer terminés',done_word:'Terminé',lbl_jobs:'Demandes',lbl_lib:'Bibliothèque',sec_conn:'Connexions',reveal:'Afficher en clair',tls_hint:'Fournir le certificat + la clé (PEM) — l’app démarre alors un écouteur HTTPS sur le port choisi (redémarrage requis).',tls_none:'aucun certificat',tls_expires:'valide jusqu’au',tls_key_note:'clé privée — jamais affichée',tls_restart:'redémarrer le conteneur pour activer',conn_hint:'Les champs vides utilisent la valeur de l’environnement (.env). Les secrets sont masqués — laisser vide conserve la valeur.',
+ settings:'Paramètres',sec_general:'Général',sec_notif:'Notifications',sec_users:'Utilisateurs',sec_services:'Services',sec_about:'À propos',app_name:"Nom de l'app",default_lang:'Langue par défaut',refresh:'Actualiser',version:'Version',about_build:'Build',upd_avail:'Mise à jour disponible :',upd_current:'à jour',about_txt:'Clone de Seerr pour ROMs, fait maison.',wiz_welcome:'Bienvenue sur Romseerr',wiz_welcome_txt:'Cet assistant vous connecte aux services du stack (SABnzbd, Prowlarr, IGDB, RomM) étape par étape. Vous pouvez tester ou passer chaque étape.',wiz_done:'Terminé !',wiz_done_txt:'La configuration de base est prête. Vous pouvez tout ajuster plus tard dans Paramètres → Connexions.',wiz_next:'Suivant',wiz_back:'Retour',wiz_skip:'Passer',wiz_finish:'Commencer',wiz_step:'Étape',wiz_reopen:'Rouvrir l’assistant',about_lib:'Bibliothèque',about_titles:'titres',about_platforms:'plateformes',about_jobs:'Demandes',about_active:'actives',about_links:'Liens',about_feat:'Fonctions',about_feat_txt:'Recherche Archive.org + Usenet, dédup, découverte, demandes avec approbation, utilisateurs & droits, quotas, notifications, problèmes, PWA, API.',about_stack:'Stack',about_stack_txt:'Orchestre Prowlarr, SABnzbd, JDownloader et RomM. Connexions configurables dans Paramètres.',about_license:'Licence : MIT',sec_maint:'Journaux & maintenance',exp_title:'Export / import',exp_hint:'Sauvegarde paramètres, utilisateurs & droits, demandes et listes de souhaits en JSON. Sans phrase secrète, les secrets (mots de passe, clés API, URLs de webhook) sont EXCLUS — avec, ils sont joints chiffrés. La même phrase est requise à l’import.',exp_pass:'Phrase secrète',exp_pass_ph:'vide = sans secrets',exp_do:'Exporter',exp_merge:'Fusionner',exp_replace:'Remplacer',imp_do:'Importer',exp_done_plain:'Exporté (sans secrets).',exp_done_enc:'Exporté (secrets chiffrés).',imp_nofile:'Aucun fichier choisi.',imp_badjson:'Le fichier n’est pas du JSON valide.',imp_conf_merge:'Fusionner cet import ? Les valeurs existantes sont écrasées.',imp_conf_replace:'REMPLACER ? Utilisateurs, demandes et listes seront entièrement remplacés.',imp_done:'Importé :',logs:'Journal',clear_cache:'Vider le cache',reindex:'Réindexer',clear_finished:'Effacer terminés',done_word:'Terminé',lbl_jobs:'Demandes',lbl_lib:'Bibliothèque',sec_conn:'Connexions',reveal:'Afficher en clair',tls_hint:'Fournir le certificat + la clé (PEM) — l’app démarre alors un écouteur HTTPS sur le port choisi (redémarrage requis).',tls_none:'aucun certificat',tls_expires:'valide jusqu’au',tls_key_note:'clé privée — jamais affichée',tls_restart:'redémarrer le conteneur pour activer',conn_hint:'Les champs vides utilisent la valeur de l’environnement (.env). Les secrets sont masqués — laisser vide conserve la valeur.',
  profile:'Profil',display_name:'Nom affiché',email:'E-mail',language:'Langue',design:'Thème',default_design:'Thème par défaut',d_seerr:'Seerr',d_glass:'Verre',d_clean:'Épuré',avatar:'Avatar',pwebhook:'Webhook Discord personnel',change_pw:'Changer le mot de passe',cur_pw:'Mot de passe actuel',new_pw:'Nouveau mot de passe',choose_img:'Choisir une image',saved_ok:'enregistré ✓',
  blocklist:'Liste de blocage',add_btn:'Ajouter',pattern_ph:'Mot-clé/motif dans le titre',
  nav_issues:'🐞 Problèmes',nav_messages:'Messages',msg_to:'À',msg_none:'Aucun message.',msg_ph:'Écrire un message …',msg_send:'Envoyer',msg_hint:'Ctrl+Entrée envoie',msg_nousers:'Aucun autre utilisateur.',req_for:'Demande pour',req_self:'moi-même',issues:'Problèmes',report_issue:'Signaler un problème',issue_msg:'Message',close_btn:'Fermer',st_open:'ouvert',st_closed:'fermé',submit:'Envoyer',issue_type:'Type',comment_ph:'Écrire un commentaire …',comment_send:'Envoyer',push_enable:'🔔 Activer push',push_disable:'🔕 Désactiver push',push_unsupported:'Push indisponible (HTTPS requis)',push_denied:'Permission refusée',push_on:'Push activé ✓',push_off:'Push désactivé'
@@ -1671,7 +1671,7 @@ const I18N={de:{
  users:'Usuarios',new_user:'Crear usuario',create:'Crear',del:'Eliminar',autoapprove:'Auto-aprobación',role_user:'Usuario',role_admin:'Admin',username:'Usuario',password:'Contraseña',
  notif_discord:'Notificaciones — Discord',active:'activo',test:'Prueba',save:'Guardar',saved:'guardado ✓',test_sent:'prueba enviada ✓',webhook_ph:'URL del webhook de Discord',
  st_pending:'⏳ Esperando aprobación',st_queued:'Solicitado',st_downloading:'Descargando…',st_importing:'Procesando',st_done:'✅ Disponible',st_error:'Error',st_denied:'Rechazado',st_exists:'presente',
- settings:'Ajustes',sec_general:'General',sec_notif:'Notificaciones',sec_users:'Usuarios',sec_services:'Servicios',sec_about:'Acerca de',app_name:'Nombre de la app',default_lang:'Idioma predeterminado',refresh:'Actualizar',version:'Versión',about_build:'Build',upd_avail:'Actualización disponible:',upd_current:'actualizado',about_txt:'Clon de Seerr para ROMs, hecho en casa.',wiz_welcome:'Bienvenido a Romseerr',wiz_welcome_txt:'Este asistente te conecta con los servicios del stack (SABnzbd, Prowlarr, IGDB, RomM) paso a paso. Puedes probar u omitir cada paso.',wiz_done:'¡Listo!',wiz_done_txt:'La configuración básica está hecha. Puedes ajustar todo luego en Ajustes → Conexiones.',wiz_next:'Siguiente',wiz_back:'Atrás',wiz_skip:'Omitir',wiz_finish:'Empezar',wiz_step:'Paso',wiz_reopen:'Reabrir asistente',about_lib:'Biblioteca',about_titles:'títulos',about_platforms:'plataformas',about_jobs:'Solicitudes',about_active:'activas',about_links:'Enlaces',about_feat:'Funciones',about_feat_txt:'Búsqueda en Archive.org + Usenet, dedup, descubrir, solicitudes con aprobación, usuarios y permisos, cuotas, notificaciones, problemas, PWA, API.',about_stack:'Stack',about_stack_txt:'Orquesta Prowlarr, SABnzbd, JDownloader y RomM. Conexiones configurables en Ajustes.',about_license:'Licencia: MIT',sec_maint:'Registros y mantenimiento',logs:'Registro',clear_cache:'Vaciar caché',reindex:'Reindexar',clear_finished:'Borrar terminados',done_word:'Hecho',lbl_jobs:'Solicitudes',lbl_lib:'Biblioteca',sec_conn:'Conexiones',reveal:'Mostrar en texto plano',tls_hint:'Proporciona certificado + clave (PEM) — la app inicia además un listener HTTPS en el puerto elegido (requiere reinicio).',tls_none:'sin certificado',tls_expires:'válido hasta',tls_key_note:'clave privada — nunca se muestra',tls_restart:'reinicia el contenedor para activar',conn_hint:'Los campos vacíos usan el valor del entorno (.env). Los secretos se enmascaran — dejar vacío conserva el valor.',
+ settings:'Ajustes',sec_general:'General',sec_notif:'Notificaciones',sec_users:'Usuarios',sec_services:'Servicios',sec_about:'Acerca de',app_name:'Nombre de la app',default_lang:'Idioma predeterminado',refresh:'Actualizar',version:'Versión',about_build:'Build',upd_avail:'Actualización disponible:',upd_current:'actualizado',about_txt:'Clon de Seerr para ROMs, hecho en casa.',wiz_welcome:'Bienvenido a Romseerr',wiz_welcome_txt:'Este asistente te conecta con los servicios del stack (SABnzbd, Prowlarr, IGDB, RomM) paso a paso. Puedes probar u omitir cada paso.',wiz_done:'¡Listo!',wiz_done_txt:'La configuración básica está hecha. Puedes ajustar todo luego en Ajustes → Conexiones.',wiz_next:'Siguiente',wiz_back:'Atrás',wiz_skip:'Omitir',wiz_finish:'Empezar',wiz_step:'Paso',wiz_reopen:'Reabrir asistente',about_lib:'Biblioteca',about_titles:'títulos',about_platforms:'plataformas',about_jobs:'Solicitudes',about_active:'activas',about_links:'Enlaces',about_feat:'Funciones',about_feat_txt:'Búsqueda en Archive.org + Usenet, dedup, descubrir, solicitudes con aprobación, usuarios y permisos, cuotas, notificaciones, problemas, PWA, API.',about_stack:'Stack',about_stack_txt:'Orquesta Prowlarr, SABnzbd, JDownloader y RomM. Conexiones configurables en Ajustes.',about_license:'Licencia: MIT',sec_maint:'Registros y mantenimiento',exp_title:'Exportar / importar',exp_hint:'Guarda ajustes, usuarios y permisos, solicitudes y listas de deseos como JSON. Sin frase de contraseña los secretos (contraseñas, claves API, URLs de webhook) QUEDAN FUERA — con ella se adjuntan cifrados. La misma frase hace falta al importar.',exp_pass:'Frase de contraseña',exp_pass_ph:'vacío = sin secretos',exp_do:'Exportar',exp_merge:'Combinar',exp_replace:'Reemplazar',imp_do:'Importar',exp_done_plain:'Exportado (sin secretos).',exp_done_enc:'Exportado (secretos cifrados).',imp_nofile:'Ningún archivo seleccionado.',imp_badjson:'El archivo no es JSON válido.',imp_conf_merge:'¿Combinar esta importación? Los valores existentes se sobrescriben.',imp_conf_replace:'¿REEMPLAZAR? Usuarios, solicitudes y listas se sustituyen por completo.',imp_done:'Importado:',logs:'Registro',clear_cache:'Vaciar caché',reindex:'Reindexar',clear_finished:'Borrar terminados',done_word:'Hecho',lbl_jobs:'Solicitudes',lbl_lib:'Biblioteca',sec_conn:'Conexiones',reveal:'Mostrar en texto plano',tls_hint:'Proporciona certificado + clave (PEM) — la app inicia además un listener HTTPS en el puerto elegido (requiere reinicio).',tls_none:'sin certificado',tls_expires:'válido hasta',tls_key_note:'clave privada — nunca se muestra',tls_restart:'reinicia el contenedor para activar',conn_hint:'Los campos vacíos usan el valor del entorno (.env). Los secretos se enmascaran — dejar vacío conserva el valor.',
  profile:'Perfil',display_name:'Nombre visible',email:'Correo',language:'Idioma',design:'Diseño',default_design:'Diseño predeterminado',d_seerr:'Seerr',d_glass:'Cristal',d_clean:'Limpio',avatar:'Avatar',pwebhook:'Webhook de Discord personal',change_pw:'Cambiar contraseña',cur_pw:'Contraseña actual',new_pw:'Nueva contraseña',choose_img:'Elegir imagen',saved_ok:'guardado ✓',
  blocklist:'Lista de bloqueo',add_btn:'Añadir',pattern_ph:'Palabra clave/patrón en el título',
  nav_issues:'🐞 Problemas',nav_messages:'Mensajes',msg_to:'Para',msg_none:'Sin mensajes.',msg_ph:'Escribe un mensaje …',msg_send:'Enviar',msg_hint:'Ctrl+Enter envía',msg_nousers:'No hay otros usuarios.',req_for:'Solicitud para',req_self:'yo mismo',issues:'Problemas',report_issue:'Informar problema',issue_msg:'Mensaje',close_btn:'Cerrar',st_open:'abierto',st_closed:'cerrado',submit:'Enviar',issue_type:'Tipo',comment_ph:'Escribe un comentario …',comment_send:'Enviar',push_enable:'🔔 Activar push',push_disable:'🔕 Desactivar push',push_unsupported:'Push no disponible (requiere HTTPS)',push_denied:'Permiso denegado',push_on:'Push activado ✓',push_off:'Push desactivado'
@@ -1685,7 +1685,7 @@ const I18N={de:{
  users:'Utenti',new_user:'Crea utente',create:'Crea',del:'Elimina',autoapprove:'Auto-approvazione',role_user:'Utente',role_admin:'Admin',username:'Utente',password:'Password',
  notif_discord:'Notifiche — Discord',active:'attivo',test:'Test',save:'Salva',saved:'salvato ✓',test_sent:'test inviato ✓',webhook_ph:'URL webhook Discord',
  st_pending:'⏳ In attesa di approvazione',st_queued:'Richiesto',st_downloading:'Scaricamento…',st_importing:'Elaborazione',st_done:'✅ Disponibile',st_error:'Errore',st_denied:'Rifiutato',st_exists:'presente',
- settings:'Impostazioni',sec_general:'Generale',sec_notif:'Notifiche',sec_users:'Utenti',sec_services:'Servizi',sec_about:'Informazioni',app_name:'Nome dell’app',default_lang:'Lingua predefinita',refresh:'Aggiorna',version:'Versione',about_build:'Build',upd_avail:'Aggiornamento disponibile:',upd_current:'aggiornato',about_txt:'Clone di Seerr per ROM, fatto in casa.',wiz_welcome:'Benvenuto in Romseerr',wiz_welcome_txt:'Questa procedura ti collega ai servizi dello stack (SABnzbd, Prowlarr, IGDB, RomM) passo dopo passo. Puoi testare o saltare ogni passaggio.',wiz_done:'Fatto!',wiz_done_txt:'La configurazione di base è pronta. Puoi regolare tutto in seguito in Impostazioni → Connessioni.',wiz_next:'Avanti',wiz_back:'Indietro',wiz_skip:'Salta',wiz_finish:'Inizia',wiz_step:'Passo',wiz_reopen:'Riapri procedura',about_lib:'Libreria',about_titles:'titoli',about_platforms:'piattaforme',about_jobs:'Richieste',about_active:'attive',about_links:'Link',about_feat:'Funzioni',about_feat_txt:'Ricerca su Archive.org + Usenet, dedup, scoperta, richieste con approvazione, utenti e permessi, quote, notifiche, problemi, PWA, API.',about_stack:'Stack',about_stack_txt:'Orchestra Prowlarr, SABnzbd, JDownloader e RomM. Connessioni configurabili nelle Impostazioni.',about_license:'Licenza: MIT',sec_maint:'Log e manutenzione',logs:'Log',clear_cache:'Svuota cache',reindex:'Reindicizza',clear_finished:'Cancella completati',done_word:'Fatto',lbl_jobs:'Richieste',lbl_lib:'Libreria',sec_conn:'Connessioni',reveal:'Mostra in chiaro',tls_hint:'Fornisci certificato + chiave (PEM) — l’app avvia anche un listener HTTPS sulla porta scelta (riavvio necessario).',tls_none:'nessun certificato',tls_expires:'valido fino al',tls_key_note:'chiave privata — mai mostrata',tls_restart:'riavvia il container per attivare',conn_hint:'I campi vuoti usano il valore dell’ambiente (.env). I segreti sono mascherati — lasciare vuoto mantiene il valore.',
+ settings:'Impostazioni',sec_general:'Generale',sec_notif:'Notifiche',sec_users:'Utenti',sec_services:'Servizi',sec_about:'Informazioni',app_name:'Nome dell’app',default_lang:'Lingua predefinita',refresh:'Aggiorna',version:'Versione',about_build:'Build',upd_avail:'Aggiornamento disponibile:',upd_current:'aggiornato',about_txt:'Clone di Seerr per ROM, fatto in casa.',wiz_welcome:'Benvenuto in Romseerr',wiz_welcome_txt:'Questa procedura ti collega ai servizi dello stack (SABnzbd, Prowlarr, IGDB, RomM) passo dopo passo. Puoi testare o saltare ogni passaggio.',wiz_done:'Fatto!',wiz_done_txt:'La configurazione di base è pronta. Puoi regolare tutto in seguito in Impostazioni → Connessioni.',wiz_next:'Avanti',wiz_back:'Indietro',wiz_skip:'Salta',wiz_finish:'Inizia',wiz_step:'Passo',wiz_reopen:'Riapri procedura',about_lib:'Libreria',about_titles:'titoli',about_platforms:'piattaforme',about_jobs:'Richieste',about_active:'attive',about_links:'Link',about_feat:'Funzioni',about_feat_txt:'Ricerca su Archive.org + Usenet, dedup, scoperta, richieste con approvazione, utenti e permessi, quote, notifiche, problemi, PWA, API.',about_stack:'Stack',about_stack_txt:'Orchestra Prowlarr, SABnzbd, JDownloader e RomM. Connessioni configurabili nelle Impostazioni.',about_license:'Licenza: MIT',sec_maint:'Log e manutenzione',exp_title:'Esporta / importa',exp_hint:'Salva impostazioni, utenti e permessi, richieste e liste dei desideri come JSON. Senza passphrase i segreti (password, chiavi API, URL webhook) restano ESCLUSI — con la passphrase vengono allegati cifrati. La stessa passphrase serve all’importazione.',exp_pass:'Passphrase',exp_pass_ph:'vuoto = senza segreti',exp_do:'Esporta',exp_merge:'Unisci',exp_replace:'Sostituisci',imp_do:'Importa',exp_done_plain:'Esportato (senza segreti).',exp_done_enc:'Esportato (segreti cifrati).',imp_nofile:'Nessun file scelto.',imp_badjson:'Il file non è JSON valido.',imp_conf_merge:'Unire questa importazione? I valori esistenti vengono sovrascritti.',imp_conf_replace:'SOSTITUIRE? Utenti, richieste e liste vengono sostituiti del tutto.',imp_done:'Importato:',logs:'Log',clear_cache:'Svuota cache',reindex:'Reindicizza',clear_finished:'Cancella completati',done_word:'Fatto',lbl_jobs:'Richieste',lbl_lib:'Libreria',sec_conn:'Connessioni',reveal:'Mostra in chiaro',tls_hint:'Fornisci certificato + chiave (PEM) — l’app avvia anche un listener HTTPS sulla porta scelta (riavvio necessario).',tls_none:'nessun certificato',tls_expires:'valido fino al',tls_key_note:'chiave privata — mai mostrata',tls_restart:'riavvia il container per attivare',conn_hint:'I campi vuoti usano il valore dell’ambiente (.env). I segreti sono mascherati — lasciare vuoto mantiene il valore.',
  profile:'Profilo',display_name:'Nome visualizzato',email:'E-mail',language:'Lingua',design:'Tema',default_design:'Tema predefinito',d_seerr:'Seerr',d_glass:'Vetro',d_clean:'Pulito',avatar:'Avatar',pwebhook:'Webhook Discord personale',change_pw:'Cambia password',cur_pw:'Password attuale',new_pw:'Nuova password',choose_img:'Scegli immagine',saved_ok:'salvato ✓',
  blocklist:'Lista di blocco',add_btn:'Aggiungi',pattern_ph:'Parola chiave/schema nel titolo',
  nav_issues:'🐞 Problemi',nav_messages:'Messaggi',msg_to:'A',msg_none:'Nessun messaggio.',msg_ph:'Scrivi un messaggio …',msg_send:'Invia',msg_hint:'Ctrl+Invio invia',msg_nousers:'Nessun altro utente.',req_for:'Richiesta per',req_self:'me stesso',issues:'Problemi',report_issue:'Segnala problema',issue_msg:'Messaggio',close_btn:'Chiudi',st_open:'aperto',st_closed:'chiuso',submit:'Invia',issue_type:'Tipo',comment_ph:'Scrivi un commento …',comment_send:'Invia',push_enable:'🔔 Attiva push',push_disable:'🔕 Disattiva push',push_unsupported:'Push non disponibile (richiede HTTPS)',push_denied:'Permesso negato',push_on:'Push attivato ✓',push_off:'Push disattivato'
@@ -2136,8 +2136,45 @@ async function secMaint(c){
    <button onclick="admClearJobs()">${t('clear_finished')}</button>
    <button onclick="loadLogs()">${t('refresh')}</button>
    <span id=mmsg class=meta></span></div>
+  <h3 style="margin-top:16px">${t('exp_title')}</h3>
+  <div class=meta style="line-height:1.6;margin-bottom:8px">${t('exp_hint')}</div>
+  <div class=frow style="gap:8px;flex-wrap:wrap">
+   <label style="min-width:150px">${t('exp_pass')}</label>
+   <input id=exppw type=password placeholder="${t('exp_pass_ph')}" style="flex:1;min-width:180px">
+   <button onclick="doExport()">${t('exp_do')}</button></div>
+  <div class=frow style="gap:8px;flex-wrap:wrap">
+   <input type=file id=impfile accept=".json,application/json" style="flex:1;min-width:180px;font-size:12px">
+   <select id=impmode style="background:#1a1d23;color:#e6e8ec;border:1px solid #2a2f37;border-radius:6px;padding:5px 8px">
+    <option value="merge">${t('exp_merge')}</option><option value="replace">${t('exp_replace')}</option></select>
+   <button onclick="doImport()" style="background:#6e2a2a">${t('imp_do')}</button></div>
+  <div id=impmsg class=meta></div>
   <h3 style="margin-top:16px">${t('logs')}</h3><pre id=logbox class=logbox>…</pre>`;
  loadMStats();loadLogs();}
+// --- Export/Import der Konfiguration (#75) ---
+async function doExport(){let pw=(document.getElementById('exppw').value||'');
+ let msg=document.getElementById('impmsg');msg.style.color='';msg.textContent='…';
+ let body=pw?{secrets:'encrypt',passphrase:pw}:{};
+ let r=await fetch('/api/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ let d=await r.json();
+ if(!r.ok||d.ok===false){msg.style.color='#f85149';msg.textContent=d.msg||t('st_error');return;}
+ let blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
+ let a=document.createElement('a');a.href=URL.createObjectURL(blob);
+ a.download='romseerr-export-'+(d.exported_at||'').replace(/[:]/g,'')+'.json';
+ document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(a.href);
+ msg.textContent=pw?t('exp_done_enc'):t('exp_done_plain');}
+async function doImport(){let msg=document.getElementById('impmsg');msg.style.color='';
+ let f=document.getElementById('impfile').files[0];
+ if(!f){msg.style.color='#f85149';msg.textContent=t('imp_nofile');return;}
+ let mode=document.getElementById('impmode').value;
+ if(!confirm(t(mode==='replace'?'imp_conf_replace':'imp_conf_merge')))return;
+ let doc;try{doc=JSON.parse(await f.text());}catch(e){msg.style.color='#f85149';msg.textContent=t('imp_badjson');return;}
+ msg.textContent='…';
+ let r=await fetch('/api/import',{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({document:doc,mode:mode,passphrase:document.getElementById('exppw').value||''})});
+ let d=await r.json();
+ if(!d.ok){msg.style.color='#f85149';msg.textContent=d.msg||t('st_error');return;}
+ msg.style.color='#3fb950';
+ msg.textContent=t('imp_done')+' '+Object.keys(d.counts||{}).map(k=>k+': '+d.counts[k]).join(' · ');}
 async function loadMStats(){let s=await(await fetch('/api/admin/stats')).json();
  document.getElementById('mstats').textContent=`${t('lbl_jobs')}: ${s.jobs_total} (${s.jobs_active} / ${s.jobs_finished}) · ${t('lbl_lib')}: ${s.lib_titles} (${s.lib_platforms}) · IGDB-Cache: ${s.igdb_cache}`;}
 async function loadLogs(){let d=await(await fetch('/api/logs')).json();let b=document.getElementById('logbox');if(!b)return;b.textContent=(d.lines||[]).join('\\n');b.scrollTop=b.scrollHeight;}
@@ -3228,6 +3265,206 @@ def api_settings_set():
     if "update_check" in d: s["update_check"] = bool(d["update_check"])
     save_settings(s); return jsonify({"ok": True})
 
+# ---------- Konfiguration exportieren / importieren ----------
+# Eine Dateisicherung der SQLite-DB schützt gegen Plattenverlust, aber nicht gegen die drei
+# Fälle, um die es hier geht: Umzug auf einen neuen Host, Prüfbarkeit (eine Sicherung, die
+# nie zurückgespielt wurde, ist eine Vermutung) und selektives Wiederherstellen.
+EXPORT_SCHEMA = 1
+REDACTED = "__REDACTED__"   # Platzhalter für ausgelassene Geheimnisse: „vorhanden, aber nicht im Dokument"
+
+def _path_get(d, path):
+    for k in path:
+        if not isinstance(d, dict) or k not in d: return None
+        d = d[k]
+    return d
+
+def _path_set(d, path, val):
+    for k in path[:-1]:
+        if not isinstance(d.get(k), dict): d[k] = {}
+        d = d[k]
+    d[path[-1]] = val
+
+def secret_paths(settings):
+    """Pfade zu Geheimnissen im settings-Baum. Dynamisch ermittelt, weil Agenten und
+    Verbindungen wachsen — eine feste Liste würde beim nächsten Agenten stillschweigend
+    ein Kennwort im Klartext exportieren."""
+    paths = [("apikey",), ("smtp", "pass"), ("discord", "url"), ("agents", "webhook", "url")]
+    for agent in (settings.get("agents") or {}):
+        paths.append(("agents", agent, "token"))
+    paths += [("connections", k) for k in CONN_SECRET]
+    return paths
+
+def _fernet(passphrase, salt, iterations):
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives import hashes as _h
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    kdf = PBKDF2HMAC(algorithm=_h.SHA256(), length=32, salt=salt, iterations=iterations)
+    return Fernet(base64.urlsafe_b64encode(kdf.derive(passphrase.encode())))
+
+def build_export(passphrase=""):
+    """Versioniertes, lesbares Export-Dokument bauen.
+
+    Geheimnisse sind standardmäßig **nicht** enthalten — ein Export ist eine Datei, die
+    herumgereicht und an Nachrichten gehängt wird. An ihrer Stelle steht REDACTED, damit
+    der Import „war gesetzt, kenne ich aber nicht" von „war leer" unterscheiden kann.
+    Mit Passphrase werden sie stattdessen verschlüsselt beigelegt (PBKDF2 + Fernet)."""
+    settings = json.loads(json.dumps(load_settings()))   # tiefe Kopie, Original nie anfassen
+    users = json.loads(json.dumps(load_users()))
+    stash = {}
+    for p in secret_paths(settings):
+        v = _path_get(settings, p)
+        if v not in (None, ""):
+            stash["settings." + ".".join(p)] = v
+            _path_set(settings, p, REDACTED)
+    for name, u in users.items():
+        for field in ("pw", "webhook"):
+            if u.get(field):
+                stash[f"users.{name}.{field}"] = u[field]
+                u[field] = REDACTED
+    with JOBS_LOCK:
+        jobs = json.loads(json.dumps(JOBS))
+    doc = {"schema": EXPORT_SCHEMA, "app": "romseerr", "version": VERSION,
+           "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+           "settings": settings, "users": users, "requests": jobs,
+           "wishlist": load_wishlist(), "secrets": {"mode": "omitted"}}
+    if passphrase:
+        salt = os.urandom(16); iterations = 200_000
+        token = _fernet(passphrase, salt, iterations).encrypt(json.dumps(stash).encode())
+        doc["secrets"] = {"mode": "encrypted", "cipher": "fernet", "kdf": "pbkdf2-sha256",
+                          "iterations": iterations, "salt": base64.b64encode(salt).decode(),
+                          "data": token.decode()}
+    return doc
+
+def _restore_secrets(doc, passphrase):
+    """Verschlüsselte Geheimnisse zurückholen. Falsche Passphrase -> ValueError."""
+    sec = doc.get("secrets") or {}
+    if sec.get("mode") != "encrypted": return {}
+    if not passphrase: raise ValueError("Passphrase fehlt / passphrase missing")
+    try:
+        f = _fernet(passphrase, base64.b64decode(sec["salt"]), int(sec.get("iterations") or 200_000))
+        return json.loads(f.decrypt(sec["data"].encode()).decode())
+    except Exception:
+        raise ValueError("Passphrase falsch oder Daten beschädigt / wrong passphrase or corrupt data")
+
+def _unredact(value, current):
+    """REDACTED heißt „behalte, was da ist" — auch im replace-Modus. Ein Export ohne
+    Geheimnisse darf beim Zurückspielen nicht den laufenden API-Key wegwischen."""
+    return current if value == REDACTED else value
+
+def apply_import(doc, mode, passphrase=""):
+    """Dokument übernehmen. `mode` muss der Aufrufer ausdrücklich wählen:
+    `replace` ersetzt den jeweiligen Bereich vollständig, `merge` legt ihn darüber."""
+    if not isinstance(doc, dict) or doc.get("app") != "romseerr":
+        raise ValueError("kein Romseerr-Export / not a Romseerr export")
+    schema = doc.get("schema")
+    if not isinstance(schema, int):
+        raise ValueError("Schema-Version fehlt / schema version missing")
+    if schema > EXPORT_SCHEMA:
+        raise ValueError(f"Schema {schema} ist neuer als diese Version (max {EXPORT_SCHEMA}) — "
+                         f"bitte Romseerr aktualisieren / newer than this build, please update")
+    if schema < 1:
+        raise ValueError(f"Schema {schema} wird nicht unterstützt / unsupported")
+    if mode not in ("merge", "replace"):
+        raise ValueError("mode muss 'merge' oder 'replace' sein / must be 'merge' or 'replace'")
+    stash = _restore_secrets(doc, passphrase)
+    counts = {}
+
+    if isinstance(doc.get("settings"), dict):
+        cur = load_settings()
+        new = json.loads(json.dumps(doc["settings"]))
+        for p in secret_paths(new):
+            v = _path_get(new, p)
+            if v is None: continue
+            key = "settings." + ".".join(p)
+            _path_set(new, p, _unredact(stash.get(key, v), _path_get(cur, p)))
+        if mode == "merge":
+            merged = json.loads(json.dumps(cur))
+            def deep(a, b):
+                for k, v in b.items():
+                    if isinstance(v, dict) and isinstance(a.get(k), dict): deep(a[k], v)
+                    else: a[k] = v
+            deep(merged, new); new = merged
+        save_settings(new); counts["settings"] = 1
+
+    if isinstance(doc.get("users"), dict):
+        cur = load_users()
+        new = json.loads(json.dumps(doc["users"]))
+        for name, u in new.items():
+            for field in ("pw", "webhook"):
+                if field in u:
+                    u[field] = _unredact(stash.get(f"users.{name}.{field}", u[field]),
+                                         (cur.get(name) or {}).get(field, ""))
+        result = new if mode == "replace" else {**cur, **new}
+        # Ein Import darf niemanden aussperren: ohne Admin (mit Kennwort) wäre die Instanz tot.
+        if not any(u.get("role") == "admin" and u.get("pw") for u in result.values()):
+            raise ValueError("Import würde keinen Administrator mit Kennwort hinterlassen / "
+                             "would leave no admin with a password")
+        save_users(result); counts["users"] = len(result)
+
+    if isinstance(doc.get("wishlist"), dict):
+        cur = load_wishlist()
+        if mode == "replace":
+            save_wishlist(doc["wishlist"])
+        else:
+            for user, lst in doc["wishlist"].items():
+                have = {(norm(e.get("title", "")), e.get("platform") or "") for e in cur.get(user, [])}
+                for e in (lst or []):
+                    if (norm(e.get("title", "")), e.get("platform") or "") not in have:
+                        cur.setdefault(user, []).append(e)
+            save_wishlist(cur)
+        counts["wishlist"] = sum(len(v) for v in load_wishlist().values())
+
+    if isinstance(doc.get("requests"), list):
+        with JOBS_LOCK:
+            if mode == "replace":
+                JOBS[:] = doc["requests"]
+            else:
+                known = {j.get("id") for j in JOBS}
+                JOBS.extend(j for j in doc["requests"] if j.get("id") not in known)
+            save_jobs()
+            counts["requests"] = len(JOBS)
+    return counts
+
+@app.route("/api/export")
+@admin_required
+def api_export():
+    """Export ohne Geheimnisse (GET). Für einen Export MIT verschlüsselten Geheimnissen
+    gibt es POST — die Passphrase gehört nicht in eine URL (Logs, Verlauf, Referrer)."""
+    return jsonify(build_export())
+
+@app.route("/api/export", methods=["POST"])
+@admin_required
+def api_export_post():
+    d = request.get_json(force=True, silent=True) or {}
+    pw = d.get("passphrase") or ""
+    if d.get("secrets") == "encrypt":
+        if len(pw) < 8:
+            return jsonify({"ok": False, "msg": "Passphrase zu kurz (min. 8) / passphrase too short"}), 400
+        try:
+            import cryptography  # noqa: F401
+        except ImportError:
+            return jsonify({"ok": False, "msg": "cryptography fehlt — Geheimnisse können nicht "
+                                                "verschlüsselt werden / not available"}), 501
+    else:
+        pw = ""
+    return jsonify(build_export(pw))
+
+@app.route("/api/import", methods=["POST"])
+@admin_required
+def api_import():
+    d = request.get_json(force=True, silent=True) or {}
+    doc = d.get("document")
+    if doc is None: doc = d if "schema" in d else None
+    try:
+        counts = apply_import(doc, d.get("mode"), d.get("passphrase") or "")
+    except ValueError as e:
+        return jsonify({"ok": False, "msg": str(e)}), 400
+    except Exception as e:
+        log(f"Import-Fehler: {e}")
+        return jsonify({"ok": False, "msg": f"Import fehlgeschlagen / failed: {str(e)[:120]}"}), 500
+    log(f"Konfiguration importiert ({d.get('mode')}): {counts}")
+    return jsonify({"ok": True, "mode": d.get("mode"), "counts": counts})
+
 @app.route("/api/settings/connections/reveal")
 @admin_required
 def api_conn_reveal():
@@ -3578,6 +3815,23 @@ OPENAPI = {
                 responses={**_R_PERM, "200": {"description": "OK"}})},
         "/api/settings/mail-test": {"post": _op("Test-E-Mail senden", "Admin",
             responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/export": {
+            "get": _op("Konfiguration exportieren (ohne Geheimnisse)", "Admin",
+                       responses={**_R_PERM, "200": {"description": "versioniertes JSON-Dokument"}}),
+            "post": _op("Konfiguration exportieren, Geheimnisse optional mit Passphrase verschlüsselt", "Admin",
+                        body={"type": "object",
+                              "properties": {"secrets": {"type": "string", "enum": ["omit", "encrypt"]},
+                                             "passphrase": {"type": "string", "description": "min. 8 Zeichen, nur bei secrets=encrypt"}}},
+                        responses={**_R_PERM, "200": {"description": "versioniertes JSON-Dokument"},
+                                   "400": {"description": "Passphrase zu kurz"},
+                                   "501": {"description": "Verschlüsselung nicht verfügbar"}})},
+        "/api/import": {"post": _op("Konfiguration importieren (mode: merge|replace, ausdrücklich zu wählen)", "Admin",
+            body={"type": "object", "required": ["document", "mode"],
+                  "properties": {"document": {"type": "object", "description": "Export-Dokument"},
+                                 "mode": {"type": "string", "enum": ["merge", "replace"]},
+                                 "passphrase": {"type": "string", "description": "nötig, wenn der Export verschlüsselte Geheimnisse enthält"}}},
+            responses={**_R_PERM, "200": {"description": "übernommen"},
+                       "400": {"description": "Schema/Modus/Passphrase ungültig"}})},
         "/api/settings/connections/reveal": {"get": _op("Verbindungswerte im Klartext (Admin)", "Admin",
             responses={**_R_PERM, "200": {"description": "key->value"}})},
         "/api/settings/tls": {
