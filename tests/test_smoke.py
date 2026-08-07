@@ -297,3 +297,42 @@ def test_design_setting_roundtrip(appmod, client):
     client.post("/api/profile", json={"design": "bogus"})
     assert appmod.load_users()["admin"]["design"] == ""
     appmod.save_settings({}); appmod.save_users({})   # aufräumen / cleanup
+
+
+def test_wishlist_title_matching():
+    """Wunschlisten-Abgleich: alle Wörter des Wunschtitels müssen als Token vorkommen."""
+    import importlib, app as _app
+    assert _app.wishlist_title_matches("Chrono Trigger", "Chrono Trigger (USA)")
+    assert _app.wishlist_title_matches("mario kart", "Super Mario Kart (Europe)")
+    assert not _app.wishlist_title_matches("Mario", "Dr. Robotnik Machine")   # kein Treffer
+    assert not _app.wishlist_title_matches("Zelda II", "The Legend of Zelda")  # 'ii' fehlt
+    assert not _app.wishlist_title_matches("", "irgendwas")
+
+
+def test_non_admin_cannot_escalate(appmod, client):
+    """Ein manage_users-Nutzer (Rolle user) darf sich nicht zum Admin machen."""
+    appmod.save_users({
+        "boss": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)},
+        "helper": {"pw": "x", "role": "user", "perms": ["request", "manage_users"]},
+    })
+    with client.session_transaction() as sess:
+        sess["user"] = "helper"; sess["role"] = "user"
+    # Rollenwechsel zu admin muss scheitern (403)
+    r = client.patch("/api/users/helper", json={"role": "admin"})
+    assert r.status_code == 403
+    assert appmod.load_users()["helper"]["role"] == "user"
+    # privilegierte Rechte dürfen nicht dazukommen
+    client.patch("/api/users/helper", json={"perms": ["request", "manage_users", "manage_settings"]})
+    assert "manage_settings" not in appmod.load_users()["helper"]["perms"]
+    # bestehendes manage_users bleibt erhalten
+    assert "manage_users" in appmod.load_users()["helper"]["perms"]
+    appmod.save_users({})   # aufräumen / cleanup
+
+
+def test_logs_bad_n_no_500(appmod, client):
+    """/api/logs mit nicht-numerischem n darf nicht mit 500 crashen."""
+    appmod.save_users({"a": {"pw": "x", "role": "admin"}})
+    with client.session_transaction() as sess:
+        sess["user"] = "a"; sess["role"] = "admin"
+    assert client.get("/api/logs?n=abc").status_code == 200
+    appmod.save_users({})
