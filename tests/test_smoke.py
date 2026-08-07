@@ -1058,3 +1058,83 @@ def test_long_hostile_titles_stay_fast(appmod):
     appmod.norm(evil); appmod.parse_release(evil); appmod.clean_query(evil)
     assert _t.perf_counter() - t0 < 1.0
     assert appmod.parse_release(evil)["known"] is False
+
+
+def test_jd_check_distinguishes_missing_from_readonly(appmod, tmp_path):
+    """„fehlt" und „nicht beschreibbar" sind verschiedene Fehler mit verschiedenen
+    Lösungen — die Dienstanzeige muss sie auseinanderhalten. (#83)"""
+    import os as _os
+    watch = tmp_path / "watch"; out = tmp_path / "out"
+    appmod.save_settings({"connections": {"jd_watch": str(watch), "jd_out": str(out)}})
+
+    st = appmod.jd_check()
+    assert st["ok"] is False and st["reason"] == "watch_missing"
+
+    watch.mkdir()
+    st = appmod.jd_check()
+    assert st["ok"] is False and st["reason"] == "out_missing"   # Watch da, Ausgabe fehlt
+
+    out.mkdir()
+    assert appmod.jd_check()["ok"] is True
+
+    if _os.getuid() != 0:      # als root ist alles beschreibbar, dann sagt der Fall nichts aus
+        _os.chmod(watch, 0o555)
+        try:
+            st = appmod.jd_check()
+            assert st["ok"] is False and st["reason"] == "watch_readonly"
+            assert str(_os.getuid()) in st["info"]
+        finally:
+            _os.chmod(watch, 0o755)
+    appmod.save_settings({})
+
+
+def test_crawljob_failure_ends_the_job(appmod, tmp_path):
+    """Ein fehlgeschlagener .crawljob-Schreibversuch muss den Job beenden, statt ihn für
+    immer auf `downloading` stehen zu lassen. (#83)"""
+    appmod.save_settings({"connections": {"jd_watch": str(tmp_path / "gibtsnicht"),
+                                          "jd_out": str(tmp_path)}})
+    with pytest.raises(RuntimeError) as e:
+        appmod.write_crawljob("123", ["http://example.invalid/x"], "/output/x", "x")
+    assert "nicht moeglich" in str(e.value) or "not possible" in str(e.value)
+    appmod.save_settings({})
+
+
+def test_crawljob_written_when_paths_are_good(appmod, tmp_path):
+    """Bei brauchbaren Pfaden landet die Datei im konfigurierten Watch-Ordner. (#83)"""
+    watch = tmp_path / "w"; watch.mkdir(); out = tmp_path / "o"; out.mkdir()
+    appmod.save_settings({"connections": {"jd_watch": str(watch), "jd_out": str(out)}})
+    appmod.write_crawljob("777", ["http://example.invalid/a", "http://example.invalid/b"],
+                          "/output/romseerr/x", "romseerr_777__X")
+    f = watch / "romseerr_777.crawljob"
+    assert f.exists()
+    d = json.loads(f.read_text())
+    assert d[0]["packageName"] == "romseerr_777__X"
+    assert d[0]["text"].count("\n") == 1          # beide Links, einer je Zeile
+    appmod.save_settings({})
+
+
+def test_jd_paths_are_configurable(appmod):
+    """jd_watch/jd_out kommen aus den Einstellungen, mit den Konstanten als Default. (#83)"""
+    appmod.save_settings({})
+    assert appmod.jd_watch_dir() == appmod.JD_WATCH
+    assert appmod.jd_out_dir() == appmod.JD_OUT
+    appmod.save_settings({"connections": {"jd_watch": "/anderswo/watch", "jd_out": "/anderswo/out"}})
+    assert appmod.jd_watch_dir() == "/anderswo/watch"
+    assert appmod.jd_out_dir() == "/anderswo/out"
+    assert "jd_watch" in appmod.CONN_KEYS and "jd_out" in appmod.CONN_KEYS
+    assert "jd_watch" not in appmod.CONN_SECRET      # Pfade sind keine Geheimnisse
+    appmod.save_settings({})
+
+
+def test_jdownloader_appears_in_service_status(appmod, client, tmp_path):
+    """JDownloader hat jetzt eine Zeile in der Dienstübersicht — vorher war er der einzige
+    eingebundene Dienst ohne. (#83)"""
+    appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "j"; sess["role"] = "admin"
+    appmod.save_settings({"connections": {"jd_watch": str(tmp_path / "nix"), "jd_out": str(tmp_path)}})
+    rows = client.get("/api/services/status").get_json()
+    jd = next((r for r in rows if r["name"] == "JDownloader"), None)
+    assert jd is not None, "keine JDownloader-Zeile"
+    assert jd["ok"] is False and "nix" in jd["info"]
+    appmod.save_settings({}); appmod.save_users({})
