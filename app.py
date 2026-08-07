@@ -182,17 +182,17 @@ def db_conn():
     c.execute("PRAGMA busy_timeout=30000")
     return c
 
-def _migrate_json(c, table, path, rows_fn):
-    """JSON-Datei einmalig in eine leere Tabelle übernehmen. rename erst nach Commit."""
-    if c.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] or not os.path.exists(path):
+def _migrate_json(c, count_sql, insert_sql, path, rows_fn):
+    """JSON-Datei einmalig in eine leere Tabelle übernehmen (literale SQL). rename erst nach Commit."""
+    if c.execute(count_sql).fetchone()[0] or not os.path.exists(path):
         return False
     try:
         data = json.load(open(path))
     except Exception as e:
-        log(f"{table}-Migration: JSON-Fehler {e}"); return False
+        log(f"Migration {path}: JSON-Fehler {e}"); return False
     rows = rows_fn(data)
     if not rows: return False
-    c.executemany(f"INSERT OR REPLACE INTO {table} VALUES({','.join('?'*len(rows[0]))})", rows)
+    c.executemany(insert_sql, rows)
     return True
 
 def db_init():
@@ -205,10 +205,12 @@ def db_init():
             c.execute("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)")
             c.execute("CREATE TABLE IF NOT EXISTS users(username TEXT PRIMARY KEY, data TEXT)")
             c.execute("CREATE TABLE IF NOT EXISTS jobs(seq INTEGER PRIMARY KEY AUTOINCREMENT, jid TEXT, data TEXT)")
-            mig_u = _migrate_json(c, "users", USERS_FILE,
+            mig_u = _migrate_json(c, "SELECT COUNT(*) FROM users",
+                                  "INSERT OR REPLACE INTO users(username,data) VALUES(?,?)", USERS_FILE,
                                   lambda d: [(k, json.dumps(v)) for k, v in d.items()] if isinstance(d, dict) else [])
-            mig_j = _migrate_json(c, "jobs", JOBDB,
-                                  lambda d: [(None, j.get("id",""), json.dumps(j)) for j in d] if isinstance(d, list) else [])
+            mig_j = _migrate_json(c, "SELECT COUNT(*) FROM jobs",
+                                  "INSERT INTO jobs(jid,data) VALUES(?,?)", JOBDB,
+                                  lambda d: [(j.get("id",""), json.dumps(j)) for j in d] if isinstance(d, list) else [])
         # rename der Quelldateien erst NACH erfolgreichem Commit (verlustfrei)
         if mig_u: os.rename(USERS_FILE, USERS_FILE + ".migrated"); log("users.json -> SQLite migriert")
         if mig_j: os.rename(JOBDB, JOBDB + ".migrated"); log("jobs.json -> SQLite migriert")
