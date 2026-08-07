@@ -1576,12 +1576,13 @@ def api_profile_notify_test():
 @app.route("/api/forgot", methods=["POST"])
 def api_forgot():
     q = ((request.get_json(silent=True) or {}).get("user") or "").strip().lower()
-    users = load_users(); match = None
+    users = load_users(); matched = None
     for un, uv in users.items():
-        if un.lower() == q or (q and uv.get("email","").lower() == q): match = un; break
-    if match and users[match].get("email") and load_settings().get("smtp", {}).get("enabled"):
-        tok = gen_reset(match); base = request.host_url.rstrip("/")
-        send_mail(users[match]["email"], "Romseerr — Passwort zurücksetzen / password reset",
+        if un.lower() == q or (q and uv.get("email","").lower() == q):
+            matched = un; break
+    if matched and users[matched].get("email") and load_settings().get("smtp", {}).get("enabled"):
+        tok = gen_reset(matched); base = request.host_url.rstrip("/")
+        send_mail(users[matched]["email"], "Romseerr — Passwort zurücksetzen / password reset",
                   f"Link (1 Stunde gültig / valid 1 hour):\n{base}/reset?token={tok}")
     return jsonify({"ok": True})   # generisch, verrät keine Existenz
 
@@ -1977,4 +1978,4 @@ if __name__ == "__main__":
     threading.Thread(target=worker_collect, daemon=True).start()
     threading.Thread(target=periodic_index, daemon=True).start()
     log(f"rom-suche startet auf :{PORT}")
-    app.run(host="0.0.0.0", port=PORT, threaded=True)
+    app.run(host="0.0.0.0", port=PORT, threaded=True)  # nosec B104 - Container-Dienst, bindet bewusst alle Interfaces
