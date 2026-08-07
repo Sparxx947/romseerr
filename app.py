@@ -2017,6 +2017,10 @@ def play_info(title, slug=""):
 # EINZELPLATZ: mit einer GPU ist das eine Sitzung gleichzeitig. Das muss die Oberflaeche
 # klar sagen, statt beim zweiten Versuch zu scheitern.
 STREAMABLE = {"ps2", "ngc", "wii", "wiiu", "switch", "dreamcast", "3ds"}
+# Verzeichnisname je Plattform. Der Umweg ueber diese feste Tabelle ist Absicht: der
+# Pfad wird damit aus einer KONSTANTE gebaut, nicht aus der Eingabe. Ein '../'-Versuch
+# findet hier schlicht keinen Eintrag, statt bis in os.path.join durchzureichen.
+STREAM_DIR = {s: s for s in STREAMABLE}
 STREAM_TTL = int(os.environ.get("ROMSEERR_STREAM_TTL", "7200"))   # 2 h, dann faellt der Platz frei
 STREAM_LOCK = threading.Lock()
 
@@ -2038,9 +2042,10 @@ def stream_find_file(title, slug):
     Der Slug kommt vom Aufrufer und geht in einen Pfad. Er wird deshalb HIER gegen die
     feste Menge geprueft und nicht nur beim Aufrufer — sonst haenge die Sicherheit an der
     Reihenfolge der Pruefungen in stream_info(), und die kann sich aendern."""
-    if slug not in STREAMABLE: return None
+    safe = STREAM_DIR.get(slug)          # Nachschlagen statt Durchreichen
+    if not safe: return None
     want = norm(title)
-    base = os.path.join(ROMS, slug)
+    base = os.path.join(ROMS, safe)
     if not (want and os.path.isdir(base)): return None
     try:
         for root, _dirs, files in os.walk(base):
