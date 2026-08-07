@@ -610,7 +610,7 @@ paths:
           description: OK
       security: *id002
     post:
-      summary: Profil ändern (Name, E-Mail, Sprache, Avatar, persönl. Webhook)
+      summary: Profil ändern (Name, E-Mail, Sprache, Design, Avatar, persönl. Webhook)
       tags:
       - Profile
       responses:
@@ -630,10 +630,19 @@ paths:
                 lang:
                   type: string
                   enum:
+                  - ''
                   - de
                   - en
                   - fr
                   - es
+                  - it
+                design:
+                  type: string
+                  enum:
+                  - ''
+                  - seerr
+                  - glass
+                  - clean
                 avatar:
                   type: string
                   description: data-URI

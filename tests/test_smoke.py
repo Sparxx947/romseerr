@@ -281,3 +281,19 @@ def test_wishlist_roundtrip(appmod):
     appmod.wishlist_remove("alice", "Chrono Trigger", "snes")
     assert appmod.load_wishlist().get("alice", []) == []
     appmod.kv_put("wishlist", {})   # aufräumen / cleanup
+
+
+def test_design_setting_roundtrip(appmod, client):
+    """Design-Auswahl: global (default_design) und pro Nutzer persistieren; ungültige Werte fallen zurück."""
+    appmod.save_settings({"general": {"app_name": "Romseerr", "default_lang": "de", "default_design": "glass"}})
+    assert appmod.load_settings()["general"]["default_design"] == "glass"
+    # ungültiges Design -> Fallback (leer) beim Speichern über die Route
+    appmod.save_users({"admin": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "admin"; sess["role"] = "admin"
+    r = client.post("/api/profile", json={"design": "glass"})
+    assert r.get_json()["ok"] is True
+    assert appmod.load_users()["admin"]["design"] == "glass"
+    client.post("/api/profile", json={"design": "bogus"})
+    assert appmod.load_users()["admin"]["design"] == ""
+    appmod.save_settings({}); appmod.save_users({})   # aufräumen / cleanup

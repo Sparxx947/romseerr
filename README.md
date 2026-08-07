@@ -28,6 +28,7 @@ Anfrage-Workflow, Benutzerverwaltung und Benachrichtigungen.
   je Benutzer und **Freigabe-Workflow** (Anfragen ohne Auto-Freigabe muss der Admin bestätigen).
 - **Benachrichtigungen** — Discord-Webhook in der Oberfläche konfigurierbar (mit Test).
 - **Mehrsprachig** — Umschalter für Deutsch, Englisch, Französisch, Spanisch und Italienisch (i18n).
+- **Designs** — drei wählbare Looks (Seerr, Glas, Klar); Admin setzt den Standard, jeder Nutzer wählt eigenes.
 - **Seitenmenü** (Entdecken / Anfragen / Benutzer / Einstellungen) im Seerr-Stil.
 
 **Geplant** (siehe [CHANGELOG](CHANGELOG.md) / Issues): SQLite-Backend, i18n de/en,
