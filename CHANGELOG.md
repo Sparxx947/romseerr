@@ -6,6 +6,14 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Hinzugefügt / Added
+- **Fehlgeschlagene/abgelehnte Anfragen erneut versuchen** — Knopf „↻ Erneut" in den Anfragen
+  (Recht `manage_requests`); `POST /api/jobs/{id}/retry` reiht den Job wieder ein. /
+  **Retry failed/denied requests** — "↻ Retry" button; `POST /api/jobs/{id}/retry`.
+- **Konfig-Check beim Start** — warnt im Log, wenn IGDB/SABnzbd/Prowlarr fehlen oder nicht
+  erreichbar sind (nicht fatal, im Hintergrund). /
+  **Startup config check** — logs a warning when IGDB/SABnzbd/Prowlarr are missing or unreachable.
+
 ### Geändert / Changed
 - **Alle Stores in SQLite** — die letzten JSON-Stores (**settings, issues, maillog, push_subs**)
   liegen jetzt in einem `kv`-Table in `romseerr.db`; bestehende JSON werden beim Start
