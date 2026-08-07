@@ -279,7 +279,7 @@ REGION_RE = re.compile(r'\b(usa|eur|europe|japan|jpn|world|korea|kor|rev\s*\d+|p
 def norm(name):
     """Datei-/Titelname -> normalisierter Vergleichsschlüssel (Endung, Klammern, Region,
     Versionsnummern und Sonderzeichen entfernt, lowercase). Grundlage der Dedup."""
-    s = os.path.splitext(name)[0].lower()
+    s = os.path.splitext(str(name)[:MAX_NAME])[0].lower()      # gedeckelt: siehe _tags
     s = re.sub(r'[\._\-+]+', ' ', s)                          # Trenner ZUERST zu Space
     s = re.sub(r'\([^)]*\)|\[[^\]]*\]|\{[^}]*\}', ' ', s)     # (USA), [!], {...}
     s = re.sub(r'\bv?\d+(\.\d+)+\b', ' ', s)                   # v1.2.3
@@ -335,10 +335,15 @@ DUMP_TAGS = [   # Reihenfolge = Vorrang bei mehreren Treffern
 ]
 PRERELEASE = {"prototype", "beta", "alpha", "demo", "sample"}   # standardmäßig nicht gewollt
 
+MAX_NAME = 300   # Release-Namen sind nie länger; deckelt den Aufwand der Klammer-Regexe
+
 def _tags(name):
-    """Alle Klammer-/Klammerausdrücke eines Release-Namens: (USA), [!], (Rev A) …"""
+    """Alle Klammer-/Klammerausdrücke eines Release-Namens: (USA), [!], (Rev A) …
+
+    Die Eingabe wird gedeckelt: Titel stammen aus fremden Indexern, und die Alternation
+    über unbalancierte Klammern läuft ungedeckelt quadratisch."""
     out = []
-    for a, b in re.findall(r'\(([^)]*)\)|\[([^\]]*)\]', name or ""):
+    for a, b in re.findall(r'\(([^)]*)\)|\[([^\]]*)\]', (name or "")[:MAX_NAME]):
         t = (a or b).strip()
         if t: out.append(t)
     return out
@@ -351,7 +356,7 @@ def parse_release(name):
     ein unlesbarer Name wird zu „unspezifiziert", NIEMALS zu einem falschen Etikett."""
     out = {"regions": [], "languages": [], "revision": "", "dump": "", "known": False}
     if not name: return out
-    low = str(name).lower()
+    low = str(name)[:MAX_NAME].lower()
     for raw in _tags(name):
         low_tag = raw.lower().strip()
         parts = [p.strip() for p in re.split(r'[,+/]', low_tag) if p.strip()]
@@ -984,7 +989,7 @@ def recommend_for_user(user, limit=20):
 
 def clean_query(t):
     # Verrauschte Release-/Usenet-Titel auf den Spielnamen kürzen (für IGDB-Cover-Suche)
-    t = re.sub(r'[\._]+', ' ', t or "")
+    t = re.sub(r'[\._]+', ' ', (t or "")[:MAX_NAME])          # gedeckelt: siehe _tags
     t = re.split(r'\b(update|dlc|proper|repack|multi\d*|nsw|xci|nsp|wbfs|rvz|ps[1-5]|psp|psvita|'
                  r'wiiu?|xbox\w*|switch|eur|usa|jpn|europe|japan|v\d+(\.\d+)*)\b', t, 1, flags=re.I)[0]
     t = re.sub(r'\([^)]*\)|\[[^\]]*\]', ' ', t)

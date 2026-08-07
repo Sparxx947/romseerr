@@ -254,7 +254,7 @@ def test_inline_js_parses():
             continue
         if n.targets[0].id not in ("PAGE", "LOGIN_PAGE", "RESET_PAGE"):
             continue
-        m = re.search(r"<script>([\s\S]*?)</script>", n.value.value)
+        m = re.search(r"<script>([\s\S]*?)</script>", n.value.value, re.I)
         if not m:
             continue
         with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
@@ -1011,3 +1011,14 @@ def test_unparseable_release_is_still_requestable(appmod, client):
     with appmod.JOBS_LOCK:
         appmod.JOBS[:] = [x for x in appmod.JOBS if x["id"] != job["id"]]; appmod.save_jobs()
     appmod.save_users({})
+
+
+def test_long_hostile_titles_stay_fast(appmod):
+    """Titel kommen aus fremden Indexern: viele unbalancierte Klammern dürfen die
+    Klammer-Regexe nicht quadratisch werden lassen (CodeQL py/polynomial-redos)."""
+    import time as _t
+    evil = "(" * 40000 + "Spiel"
+    t0 = _t.perf_counter()
+    appmod.norm(evil); appmod.parse_release(evil); appmod.clean_query(evil)
+    assert _t.perf_counter() - t0 < 1.0
+    assert appmod.parse_release(evil)["known"] is False
