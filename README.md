@@ -87,6 +87,13 @@ teilen sich **RomM** (Browser/Player) und **RetroNAS**.
   einspielen** (TXT/CSV, ein Titel je Zeile, optional `Titel;Plattform`) — mit **Vorschau**
   vor dem Schreiben: getroffen / mehrdeutig / nicht gefunden. Eine **Beispieldatei** im
   erwarteten Format gibt es im Dialog (bzw. unter `/api/wishlist/example.csv`).
+- 📦 **Filehoster-Weg (experimentell)**: ein generischer **Katalog-JSON-Indexer** im
+  verbreiteten Format `{name, downloads:[{title, uris, uploadDate, fileSize}]}`. **Romseerr
+  liefert nur den Parser — die Quell-URLs trägt der Betreiber unter Einstellungen →
+  Verbindungen ein, im Repo steht keine.** Die URIs werden aufgeteilt: direktes HTTP lädt
+  Romseerr selbst, Filehoster gehen als `.crawljob` an JDownloader, `magnet:` bleibt außen vor.
+  Kataloge haben eine TTL und zeigen ihren Stand — Linkfäule ist hier der Normalfall, und ein
+  toter Link endet als klarer Job-Fehler statt als Dauerhänger.
 - **Anfrage-Verlauf** je Nutzer mit Zeitstempel (für Admins pro Nutzer filterbar), inklusive
   der **gelieferten Fassung**.
 - 🏷 **Fassungen (Region/Revision/Sprache)**: Romseerr liest die üblichen Namenskonventionen
@@ -226,6 +233,8 @@ Zwei Wege, die sich ergänzen — **die Weboberfläche hat Vorrang, `.env` ist d
 | `ROMSEERR_ROMS` | Ziel-Bibliothek (Default `/roms`) |
 | `ROMSEERR_HTTPS` | `1` setzt das Session-Cookie auf `Secure` (hinter HTTPS/Proxy) |
 | `ROMSEERR_WISH_INTERVAL` | Intervall des Wunschlisten-Workers in Sekunden (Default 1800) |
+| `CATALOG_URLS` | Katalog-JSON-Quellen für den Filehoster-Weg (leer = inaktiv, s. u.) |
+| `ROMSEERR_CATALOG_TTL` | Auffrischintervall der Kataloge in Sekunden (Default 21600) |
 | `SAB_URL` / `SAB_APIKEY` / `SAB_CAT` | SABnzbd-Anbindung |
 | `PROW_URL` / `PROW_APIKEY` / `PROW_CATS` | Prowlarr-Anbindung |
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | IGDB (Cover, Metadaten, Empfehlungen) |

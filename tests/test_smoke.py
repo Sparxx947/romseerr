@@ -1138,3 +1138,106 @@ def test_jdownloader_appears_in_service_status(appmod, client, tmp_path):
     assert jd is not None, "keine JDownloader-Zeile"
     assert jd["ok"] is False and "nix" in jd["info"]
     appmod.save_settings({}); appmod.save_users({})
+
+
+HYDRA_SAMPLE = {
+    "name": "Beispielquelle",
+    "downloads": [
+        {"title": "Chrono Trigger (USA)", "uris": ["https://hoster.invalid/f/abc"],
+         "uploadDate": "2026-01-02", "fileSize": "12 MB"},
+        {"title": "Super Metroid (Europe)",
+         "uris": ["https://cdn.invalid/files/supermetroid.zip"],
+         "uploadDate": "2026-01-03", "fileSize": "3 MB"},
+        {"title": "Nur Torrent", "uris": ["magnet:?xt=urn:btih:deadbeef"],
+         "uploadDate": "2026-01-04", "fileSize": "1 MB"},
+        {"title": "Ohne Links", "uris": [], "uploadDate": "", "fileSize": ""},
+    ],
+}
+
+
+def test_catalog_urls_only_from_settings(appmod):
+    """Die Quellen kommen ausschließlich aus der Konfiguration — im Repo steht keine. (#63)"""
+    appmod.save_settings({})
+    assert appmod.catalog_urls() == []
+    assert appmod._ENV_CONN["catalog_urls"] == ""      # kein eingebauter Anbieter
+    appmod.save_settings({"connections": {"catalog_urls":
+        "https://a.invalid/s.json\nnicht-eine-url\n  https://b.invalid/s.json  "}})
+    assert appmod.catalog_urls() == ["https://a.invalid/s.json", "https://b.invalid/s.json"]
+    appmod.save_settings({})
+
+
+def test_split_uris_routes_by_kind(appmod):
+    """URIs sind gemischt: magnet -> nicht zuständig, direktes HTTP -> selbst laden,
+    Filehoster -> JDownloader. (#63)"""
+    direct, hoster, magnet = appmod.split_uris([
+        "https://cdn.invalid/game.zip",
+        "https://mega.nz/file/abc",
+        "magnet:?xt=urn:btih:x",
+        "https://1fichier.com/?abc",
+    ])
+    assert direct == ["https://cdn.invalid/game.zip"]
+    assert "https://mega.nz/file/abc" in hoster and "https://1fichier.com/?abc" in hoster
+    assert magnet == ["magnet:?xt=urn:btih:x"]
+
+
+def test_catalog_parse_matches_hydra_schema(appmod, monkeypatch):
+    """Parser gegen das belegte Katalog-JSON-Schema (Hydra-Validator v2.1.0):
+    {name, downloads:[{title, uris[], uploadDate, fileSize}]} — alles Strings. (#63)"""
+    class FakeResp:
+        ok = True
+        status_code = 200
+        def json(self): return HYDRA_SAMPLE
+    monkeypatch.setattr(appmod.requests, "get", lambda *a, **k: FakeResp())
+    name, n = appmod.fetch_catalog_source("https://beispiel.invalid/s.json")
+    assert name == "Beispielquelle"
+    assert n == 3          # "Ohne Links" faellt raus, Magnet-Eintrag bleibt in der DB
+    appmod.save_settings({"connections": {"catalog_urls": "https://beispiel.invalid/s.json"}})
+    hits = appmod.search_filehoster("Chrono Trigger")
+    assert len(hits) == 1
+    assert hits[0]["source"] == "filehoster"          # genau das war vorher unerreichbar
+    assert hits[0]["ref"] == "https://hoster.invalid/f/abc"
+    assert "Beispielquelle" in hits[0]["extra"]
+    # Ein Eintrag mit NUR Magnet erscheint nicht — dafuer ist dieser Zweig nicht zustaendig
+    assert appmod.search_filehoster("Nur Torrent") == []
+    appmod.save_settings({})
+
+
+def test_catalog_rejects_foreign_json(appmod, monkeypatch):
+    """Eine Quelle, die kein Katalog-JSON ist, muss klar scheitern statt still 0 zu liefern. (#63)"""
+    class FakeResp:
+        ok = True
+        status_code = 200
+        def json(self): return {"irgendwas": [1, 2, 3]}
+    monkeypatch.setattr(appmod.requests, "get", lambda *a, **k: FakeResp())
+    with pytest.raises(RuntimeError) as e:
+        appmod.fetch_catalog_source("https://falsch.invalid/s.json")
+    assert "Katalog-JSON" in str(e.value) or "catalogue" in str(e.value)
+
+
+def test_catalog_status_reports_staleness_and_jd(appmod, client):
+    """Der Stand je Quelle gehört sichtbar hin (Linkfäule), ebenso der JDownloader-Zustand. (#63)"""
+    appmod.save_users({"c": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "c"; sess["role"] = "admin"
+    appmod.save_settings({})
+    d = client.get("/api/catalog/status").get_json()
+    assert d["configured"] == 0
+    assert "jd" in d and "ok" in d["jd"]
+    assert client.post("/api/catalog/refresh").status_code == 400   # ohne Quelle klare Absage
+    appmod.save_users({})
+
+
+def test_filehoster_search_requires_all_tokens(appmod):
+    """Mehrwort-Suche: alle Token müssen treffen, obwohl nur das erste in SQL steht. (#63)"""
+    from contextlib import closing as _closing
+    with appmod.DB_LOCK, _closing(appmod.db_conn()) as c, c:
+        c.execute("DELETE FROM fh_items")
+        c.executemany("INSERT INTO fh_items(norm,title,uris,size,uploaded,src,url) VALUES(?,?,?,?,?,?,?)",
+                      [(appmod.norm(t), t, '["https://h.invalid/x"]', "1", "", "S", "u")
+                       for t in ("Chrono Trigger (USA)", "Chrono Cross", "Super Metroid")])
+    assert sorted(r["title"] for r in appmod.search_filehoster("Chrono")) == \
+        ["Chrono Cross", "Chrono Trigger (USA)"]
+    assert [r["title"] for r in appmod.search_filehoster("Chrono Trigger")] == ["Chrono Trigger (USA)"]
+    assert appmod.search_filehoster("Chrono Zelda") == []
+    with appmod.DB_LOCK, _closing(appmod.db_conn()) as c, c:
+        c.execute("DELETE FROM fh_items")

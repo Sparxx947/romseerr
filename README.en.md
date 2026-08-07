@@ -87,6 +87,12 @@ into the library and notifies when they are available. The library is shared by 
   (TXT/CSV, one title per line, optionally `title;platform`) with a **preview** before anything
   is written: matched / ambiguous / not found. An **example file** in the expected format is
   offered in the dialog (also at `/api/wishlist/example.csv`).
+- 📦 **Filehoster path (experimental)**: a generic **catalogue JSON indexer** for the common
+  `{name, downloads:[{title, uris, uploadDate, fileSize}]}` format. **Romseerr ships the parser
+  only — the operator supplies the source URLs under Settings -> Connections; none are in this
+  repository.** URIs are routed: plain HTTP is downloaded directly, filehoster links go to
+  JDownloader as a `.crawljob`, `magnet:` is out of scope. Catalogues have a TTL and show their
+  age — link rot is the norm here, and a dead link ends as a clear job error rather than a hang.
 - **Per-user request history** with timestamps (admins can filter by user), including the
   **delivered variant**.
 - 🏷 **Release variants (region/revision/language)**: Romseerr reads the common naming
@@ -224,6 +230,8 @@ Two complementary ways — **the web UI takes precedence, `.env` is the fallback
 | `ROMSEERR_ROMS` | target library (default `/roms`) |
 | `ROMSEERR_HTTPS` | `1` marks the session cookie `Secure` (behind HTTPS/proxy) |
 | `ROMSEERR_WISH_INTERVAL` | wishlist worker interval in seconds (default 1800) |
+| `CATALOG_URLS` | catalogue JSON sources for the filehoster path (empty = inactive, see below) |
+| `ROMSEERR_CATALOG_TTL` | catalogue refresh interval in seconds (default 21600) |
 | `SAB_URL` / `SAB_APIKEY` / `SAB_CAT` | SABnzbd |
 | `PROW_URL` / `PROW_APIKEY` / `PROW_CATS` | Prowlarr |
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | IGDB (covers, metadata, recommendations) |
