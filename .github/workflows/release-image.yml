@@ -44,6 +44,10 @@ jobs:
             # es nicht verschieben. (metadata-action überspringt major.minor bei Pre-Releases automatisch.)
             type=raw,value=latest,enable=${{ github.event_name != 'release' || !github.event.release.prerelease }}
 
+      - name: Build timestamp
+        id: build
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push (amd64 + arm64)
         uses: docker/build-push-action@v6
         with:
@@ -52,4 +56,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Build-Herkunft ins Image spritzen -> /api/version meldet Commit + Bauzeitpunkt
+          build-args: |
+            ROMSEERR_COMMIT=${{ github.sha }}
+            ROMSEERR_BUILT_AT=${{ steps.build.outputs.at }}
           provenance: false

@@ -57,6 +57,22 @@ paths:
         '200':
           description: OK
       security: &id001 []
+  /api/version:
+    get:
+      summary: Laufende Version, Commit und Bauzeitpunkt (optional Update-Abgleich)
+      tags:
+      - System
+      responses:
+        '200':
+          description: OK
+      security: *id001
+      parameters:
+      - name: check
+        in: query
+        required: false
+        schema:
+          type: string
+        description: 1 = zusätzlich gegen den Release-Feed prüfen (latest, update_available)
   /api/auth/status:
     get:
       summary: Anmelde-/Setup-Status, App-Name, Version

@@ -415,3 +415,22 @@ def test_dl_name_and_find_output(appmod, tmp_path):
     assert appmod.find_output(base2, jid).endswith(f"romseerr_{jid}")
     # kein passender Ordner
     assert appmod.find_output(str(tmp_path / "nope"), jid) is None
+
+
+def test_api_version_public(client, appmod):
+    """/api/version ist ohne Anmeldung lesbar und meldet die Version aus version.txt (#76)."""
+    r = client.get("/api/version")
+    assert r.status_code == 200
+    d = r.get_json()
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    assert d["version"] == open(os.path.join(root, "version.txt")).read().strip()
+    assert d["version"] != "0.0.0"           # version.txt wurde wirklich gelesen
+    assert "commit" in d and "built_at" in d  # im Quell-Checkout None, aber vorhanden
+    assert "latest" not in d                  # ohne ?check=1 kein Netzzugriff
+
+
+def test_api_version_semver_compare(appmod):
+    """Der Versionsvergleich für den Update-Hinweis ordnet numerisch, nicht lexikalisch."""
+    assert appmod._semver("v1.10.0") > appmod._semver("1.9.9")
+    assert appmod._semver("1.0.0-beta.1") == appmod._semver("1.0.0")   # Suffix ignoriert
+    assert appmod._semver("krumm") == (0, 0, 0)
