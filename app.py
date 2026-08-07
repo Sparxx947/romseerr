@@ -596,6 +596,22 @@ def notify_send(text):
     if gw.get("enabled") and gw.get("url"):
         try: requests.post(gw["url"], json={"content": text, "text": text}, timeout=8); sent = True
         except Exception as e: log(f"Webhook-Fehler: {e}")
+    gt = ag.get("gotify", {})
+    if gt.get("enabled") and gt.get("url") and gt.get("token"):
+        try: requests.post(f"{gt['url'].rstrip('/')}/message", params={"token": gt["token"]},
+                           json={"title": "Romseerr", "message": text}, timeout=8); sent = True
+        except Exception as e: log(f"Gotify-Fehler: {e}")
+    nt = ag.get("ntfy", {})
+    if nt.get("enabled") and nt.get("topic"):
+        base = (nt.get("url") or "https://ntfy.sh").rstrip("/")
+        hdr = {"Authorization": "Bearer " + nt["token"]} if nt.get("token") else {}
+        try: requests.post(f"{base}/{nt['topic']}", data=text.encode("utf-8"), headers=hdr, timeout=8); sent = True
+        except Exception as e: log(f"ntfy-Fehler: {e}")
+    po = ag.get("pushover", {})
+    if po.get("enabled") and po.get("token") and po.get("user"):
+        try: requests.post("https://api.pushover.net/1/messages.json",
+                           data={"token": po["token"], "user": po["user"], "message": text}, timeout=8); sent = True
+        except Exception as e: log(f"Pushover-Fehler: {e}")
     return sent
 
 def notify_available(title, platform):
@@ -1696,9 +1712,15 @@ async function secNotif(c){let s=await(await fetch('/api/settings')).json();let 
   <div class=frow><label style="min-width:auto"><input type=checkbox id=agem ${(ag.email||{}).enabled?'checked':''}> E-Mail bei Verfügbarkeit / email on availability</label><span></span></div>
   <div class=frow><label style="min-width:auto"><input type=checkbox id=agtgen ${(ag.telegram||{}).enabled?'checked':''}> Telegram</label><span></span></div>
   <div class=frow><input id=agtgtok type=password placeholder="${(ag.telegram||{}).has_token?'•••• Token gesetzt':'Bot-Token'}"><input id=agtgchat placeholder="Chat-ID" value="${((ag.telegram||{}).chat||'').replace(/"/g,'&quot;')}"></div>
-  <div class=frow><label style="min-width:auto"><input type=checkbox id=agwhen ${(ag.webhook||{}).enabled?'checked':''}> Webhook (Slack/Gotify/Pushover…)</label><span></span></div>
-  <div class=frow><input id=agwhurl placeholder="Webhook-URL" value="${((ag.webhook||{}).url||'').replace(/"/g,'&quot;')}"><button onclick="testAgents()">${t('test')}</button></div>
-  <div class=frow><button onclick="saveAgents()">${t('save')}</button><span id=agmsg class=meta></span></div>
+  <div class=frow><label style="min-width:auto"><input type=checkbox id=agwhen ${(ag.webhook||{}).enabled?'checked':''}> Webhook (generisch / Slack-kompatibel)</label><span></span></div>
+  <div class=frow><input id=agwhurl placeholder="Webhook-URL" value="${((ag.webhook||{}).url||'').replace(/"/g,'&quot;')}"></div>
+  <div class=frow><label style="min-width:auto"><input type=checkbox id=aggoen ${(ag.gotify||{}).enabled?'checked':''}> Gotify</label><span></span></div>
+  <div class=frow><input id=aggourl placeholder="Gotify-URL (https://gotify.host)" value="${((ag.gotify||{}).url||'').replace(/"/g,'&quot;')}"><input id=aggotok type=password placeholder="${(ag.gotify||{}).has_token?'•••• App-Token gesetzt':'App-Token'}"></div>
+  <div class=frow><label style="min-width:auto"><input type=checkbox id=agnten ${(ag.ntfy||{}).enabled?'checked':''}> ntfy</label><span></span></div>
+  <div class=frow><input id=agnturl placeholder="ntfy-URL (Standard https://ntfy.sh)" value="${((ag.ntfy||{}).url||'').replace(/"/g,'&quot;')}"><input id=agnttopic placeholder="Topic" style="flex:0 0 160px" value="${((ag.ntfy||{}).topic||'').replace(/"/g,'&quot;')}"><input id=agnttok type=password placeholder="${(ag.ntfy||{}).has_token?'•••• Token':'Token (optional)'}"></div>
+  <div class=frow><label style="min-width:auto"><input type=checkbox id=agpoen ${(ag.pushover||{}).enabled?'checked':''}> Pushover</label><span></span></div>
+  <div class=frow><input id=agpouser placeholder="User-Key" value="${((ag.pushover||{}).user||'').replace(/"/g,'&quot;')}"><input id=agpotok type=password placeholder="${(ag.pushover||{}).has_token?'•••• App-Token gesetzt':'App-Token'}"></div>
+  <div class=frow><button onclick="saveAgents()">${t('save')}</button><button onclick="testAgents()" style="margin-left:8px;background:#2a2f37">${t('test')}</button><span id=agmsg class=meta></span></div>
   <h3 style="margin-top:20px">Mail-Protokoll / Mail log</h3><div id=mlog class=meta>…</div>`;
  let ml=await(await fetch('/api/maillog')).json();
  document.getElementById('mlog').innerHTML=ml.length?ml.map(m=>`<div class=frow><span>${m.ok?'🟢':'🔴'} ${m.ts} → ${(''+(m.to||'')).replace(/</g,'&lt;')}</span><span class=meta>${(''+(m.subject||'')).replace(/</g,'&lt;')}${m.err?(' · '+(''+m.err).replace(/</g,'&lt;')):''}</span></div>`).join(''):'—';}
@@ -1711,8 +1733,14 @@ async function mailTest(){let to=document.getElementById('smto').value.trim();if
  document.getElementById('smmsg').textContent=r.ok?t('test_sent'):(r.msg||t('st_error'));}
 async function saveAgents(){let d={agents:{email:{enabled:document.getElementById('agem').checked},
   telegram:{enabled:document.getElementById('agtgen').checked,chat:document.getElementById('agtgchat').value},
-  webhook:{enabled:document.getElementById('agwhen').checked,url:document.getElementById('agwhurl').value}}};
+  webhook:{enabled:document.getElementById('agwhen').checked,url:document.getElementById('agwhurl').value},
+  gotify:{enabled:document.getElementById('aggoen').checked,url:document.getElementById('aggourl').value},
+  ntfy:{enabled:document.getElementById('agnten').checked,url:document.getElementById('agnturl').value,topic:document.getElementById('agnttopic').value},
+  pushover:{enabled:document.getElementById('agpoen').checked,user:document.getElementById('agpouser').value}}};
  let tok=document.getElementById('agtgtok').value;if(tok)d.agents.telegram.token=tok;
+ let got=document.getElementById('aggotok').value;if(got)d.agents.gotify.token=got;
+ let ntt=document.getElementById('agnttok').value;if(ntt)d.agents.ntfy.token=ntt;
+ let pot=document.getElementById('agpotok').value;if(pot)d.agents.pushover.token=pot;
  let r=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
  document.getElementById('agmsg').textContent=r.ok?t('saved_ok'):t('st_error');return r.ok;}
 async function testAgents(){await saveAgents();
@@ -2391,7 +2419,17 @@ def api_settings_get():
                                      "has_token": bool(s.get("agents",{}).get("telegram",{}).get("token"))},
                         "webhook": {"enabled": bool(s.get("agents",{}).get("webhook",{}).get("enabled")),
                                     "url": s.get("agents",{}).get("webhook",{}).get("url","")},
-                        "email": {"enabled": bool(s.get("agents",{}).get("email",{}).get("enabled"))}},
+                        "email": {"enabled": bool(s.get("agents",{}).get("email",{}).get("enabled"))},
+                        "gotify": {"enabled": bool(s.get("agents",{}).get("gotify",{}).get("enabled")),
+                                   "url": s.get("agents",{}).get("gotify",{}).get("url",""),
+                                   "has_token": bool(s.get("agents",{}).get("gotify",{}).get("token"))},
+                        "ntfy": {"enabled": bool(s.get("agents",{}).get("ntfy",{}).get("enabled")),
+                                 "url": s.get("agents",{}).get("ntfy",{}).get("url",""),
+                                 "topic": s.get("agents",{}).get("ntfy",{}).get("topic",""),
+                                 "has_token": bool(s.get("agents",{}).get("ntfy",{}).get("token"))},
+                        "pushover": {"enabled": bool(s.get("agents",{}).get("pushover",{}).get("enabled")),
+                                     "user": s.get("agents",{}).get("pushover",{}).get("user",""),
+                                     "has_token": bool(s.get("agents",{}).get("pushover",{}).get("token"))}},
                     "quota": s.get("quota", {"enabled": False, "count": 10, "days": 7}),
                     "onboarded": bool(s.get("onboarded")),
                     "connections": {**{k: cfg(k) for k in CONN_KEYS if k not in CONN_SECRET},
@@ -2424,6 +2462,19 @@ def api_settings_set():
             s["agents"]["webhook"] = {"enabled": bool(gw.get("enabled")), "url": (gw.get("url") or "").strip()}
         if "email" in a:
             s["agents"]["email"] = {"enabled": bool(a["email"].get("enabled"))}
+        if "gotify" in a:
+            gt = a["gotify"]
+            s["agents"]["gotify"] = {"enabled": bool(gt.get("enabled")), "url": (gt.get("url") or "").strip(),
+                "token": gt.get("token") if gt.get("token") else cur.get("gotify",{}).get("token","")}
+        if "ntfy" in a:
+            nt = a["ntfy"]
+            s["agents"]["ntfy"] = {"enabled": bool(nt.get("enabled")), "url": (nt.get("url") or "").strip(),
+                "topic": (nt.get("topic") or "").strip(),
+                "token": nt.get("token") if nt.get("token") else cur.get("ntfy",{}).get("token","")}
+        if "pushover" in a:
+            po = a["pushover"]
+            s["agents"]["pushover"] = {"enabled": bool(po.get("enabled")), "user": (po.get("user") or "").strip(),
+                "token": po.get("token") if po.get("token") else cur.get("pushover",{}).get("token","")}
     if "quota" in d:
         qq = d["quota"]
         s["quota"] = {"enabled": bool(qq.get("enabled")), "count": int(qq.get("count") or 10),
