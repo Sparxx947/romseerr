@@ -1298,8 +1298,9 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid var(--border)
 #langsw{display:flex;gap:8px;padding:6px 12px}
 #langsw b{cursor:pointer;font-size:12px;color:var(--mut);font-weight:700}
 #langsw b.on{color:var(--acc)}
-.dpick{background:var(--input);border:1px solid var(--border);color:var(--txt);padding:6px 11px;border-radius:8px;cursor:pointer;font-size:12px}
-.dpick.on{border-color:var(--acc);color:var(--acc);font-weight:600}
+/* #modal-Präfix: schlägt die generische Modal-Button-Regel, damit der aktive Zustand sichtbar bleibt */
+#modal .dpick{background:var(--input);border:1px solid var(--border);color:var(--mut);padding:6px 11px;border-radius:8px;cursor:pointer;font-size:12px}
+#modal .dpick.on{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
 #who{font-size:12px;color:var(--mut);display:flex;align-items:center;padding:4px 12px}
 #who img{width:30px;height:30px;border-radius:50%;object-fit:cover;margin-right:7px;border:1px solid #2c323b}
 @media(max-width:680px){#side{position:static;width:auto;flex-direction:row;flex-wrap:wrap;align-items:center;padding:10px}#side .logo{margin:0 12px 0 4px}#side .grow{display:none}#side .ubox{border:none;padding:0}main{margin-left:0}.nav{padding:8px 10px;margin:0}}
@@ -2194,7 +2195,12 @@ def api_download():
 
 @app.route("/api/jobs")
 def api_jobs():
-    with JOBS_LOCK: return jsonify(list(reversed(JOBS))[:100])
+    with JOBS_LOCK: js = list(reversed(JOBS))
+    # Ohne manage_requests sieht ein Nutzer nur die EIGENEN Anfragen (Datenschutz).
+    if not has_perm("manage_requests"):
+        me = session.get("user", "")
+        js = [j for j in js if j.get("user") == me]
+    return jsonify(js[:100])
 
 @app.route("/api/wishlist", methods=["GET", "POST"])
 def api_wishlist():
