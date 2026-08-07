@@ -825,6 +825,15 @@ def wishlist_remove(user, title, platform=None):
                            and (platform is None or (e.get("platform") or "") == (platform or "")))]
         save_wishlist(w)
 
+def _title_tokens(s):
+    return [w for w in re.split(r'\s+', re.sub(r'[^a-z0-9]+', ' ', (s or "").lower())) if len(w) > 1]
+def wishlist_title_matches(want, cand):
+    """Streng: JEDES Wort des Wunschtitels muss als ganzes Token im Treffer vorkommen.
+    Verhindert, dass ein kurzer Eintrag („Mario") einen unpassenden Obermenge-Titel auslöst."""
+    wt = _title_tokens(want)
+    ct = set(_title_tokens(cand))
+    return bool(wt) and all(w in ct for w in wt)
+
 def worker_wishlist():
     """Prüft periodisch alle Wunschlisten. Erscheint zu einem Eintrag eine passende
     Quelle (Titel-Abgleich streng, um Fehlgriffe zu vermeiden) und ist er nicht schon
@@ -843,8 +852,8 @@ def worker_wishlist():
                         hits = do_search(title, [plat] if plat else None)
                     except Exception as ex:
                         log(f"Wunschliste-Suche '{title}': {ex}"); continue
-                    nt = norm(title)
-                    best = next((r for r in hits if not r["in_library"] and nt in norm(r["title"])), None)
+                    best = next((r for r in hits if not r["in_library"]
+                                 and wishlist_title_matches(title, r["title"])), None)
                     if not best: continue
                     new_job(best, user=user, approved=True)
                     wishlist_remove(user, title, plat)
@@ -1207,6 +1216,11 @@ def get_apikey():
 # und über has_perm()/den perm_required-Decorator geprüft.
 PERMS = ["request", "autoapprove", "manage_requests", "manage_users", "manage_issues",
          "manage_settings", "quota_exempt"]
+# Privilegierte Rechte: nur ein echter Admin darf sie vergeben/entziehen (sonst könnte
+# sich ein Nutzer mit manage_users zum Admin hochstufen). Ebenso Rollenwechsel.
+PRIV_PERMS = {"manage_users", "manage_settings"}
+def caller_is_admin():
+    return bool(g.get("api_auth")) or session.get("role") == "admin"
 # Gültige Oberflächensprachen und -Designs (Design = Look, per Nutzer/global wählbar).
 LANGS = ("de", "en", "fr", "es", "it")
 DESIGNS = ("seerr", "glass", "clean")
@@ -2221,7 +2235,9 @@ def _guard():
     p = request.path
     if p in PUBLIC: return
     key = request.headers.get("X-Api-Key") or request.args.get("apikey")
-    if key and key == load_settings().get("apikey"):
+    stored = load_settings().get("apikey")
+    # Konstante-Zeit-Vergleich gegen Timing-Angriffe (compare_digest verträgt keine None/Längenunterschiede)
+    if key and stored and secrets.compare_digest(str(key), str(stored)):
         g.api_auth = True; return
     u = session.get("user")
     if not u or u not in load_users():
@@ -2451,7 +2467,9 @@ JOB_FINISHED = {"done", "error", "denied"}
 @app.route("/api/logs")
 @admin_required
 def api_logs():
-    n = min(int(request.args.get("n", 200) or 200), 1000)
+    try: n = int(request.args.get("n", 200) or 200)
+    except (TypeError, ValueError): n = 200
+    n = min(max(n, 1), 1000)
     try:
         with open(LOGFILE) as f: lines = f.readlines()
     except Exception: lines = []
@@ -2614,9 +2632,13 @@ def api_users_add():
     d = request.get_json(force=True); u=(d.get("username") or "").strip(); p=d.get("password") or ""
     role = "admin" if d.get("role")=="admin" else "user"
     if not u or len(p)<6: return jsonify({"ok":False,"msg":"Benutzername + Passwort (min. 6 Zeichen)"}), 400
+    # Nur Admins dürfen einen Admin anlegen oder privilegierte Rechte vergeben.
+    if role == "admin" and not caller_is_admin():
+        return jsonify({"ok":False,"msg":"nur Admin darf Admins anlegen / admin only"}), 403
     users = load_users()
     if u in users: return jsonify({"ok":False,"msg":"Benutzer existiert bereits"}), 400
     perms = [x for x in (d.get("perms") or ["request"]) if x in PERMS]
+    if not caller_is_admin(): perms = [x for x in perms if x not in PRIV_PERMS]
     users[u] = {"pw":generate_password_hash(p), "role":role, "perms":perms}
     save_users(users)
     return jsonify({"ok":True})
@@ -2627,9 +2649,18 @@ def api_users_patch(u):
     users = load_users()
     if u not in users: return jsonify({"ok":False}), 404
     d = request.get_json(force=True)
-    if "perms" in d: users[u]["perms"] = [x for x in (d.get("perms") or []) if x in PERMS]
+    if "perms" in d:
+        newp = [x for x in (d.get("perms") or []) if x in PERMS]
+        if not caller_is_admin():
+            # Nicht-Admins dürfen privilegierte Rechte weder vergeben noch entziehen:
+            # bestehende privilegierte Rechte bewahren, neue nicht zulassen.
+            cur = users[u].get("perms", [])
+            newp = [x for x in newp if x not in PRIV_PERMS] + [x for x in cur if x in PRIV_PERMS]
+        users[u]["perms"] = newp
     if "autoapprove" in d: users[u]["autoapprove"] = bool(d["autoapprove"])
-    if d.get("role") in ("admin","user"):
+    if d.get("role") in ("admin","user") and d["role"] != users[u].get("role"):
+        if not caller_is_admin():
+            return jsonify({"ok":False,"msg":"nur Admin darf Rollen ändern / admin only"}), 403
         admins = [x for x,v in users.items() if v.get("role")=="admin"]
         if users[u].get("role")=="admin" and d["role"]!="admin" and len(admins)<=1:
             return jsonify({"ok":False,"msg":"letzter Admin"}), 400
@@ -2774,7 +2805,10 @@ def api_tls_get():
 def api_tls_set():
     d = request.get_json(force=True)
     cert = (d.get("cert") or "").strip(); key = (d.get("key") or "").strip()
-    port = int(d.get("port") or 8443); enabled = bool(d.get("enabled"))
+    try: port = int(d.get("port") or 8443)
+    except (TypeError, ValueError): port = 8443
+    if not (1 <= port <= 65535): port = 8443
+    enabled = bool(d.get("enabled"))
     if cert or key:
         if not (cert and key):
             return jsonify({"ok": False, "msg": "Zertifikat UND Schlüssel nötig / need both"}), 400
