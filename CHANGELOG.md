@@ -7,6 +7,12 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Download-Fortschritt** — laufende Usenet-Downloads zeigen jetzt den Prozentsatz aus der
+  SABnzbd-Warteschlange im Anfragen-Status (statt nur „Lädt…"). /
+  **Download progress** — active Usenet downloads show the SABnzbd percentage in the request status.
+- **Multi-Arch-Image (amd64 + arm64)** — der Release-Workflow baut das Image jetzt für beide
+  Architekturen (läuft damit auch auf Raspberry Pi & Co.). /
+  **Multi-arch image (amd64 + arm64)** — the release workflow now builds for both architectures.
 - **Private Nachrichten zwischen Benutzern** — neuer Bereich „✉ Nachrichten": Direktnachrichten
   an andere Nutzer mit Verlauf je Gesprächspartner, **Ungelesen-Zähler** (Badge in der Sidebar)
   und „als gelesen"-Markierung. Empfänger wird optional über Web-Push + persönlichen Webhook

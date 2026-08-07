@@ -766,6 +766,19 @@ def sab_add(url, name):
     if not j.get("status"): raise RuntimeError(f"SAB: {j}")
     return j
 
+def sab_queue():
+    """SAB-Warteschlange -> {Dateiname: Prozent}. Best effort (für die Fortschrittsanzeige)."""
+    out = {}
+    if not (cfg("sab_url") and cfg("sab_apikey")): return out
+    try:
+        j = requests.get(f"{cfg('sab_url')}/api", params={"mode":"queue","output":"json",
+            "apikey":cfg("sab_apikey")}, timeout=8).json()
+        for s in (j.get("queue", {}) or {}).get("slots", []) or []:
+            out[s.get("filename") or ""] = s.get("percentage", "")
+    except Exception:
+        pass
+    return out
+
 def write_crawljob(jid, links, folder, name):
     # folder = JD-Container-Sicht (z.B. /output/romseerr/...); JD legt sie selbst an.
     data = [{"text":"\n".join(links) if isinstance(links,list) else links,
@@ -910,12 +923,17 @@ def worker_collect():
         try:
             with JOBS_LOCK:
                 pending = [dict(j) for j in JOBS if j["state"]=="downloading" and j["source"] in ("usenet","filehoster")]
+            sabq = None
             for job in pending:
                 jid = job["id"]; name = f"romseerr_{jid}"
                 cand = None
                 if job["source"]=="usenet":
                     p = os.path.join(SAB_DONE, name)
                     if os.path.isdir(p): cand = p
+                    else:  # noch in der SAB-Queue -> Fortschritt anzeigen
+                        if sabq is None: sabq = sab_queue()
+                        pct = next((v for k, v in sabq.items() if name in k), None)
+                        if pct not in (None, ""): set_state(jid, msg=f"{pct}%")
                 else:
                     p = os.path.join(JD_OUT, name)
                     if os.path.isdir(p) and any(os.scandir(p)): cand = p
