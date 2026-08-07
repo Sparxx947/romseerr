@@ -87,7 +87,15 @@ into the library and notifies when they are available. The library is shared by 
   (TXT/CSV, one title per line, optionally `title;platform`) with a **preview** before anything
   is written: matched / ambiguous / not found. An **example file** in the expected format is
   offered in the dialog (also at `/api/wishlist/example.csv`).
-- **Per-user request history** with timestamps (admins can filter by user).
+- **Per-user request history** with timestamps (admins can filter by user), including the
+  **delivered variant**.
+- 🏷 **Release variants (region/revision/language)**: Romseerr reads the common naming
+  conventions (No-Intro, Redump, TOSEC, GoodTools) and groups detail-view candidates by variant
+  instead of listing raw release names. **Per-user preferences** (region order, preferred
+  language, accept beta/prototype) with an **instance-wide fallback** in settings. Region
+  changes content (language, difficulty, censorship, 50/60 Hz) — that is **not a quality
+  ladder**, so candidates follow the configured order rather than being sorted. Anything the
+  name does not state stays **unspecified** and is never guessed.
 - 🏆 **RetroAchievements** on the detail view: achievement count, points and a link to the set;
   with an account linked in the profile, your own progress as well. Plus a "with achievements
   only" search filter. Purely decorative — **without a key, or on any outage, the section

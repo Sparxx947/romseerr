@@ -74,7 +74,7 @@ try:
     PUSH_OK = True
 except Exception:
     PUSH_OK = False
-from flask import Flask, request, jsonify, Response, session, redirect, g
+from flask import Flask, request, jsonify, Response, session, redirect, g, has_request_context
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # ---------- Konfiguration ----------
@@ -286,6 +286,143 @@ def norm(name):
     s = REGION_RE.sub(' ', s)                                  # Region/Plattform-Tokens
     s = re.sub(r'[^a-z0-9]+', ' ', s)
     return re.sub(r'\s+', ' ', s).strip()
+
+# ---------- Fassungen: Region / Revision / Sprache / Dump-Status (#77) ----------
+# Ein ROM-Titel ist fast nie EINE Datei. Dasselbe Spiel gibt es als USA-, Europa- und
+# Japan-Fassung, als Revision, als Beta oder Prototyp, als Übersetzungspatch. Das ist
+# KEINE Qualitätsleiter — Region ändert Inhalt (Sprache, Schwierigkeit, Zensur, 50/60 Hz),
+# und „neueste Revision" ist nicht immer die beste. Deshalb wird hier nichts sortiert,
+# sondern gelesen, gezeigt und ausgewählt.
+#
+# Gelesen werden die üblichen Namenskonventionen (No-Intro, Redump, TOSEC, GoodTools).
+# Grundregel: Was nicht dasteht, wird NICHT geraten — unbekannt bleibt unbekannt.
+REGIONS = {   # Anzeigename -> erkannte Schreibweisen (No-Intro/Redump-Langform + GoodTools-Kürzel)
+    "World":     ["world", "w"],
+    "USA":       ["usa", "us", "u", "ntsc-u", "ntsc-us", "america", "north america"],
+    "Europe":    ["europe", "eur", "e", "pal", "pal-e"],
+    "Japan":     ["japan", "jpn", "jp", "j", "ntsc-j"],   # 'jp' ist KEIN No-Intro-Sprachcode (das ist 'ja')
+    "Germany":   ["germany", "ger", "g"],
+    "France":    ["france", "fra", "f"],
+    "Spain":     ["spain", "spa", "s"],
+    "Italy":     ["italy", "ita", "i"],
+    "Netherlands": ["netherlands", "holland"],
+    "Sweden":    ["sweden", "swe", "sw"],
+    "Australia": ["australia", "aus", "a"],
+    "Korea":     ["korea", "kor", "k"],
+    "China":     ["china", "chn", "ch"],
+    "Taiwan":    ["taiwan", "twn"],
+    "Brazil":    ["brazil", "bra", "b"],
+    "Canada":    ["canada", "can"],
+    "Asia":      ["asia"],
+    "Russia":    ["russia", "rus"],
+    "UK":        ["uk", "united kingdom"],
+}
+_REGION_TOKEN = {tok: name for name, toks in REGIONS.items() for tok in toks}
+# No-Intro-Sprachcodes. Zwei Buchstaben = Sprache, EIN Buchstabe = GoodTools-Region —
+# daran hängt die Unterscheidung von „(E)" (Europa) und „(En)" (Englisch).
+LANG_CODES = {"en", "ja", "fr", "de", "es", "it", "nl", "pt", "sv", "no", "da",
+              "fi", "zh", "ko", "pl", "ru", "cs", "hu", "tr", "el", "he", "ar"}
+DUMP_TAGS = [   # Reihenfolge = Vorrang bei mehreren Treffern
+    ("hack",        [r"\bhack\b", r"^\[t[\+\-]", r"\btrainer\b", r"\btrained\b"]),
+    ("translation", [r"\btranslation\b", r"^t[\+\-]\w", r"\btranslated\b"]),
+    ("prototype",   [r"\bproto(type)?\b"]),
+    ("beta",        [r"\bbeta\b"]),
+    ("alpha",       [r"\balpha\b"]),
+    ("demo",        [r"\bdemo\b", r"\bkiosk\b"]),
+    ("sample",      [r"\bsample\b"]),
+    ("unlicensed",  [r"\bunl\b", r"\bunlicensed\b", r"\baftermarket\b", r"\bpirate\b"]),
+    ("bad",         [r"^\[b\d*\]$", r"\bbad\s*dump\b", r"\boverdump\b"]),
+]
+PRERELEASE = {"prototype", "beta", "alpha", "demo", "sample"}   # standardmäßig nicht gewollt
+
+def _tags(name):
+    """Alle Klammer-/Klammerausdrücke eines Release-Namens: (USA), [!], (Rev A) …"""
+    out = []
+    for a, b in re.findall(r'\(([^)]*)\)|\[([^\]]*)\]', name or ""):
+        t = (a or b).strip()
+        if t: out.append(t)
+    return out
+
+def parse_release(name):
+    """Release-Name -> Fassungs-Merkmale.
+
+    Rückgabe: regions (Liste), languages (Liste), revision (str|""), dump (str),
+    `known` (bool: wurde überhaupt etwas erkannt). Was nicht dasteht, bleibt leer —
+    ein unlesbarer Name wird zu „unspezifiziert", NIEMALS zu einem falschen Etikett."""
+    out = {"regions": [], "languages": [], "revision": "", "dump": "", "known": False}
+    if not name: return out
+    low = str(name).lower()
+    for raw in _tags(name):
+        low_tag = raw.lower().strip()
+        parts = [p.strip() for p in re.split(r'[,+/]', low_tag) if p.strip()]
+        for p in parts:
+            # Reihenfolge ist entscheidend: EIN Buchstabe ist GoodTools-Region ((E)=Europa),
+            # ZWEI Buchstaben mit bekanntem Sprachcode sind Sprache ((En)=Englisch, (De)=Deutsch).
+            if len(p) == 2 and p in LANG_CODES:
+                if p not in out["languages"]: out["languages"].append(p)
+            elif p in _REGION_TOKEN:
+                r = _REGION_TOKEN[p]
+                if r not in out["regions"]: out["regions"].append(r)
+        m = re.match(r'^(?:rev(?:ision)?\s*([0-9a-z]+)|v\s*([0-9][0-9.]*))$', low_tag)
+        if m and not out["revision"]:
+            out["revision"] = "Rev " + (m.group(1) or m.group(2)).upper()
+        # GoodTools-Mehrsprachigkeit (M3) sagt „3 Sprachen", nicht welche — als Hinweis merken
+        if re.fullmatch(r'm\d+', low_tag) and "multi" not in out["languages"]:
+            out["languages"].append("multi")
+    if not out["revision"]:
+        m = re.search(r'\brev(?:ision)?\s*([0-9a-z]{1,3})\b', low)
+        if m: out["revision"] = "Rev " + m.group(1).upper()
+    for status, pats in DUMP_TAGS:
+        hay = [t.lower() for t in _tags(name)] + [low]
+        if any(re.search(p, h) for p in pats for h in hay):
+            out["dump"] = status; break
+    out["known"] = bool(out["regions"] or out["languages"] or out["revision"] or out["dump"])
+    return out
+
+def variant_label(v):
+    """Kurzes, ehrliches Etikett. Ohne Erkennung: „unspezifiziert" statt einer Erfindung."""
+    bits = []
+    if v.get("regions"): bits.append("/".join(v["regions"]))
+    if v.get("languages"): bits.append(",".join(x.upper() for x in v["languages"]))
+    if v.get("revision"): bits.append(v["revision"])
+    if v.get("dump"): bits.append(v["dump"])
+    return " · ".join(bits) if bits else ""
+
+DEFAULT_VARIANT_PREFS = {"regions": ["Europe", "USA", "World", "Japan"], "lang": "", "prerelease": False}
+
+def variant_prefs(user=""):
+    """Nutzer-Voreinstellung schlägt Instanz-Voreinstellung schlägt Standard."""
+    p = dict(DEFAULT_VARIANT_PREFS)
+    inst = (load_settings().get("variant") or {})
+    for k in p:
+        if inst.get(k) not in (None, "", []): p[k] = inst[k]
+    if user:
+        u = (load_users().get(user, {}).get("variant") or {})
+        for k in p:
+            if u.get(k) not in (None, "", []): p[k] = u[k]
+    p["regions"] = [r for r in (p.get("regions") or []) if r in REGIONS]
+    p["prerelease"] = bool(p.get("prerelease"))
+    return p
+
+def sanitize_variant_prefs(d):
+    """Eingaben festklopfen: nur bekannte Regionen, bekannter Sprachcode, Bool."""
+    d = d if isinstance(d, dict) else {}
+    regions = [r for r in (d.get("regions") or []) if r in REGIONS][:8]
+    lang = str(d.get("lang") or "").lower()
+    return {"regions": regions, "lang": lang if lang in LANG_CODES else "",
+            "prerelease": bool(d.get("prerelease"))}
+
+def variant_rank(v, prefs):
+    """Sortierschlüssel für Kandidaten — KEINE Qualitätsleiter, sondern die Reihenfolge,
+    die der Nutzer angegeben hat. Kleiner ist besser."""
+    regions = prefs.get("regions") or []
+    pos = min((regions.index(r) for r in v.get("regions", []) if r in regions), default=len(regions))
+    unwanted = 1 if (v.get("dump") in PRERELEASE and not prefs.get("prerelease")) else 0
+    broken = 1 if v.get("dump") in ("bad",) else 0
+    lang = 0 if (prefs.get("lang") and prefs["lang"] in v.get("languages", [])) else 1
+    # Revision zuletzt und nur als Gleichstand-Brecher: „neuer" ist nicht automatisch „besser".
+    rev = -1 * len(v.get("revision", ""))
+    return (broken, unwanted, pos, lang, rev)
 
 # RAM-Abbild des Bibliotheks-Index (schnelles in_library): per = {slug: {norm,…}},
 # all = alle norms plattformübergreifend, slugs = vorhandene Plattform-Ordner, ts = Bauzeit.
@@ -1033,11 +1170,16 @@ def do_search(q, platforms=None):
         r["in_library"] = in_library(r["title"], r["platform"])
         r["is_set"] = is_set(r["title"], r["size"])
         r["gkey"] = norm(r["title"])          # zum Gruppieren gleicher Titel (Versionen)
+        # Fassung aus dem Release-Namen lesen (Region/Revision/Sprache/Dump-Status). (#77)
+        r["variant"] = parse_release(r["title"])
+        r["variant_label"] = variant_label(r["variant"])
         r["_rank"] = idx
         # Cover für Usenet-Treffer werden im Frontend lazy über /api/cover geladen
         res.append(r)
-    # Einzeltitel zuerst, dann Sets; Vorhandene ans Ende; sonst Relevanz-Reihenfolge
-    res.sort(key=lambda x:(x["in_library"], x["is_set"], x["_rank"]))
+    # Einzeltitel zuerst, dann Sets; Vorhandene ans Ende; INNERHALB desselben Titels nach
+    # der Fassungs-Voreinstellung des Nutzers, sonst Relevanz-Reihenfolge. (#77)
+    prefs = variant_prefs(session.get("user", "") if has_request_context() else "")
+    res.sort(key=lambda x: (x["in_library"], x["is_set"], variant_rank(x["variant"], prefs), x["_rank"]))
     return res
 
 # ---------- Jobs ----------
@@ -1079,6 +1221,9 @@ def new_job(item, user="", approved=True):
     jid = f"{int(time.time())}{len(JOBS)%1000:03d}"
     job = {"id":jid,"title":item["title"],"source":item["source"],"ref":item["ref"],
            "platform":item.get("platform_slug") or "Mixed","size":item.get("size",0),
+           "variant":item.get("variant") or parse_release(item.get("title","")),
+           "variant_label":variant_label(item.get("variant") or parse_release(item.get("title",""))),
+           "variant_wanted":item.get("variant_wanted") or {},
            "user":user,"state":"queued" if approved else "pending","created":int(time.time()),
            "updated":datetime.now().strftime("%H:%M:%S"),"msg":"" if approved else "wartet auf Freigabe"}
     with JOBS_LOCK: JOBS.append(job); save_jobs()
@@ -1873,7 +2018,7 @@ const I18N={de:{
  hint_type:'Tippe einen Titel und drücke Enter.',loading_home:'Lade Startseite …',popular_on:'Beliebt auf',click_search:'klick zum Suchen',
  searching:'Suche läuft …',no_results:'Keine Treffer.',results:'Treffer',in_library:'✓ in Bibliothek',download:'⬇ Download',requested:'✓ angefragt',collection:'Sammlung',
  versions:'Versionen / Quellen',files:'Dateien',no_desc:'Keine Beschreibung verfügbar.',screenshots:'Screenshots',similar:'Ähnliche Spiele',series:'Reihe',because_you:'Weil du angefragt hast:',
- no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',retry:'Erneut',reset:'Alle zurücksetzen',req_all:'Alle anfragen',flt_user:'Nutzer',flt_all:'Alle',wishlist:'Wunschliste',nav_coverage:'Abdeckung',ra_achievements:'Achievements',ra_points:'Punkte',ra_earned:'erreicht',ra_user:'RetroAchievements-Konto (optional)',ra_refresh:'Sets holen',ra_sets:'Sets',ra_nokey:'kein API-Key hinterlegt',ra_unmapped:'ohne Konsolen-Zuordnung',ra_only:'nur mit Achievements',cov_of:'von',cov_src:'Quelle',cov_asof:'Stand',cov_files:'Dateien',cov_missing:'fehlende Titel',cov_refresh:'Katalog aktualisieren',cov_nosnap:'keine Momentaufnahme — Katalog noch nicht geholt',cov_nosource:'keine Katalogquelle für diese Plattform',cov_basis:'Grundlage ist eine Momentaufnahme aus {src} (max. {max} Titel je Plattform). Metadatensätze sind sich uneins, was als eigener Titel zählt — die Prozentzahl ist eine Orientierung, kein Messwert.',cov_search:'Suchen',cov_none:'Nichts fehlt (oder kein Katalog).',cov_filter:'Filtern …',cov_filter_do:'Filtern',cov_wish_sel:'Auswahl auf die Wunschliste',wl_import:'Import',wl_imp_hint:'Liste einfügen oder Datei wählen (TXT/CSV) — ein Titel je Zeile, optional Titel;Plattform. Nichts wird geschrieben, bevor du die Vorschau bestätigst.',wl_imp_example:'Beispieldatei herunterladen',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Vorschau',wl_imp_apply:'Übernehmen',wl_imp_none:'Nichts ausgewählt.',wl_imp_done:'{a} übernommen, {s} übersprungen.',wl_imp_trunc:'Nur die ersten {n} Zeilen werden geprüft.',wl_imp_toobig:'Datei zu groß (max. 200 kB).',wl_imp_nocheck:'Ohne IGDB-Zugang kein Katalogabgleich — Einträge werden ungeprüft übernommen.',wl_s_matched:'getroffen',wl_s_ambiguous:'mehrdeutig',wl_s_notfound:'nicht gefunden',wl_s_duplicate:'schon gemerkt',wl_s_inlib:'schon vorhanden',wl_s_unverified:'ungeprüft',add_wishlist:'⭐ Merken',wl_added:'⭐ gemerkt',wl_empty:'Wunschliste leer.',wl_remove:'Entfernen',
+ no_requests:'Noch keine Anfragen.',approve:'Freigeben',deny:'Ablehnen',retry:'Erneut',reset:'Alle zurücksetzen',req_all:'Alle anfragen',flt_user:'Nutzer',flt_all:'Alle',wishlist:'Wunschliste',nav_coverage:'Abdeckung',var_prefs:'Fassungen (Region/Sprache)',var_region_order:'Regionsreihenfolge — die Reihenfolge ist die Vorliebe',var_lang:'Bevorzugte Sprache',var_prerelease:'Beta/Prototyp/Demo zulassen',var_unspec:'unspezifiziert',var_preferred:'bevorzugt',var_hint:'Instanzweiter Rückfall für Nutzer, die selbst nichts eingestellt haben. Region ändert Inhalt (Sprache, Schwierigkeit, Zensur, 50/60 Hz) — das ist keine Qualitätsleiter, deshalb wird nach dieser Reihenfolge gewählt und nicht sortiert.',var_of:'Fassung',ra_achievements:'Achievements',ra_points:'Punkte',ra_earned:'erreicht',ra_user:'RetroAchievements-Konto (optional)',ra_refresh:'Sets holen',ra_sets:'Sets',ra_nokey:'kein API-Key hinterlegt',ra_unmapped:'ohne Konsolen-Zuordnung',ra_only:'nur mit Achievements',cov_of:'von',cov_src:'Quelle',cov_asof:'Stand',cov_files:'Dateien',cov_missing:'fehlende Titel',cov_refresh:'Katalog aktualisieren',cov_nosnap:'keine Momentaufnahme — Katalog noch nicht geholt',cov_nosource:'keine Katalogquelle für diese Plattform',cov_basis:'Grundlage ist eine Momentaufnahme aus {src} (max. {max} Titel je Plattform). Metadatensätze sind sich uneins, was als eigener Titel zählt — die Prozentzahl ist eine Orientierung, kein Messwert.',cov_search:'Suchen',cov_none:'Nichts fehlt (oder kein Katalog).',cov_filter:'Filtern …',cov_filter_do:'Filtern',cov_wish_sel:'Auswahl auf die Wunschliste',wl_import:'Import',wl_imp_hint:'Liste einfügen oder Datei wählen (TXT/CSV) — ein Titel je Zeile, optional Titel;Plattform. Nichts wird geschrieben, bevor du die Vorschau bestätigst.',wl_imp_example:'Beispieldatei herunterladen',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Vorschau',wl_imp_apply:'Übernehmen',wl_imp_none:'Nichts ausgewählt.',wl_imp_done:'{a} übernommen, {s} übersprungen.',wl_imp_trunc:'Nur die ersten {n} Zeilen werden geprüft.',wl_imp_toobig:'Datei zu groß (max. 200 kB).',wl_imp_nocheck:'Ohne IGDB-Zugang kein Katalogabgleich — Einträge werden ungeprüft übernommen.',wl_s_matched:'getroffen',wl_s_ambiguous:'mehrdeutig',wl_s_notfound:'nicht gefunden',wl_s_duplicate:'schon gemerkt',wl_s_inlib:'schon vorhanden',wl_s_unverified:'ungeprüft',add_wishlist:'⭐ Merken',wl_added:'⭐ gemerkt',wl_empty:'Wunschliste leer.',wl_remove:'Entfernen',
  users:'Benutzer',new_user:'Neuen Benutzer anlegen',create:'Anlegen',del:'Löschen',autoapprove:'Auto-Freigabe',role_user:'Nutzer',role_admin:'Admin',username:'Benutzername',password:'Passwort',
  notif_discord:'Benachrichtigungen — Discord',active:'aktiv',test:'Test',save:'Speichern',saved:'gespeichert ✓',test_sent:'Test gesendet ✓',webhook_ph:'Discord Webhook-URL',
  st_pending:'⏳ Wartet auf Freigabe',st_queued:'Angefragt',st_downloading:'Lädt…',st_importing:'Wird verarbeitet',st_done:'✅ Verfügbar',st_error:'Fehler',st_denied:'Abgelehnt',st_exists:'vorhanden',
@@ -1887,7 +2032,7 @@ const I18N={de:{
  hint_type:'Type a title and press Enter.',loading_home:'Loading home …',popular_on:'Popular on',click_search:'click to search',
  searching:'Searching …',no_results:'No results.',results:'results',in_library:'✓ in library',download:'⬇ Download',requested:'✓ requested',collection:'Collection',
  versions:'Versions / sources',files:'Files',no_desc:'No description available.',screenshots:'Screenshots',similar:'Similar games',series:'Series',because_you:'Because you requested:',
- no_requests:'No requests yet.',approve:'Approve',deny:'Deny',retry:'Retry',reset:'Reset all',req_all:'Request all',flt_user:'User',flt_all:'All',wishlist:'Wishlist',nav_coverage:'Coverage',ra_achievements:'achievements',ra_points:'points',ra_earned:'earned',ra_user:'RetroAchievements account (optional)',ra_refresh:'Fetch sets',ra_sets:'sets',ra_nokey:'no API key stored',ra_unmapped:'no console mapping',ra_only:'with achievements only',cov_of:'of',cov_src:'Source',cov_asof:'as of',cov_files:'files',cov_missing:'missing titles',cov_refresh:'Refresh catalogue',cov_nosnap:'no snapshot — catalogue not fetched yet',cov_nosource:'no catalogue source for this platform',cov_basis:'Based on a snapshot from {src} (max {max} titles per platform). Metadata sets disagree about what counts as a distinct title — the percentage is an orientation, not a measurement.',cov_search:'Search',cov_none:'Nothing missing (or no catalogue).',cov_filter:'Filter …',cov_filter_do:'Filter',cov_wish_sel:'Selection to wishlist',wl_import:'Import',wl_imp_hint:'Paste a list or pick a file (TXT/CSV) — one title per line, optionally title;platform. Nothing is written until you confirm the preview.',wl_imp_example:'Download example file',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Preview',wl_imp_apply:'Import',wl_imp_none:'Nothing selected.',wl_imp_done:'{a} imported, {s} skipped.',wl_imp_trunc:'Only the first {n} lines are checked.',wl_imp_toobig:'File too large (max 200 kB).',wl_imp_nocheck:'No IGDB credentials — no catalogue check; entries are imported unverified.',wl_s_matched:'matched',wl_s_ambiguous:'ambiguous',wl_s_notfound:'not found',wl_s_duplicate:'already listed',wl_s_inlib:'already in library',wl_s_unverified:'unverified',add_wishlist:'⭐ Watch',wl_added:'⭐ watched',wl_empty:'Wishlist empty.',wl_remove:'Remove',
+ no_requests:'No requests yet.',approve:'Approve',deny:'Deny',retry:'Retry',reset:'Reset all',req_all:'Request all',flt_user:'User',flt_all:'All',wishlist:'Wishlist',nav_coverage:'Coverage',var_prefs:'Release variants (region/language)',var_region_order:'Region order — the order is the preference',var_lang:'Preferred language',var_prerelease:'Accept beta/prototype/demo',var_unspec:'unspecified',var_preferred:'preferred',var_hint:'Instance-wide fallback for users who set nothing themselves. Region changes content (language, difficulty, censorship, 50/60 Hz) — that is not a quality ladder, so candidates follow this order rather than being sorted.',var_of:'Variant',ra_achievements:'achievements',ra_points:'points',ra_earned:'earned',ra_user:'RetroAchievements account (optional)',ra_refresh:'Fetch sets',ra_sets:'sets',ra_nokey:'no API key stored',ra_unmapped:'no console mapping',ra_only:'with achievements only',cov_of:'of',cov_src:'Source',cov_asof:'as of',cov_files:'files',cov_missing:'missing titles',cov_refresh:'Refresh catalogue',cov_nosnap:'no snapshot — catalogue not fetched yet',cov_nosource:'no catalogue source for this platform',cov_basis:'Based on a snapshot from {src} (max {max} titles per platform). Metadata sets disagree about what counts as a distinct title — the percentage is an orientation, not a measurement.',cov_search:'Search',cov_none:'Nothing missing (or no catalogue).',cov_filter:'Filter …',cov_filter_do:'Filter',cov_wish_sel:'Selection to wishlist',wl_import:'Import',wl_imp_hint:'Paste a list or pick a file (TXT/CSV) — one title per line, optionally title;platform. Nothing is written until you confirm the preview.',wl_imp_example:'Download example file',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Preview',wl_imp_apply:'Import',wl_imp_none:'Nothing selected.',wl_imp_done:'{a} imported, {s} skipped.',wl_imp_trunc:'Only the first {n} lines are checked.',wl_imp_toobig:'File too large (max 200 kB).',wl_imp_nocheck:'No IGDB credentials — no catalogue check; entries are imported unverified.',wl_s_matched:'matched',wl_s_ambiguous:'ambiguous',wl_s_notfound:'not found',wl_s_duplicate:'already listed',wl_s_inlib:'already in library',wl_s_unverified:'unverified',add_wishlist:'⭐ Watch',wl_added:'⭐ watched',wl_empty:'Wishlist empty.',wl_remove:'Remove',
  users:'Users',new_user:'Create new user',create:'Create',del:'Delete',autoapprove:'Auto-approve',role_user:'User',role_admin:'Admin',username:'Username',password:'Password',
  notif_discord:'Notifications — Discord',active:'enabled',test:'Test',save:'Save',saved:'saved ✓',test_sent:'test sent ✓',webhook_ph:'Discord webhook URL',
  st_pending:'⏳ Awaiting approval',st_queued:'Requested',st_downloading:'Downloading…',st_importing:'Processing',st_done:'✅ Available',st_error:'Error',st_denied:'Denied',st_exists:'in library',
@@ -1901,7 +2046,7 @@ const I18N={de:{
  hint_type:'Saisissez un titre et appuyez sur Entrée.',loading_home:'Chargement …',popular_on:'Populaire sur',click_search:'cliquer pour rechercher',
  searching:'Recherche …',no_results:'Aucun résultat.',results:'résultats',in_library:'✓ dans la bibliothèque',download:'⬇ Télécharger',requested:'✓ demandé',collection:'Collection',
  versions:'Versions / sources',files:'Fichiers',no_desc:'Aucune description disponible.',screenshots:'Captures',similar:'Jeux similaires',series:'Série',because_you:'Parce que vous avez demandé :',
- no_requests:'Aucune demande.',approve:'Approuver',deny:'Refuser',retry:'Réessayer',reset:'Tout réinitialiser',req_all:'Tout demander',flt_user:'Utilisateur',flt_all:'Tous',wishlist:'Liste de souhaits',nav_coverage:'Couverture',ra_achievements:'succès',ra_points:'points',ra_earned:'obtenus',ra_user:'Compte RetroAchievements (optionnel)',ra_refresh:'Récupérer les sets',ra_sets:'sets',ra_nokey:'aucune clé API',ra_unmapped:'sans correspondance de console',ra_only:'avec succès seulement',cov_of:'sur',cov_src:'Source',cov_asof:'au',cov_files:'fichiers',cov_missing:'titres manquants',cov_refresh:'Actualiser le catalogue',cov_nosnap:'pas d’instantané — catalogue pas encore récupéré',cov_nosource:'pas de source de catalogue pour cette plateforme',cov_basis:'Basé sur un instantané de {src} (max {max} titres par plateforme). Les jeux de métadonnées ne s’accordent pas sur ce qui compte comme titre distinct — le pourcentage est une orientation, pas une mesure.',cov_search:'Chercher',cov_none:'Rien ne manque (ou pas de catalogue).',cov_filter:'Filtrer …',cov_filter_do:'Filtrer',cov_wish_sel:'Sélection vers la liste',wl_import:'Import',wl_imp_hint:'Collez une liste ou choisissez un fichier (TXT/CSV) — un titre par ligne, éventuellement titre;plateforme. Rien n’est écrit avant votre confirmation.',wl_imp_example:'Télécharger un exemple',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Aperçu',wl_imp_apply:'Importer',wl_imp_none:'Rien de sélectionné.',wl_imp_done:'{a} importés, {s} ignorés.',wl_imp_trunc:'Seules les {n} premières lignes sont vérifiées.',wl_imp_toobig:'Fichier trop grand (max 200 ko).',wl_imp_nocheck:'Sans accès IGDB, pas de vérification — les entrées sont importées telles quelles.',wl_s_matched:'trouvé',wl_s_ambiguous:'ambigu',wl_s_notfound:'introuvable',wl_s_duplicate:'déjà suivi',wl_s_inlib:'déjà présent',wl_s_unverified:'non vérifié',add_wishlist:'⭐ Suivre',wl_added:'⭐ suivi',wl_empty:'Liste vide.',wl_remove:'Retirer',
+ no_requests:'Aucune demande.',approve:'Approuver',deny:'Refuser',retry:'Réessayer',reset:'Tout réinitialiser',req_all:'Tout demander',flt_user:'Utilisateur',flt_all:'Tous',wishlist:'Liste de souhaits',nav_coverage:'Couverture',var_prefs:'Versions (région/langue)',var_region_order:'Ordre des régions — l’ordre est la préférence',var_lang:'Langue préférée',var_prerelease:'Accepter bêta/prototype/démo',var_unspec:'non spécifié',var_preferred:'préféré',var_hint:'Repli pour toute l’instance. La région change le contenu (langue, difficulté, censure, 50/60 Hz) — ce n’est pas une échelle de qualité.',var_of:'Version',ra_achievements:'succès',ra_points:'points',ra_earned:'obtenus',ra_user:'Compte RetroAchievements (optionnel)',ra_refresh:'Récupérer les sets',ra_sets:'sets',ra_nokey:'aucune clé API',ra_unmapped:'sans correspondance de console',ra_only:'avec succès seulement',cov_of:'sur',cov_src:'Source',cov_asof:'au',cov_files:'fichiers',cov_missing:'titres manquants',cov_refresh:'Actualiser le catalogue',cov_nosnap:'pas d’instantané — catalogue pas encore récupéré',cov_nosource:'pas de source de catalogue pour cette plateforme',cov_basis:'Basé sur un instantané de {src} (max {max} titres par plateforme). Les jeux de métadonnées ne s’accordent pas sur ce qui compte comme titre distinct — le pourcentage est une orientation, pas une mesure.',cov_search:'Chercher',cov_none:'Rien ne manque (ou pas de catalogue).',cov_filter:'Filtrer …',cov_filter_do:'Filtrer',cov_wish_sel:'Sélection vers la liste',wl_import:'Import',wl_imp_hint:'Collez une liste ou choisissez un fichier (TXT/CSV) — un titre par ligne, éventuellement titre;plateforme. Rien n’est écrit avant votre confirmation.',wl_imp_example:'Télécharger un exemple',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Aperçu',wl_imp_apply:'Importer',wl_imp_none:'Rien de sélectionné.',wl_imp_done:'{a} importés, {s} ignorés.',wl_imp_trunc:'Seules les {n} premières lignes sont vérifiées.',wl_imp_toobig:'Fichier trop grand (max 200 ko).',wl_imp_nocheck:'Sans accès IGDB, pas de vérification — les entrées sont importées telles quelles.',wl_s_matched:'trouvé',wl_s_ambiguous:'ambigu',wl_s_notfound:'introuvable',wl_s_duplicate:'déjà suivi',wl_s_inlib:'déjà présent',wl_s_unverified:'non vérifié',add_wishlist:'⭐ Suivre',wl_added:'⭐ suivi',wl_empty:'Liste vide.',wl_remove:'Retirer',
  users:'Utilisateurs',new_user:'Créer un utilisateur',create:'Créer',del:'Supprimer',autoapprove:'Approbation auto',role_user:'Utilisateur',role_admin:'Admin',username:"Nom d'utilisateur",password:'Mot de passe',
  notif_discord:'Notifications — Discord',active:'activé',test:'Test',save:'Enregistrer',saved:'enregistré ✓',test_sent:'test envoyé ✓',webhook_ph:'URL du webhook Discord',
  st_pending:"⏳ En attente d'approbation",st_queued:'Demandé',st_downloading:'Téléchargement…',st_importing:'Traitement',st_done:'✅ Disponible',st_error:'Erreur',st_denied:'Refusé',st_exists:'présent',
@@ -1915,7 +2060,7 @@ const I18N={de:{
  hint_type:'Escribe un título y pulsa Intro.',loading_home:'Cargando …',popular_on:'Popular en',click_search:'clic para buscar',
  searching:'Buscando …',no_results:'Sin resultados.',results:'resultados',in_library:'✓ en la biblioteca',download:'⬇ Descargar',requested:'✓ solicitado',collection:'Colección',
  versions:'Versiones / fuentes',files:'Archivos',no_desc:'Sin descripción disponible.',screenshots:'Capturas',similar:'Juegos similares',series:'Serie',because_you:'Porque solicitaste:',
- no_requests:'Aún no hay solicitudes.',approve:'Aprobar',deny:'Rechazar',retry:'Reintentar',reset:'Restablecer todo',req_all:'Solicitar todo',flt_user:'Usuario',flt_all:'Todos',wishlist:'Lista de deseos',nav_coverage:'Cobertura',ra_achievements:'logros',ra_points:'puntos',ra_earned:'obtenidos',ra_user:'Cuenta RetroAchievements (opcional)',ra_refresh:'Obtener sets',ra_sets:'sets',ra_nokey:'sin clave API',ra_unmapped:'sin correspondencia de consola',ra_only:'solo con logros',cov_of:'de',cov_src:'Fuente',cov_asof:'a fecha',cov_files:'archivos',cov_missing:'títulos que faltan',cov_refresh:'Actualizar catálogo',cov_nosnap:'sin instantánea — catálogo aún no obtenido',cov_nosource:'sin fuente de catálogo para esta plataforma',cov_basis:'Basado en una instantánea de {src} (máx. {max} títulos por plataforma). Los conjuntos de metadatos no coinciden en qué cuenta como título propio — el porcentaje orienta, no mide.',cov_search:'Buscar',cov_none:'No falta nada (o no hay catálogo).',cov_filter:'Filtrar …',cov_filter_do:'Filtrar',cov_wish_sel:'Selección a la lista',wl_import:'Importar',wl_imp_hint:'Pega una lista o elige un archivo (TXT/CSV) — un título por línea, opcionalmente título;plataforma. No se escribe nada hasta que confirmes.',wl_imp_example:'Descargar archivo de ejemplo',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Vista previa',wl_imp_apply:'Importar',wl_imp_none:'Nada seleccionado.',wl_imp_done:'{a} importados, {s} omitidos.',wl_imp_trunc:'Solo se comprueban las primeras {n} líneas.',wl_imp_toobig:'Archivo demasiado grande (máx. 200 kB).',wl_imp_nocheck:'Sin acceso a IGDB no hay comprobación — se importan sin verificar.',wl_s_matched:'encontrado',wl_s_ambiguous:'ambiguo',wl_s_notfound:'no encontrado',wl_s_duplicate:'ya en la lista',wl_s_inlib:'ya en biblioteca',wl_s_unverified:'sin verificar',add_wishlist:'⭐ Seguir',wl_added:'⭐ en lista',wl_empty:'Lista vacía.',wl_remove:'Quitar',
+ no_requests:'Aún no hay solicitudes.',approve:'Aprobar',deny:'Rechazar',retry:'Reintentar',reset:'Restablecer todo',req_all:'Solicitar todo',flt_user:'Usuario',flt_all:'Todos',wishlist:'Lista de deseos',nav_coverage:'Cobertura',var_prefs:'Versiones (región/idioma)',var_region_order:'Orden de regiones — el orden es la preferencia',var_lang:'Idioma preferido',var_prerelease:'Aceptar beta/prototipo/demo',var_unspec:'sin especificar',var_preferred:'preferida',var_hint:'Valor de reserva para toda la instancia. La región cambia el contenido (idioma, dificultad, censura, 50/60 Hz) — no es una escala de calidad.',var_of:'Versión',ra_achievements:'logros',ra_points:'puntos',ra_earned:'obtenidos',ra_user:'Cuenta RetroAchievements (opcional)',ra_refresh:'Obtener sets',ra_sets:'sets',ra_nokey:'sin clave API',ra_unmapped:'sin correspondencia de consola',ra_only:'solo con logros',cov_of:'de',cov_src:'Fuente',cov_asof:'a fecha',cov_files:'archivos',cov_missing:'títulos que faltan',cov_refresh:'Actualizar catálogo',cov_nosnap:'sin instantánea — catálogo aún no obtenido',cov_nosource:'sin fuente de catálogo para esta plataforma',cov_basis:'Basado en una instantánea de {src} (máx. {max} títulos por plataforma). Los conjuntos de metadatos no coinciden en qué cuenta como título propio — el porcentaje orienta, no mide.',cov_search:'Buscar',cov_none:'No falta nada (o no hay catálogo).',cov_filter:'Filtrar …',cov_filter_do:'Filtrar',cov_wish_sel:'Selección a la lista',wl_import:'Importar',wl_imp_hint:'Pega una lista o elige un archivo (TXT/CSV) — un título por línea, opcionalmente título;plataforma. No se escribe nada hasta que confirmes.',wl_imp_example:'Descargar archivo de ejemplo',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Vista previa',wl_imp_apply:'Importar',wl_imp_none:'Nada seleccionado.',wl_imp_done:'{a} importados, {s} omitidos.',wl_imp_trunc:'Solo se comprueban las primeras {n} líneas.',wl_imp_toobig:'Archivo demasiado grande (máx. 200 kB).',wl_imp_nocheck:'Sin acceso a IGDB no hay comprobación — se importan sin verificar.',wl_s_matched:'encontrado',wl_s_ambiguous:'ambiguo',wl_s_notfound:'no encontrado',wl_s_duplicate:'ya en la lista',wl_s_inlib:'ya en biblioteca',wl_s_unverified:'sin verificar',add_wishlist:'⭐ Seguir',wl_added:'⭐ en lista',wl_empty:'Lista vacía.',wl_remove:'Quitar',
  users:'Usuarios',new_user:'Crear usuario',create:'Crear',del:'Eliminar',autoapprove:'Auto-aprobación',role_user:'Usuario',role_admin:'Admin',username:'Usuario',password:'Contraseña',
  notif_discord:'Notificaciones — Discord',active:'activo',test:'Prueba',save:'Guardar',saved:'guardado ✓',test_sent:'prueba enviada ✓',webhook_ph:'URL del webhook de Discord',
  st_pending:'⏳ Esperando aprobación',st_queued:'Solicitado',st_downloading:'Descargando…',st_importing:'Procesando',st_done:'✅ Disponible',st_error:'Error',st_denied:'Rechazado',st_exists:'presente',
@@ -1929,7 +2074,7 @@ const I18N={de:{
  hint_type:'Digita un titolo e premi Invio.',loading_home:'Caricamento …',popular_on:'Popolari su',click_search:'clicca per cercare',
  searching:'Ricerca …',no_results:'Nessun risultato.',results:'risultati',in_library:'✓ in libreria',download:'⬇ Scarica',requested:'✓ richiesto',collection:'Collezione',
  versions:'Versioni / fonti',files:'File',no_desc:'Nessuna descrizione disponibile.',screenshots:'Screenshot',similar:'Giochi simili',series:'Serie',because_you:'Perché hai richiesto:',
- no_requests:'Ancora nessuna richiesta.',approve:'Approva',deny:'Rifiuta',retry:'Riprova',reset:'Reimposta tutto',req_all:'Richiedi tutto',flt_user:'Utente',flt_all:'Tutti',wishlist:'Lista dei desideri',nav_coverage:'Copertura',ra_achievements:'obiettivi',ra_points:'punti',ra_earned:'ottenuti',ra_user:'Account RetroAchievements (opzionale)',ra_refresh:'Recupera i set',ra_sets:'set',ra_nokey:'nessuna chiave API',ra_unmapped:'senza mappatura console',ra_only:'solo con obiettivi',cov_of:'di',cov_src:'Fonte',cov_asof:'al',cov_files:'file',cov_missing:'titoli mancanti',cov_refresh:'Aggiorna catalogo',cov_nosnap:'nessuna istantanea — catalogo non ancora recuperato',cov_nosource:'nessuna fonte di catalogo per questa piattaforma',cov_basis:'Basato su un’istantanea da {src} (max {max} titoli per piattaforma). I set di metadati non concordano su cosa sia un titolo distinto — la percentuale orienta, non misura.',cov_search:'Cerca',cov_none:'Non manca nulla (o nessun catalogo).',cov_filter:'Filtra …',cov_filter_do:'Filtra',cov_wish_sel:'Selezione alla lista',wl_import:'Importa',wl_imp_hint:'Incolla un elenco o scegli un file (TXT/CSV) — un titolo per riga, opzionalmente titolo;piattaforma. Nulla viene scritto prima della conferma.',wl_imp_example:'Scarica file di esempio',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Anteprima',wl_imp_apply:'Importa',wl_imp_none:'Niente selezionato.',wl_imp_done:'{a} importati, {s} saltati.',wl_imp_trunc:'Vengono controllate solo le prime {n} righe.',wl_imp_toobig:'File troppo grande (max 200 kB).',wl_imp_nocheck:'Senza accesso IGDB nessun controllo — le voci vengono importate non verificate.',wl_s_matched:'trovato',wl_s_ambiguous:'ambiguo',wl_s_notfound:'non trovato',wl_s_duplicate:'già in lista',wl_s_inlib:'già in libreria',wl_s_unverified:'non verificato',add_wishlist:'⭐ Segui',wl_added:'⭐ seguito',wl_empty:'Lista vuota.',wl_remove:'Rimuovi',
+ no_requests:'Ancora nessuna richiesta.',approve:'Approva',deny:'Rifiuta',retry:'Riprova',reset:'Reimposta tutto',req_all:'Richiedi tutto',flt_user:'Utente',flt_all:'Tutti',wishlist:'Lista dei desideri',nav_coverage:'Copertura',var_prefs:'Versioni (regione/lingua)',var_region_order:'Ordine delle regioni — l’ordine è la preferenza',var_lang:'Lingua preferita',var_prerelease:'Accetta beta/prototipo/demo',var_unspec:'non specificato',var_preferred:'preferita',var_hint:'Ripiego per tutta l’istanza. La regione cambia il contenuto (lingua, difficoltà, censura, 50/60 Hz) — non è una scala di qualità.',var_of:'Versione',ra_achievements:'obiettivi',ra_points:'punti',ra_earned:'ottenuti',ra_user:'Account RetroAchievements (opzionale)',ra_refresh:'Recupera i set',ra_sets:'set',ra_nokey:'nessuna chiave API',ra_unmapped:'senza mappatura console',ra_only:'solo con obiettivi',cov_of:'di',cov_src:'Fonte',cov_asof:'al',cov_files:'file',cov_missing:'titoli mancanti',cov_refresh:'Aggiorna catalogo',cov_nosnap:'nessuna istantanea — catalogo non ancora recuperato',cov_nosource:'nessuna fonte di catalogo per questa piattaforma',cov_basis:'Basato su un’istantanea da {src} (max {max} titoli per piattaforma). I set di metadati non concordano su cosa sia un titolo distinto — la percentuale orienta, non misura.',cov_search:'Cerca',cov_none:'Non manca nulla (o nessun catalogo).',cov_filter:'Filtra …',cov_filter_do:'Filtra',cov_wish_sel:'Selezione alla lista',wl_import:'Importa',wl_imp_hint:'Incolla un elenco o scegli un file (TXT/CSV) — un titolo per riga, opzionalmente titolo;piattaforma. Nulla viene scritto prima della conferma.',wl_imp_example:'Scarica file di esempio',wl_imp_ph:'Chrono Trigger\\nSuper Metroid;snes',wl_imp_preview:'Anteprima',wl_imp_apply:'Importa',wl_imp_none:'Niente selezionato.',wl_imp_done:'{a} importati, {s} saltati.',wl_imp_trunc:'Vengono controllate solo le prime {n} righe.',wl_imp_toobig:'File troppo grande (max 200 kB).',wl_imp_nocheck:'Senza accesso IGDB nessun controllo — le voci vengono importate non verificate.',wl_s_matched:'trovato',wl_s_ambiguous:'ambiguo',wl_s_notfound:'non trovato',wl_s_duplicate:'già in lista',wl_s_inlib:'già in libreria',wl_s_unverified:'non verificato',add_wishlist:'⭐ Segui',wl_added:'⭐ seguito',wl_empty:'Lista vuota.',wl_remove:'Rimuovi',
  users:'Utenti',new_user:'Crea utente',create:'Crea',del:'Elimina',autoapprove:'Auto-approvazione',role_user:'Utente',role_admin:'Admin',username:'Utente',password:'Password',
  notif_discord:'Notifiche — Discord',active:'attivo',test:'Test',save:'Salva',saved:'salvato ✓',test_sent:'test inviato ✓',webhook_ph:'URL webhook Discord',
  st_pending:'⏳ In attesa di approvazione',st_queued:'Richiesto',st_downloading:'Scaricamento…',st_importing:'Elaborazione',st_done:'✅ Disponibile',st_error:'Errore',st_denied:'Rifiutato',st_exists:'presente',
@@ -2135,11 +2280,18 @@ async function openDetail(it){let m=document.getElementById('modal');m.style.dis
   <div class=sec id=mser style="display:none"><h3 id=mserh>${t('series')}</h3><div class=chips id=mserw></div></div>
   <div class=sec id=msim style="display:none"><h3>${t('similar')}</h3><div class=chips id=msimw></div></div></div>`;
  let mv=document.getElementById('mvar');
- vars.forEach(v=>{let row=document.createElement('div');row.className='row';
-  let s=document.createElement('span');s.textContent=`${v.source=='usenet'?'📡':'🗄'} ${sz(v.size)} · ${v.platform_slug} · ${v.title.slice(0,48)}`;
-  row.appendChild(s);let b=document.createElement('button');
-  if(v.in_library){b.textContent='✓ vorhanden';b.disabled=true;}else{b.textContent='⬇ Download';b.onclick=()=>dl(b,v);}
-  row.appendChild(b);mv.appendChild(row);});
+ // Kandidaten nach FASSUNG gruppieren statt rohe Release-Namen aufzulisten. (#77)
+ // Bei genau einem Kandidaten aendert sich nichts — der haeufige Fall darf keinen Klick kosten.
+ if(vars.length>1){
+  let groups={};vars.forEach(v=>{let k=v.variant_label||'';(groups[k]=groups[k]||[]).push(v);});
+  let keys=Object.keys(groups);
+  keys.forEach((k,gi)=>{
+   let h=document.createElement('div');h.className='meta';
+   h.style.cssText='margin:8px 0 2px;font-size:11px;letter-spacing:.03em';
+   h.textContent=(k||t('var_unspec'))+(gi===0?' · '+t('var_preferred'):'');
+   mv.appendChild(h);
+   groups[k].forEach(v=>mv.appendChild(varRow(v)));});
+ }else{vars.forEach(v=>mv.appendChild(varRow(v)));}
  if(canDo('manage_requests')){try{let us=await(await fetch('/api/users')).json();let names=Object.keys(us||{});
    if(names.length){let bar=document.getElementById('reqforbar');
     bar.innerHTML=`<div class=frow style="margin-bottom:8px"><label style="min-width:auto;color:#8b929e;font-size:12px">${t('req_for')}</label><select id=reqforsel onchange="window.reqFor=this.value"><option value="">${t('req_self')}</option>${names.map(u=>`<option value="${u}">${u.replace(/</g,'&lt;')}</option>`).join('')}</select></div>`;}}catch(e){}}
@@ -2176,6 +2328,31 @@ function simSearch(n){closeModal();document.getElementById('q').value=n;show('s'
 async function addWishlist(btn){btn.disabled=true;let it=window._detit||{};
  let r=await(await fetch('/api/wishlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:window._detname||it.title||'',platform:it.platform_slug||''})})).json();
  btn.textContent=r.ok?t('wl_added'):(r.msg||t('st_error'));}
+function varRow(v){let row=document.createElement('div');row.className='row';
+ let s=document.createElement('span');
+ s.textContent=`${v.source=='usenet'?'📡':'🗄'} ${sz(v.size)} · ${v.platform_slug} · ${v.title.slice(0,48)}`;
+ row.appendChild(s);let b=document.createElement('button');
+ if(v.in_library){b.textContent='✓ vorhanden';b.disabled=true;}else{b.textContent='⬇ Download';b.onclick=()=>dl(b,v);}
+ row.appendChild(b);return row;}
+// --- Fassungswahl: Voreinstellungen (Profil + Instanz) (#77) ---
+// Regionsreihenfolge als sortierbare Liste; leer = Standard. Die Reihenfolge IST die Praeferenz.
+function varPrefFields(pfx,v,regions){
+ let order=(v.regions||[]);let rest=(regions||[]).filter(r=>order.indexOf(r)<0);
+ let opts=(sel)=>['',...order,...rest].filter((x,i,a)=>a.indexOf(x)===i)
+   .map(r=>`<option value="${r}" ${r===sel?'selected':''}>${r||'—'}</option>`).join('');
+ let sels=[0,1,2,3].map(i=>`<select id="${pfx}vr${i}" style="background:#1a1d23;color:#e6e8ec;border:1px solid #2a2f37;border-radius:6px;padding:4px 6px;margin-right:4px">${opts(order[i]||'')}</select>`).join('');
+ let langs=['','en','de','fr','es','it','ja','pt','nl','sv','pl','ru'];
+ return `<div class=meta style="font-size:11px;margin-bottom:4px">${t('var_region_order')}</div>${sels}
+  <div class=meta style="font-size:11px;margin:6px 0 4px">${t('var_lang')}</div>
+  <select id="${pfx}vl" style="background:#1a1d23;color:#e6e8ec;border:1px solid #2a2f37;border-radius:6px;padding:4px 6px">
+   ${langs.map(l=>`<option value="${l}" ${l===(v.lang||'')?'selected':''}>${l?l.toUpperCase():'—'}</option>`).join('')}</select>
+  <label style="display:block;margin-top:6px;font-size:12px;color:#8b929e">
+   <input type=checkbox id="${pfx}vp" ${v.prerelease?'checked':''}> ${t('var_prerelease')}</label>`;}
+function readVarPrefs(pfx){let regions=[];
+ [0,1,2,3].forEach(i=>{let e=document.getElementById(pfx+'vr'+i);
+  if(e&&e.value&&regions.indexOf(e.value)<0)regions.push(e.value);});
+ return {regions:regions,lang:(document.getElementById(pfx+'vl')||{}).value||'',
+         prerelease:!!(document.getElementById(pfx+'vp')||{}).checked};}
 function closeModal(){document.getElementById('modal').style.display='none';}
 // --- Wunschlisten-Import: Vorschau ZUERST, geschrieben wird erst nach Bestaetigung (#80) ---
 const WLST={matched:['#3fb950','wl_s_matched'],ambiguous:['#d29922','wl_s_ambiguous'],
@@ -2284,7 +2461,9 @@ async function loadJobs(){let r=await fetch('/api/jobs');let d=await r.json();le
    if((o.state=='error'||o.state=='denied')&&canDo('manage_requests'))
     right+=`<button onclick="retryJob('${o.id}')" style="background:#2a2f37;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;margin-left:8px" title="${t('retry')}">↻ ${t('retry')}</button>`;}
   let dt=o.created?new Date(o.created*1000).toLocaleString():'';
-  e.innerHTML=`<div><div>${o.title.replace(/</g,'&lt;')}</div><div class=meta style="color:#8b929e;font-size:11px">👤 <b style="color:#b9c0cc">${(o.user||'—').replace(/</g,'&lt;')}</b> · ${o.platform} · ${o.source}${dt?' · '+dt:''} · ${o.msg||''}</div></div><div>${right}</div>`;
+  // Gelieferte Fassung im Verlauf zeigen — damit eine Falschlieferung belegbar ist. (#77)
+  let vl=o.variant_label?` · 🏷 ${o.variant_label.replace(/</g,'&lt;')}`:'';
+  e.innerHTML=`<div><div>${o.title.replace(/</g,'&lt;')}</div><div class=meta style="color:#8b929e;font-size:11px">👤 <b style="color:#b9c0cc">${(o.user||'—').replace(/</g,'&lt;')}</b> · ${o.platform} · ${o.source}${vl}${dt?' · '+dt:''} · ${o.msg||''}</div></div><div>${right}</div>`;
   j.appendChild(e);});}
 // --- Plattform-Vorauswahl ---
 let SELP=new Set(JSON.parse(localStorage.getItem('romp')||'[]'));
@@ -2334,6 +2513,8 @@ async function openProfile(){let m=document.getElementById('modal');m.style.disp
    <div class=row><label style="color:#8b929e;font-size:13px">${t('design')}</label><div style="display:flex;gap:8px;flex-wrap:wrap">${DESIGNS.map(dz=>`<button class="dpick${(p.design||'')==dz?' on':''}" data-d="${dz}" onclick="pickDesign('${dz}')">${t('d_'+dz)}</button>`).join('')}</div></div>
    <div class=row><input id=pwh ${inp} placeholder="${t('pwebhook')}" value="${(p.webhook||'').replace(/"/g,'&quot;')}"><button onclick="testPWebhook()">${t('test')}</button></div>
    <div class=row><input id=pra ${inp} placeholder="${t('ra_user')}" value="${(p.ra_user||'').replace(/"/g,'&quot;')}"></div>
+   <div class=row><label style="color:#8b929e;font-size:13px;min-width:150px">${t('var_prefs')}</label>
+    <div style="flex:1">${varPrefFields('p',p.variant||{},p.variant_regions||[])}</div></div>
    <div class=row><button onclick="saveProfile()">${t('save')}</button><span id=pmsg class=meta></span></div>
    <div class=row><button onclick="togglePush()" id=pushbtn>${t('push_enable')}</button><span id=pushmsg class=meta></span></div>
    <div class=row><span class=meta>Kontingent / Quota</span><span class=meta>${p.quota&&p.quota.enabled?(p.quota.remaining+' / '+p.quota.count+' ('+p.quota.days+'d)'):'—'}</span></div></div>
@@ -2362,7 +2543,7 @@ function pickAvatar(e){let f=e.target.files[0];if(!f)return;
  if(f.size>280000){document.getElementById('pmsg').textContent='max ~280 KB';return;}
  let r=new FileReader();r.onload=()=>{PAV=r.result;document.getElementById('pav').style.backgroundImage="url('"+PAV+"')";};r.readAsDataURL(f);}
 function pickDesign(dz){applyDesign(dz);}
-async function saveProfile(){let d={display_name:document.getElementById('pdn').value,email:document.getElementById('pmail').value,lang:document.getElementById('plang').value,design:document.documentElement.dataset.design||'',webhook:document.getElementById('pwh').value,ra_user:(document.getElementById('pra')||{}).value||''};
+async function saveProfile(){let d={display_name:document.getElementById('pdn').value,email:document.getElementById('pmail').value,lang:document.getElementById('plang').value,design:document.documentElement.dataset.design||'',webhook:document.getElementById('pwh').value,ra_user:(document.getElementById('pra')||{}).value||'',variant:readVarPrefs('p')};
  if(PAV)d.avatar=PAV;
  let r=await(await fetch('/api/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
  document.getElementById('pmsg').textContent=r.ok?t('saved_ok'):(r.msg||t('st_error'));
@@ -2529,10 +2710,18 @@ async function secGeneral(c){let s=await(await fetch('/api/settings')).json();le
   <div class=frow><label style="min-width:auto"><input type=checkbox id=qen ${qo.enabled?'checked':''}> ${t('active')}</label><span></span></div>
   <div class=frow><input id=qcount type=number style="flex:0 0 90px" value="${qo.count||10}"><input id=qdays type=number style="flex:0 0 90px" value="${qo.days||7}"><span class=meta>Anfragen / X Tage · requests / X days</span></div>
   <button onclick="saveQuota()">${t('save')}</button> <span id=qmsg class=meta></span>
+  <h3 style="margin-top:20px">${t('var_prefs')}</h3>
+  <div class=meta style="margin-bottom:6px;line-height:1.6">${t('var_hint')}</div>
+  ${varPrefFields('g',s.variant||{},s.variant_regions||[])}
+  <div style="margin-top:8px"><button onclick="saveVariant()">${t('save')}</button> <span id=vmsg class=meta></span></div>
   <h3 style="margin-top:20px">API-Key</h3>
   <div class=frow><input id=akey readonly value="…"><button onclick="copyKey()">📋</button><button onclick="regenKey()">↻</button></div>
   <span class=meta>Header <code>X-Api-Key</code> oder <code>?apikey=…</code></span>`;
  let k=await(await fetch('/api/apikey')).json();document.getElementById('akey').value=k.apikey||'';}
+async function saveVariant(){
+ let r=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({variant:readVarPrefs('g')})})).json();
+ document.getElementById('vmsg').textContent=r.ok?t('saved_ok'):t('st_error');}
 async function regenKey(){if(!confirm('Neuen API-Key erzeugen? Alter wird ungültig. / Regenerate API key?'))return;
  let k=await(await fetch('/api/apikey/regenerate',{method:'POST'})).json();document.getElementById('akey').value=k.apikey||'';}
 function copyKey(){let e=document.getElementById('akey');e.select();if(navigator.clipboard)navigator.clipboard.writeText(e.value);}
@@ -2958,6 +3147,10 @@ def api_download():
     if qi.get("enabled") and qi.get("remaining", 1) <= 0 and not onbehalf:
         return jsonify({"ok":False,"msg":"Kontingent erschöpft / quota reached"})
     auto = onbehalf or may_autoapprove(user)
+    # Was der Nutzer angefragt HAT und was er sich gewuenscht hatte — beides festhalten,
+    # damit eine Falschlieferung spaeter belegbar ist statt Diskussionssache. (#77)
+    it["variant"] = parse_release(it.get("title", ""))
+    it["variant_wanted"] = variant_prefs(user)
     job = new_job(it, user=user, approved=auto)
     if onbehalf:
         send_push_to_user(user, "Romseerr", f"Für dich angefragt / requested for you: {it.get('title','')[:60]}")
@@ -3240,6 +3433,7 @@ def api_profile_get():
                     "design":usr.get("design",""),
                     "display_name":usr.get("display_name",""), "avatar":usr.get("avatar",""),
                     "webhook":usr.get("webhook",""), "ra_user":usr.get("ra_user",""),
+                    "variant": variant_prefs(u), "variant_regions": list(REGIONS),
                     "quota": quota_info(u)})
 
 @app.route("/api/profile", methods=["POST"])
@@ -3254,6 +3448,7 @@ def api_profile_set():
     if "design" in d: users[u]["design"] = d.get("design") if d.get("design") in DESIGNS else ""
     # RetroAchievements-Konto: freiwillig, nur fuer den eigenen Fortschritt (#79)
     if "ra_user" in d: users[u]["ra_user"] = (d.get("ra_user") or "").strip()[:60]
+    if "variant" in d: users[u]["variant"] = sanitize_variant_prefs(d.get("variant"))
     if "avatar" in d:
         av = d.get("avatar") or ""
         if len(av) > 300000: return jsonify({"ok":False,"msg":"Bild zu groß (max ~300 KB)"}), 400
@@ -3670,6 +3865,7 @@ def api_settings_get():
                     "quota": s.get("quota", {"enabled": False, "count": 10, "days": 7}),
                     "onboarded": bool(s.get("onboarded")),
                     "update_check": bool(s.get("update_check", True)),
+                    "variant": variant_prefs(), "variant_regions": list(REGIONS),
                     "connections": {**{k: cfg(k) for k in CONN_KEYS if k not in CONN_SECRET},
                                     **{"has_"+k: bool(cfg(k)) for k in CONN_SECRET}}})
 
@@ -3729,6 +3925,7 @@ def api_settings_set():
                 s["connections"][k] = (v or "").strip()  # leer = Env-Default nutzen
     if "onboarded" in d: s["onboarded"] = bool(d["onboarded"])
     if "update_check" in d: s["update_check"] = bool(d["update_check"])
+    if "variant" in d: s["variant"] = sanitize_variant_prefs(d["variant"])
     save_settings(s); return jsonify({"ok": True})
 
 # ---------- Konfiguration exportieren / importieren ----------

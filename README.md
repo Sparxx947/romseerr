@@ -87,7 +87,15 @@ teilen sich **RomM** (Browser/Player) und **RetroNAS**.
   einspielen** (TXT/CSV, ein Titel je Zeile, optional `Titel;Plattform`) — mit **Vorschau**
   vor dem Schreiben: getroffen / mehrdeutig / nicht gefunden. Eine **Beispieldatei** im
   erwarteten Format gibt es im Dialog (bzw. unter `/api/wishlist/example.csv`).
-- **Anfrage-Verlauf** je Nutzer mit Zeitstempel (für Admins pro Nutzer filterbar).
+- **Anfrage-Verlauf** je Nutzer mit Zeitstempel (für Admins pro Nutzer filterbar), inklusive
+  der **gelieferten Fassung**.
+- 🏷 **Fassungen (Region/Revision/Sprache)**: Romseerr liest die üblichen Namenskonventionen
+  (No-Intro, Redump, TOSEC, GoodTools) und gruppiert die Kandidaten auf der Detailseite nach
+  Fassung statt roher Release-Namen. **Voreinstellung je Nutzer** (Regionsreihenfolge,
+  bevorzugte Sprache, Beta/Prototyp zulassen) mit **instanzweitem Rückfall** in den
+  Einstellungen. Region ändert Inhalt (Sprache, Schwierigkeit, Zensur, 50/60 Hz) — das ist
+  **keine Qualitätsleiter**, deshalb wird nach der eingestellten Reihenfolge gewählt, nicht
+  sortiert. Was im Namen nicht steht, bleibt **unspezifiziert** und wird nie geraten.
 - 🏆 **RetroAchievements** auf der Detailseite: Anzahl der Achievements, Punkte und Link zum
   Set; mit hinterlegtem Konto (Profil) zusätzlich der eigene Fortschritt. Dazu ein Suchfilter
   „nur mit Achievements". Rein schmückend — **ohne Key oder bei Ausfall verschwindet der
