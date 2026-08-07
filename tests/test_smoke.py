@@ -153,6 +153,28 @@ def test_onboarded_flag_roundtrip(client):
     assert client.get("/api/settings").get_json()["onboarded"] is False
 
 
+def test_private_messages(client):
+    """DM zwischen zwei Nutzern: senden, ungelesen-Zähler, als gelesen markieren."""
+    st = client.get("/api/auth/status").get_json()
+    if st["setup"]:
+        client.post("/api/setup", json={"username": "admin", "password": "pw123456", "display_name": "A"})
+    client.post("/api/login", json={"username": "admin", "password": "pw123456"})
+    client.post("/api/users", json={"username": "bob", "password": "bobpass1", "role": "user", "perms": ["request"]})
+    assert client.post("/api/messages", json={"to": "bob", "body": "hallo bob"}).status_code == 200
+    assert client.post("/api/messages", json={"to": "admin", "body": "self"}).status_code == 400   # an sich selbst
+    assert client.post("/api/messages", json={"to": "bob", "body": "   "}).status_code == 400        # leer
+    client.post("/api/logout")
+    client.post("/api/login", json={"username": "bob", "password": "bobpass1"})
+    d = client.get("/api/messages").get_json()
+    assert d["unread"] == 1
+    assert any(m["body"] == "hallo bob" and m["from"] == "admin" for m in d["messages"])
+    client.post("/api/messages/read", json={"from": "admin"})
+    assert client.get("/api/messages").get_json()["unread"] == 0
+    client.post("/api/logout")
+    client.post("/api/login", json={"username": "admin", "password": "pw123456"})
+    client.delete("/api/users/bob")
+
+
 def test_protected_endpoint_requires_auth(client):
     # ohne Login liefert eine geschützte API 401 (nicht 200)
     r = client.get("/api/users")

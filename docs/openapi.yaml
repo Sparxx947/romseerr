@@ -23,6 +23,8 @@ tags:
   description: Downloads/Anfragen (Jobs) + Freigabe
 - name: Issues
   description: Problemmeldungen + Kommentare
+- name: Messages
+  description: Private Direktnachrichten zwischen Nutzern
 - name: Profile
   description: Eigenes Profil, Passwort, Benachrichtigungen
 - name: Push
@@ -496,6 +498,56 @@ paths:
         schema:
           type: string
         description: Issue-ID
+  /api/messages:
+    get:
+      summary: Eigene Direktnachrichten + Nutzerliste + ungelesen-Zähler
+      tags:
+      - Messages
+      responses:
+        '200':
+          description: OK
+      security: *id002
+    post:
+      summary: Nachricht an einen Nutzer senden
+      tags:
+      - Messages
+      responses:
+        '401': *id003
+        '200':
+          description: gesendet
+        '400':
+          description: leer/Empfänger
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - to
+              - body
+              properties:
+                to:
+                  type: string
+                body:
+                  type: string
+  /api/messages/read:
+    post:
+      summary: Nachrichten eines Absenders als gelesen markieren
+      tags:
+      - Messages
+      responses:
+        '200':
+          description: OK
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  type: string
   /api/profile:
     get:
       summary: Eigenes Profil

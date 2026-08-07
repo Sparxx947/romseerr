@@ -335,6 +335,9 @@ def db_init():
             c.execute("CREATE TABLE IF NOT EXISTS users(username TEXT PRIMARY KEY, data TEXT)")
             c.execute("CREATE TABLE IF NOT EXISTS jobs(seq INTEGER PRIMARY KEY AUTOINCREMENT, jid TEXT, data TEXT)")
             c.execute("CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, data TEXT)")
+            c.execute("CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                      "sender TEXT, recipient TEXT, body TEXT, ts INTEGER, read INTEGER DEFAULT 0)")
+            c.execute("CREATE INDEX IF NOT EXISTS ix_msg_rcpt ON messages(recipient, read)")
             mig_u = _migrate_json(c, "SELECT COUNT(*) FROM users",
                                   "INSERT OR REPLACE INTO users(username,data) VALUES(?,?)", USERS_FILE,
                                   lambda d: [(k, json.dumps(v)) for k, v in d.items()] if isinstance(d, dict) else [])
@@ -1204,6 +1207,7 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;backg
  <a class="nav on" id=nS data-i18n=nav_discover onclick="show('s')">🔍 Entdecken</a>
  <a class=nav id=nJ data-i18n=nav_requests onclick="show('j')">📥 Anfragen</a>
  <a class=nav id=nI data-i18n=nav_issues onclick="show('issues')">🐞 Probleme</a>
+ <a class=nav id=nM onclick="show('msg')">✉ <span data-i18n=nav_messages>Nachrichten</span><span id=msgbadge></span></a>
  <a class=nav id=nSet data-i18n=nav_settings onclick="show('set')" style="display:none">⚙️ Einstellungen</a>
  <div class=grow></div>
  <div id=langsw><b data-l=de class=on onclick="setLang('de')">DE</b><b data-l=en onclick="setLang('en')">EN</b><b data-l=fr onclick="setLang('fr')">FR</b><b data-l=es onclick="setLang('es')">ES</b></div>
@@ -1221,6 +1225,7 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2c323b;backg
  <div id=jobs></div>
  <div id=settings></div>
  <div id=issues></div>
+ <div id=messages></div>
 </main>
 <div id=modal></div>
 <script>
@@ -1237,7 +1242,7 @@ const I18N={de:{
  settings:'Einstellungen',sec_general:'Allgemein',sec_notif:'Benachrichtigungen',sec_users:'Benutzer',sec_services:'Dienste',sec_about:'Über',app_name:'App-Name',default_lang:'Standardsprache',refresh:'Aktualisieren',version:'Version',about_txt:'Selbstgebauter Seerr-Klon für ROMs.',wiz_welcome:'Willkommen bei Romseerr',wiz_welcome_txt:'Dieser Assistent verbindet dich Schritt für Schritt mit den Diensten des Stacks (SABnzbd, Prowlarr, IGDB, RomM). Jeden Schritt kannst du testen oder überspringen.',wiz_done:'Fertig!',wiz_done_txt:'Die Grundkonfiguration steht. Alles lässt sich später unter Einstellungen → Verbindungen anpassen.',wiz_next:'Weiter',wiz_back:'Zurück',wiz_skip:'Überspringen',wiz_finish:'Loslegen',wiz_step:'Schritt',wiz_reopen:'Assistent erneut öffnen',about_lib:'Bibliothek',about_titles:'Titel',about_platforms:'Plattformen',about_jobs:'Anfragen',about_active:'aktiv',about_links:'Links',about_feat:'Funktionen',about_feat_txt:'Suche über Archive.org + Usenet, Dedup, Discover, Anfragen mit Freigabe, Benutzer & Rechte, Kontingente, Benachrichtigungen (Discord/Telegram/E-Mail/Web-Push), Probleme, PWA, API.',about_stack:'Stack',about_stack_txt:'Orchestriert Prowlarr, SABnzbd, JDownloader und RomM. Verbindungen in den Einstellungen konfigurierbar.',about_license:'Lizenz: MIT',sec_maint:'Logs & Wartung',logs:'Protokoll',clear_cache:'Cache leeren',reindex:'Neu indexieren',clear_finished:'Fertige entfernen',done_word:'Erledigt',lbl_jobs:'Anfragen',lbl_lib:'Bibliothek',sec_conn:'Verbindungen',reveal:'Klartext anzeigen',tls_hint:'Cert + Schlüssel (PEM) hinterlegen — die App startet dann zusätzlich einen HTTPS-Listener auf dem gewählten Port (Neustart nötig). Für Web-Push/PWA ohne separaten Reverse-Proxy.',tls_none:'kein Zertifikat hinterlegt',tls_expires:'gültig bis',tls_key_note:'privater Schlüssel — wird nie angezeigt',tls_restart:'Container neu starten zum Aktivieren',conn_hint:'Leere Felder nutzen den Wert aus der Umgebung (.env). Secrets sind maskiert — leer lassen behält den bestehenden Wert.',
  profile:'Profil',display_name:'Anzeigename',email:'E-Mail',language:'Sprache',avatar:'Avatar',pwebhook:'Persönlicher Discord-Webhook',change_pw:'Passwort ändern',cur_pw:'Aktuelles Passwort',new_pw:'Neues Passwort',choose_img:'Bild wählen',saved_ok:'gespeichert ✓',
  blocklist:'Sperrliste',add_btn:'Hinzufügen',pattern_ph:'Stichwort/Muster im Titel',
- nav_issues:'🐞 Probleme',issues:'Probleme',report_issue:'Problem melden',issue_msg:'Beschreibung',close_btn:'Schließen',st_open:'offen',st_closed:'geschlossen',submit:'Absenden',issue_type:'Art',comment_ph:'Kommentar schreiben …',comment_send:'Senden',push_enable:'🔔 Push aktivieren',push_disable:'🔕 Push deaktivieren',push_unsupported:'Push nicht verfügbar (HTTPS nötig)',push_denied:'Erlaubnis verweigert',push_on:'Push aktiviert ✓',push_off:'Push deaktiviert'
+ nav_issues:'🐞 Probleme',nav_messages:'Nachrichten',msg_to:'An',msg_none:'Noch keine Nachrichten.',msg_ph:'Nachricht schreiben …',msg_send:'Senden',msg_hint:'Strg+Enter sendet',msg_nousers:'Keine anderen Benutzer.',issues:'Probleme',report_issue:'Problem melden',issue_msg:'Beschreibung',close_btn:'Schließen',st_open:'offen',st_closed:'geschlossen',submit:'Absenden',issue_type:'Art',comment_ph:'Kommentar schreiben …',comment_send:'Senden',push_enable:'🔔 Push aktivieren',push_disable:'🔕 Push deaktivieren',push_unsupported:'Push nicht verfügbar (HTTPS nötig)',push_denied:'Erlaubnis verweigert',push_on:'Push aktiviert ✓',push_off:'Push deaktiviert'
 },en:{
  nav_discover:'🔍 Discover',nav_requests:'📥 Requests',nav_users:'👤 Users',nav_settings:'⚙️ Settings',logout:'🚪 Sign out',
  search_ph:'Search a game … (Enter)',platforms:'Platforms',all:'All',selected:'selected',
@@ -1251,7 +1256,7 @@ const I18N={de:{
  settings:'Settings',sec_general:'General',sec_notif:'Notifications',sec_users:'Users',sec_services:'Services',sec_about:'About',app_name:'App name',default_lang:'Default language',refresh:'Refresh',version:'Version',about_txt:'Self-built Seerr clone for ROMs.',wiz_welcome:'Welcome to Romseerr',wiz_welcome_txt:'This wizard connects you to the stack services (SABnzbd, Prowlarr, IGDB, RomM) step by step. You can test or skip each step.',wiz_done:'All set!',wiz_done_txt:'Basic configuration is done. You can adjust everything later under Settings → Connections.',wiz_next:'Next',wiz_back:'Back',wiz_skip:'Skip',wiz_finish:'Get started',wiz_step:'Step',wiz_reopen:'Reopen wizard',about_lib:'Library',about_titles:'titles',about_platforms:'platforms',about_jobs:'Requests',about_active:'active',about_links:'Links',about_feat:'Features',about_feat_txt:'Search across Archive.org + Usenet, dedup, discover, requests with approval, users & permissions, quotas, notifications (Discord/Telegram/email/web push), issues, PWA, API.',about_stack:'Stack',about_stack_txt:'Orchestrates Prowlarr, SABnzbd, JDownloader and RomM. Connections configurable under Settings.',about_license:'License: MIT',sec_maint:'Logs & maintenance',logs:'Log',clear_cache:'Clear cache',reindex:'Reindex',clear_finished:'Clear finished',done_word:'Done',lbl_jobs:'Requests',lbl_lib:'Library',sec_conn:'Connections',reveal:'Show in clear text',tls_hint:'Provide cert + key (PEM) — the app then also starts an HTTPS listener on the chosen port (restart required). For web push/PWA without a separate reverse proxy.',tls_none:'no certificate stored',tls_expires:'valid until',tls_key_note:'private key — never shown',tls_restart:'restart the container to activate',conn_hint:'Empty fields fall back to the environment (.env). Secrets are masked — leave blank to keep the current value.',
  profile:'Profile',display_name:'Display name',email:'Email',language:'Language',avatar:'Avatar',pwebhook:'Personal Discord webhook',change_pw:'Change password',cur_pw:'Current password',new_pw:'New password',choose_img:'Choose image',saved_ok:'saved ✓',
  blocklist:'Blocklist',add_btn:'Add',pattern_ph:'Keyword/pattern in title',
- nav_issues:'🐞 Issues',issues:'Issues',report_issue:'Report issue',issue_msg:'Message',close_btn:'Close',st_open:'open',st_closed:'closed',submit:'Submit',issue_type:'Type',comment_ph:'Write a comment …',comment_send:'Send',push_enable:'🔔 Enable push',push_disable:'🔕 Disable push',push_unsupported:'Push unavailable (needs HTTPS)',push_denied:'Permission denied',push_on:'Push enabled ✓',push_off:'Push disabled'
+ nav_issues:'🐞 Issues',nav_messages:'Messages',msg_to:'To',msg_none:'No messages yet.',msg_ph:'Write a message …',msg_send:'Send',msg_hint:'Ctrl+Enter sends',msg_nousers:'No other users.',issues:'Issues',report_issue:'Report issue',issue_msg:'Message',close_btn:'Close',st_open:'open',st_closed:'closed',submit:'Submit',issue_type:'Type',comment_ph:'Write a comment …',comment_send:'Send',push_enable:'🔔 Enable push',push_disable:'🔕 Disable push',push_unsupported:'Push unavailable (needs HTTPS)',push_denied:'Permission denied',push_on:'Push enabled ✓',push_off:'Push disabled'
 },fr:{
  nav_discover:'🔍 Découvrir',nav_requests:'📥 Demandes',nav_users:'👤 Utilisateurs',nav_settings:'⚙️ Paramètres',logout:'🚪 Déconnexion',
  search_ph:'Rechercher un jeu … (Entrée)',platforms:'Plateformes',all:'Toutes',selected:'sélectionné',
@@ -1265,7 +1270,7 @@ const I18N={de:{
  settings:'Paramètres',sec_general:'Général',sec_notif:'Notifications',sec_users:'Utilisateurs',sec_services:'Services',sec_about:'À propos',app_name:"Nom de l'app",default_lang:'Langue par défaut',refresh:'Actualiser',version:'Version',about_txt:'Clone de Seerr pour ROMs, fait maison.',wiz_welcome:'Bienvenue sur Romseerr',wiz_welcome_txt:'Cet assistant vous connecte aux services du stack (SABnzbd, Prowlarr, IGDB, RomM) étape par étape. Vous pouvez tester ou passer chaque étape.',wiz_done:'Terminé !',wiz_done_txt:'La configuration de base est prête. Vous pouvez tout ajuster plus tard dans Paramètres → Connexions.',wiz_next:'Suivant',wiz_back:'Retour',wiz_skip:'Passer',wiz_finish:'Commencer',wiz_step:'Étape',wiz_reopen:'Rouvrir l’assistant',about_lib:'Bibliothèque',about_titles:'titres',about_platforms:'plateformes',about_jobs:'Demandes',about_active:'actives',about_links:'Liens',about_feat:'Fonctions',about_feat_txt:'Recherche Archive.org + Usenet, dédup, découverte, demandes avec approbation, utilisateurs & droits, quotas, notifications, problèmes, PWA, API.',about_stack:'Stack',about_stack_txt:'Orchestre Prowlarr, SABnzbd, JDownloader et RomM. Connexions configurables dans Paramètres.',about_license:'Licence : MIT',sec_maint:'Journaux & maintenance',logs:'Journal',clear_cache:'Vider le cache',reindex:'Réindexer',clear_finished:'Effacer terminés',done_word:'Terminé',lbl_jobs:'Demandes',lbl_lib:'Bibliothèque',sec_conn:'Connexions',reveal:'Afficher en clair',tls_hint:'Fournir le certificat + la clé (PEM) — l’app démarre alors un écouteur HTTPS sur le port choisi (redémarrage requis).',tls_none:'aucun certificat',tls_expires:'valide jusqu’au',tls_key_note:'clé privée — jamais affichée',tls_restart:'redémarrer le conteneur pour activer',conn_hint:'Les champs vides utilisent la valeur de l’environnement (.env). Les secrets sont masqués — laisser vide conserve la valeur.',
  profile:'Profil',display_name:'Nom affiché',email:'E-mail',language:'Langue',avatar:'Avatar',pwebhook:'Webhook Discord personnel',change_pw:'Changer le mot de passe',cur_pw:'Mot de passe actuel',new_pw:'Nouveau mot de passe',choose_img:'Choisir une image',saved_ok:'enregistré ✓',
  blocklist:'Liste de blocage',add_btn:'Ajouter',pattern_ph:'Mot-clé/motif dans le titre',
- nav_issues:'🐞 Problèmes',issues:'Problèmes',report_issue:'Signaler un problème',issue_msg:'Message',close_btn:'Fermer',st_open:'ouvert',st_closed:'fermé',submit:'Envoyer',issue_type:'Type',comment_ph:'Écrire un commentaire …',comment_send:'Envoyer',push_enable:'🔔 Activer push',push_disable:'🔕 Désactiver push',push_unsupported:'Push indisponible (HTTPS requis)',push_denied:'Permission refusée',push_on:'Push activé ✓',push_off:'Push désactivé'
+ nav_issues:'🐞 Problèmes',nav_messages:'Messages',msg_to:'À',msg_none:'Aucun message.',msg_ph:'Écrire un message …',msg_send:'Envoyer',msg_hint:'Ctrl+Entrée envoie',msg_nousers:'Aucun autre utilisateur.',issues:'Problèmes',report_issue:'Signaler un problème',issue_msg:'Message',close_btn:'Fermer',st_open:'ouvert',st_closed:'fermé',submit:'Envoyer',issue_type:'Type',comment_ph:'Écrire un commentaire …',comment_send:'Envoyer',push_enable:'🔔 Activer push',push_disable:'🔕 Désactiver push',push_unsupported:'Push indisponible (HTTPS requis)',push_denied:'Permission refusée',push_on:'Push activé ✓',push_off:'Push désactivé'
 },es:{
  nav_discover:'🔍 Descubrir',nav_requests:'📥 Solicitudes',nav_users:'👤 Usuarios',nav_settings:'⚙️ Ajustes',logout:'🚪 Salir',
  search_ph:'Buscar un juego … (Intro)',platforms:'Plataformas',all:'Todas',selected:'seleccionado',
@@ -1279,7 +1284,7 @@ const I18N={de:{
  settings:'Ajustes',sec_general:'General',sec_notif:'Notificaciones',sec_users:'Usuarios',sec_services:'Servicios',sec_about:'Acerca de',app_name:'Nombre de la app',default_lang:'Idioma predeterminado',refresh:'Actualizar',version:'Versión',about_txt:'Clon de Seerr para ROMs, hecho en casa.',wiz_welcome:'Bienvenido a Romseerr',wiz_welcome_txt:'Este asistente te conecta con los servicios del stack (SABnzbd, Prowlarr, IGDB, RomM) paso a paso. Puedes probar u omitir cada paso.',wiz_done:'¡Listo!',wiz_done_txt:'La configuración básica está hecha. Puedes ajustar todo luego en Ajustes → Conexiones.',wiz_next:'Siguiente',wiz_back:'Atrás',wiz_skip:'Omitir',wiz_finish:'Empezar',wiz_step:'Paso',wiz_reopen:'Reabrir asistente',about_lib:'Biblioteca',about_titles:'títulos',about_platforms:'plataformas',about_jobs:'Solicitudes',about_active:'activas',about_links:'Enlaces',about_feat:'Funciones',about_feat_txt:'Búsqueda en Archive.org + Usenet, dedup, descubrir, solicitudes con aprobación, usuarios y permisos, cuotas, notificaciones, problemas, PWA, API.',about_stack:'Stack',about_stack_txt:'Orquesta Prowlarr, SABnzbd, JDownloader y RomM. Conexiones configurables en Ajustes.',about_license:'Licencia: MIT',sec_maint:'Registros y mantenimiento',logs:'Registro',clear_cache:'Vaciar caché',reindex:'Reindexar',clear_finished:'Borrar terminados',done_word:'Hecho',lbl_jobs:'Solicitudes',lbl_lib:'Biblioteca',sec_conn:'Conexiones',reveal:'Mostrar en texto plano',tls_hint:'Proporciona certificado + clave (PEM) — la app inicia además un listener HTTPS en el puerto elegido (requiere reinicio).',tls_none:'sin certificado',tls_expires:'válido hasta',tls_key_note:'clave privada — nunca se muestra',tls_restart:'reinicia el contenedor para activar',conn_hint:'Los campos vacíos usan el valor del entorno (.env). Los secretos se enmascaran — dejar vacío conserva el valor.',
  profile:'Perfil',display_name:'Nombre visible',email:'Correo',language:'Idioma',avatar:'Avatar',pwebhook:'Webhook de Discord personal',change_pw:'Cambiar contraseña',cur_pw:'Contraseña actual',new_pw:'Nueva contraseña',choose_img:'Elegir imagen',saved_ok:'guardado ✓',
  blocklist:'Lista de bloqueo',add_btn:'Añadir',pattern_ph:'Palabra clave/patrón en el título',
- nav_issues:'🐞 Problemas',issues:'Problemas',report_issue:'Informar problema',issue_msg:'Mensaje',close_btn:'Cerrar',st_open:'abierto',st_closed:'cerrado',submit:'Enviar',issue_type:'Tipo',comment_ph:'Escribe un comentario …',comment_send:'Enviar',push_enable:'🔔 Activar push',push_disable:'🔕 Desactivar push',push_unsupported:'Push no disponible (requiere HTTPS)',push_denied:'Permiso denegado',push_on:'Push activado ✓',push_off:'Push desactivado'
+ nav_issues:'🐞 Problemas',nav_messages:'Mensajes',msg_to:'Para',msg_none:'Sin mensajes.',msg_ph:'Escribe un mensaje …',msg_send:'Enviar',msg_hint:'Ctrl+Enter envía',msg_nousers:'No hay otros usuarios.',issues:'Problemas',report_issue:'Informar problema',issue_msg:'Mensaje',close_btn:'Cerrar',st_open:'abierto',st_closed:'cerrado',submit:'Enviar',issue_type:'Tipo',comment_ph:'Escribe un comentario …',comment_send:'Enviar',push_enable:'🔔 Activar push',push_disable:'🔕 Desactivar push',push_unsupported:'Push no disponible (requiere HTTPS)',push_denied:'Permiso denegado',push_on:'Push activado ✓',push_off:'Push desactivado'
 }};
 let LANG=localStorage.getItem('lang')||'de';
 function t(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.de[k]||k;}
@@ -1296,12 +1301,34 @@ function show(v){cur=v;
  document.getElementById('jobs').style.display=v=='j'?'block':'none';
  document.getElementById('settings').style.display=v=='set'?'block':'none';
  document.getElementById('issues').style.display=v=='issues'?'block':'none';
+ document.getElementById('messages').style.display=v=='msg'?'block':'none';
  document.getElementById('nS').classList.toggle('on',v=='s');
  document.getElementById('nJ').classList.toggle('on',v=='j');
  document.getElementById('nI').classList.toggle('on',v=='issues');
+ let nM=document.getElementById('nM');if(nM)nM.classList.toggle('on',v=='msg');
  document.getElementById('nSet').classList.toggle('on',v=='set');
  if(v=='j')loadJobs();if(v=='set')openSettingsView();
- if(v=='issues'){loadIssues(window._ipref);window._ipref=null;}}
+ if(v=='issues'){loadIssues(window._ipref);window._ipref=null;}
+ if(v=='msg')loadMessages();}
+let msgWith='';
+async function loadMessages(){let box=document.getElementById('messages');let d=await(await fetch('/api/messages')).json();
+ let me=d.me,users=d.users||[];if(!msgWith&&users.length)msgWith=users[0];
+ let unreadBy={};(d.messages||[]).forEach(m=>{if(m.to==me&&!m.read)unreadBy[m.from]=(unreadBy[m.from]||0)+1;});
+ let opts=users.map(u=>`<option value="${u}" ${u==msgWith?'selected':''}>${u.replace(/</g,'&lt;')}${unreadBy[u]?' ('+unreadBy[u]+')':''}</option>`).join('');
+ let thread=(d.messages||[]).filter(m=>(m.from==msgWith&&m.to==me)||(m.from==me&&m.to==msgWith))
+   .map(m=>`<div class=cmt style="max-width:80%;margin-left:${m.from==me?'auto':'0'}"><span class="cu${m.from==me?' staff':''}">${m.from.replace(/</g,'&lt;')}</span> <span class=meta style="font-size:10px">${new Date(m.ts*1000).toLocaleString()}</span><div>${m.body.replace(/</g,'&lt;')}</div></div>`).join('');
+ box.innerHTML=`<div style="padding:18px;max-width:680px"><h3 style="text-transform:uppercase;color:#8b929e;font-size:12px">✉ ${t('nav_messages')}</h3>`+
+  (users.length?`<div class=frow><label style="min-width:auto">${t('msg_to')}</label><select id=msgsel onchange="msgWith=this.value;loadMessages()">${opts}</select></div>
+   <div class=cmts id=msgthread style="max-height:50vh;overflow:auto">${thread||('<div class=meta>'+t('msg_none')+'</div>')}</div>
+   <div class=frow><textarea id=msgbody placeholder="${t('msg_ph')}" style="flex:1;min-height:60px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px" onkeydown="if(event.key=='Enter'&&event.ctrlKey)sendMsg()"></textarea></div>
+   <div class=frow><button onclick="sendMsg()">${t('msg_send')}</button><span class=meta>${t('msg_hint')}</span></div>`:`<div class=meta>${t('msg_nousers')}</div>`)+`</div>`;
+ if(msgWith&&unreadBy[msgWith]){await fetch('/api/messages/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:msgWith})});updateMsgBadge();}
+ let mt=document.getElementById('msgthread');if(mt)mt.scrollTop=mt.scrollHeight;}
+async function sendMsg(){let b=document.getElementById('msgbody');let body=(b.value||'').trim();if(!body||!msgWith)return;
+ let r=await(await fetch('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:msgWith,body})})).json();
+ if(r.ok){b.value='';loadMessages();}}
+async function updateMsgBadge(){try{let d=await(await fetch('/api/messages')).json();let el=document.getElementById('msgbadge');if(!el)return;
+ el.textContent=d.unread?' '+d.unread+' ':'';el.style.cssText=d.unread?'background:#c0392b;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;margin-left:6px':'';}catch(e){}}
 async function loadIssues(pref){let box=document.getElementById('issues');
  let items=await(await fetch('/api/issues')).json();
  let types=['broken','wrong_region','wrong_platform','other'];
@@ -1761,7 +1788,7 @@ async function addUser(){let u=document.getElementById('nu').value.trim(),p=docu
  if(d.ok)setSection('users');else document.getElementById('uerr').textContent=d.msg||'Fehler';}
 async function logout(){await fetch('/api/logout',{method:'POST'});location.href='/login';}
 document.querySelectorAll('#langsw b').forEach(e=>e.classList.toggle('on',e.dataset.l==LANG));
-applyI18n();loadAuth();loadPlatforms();loadDiscover();
+applyI18n();loadAuth();loadPlatforms();loadDiscover();updateMsgBadge();
 if('serviceWorker'in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key=='Enter')search();});
 setInterval(()=>{if(cur=='j')loadJobs();},4000);
@@ -2092,6 +2119,51 @@ def api_issues_comment(iid):
 @perm_required("manage_issues")
 def api_issues_del(iid):
     save_issues([i for i in load_issues() if i["id"] != iid]); return jsonify({"ok":True})
+
+# ---- Private Nachrichten / direct messages ----
+def msg_unread(user):
+    try:
+        with closing(db_conn()) as c:
+            return c.execute("SELECT COUNT(*) FROM messages WHERE recipient=? AND read=0", (user,)).fetchone()[0]
+    except Exception:
+        return 0
+
+@app.route("/api/messages")
+@login_required
+def api_messages():
+    me = session.get("user", "")
+    with closing(db_conn()) as c:
+        rows = c.execute("SELECT id,sender,recipient,body,ts,read FROM messages "
+                         "WHERE sender=? OR recipient=? ORDER BY ts", (me, me)).fetchall()
+    msgs = [{"id": r[0], "from": r[1], "to": r[2], "body": r[3], "ts": r[4], "read": bool(r[5])} for r in rows]
+    users = [u for u in load_users().keys() if u != me]
+    return jsonify({"me": me, "messages": msgs, "users": sorted(users), "unread": msg_unread(me)})
+
+@app.route("/api/messages", methods=["POST"])
+@login_required
+def api_messages_send():
+    d = request.get_json(force=True); me = session.get("user", "")
+    to = (d.get("to") or "").strip(); body = (d.get("body") or "").strip()[:2000]
+    if not body: return jsonify({"ok": False, "msg": "leer / empty"}), 400
+    if to == me or to not in load_users(): return jsonify({"ok": False, "msg": "Empfänger?"}), 400
+    with DB_LOCK, closing(db_conn()) as c, c:
+        c.execute("INSERT INTO messages(sender,recipient,body,ts,read) VALUES(?,?,?,?,0)",
+                  (me, to, body, int(time.time())))
+    # Empfänger benachrichtigen (best effort): Web-Push + persönlicher Discord-Webhook
+    send_push_to_user(to, "Romseerr", f"✉ {me}: {body[:60]}")
+    wh = load_users().get(to, {}).get("webhook", "")
+    if wh:
+        try: requests.post(wh, json={"content": f"✉ **{me}**: {body[:200]}"}, timeout=8)
+        except Exception: pass
+    return jsonify({"ok": True})
+
+@app.route("/api/messages/read", methods=["POST"])
+@login_required
+def api_messages_read():
+    me = session.get("user", ""); other = (request.get_json(force=True).get("from") or "").strip()
+    with DB_LOCK, closing(db_conn()) as c, c:
+        c.execute("UPDATE messages SET read=1 WHERE recipient=? AND sender=?", (me, other))
+    return jsonify({"ok": True})
 
 # ---------- Admin: Logs, Statistik, Wartung ----------
 JOB_FINISHED = {"done", "error", "denied"}
@@ -2539,6 +2611,7 @@ OPENAPI = {
         {"name": "Search", "description": "Suche, Discover, Detail, Cover, Plattformen"},
         {"name": "Requests", "description": "Downloads/Anfragen (Jobs) + Freigabe"},
         {"name": "Issues", "description": "Problemmeldungen + Kommentare"},
+        {"name": "Messages", "description": "Private Direktnachrichten zwischen Nutzern"},
         {"name": "Profile", "description": "Eigenes Profil, Passwort, Benachrichtigungen"},
         {"name": "Push", "description": "Web-Push-Abos"},
         {"name": "Admin", "description": "Benutzer, Einstellungen, Sperrliste, Logs, Wartung, API-Key"},
@@ -2615,6 +2688,15 @@ OPENAPI = {
             params=[_pp("iid", "Issue-ID")], responses={**_R_PERM, "200": {"description": "OK"}})},
         "/api/issues/{iid}": {"delete": _op("Problem löschen", "Issues",
             params=[_pp("iid", "Issue-ID")], responses={**_R_PERM, "200": {"description": "OK"}})},
+        # --- Messages ---
+        "/api/messages": {
+            "get": _op("Eigene Direktnachrichten + Nutzerliste + ungelesen-Zähler", "Messages"),
+            "post": _op("Nachricht an einen Nutzer senden", "Messages",
+                body={"type": "object", "required": ["to", "body"],
+                      "properties": {"to": {"type": "string"}, "body": {"type": "string"}}},
+                responses={**_R_AUTH, "200": {"description": "gesendet"}, "400": {"description": "leer/Empfänger"}})},
+        "/api/messages/read": {"post": _op("Nachrichten eines Absenders als gelesen markieren", "Messages",
+            body={"type": "object", "properties": {"from": {"type": "string"}}})},
         # --- Profile ---
         "/api/profile": {
             "get": _op("Eigenes Profil", "Profile"),

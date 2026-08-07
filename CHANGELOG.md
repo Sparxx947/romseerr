@@ -7,6 +7,12 @@ Versionierung nach [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Hinzugefügt / Added
+- **Private Nachrichten zwischen Benutzern** — neuer Bereich „✉ Nachrichten": Direktnachrichten
+  an andere Nutzer mit Verlauf je Gesprächspartner, **Ungelesen-Zähler** (Badge in der Sidebar)
+  und „als gelesen"-Markierung. Empfänger wird optional über Web-Push + persönlichen Webhook
+  benachrichtigt. SQLite-Tabelle `messages`; `GET/POST /api/messages`, `POST /api/messages/read`. /
+  **Private messages between users** — a "Messages" section with per-partner threads, an unread
+  badge and read receipts; recipients optionally notified via web push + personal webhook.
 - **Erststart-Assistent** — beim ersten Start (Admin, noch nicht „onboarded") führt ein Wizard
   Schritt für Schritt durch die Verbindungen (SABnzbd/Prowlarr/IGDB/RomM) mit Test je Schritt;
   jederzeit über Einstellungen → Über erneut aufrufbar. Flag `onboarded` in den Einstellungen. /
