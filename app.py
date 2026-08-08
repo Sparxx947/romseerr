@@ -291,7 +291,23 @@ NOISE_RE = re.compile(r'\b(winamp|skin|wallpaper|theme|soundtrack|\bost\b|manual
 # (USA, EUR, snes, v1.2 …), die nichts über die Identität des Spiels aussagen.
 REGION_RE = re.compile(r'\b(usa|eur|europe|japan|jpn|world|korea|kor|rev\s*\d+|proper|repack|'
     r'nsw|xci|nsp|disc\s*\d+|snes|smc|sfc|nes|n64|z64|gba|gbc|\bgb\b|megadrive|genesis|'
-    r'\bmd\b|psx|ps1|ps2|psp|switch|wii|gamecube|ngc|arcade|mame)\b')
+    r'\bmd\b|psx|ps1|ps2|ps3|psp|switch|wii|gamecube|ngc|arcade|mame)\b')
+#          ^^^ ps3 fehlte, waehrend ps1/ps2/psp dastanden. Folge: ein Ordner wie
+#              "Ape Escape 4 PS3-EU BG" behielt seinen Plattform-Anhang und traf
+#              keinen Katalogtitel — der Stream-Knopf erschien nie. (#152)
+
+# Disc-/Produktkennung am Namensende: BLES00562, BLUS30232, BCUS99205, NPUB… — vier
+# Buchstaben, fuenf Ziffern. PS3- und PSP-Abzuege tragen sie fast immer, und ohne diese
+# Regel traf KEIN einziger PS3-Titel seinen Katalogeintrag: 9 von 10 startbaren Ordnern
+# der Testbibliothek enden so.
+#
+# BEWUSST ENG GEFASST: `norm()` ist die Grundlage der Dedup. Eine grosszuegigere Regel
+# (etwa „letztes kurzes Token weg") wuerde echte Titelbestandteile fressen und zwei
+# verschiedene Spiele zusammenfallen lassen — ein Fehler, der sich still auswirkt.
+# Vier Buchstaben plus fuenf Ziffern ist ein Format, kein Wort.
+# Narrow on purpose: norm() is the dedup key, so a looser rule would silently merge
+# distinct games. Four letters plus five digits is a format, not a word.
+DISC_ID_RE = re.compile(r'\b[a-z]{4}\d{5}\b')
 def norm(name):
     """Datei-/Titelname -> normalisierter Vergleichsschlüssel (Endung, Klammern, Region,
     Versionsnummern und Sonderzeichen entfernt, lowercase). Grundlage der Dedup."""
@@ -300,6 +316,7 @@ def norm(name):
     s = re.sub(r'\([^)]*\)|\[[^\]]*\]|\{[^}]*\}', ' ', s)     # (USA), [!], {...}
     s = re.sub(r'\bv?\d+(\.\d+)+\b', ' ', s)                   # v1.2.3
     s = REGION_RE.sub(' ', s)                                  # Region/Plattform-Tokens
+    s = DISC_ID_RE.sub(' ', s)                                 # BLES00562, BLUS30232 …
     s = re.sub(r'[^a-z0-9]+', ' ', s)
     return re.sub(r'\s+', ' ', s).strip()
 
