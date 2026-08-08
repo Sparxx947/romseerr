@@ -152,67 +152,135 @@ from_url() {  # <schalter> <name> <ordner> <system> <url>
 
 GH="https://api.github.com/repos"
 
-# ---------------------------------------------------------------- PlayStation 2
-from_release "${INSTALL_PCSX2:-false}" PCSX2 pcsx2 PS2 \
-  "$GH/PCSX2/pcsx2/releases" 'linux-appimage-x64-Qt\.AppImage$'
-
-# ---------------------------------------------------------------- GameCube / Wii
-# Dolphin liefert für Linux nur Flatpak; Flatpak im Container ist umständlich.
-# Das Distributionspaket ist älter, aktualisiert sich dafür über apt.
-if [ "${INSTALL_DOLPHIN:-false}" = "true" ]; then
-  if ! command -v /usr/games/dolphin-emu >/dev/null 2>&1; then
-    echo "[emulators] installiere dolphin-emu / installing"
-    apt-get update -qq >/dev/null 2>&1
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq dolphin-emu >/dev/null 2>&1 || true
-  elif [ "$AUTO_UPDATE" = "true" ]; then
-    apt-get update -qq >/dev/null 2>&1
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --only-upgrade dolphin-emu >/dev/null 2>&1 || true
-  fi
-  command -v /usr/games/dolphin-emu >/dev/null 2>&1 \
-    && desktop Dolphin "GameCube/Wii" /usr/games/dolphin-emu
-fi
-
-# ---------------------------------------------------------------- Dreamcast
-from_release "${INSTALL_FLYCAST:-false}" Flycast flycast Dreamcast \
-  "$GH/flyinghead/flycast/releases/latest" 'flycast-x86_64\.AppImage$'
-
-# ---------------------------------------------------------------- Xbox
-from_release "${INSTALL_XEMU:-false}" xemu xemu Xbox \
-  "$GH/xemu-project/xemu/releases/latest" 'xemu-[0-9.]+-x86_64\.AppImage$'
-
-# ---------------------------------------------------------------- Wii U
-from_release "${INSTALL_CEMU:-false}" Cemu cemu "Wii U" \
-  "$GH/cemu-project/Cemu/releases/latest" 'Cemu-[0-9.]+-x86_64\.AppImage$'
-
-# ---------------------------------------------------------------- Nintendo 3DS
-from_release "${INSTALL_AZAHAR:-false}" Azahar azahar 3DS \
-  "$GH/azahar-emu/azahar/releases/latest" 'azahar\.AppImage$'
-
-# ---------------------------------------------------------------- PlayStation Vita
-from_release "${INSTALL_VITA3K:-false}" Vita3K vita3k "PS Vita" \
-  "$GH/Vita3K/Vita3K/releases/latest" 'Vita3K-x86_64\.AppImage$'
-
-# ---------------------------------------------------------------- PlayStation 3
-# RPCS3 legt keine Release-Dateien auf GitHub ab, und der offizielle Direktlink weist
-# automatisierte Abrufe mit HTTP 403 ab. Deshalb URL selbst eintragen — ein fest
-# verdrahteter Link waere von Anfang an tot.
-from_url "${INSTALL_RPCS3:-false}" RPCS3 rpcs3 PS3 "${RPCS3_URL:-}"
-
-# ---------------------------------------------------------------- Switch
-# Standardmaessig AUS. Die grossen Switch-Emulatoren wurden nach Rechtsstreit
-# eingestellt; die verbliebenen Forks haben eine ungeklaerte Rechtslage und wechseln
-# ihre Bezugsquelle. Deshalb keine eingebaute Adresse.
+# ---------------------------------------------------------------- Katalog
+# Eine Zeile je Emulator: name|ordner|system|art|quelle|muster
 #
-# Zwei Wege, je nachdem was das Projekt anbietet:
-#   SWITCH_EMU_API + SWITCH_EMU_ASSET -> Release-API (GitHub oder Forgejo/Gitea),
-#                                        aktualisiert sich damit selbst
-#   SWITCH_EMU_URL                    -> feste URL, kein automatisches Update
-if [ -n "${SWITCH_EMU_API:-}" ]; then
-  from_release "${INSTALL_SWITCH_EMU:-false}" SwitchEmu switchemu Switch \
-    "${SWITCH_EMU_API}" "${SWITCH_EMU_ASSET:-\.AppImage$}"
-else
-  from_url "${INSTALL_SWITCH_EMU:-false}" SwitchEmu switchemu Switch "${SWITCH_EMU_URL:-}"
+#   art = release  -> quelle ist eine Release-API (GitHub oder Forgejo/Gitea),
+#                     muster waehlt daraus das passende Asset
+#   art = url      -> quelle ist der NAME einer Umgebungsvariablen mit der URL
+#                     (fuer Projekte ohne brauchbare Release-API)
+#   art = apt      -> Distributionspaket, quelle ist der Paketname
+#
+# Diese Tabelle ist die einzige Stelle, an der ein Emulator eingetragen wird. Aus ihr
+# ergeben sich der Katalog fuer Romseerr, die Einzelinstallation und der normale Lauf —
+# drei Wege, eine Wahrheit. Ein Eintrag mehr heisst: hier eine Zeile.
+#
+# One line per emulator; the catalogue, single installs and the normal run all derive
+# from this table, so there is only one place to add an emulator.
+KATALOG=(
+  "PCSX2|pcsx2|PS2|release|$GH/PCSX2/pcsx2/releases|linux-appimage-x64-Qt\.AppImage$"
+  "Dolphin|dolphin|GameCube/Wii|apt|dolphin-emu|"
+  "Flycast|flycast|Dreamcast|release|$GH/flyinghead/flycast/releases/latest|flycast-x86_64\.AppImage$"
+  "xemu|xemu|Xbox|release|$GH/xemu-project/xemu/releases/latest|xemu-[0-9.]+-x86_64\.AppImage$"
+  "Cemu|cemu|Wii U|release|$GH/cemu-project/Cemu/releases/latest|Cemu-[0-9.]+-x86_64\.AppImage$"
+  "Azahar|azahar|3DS|release|$GH/azahar-emu/azahar/releases/latest|azahar\.AppImage$"
+  "Vita3K|vita3k|PS Vita|release|$GH/Vita3K/Vita3K/releases/latest|Vita3K-x86_64\.AppImage$"
+  # RPCS3 legt keine Release-Dateien auf GitHub ab, und der offizielle Direktlink
+  # weist automatisierte Abrufe mit HTTP 403 ab -> URL selbst eintragen.
+  "RPCS3|rpcs3|PS3|url|RPCS3_URL|"
+  # Switch: bewusst ohne eingebaute Adresse. Die grossen Emulatoren wurden nach
+  # Rechtsstreit eingestellt, die Forks wechseln ihre Bezugsquelle. Entweder
+  # SWITCH_EMU_API + SWITCH_EMU_ASSET (aktualisiert sich dann selbst) oder
+  # SWITCH_EMU_URL (feste Adresse).
+  "SwitchEmu|switchemu|Switch|switch||"
+)
+
+feld() { echo "$1" | cut -d"|" -f"$2"; }
+
+installiert() { [ -x "$EMU/$1/AppRun" ] || { [ "$1" = dolphin ] && command -v /usr/games/dolphin-emu >/dev/null 2>&1; }; }
+
+# Quelle eines Eintrags aufloesen -> URL (oder leer, wenn nicht ermittelbar)
+quelle_von() {  # quelle_von <zeile>
+  local art quelle muster
+  art=$(feld "$1" 4); quelle=$(feld "$1" 5); muster=$(feld "$1" 6)
+  case "$art" in
+    release) release_asset "$quelle" "$muster" ;;
+    url)     eval "echo \${$quelle:-}" ;;
+    switch)  if [ -n "${SWITCH_EMU_API:-}" ]; then
+               release_asset "${SWITCH_EMU_API}" "${SWITCH_EMU_ASSET:-\.AppImage$}"
+             else echo "${SWITCH_EMU_URL:-}"; fi ;;
+    apt)     echo "apt:$quelle" ;;
+  esac
+}
+
+# Einen Eintrag installieren/aktualisieren, unabhaengig vom INSTALL_*-Schalter.
+eintrag_installieren() {  # eintrag_installieren <zeile>
+  local name dir sys art url
+  name=$(feld "$1" 1); dir=$(feld "$1" 2); sys=$(feld "$1" 3); art=$(feld "$1" 4)
+  if [ "$art" = apt ]; then
+    local paket; paket=$(feld "$1" 5)
+    if ! command -v "/usr/games/$paket" >/dev/null 2>&1; then
+      echo "[emulators] $name: installiere $paket / installing"
+      apt-get update -qq >/dev/null 2>&1
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$paket" >/dev/null 2>&1 || true
+    elif [ "$AUTO_UPDATE" = "true" ]; then
+      apt-get update -qq >/dev/null 2>&1
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --only-upgrade "$paket" >/dev/null 2>&1 || true
+    fi
+    command -v "/usr/games/$paket" >/dev/null 2>&1 && desktop "$name" "$sys" "/usr/games/$paket"
+    return 0
+  fi
+  # Feste Version? <NAME>_URL schlaegt die Release-Abfrage — so bleibt ein bewusst
+  # gewaehlter aelterer Stand auch ueber Neustarts erhalten.
+  local pin
+  eval "pin=\${$(echo "$name" | tr "[:lower:]-" "[:upper:]_")_URL:-}"
+  url="${pin:-$(quelle_von "$1")}"
+  install_appimage "$name" "$dir" "$sys" "$url"
+}
+
+# ---------------------------------------------------------------- Betriebsarten
+# --catalog        -> was ist installierbar, was ist installiert (JSON, fuer Romseerr)
+# --only <ordner>  -> genau diesen installieren, unabhaengig von INSTALL_*
+# --rollback <o>   -> zurueck zur vorigen Fassung
+# ohne Argument    -> alles installieren, was per INSTALL_* eingeschaltet ist
+#
+# Standard ist bewusst: **nichts**. Eine frische Installation laedt gar nichts; der
+# Betreiber entscheidet in Romseerr, was auf seine Maschine kommt. Diese Entscheidung
+# hat je nach Rechtsordnung Gewicht und wird niemandem stillschweigend abgenommen.
+#
+# The default is deliberately nothing: a fresh host downloads none of these. Which
+# emulators land on a machine is the operator's decision, not ours to make silently.
+if [ "${1:-}" = "--catalog" ]; then
+  echo "["
+  erste=1
+  for zeile in "${KATALOG[@]}"; do
+    name=$(feld "$zeile" 1); dir=$(feld "$zeile" 2); sys=$(feld "$zeile" 3); art=$(feld "$zeile" 4)
+    inst=false; installiert "$dir" && inst=true
+    ver=""; [ -f "$EMU/$dir.url" ] && ver=$(basename "$(cat "$EMU/$dir.url")")
+    prev=""; [ -f "$EMU/$dir.url.alt" ] && prev=$(basename "$(cat "$EMU/$dir.url.alt")")
+    rb=false; [ -x "$EMU/$dir.alt/AppRun" ] && rb=true
+    braucht=false
+    [ "$art" = url ] && [ -z "$(quelle_von "$zeile")" ] && braucht=true
+    [ "$art" = switch ] && [ -z "$(quelle_von "$zeile")" ] && braucht=true
+    [ $erste -eq 0 ] && echo ","
+    erste=0
+    printf '  {"name":"%s","dir":"%s","system":"%s","installed":%s,"version":"%s","previous":"%s","can_rollback":%s,"needs_url":%s}' \
+      "$name" "$dir" "$sys" "$inst" "$ver" "$prev" "$rb" "$braucht"
+  done
+  echo; echo "]"
+  exit 0
 fi
+
+if [ "${1:-}" = "--only" ] && [ -n "${2:-}" ]; then
+  for zeile in "${KATALOG[@]}"; do
+    if [ "$(feld "$zeile" 2)" = "$2" ]; then
+      eintrag_installieren "$zeile"
+      chown -R "${PUID:-1000}:${PGID:-1000}" /config/emulators /config/.local 2>/dev/null || true
+      exit 0
+    fi
+  done
+  echo "[emulators] unbekannt / unknown: $2"; exit 1
+fi
+
+# Normaler Lauf: nur was ausdruecklich eingeschaltet ist.
+for zeile in "${KATALOG[@]}"; do
+  name=$(feld "$zeile" 1)
+  schalter="INSTALL_$(echo "$name" | tr "[:lower:]-" "[:upper:]_")"
+  [ "$name" = "SwitchEmu" ] && schalter="INSTALL_SWITCH_EMU"
+  eval "an=\${$schalter:-false}"
+  [ "$an" = "true" ] || continue
+  eintrag_installieren "$zeile"
+done
 
 # ---------------------------------------------------------------- BIOS
 # Manche Kerne starten ohne BIOS und scheitern dann still. Wir liefern keins. Lege
