@@ -47,7 +47,7 @@ KATALOG=(
   "switch|Nintendo Switch|switchemu|.local/share/eden/keys|prod.keys=*|https://github.com/eden-emulator"
   "wiiu|Wii U|cemu|emulators/cemu|keys.txt=*|https://github.com/cemu-project/Cemu"
   "ps3|PlayStation 3|rpcs3|firmware/ps3|PS3UPDAT.PUP=*|https://rpcs3.net/quickstart"
-  "psvita|PlayStation Vita|vita3k|firmware/vita|PSVITAUPDAT.PUP=*|https://github.com/Vita3K/Vita3K"
+  "psvita|PlayStation Vita|vita3k|firmware/psvita|PSVITAUPDAT.PUP=*|https://github.com/Vita3K/Vita3K"
 )
 # Dolphin (GameCube/Wii) fehlt bewusst: es braucht keine Firmware, um zu starten.
 # Dolphin is deliberately absent; it needs no firmware to run.

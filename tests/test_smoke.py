@@ -1848,3 +1848,20 @@ def test_no_firmware_or_bios_files_in_the_repository():
     r = subprocess.run([sys.executable, os.path.join(REPO, "scripts/check_content_policy.py")],
                        capture_output=True, text=True, env={**os.environ, "POLICY_ROOT": REPO})
     assert r.returncode == 0, r.stderr
+
+
+def test_firmware_staging_and_target_agree_where_they_are_the_same_place():
+    """Fuer PS3 und Vita IST die Ablage das Zielverzeichnis — der Emulator liest die
+    PUP von dort. Weichen die Namen ab, liegt dieselbe Datei an zwei Orten, und beim
+    naechsten Blick ist unklar, welcher gilt. (#107)"""
+    pfad = os.path.join(REPO, "contrib/streaming-host/init/25-firmware")
+    text = open(pfad, encoding="utf-8").read()
+    tabelle = re.search(r"KATALOG=\((.*?)\n\)", text, re.S).group(1)
+    for zeile in tabelle.strip().splitlines():
+        zeile = zeile.strip().strip('"')
+        if not zeile or zeile.startswith("#"):
+            continue
+        slug, _name, _emu, ziel = zeile.split("|")[:4]
+        if ziel.startswith("firmware/"):
+            assert ziel == f"firmware/{slug}", \
+                f"{slug}: Ablage firmware/{slug}, Ziel {ziel} — zwei Orte fuer dieselbe Datei"
