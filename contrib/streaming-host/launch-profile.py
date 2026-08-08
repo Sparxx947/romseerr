@@ -24,7 +24,9 @@ funktionieren danach nebeneinander.
 """
 import os
 import re
+import subprocess
 import sys
+import time
 
 CONFIG = os.environ.get("FW_CONFIG_ROOT", "/config")
 
@@ -180,6 +182,41 @@ def pcsx2_bios_setzen(region):
     return False, "kein BIOS-Eintrag in [Filenames]"
 
 
+def _ini_setzen(pfad, abschnitt, schluessel, wert):
+    """Einen Schluessel in einem [Abschnitt] setzen. -> (geaendert, meldung)."""
+    if not os.path.isfile(pfad):
+        return False, "Konfigurationsdatei gibt es noch nicht"
+    zeilen = open(pfad, encoding="utf-8", errors="ignore").read().splitlines()
+    start = next((i for i, z in enumerate(zeilen) if z.strip() == abschnitt), None)
+    if start is None:
+        return False, f"kein {abschnitt}"
+    for i in range(start + 1, len(zeilen)):
+        if zeilen[i].startswith("["):
+            break
+        if zeilen[i].split("=")[0].strip() == schluessel:
+            if zeilen[i].split("=", 1)[1].strip() == wert:
+                return False, f"{schluessel} steht bereits auf {wert}"
+            zeilen[i] = f"{schluessel} = {wert}"
+            open(pfad, "w", encoding="utf-8").write("\n".join(zeilen) + "\n")
+            return True, f"{schluessel} = {wert}"
+    return False, f"kein {schluessel} in {abschnitt}"
+
+
+def pcsx2_vollbild():
+    """PCSX2 startet im Vollbild.
+
+    WARUM DER EIGENE SCHALTER UND NICHT DER FENSTERTRICK: Gemessen — PCSX2 setzt seine
+    Fenstergroesse SELBST zurueck. `xdotool` schob es auf 1024x768, Sekunden spaeter
+    stand wieder 1025x648 mit Panel-Versatz. Gegen die Fensterverwaltung eines
+    Emulators anzuarbeiten ist ein Wettlauf, den man nicht gewinnt. Wo ein Emulator
+    einen Schalter hat, ist der die Wahrheit; der Fenstertrick bleibt der Rueckfall
+    fuer die, die keinen haben.
+    Measured: PCSX2 restores its own geometry, so the window trick loses the race.
+    Where an emulator has its own switch, that switch is authoritative.
+    """
+    return _ini_setzen(pcsx2_ini(), "[UI]", "StartFullscreen", "true")
+
+
 # JEDER bereitgestellte Emulator steht hier — auch der, der nichts braucht.
 #
 # WARUM AUSDRUECKLICH STATT WEGGELASSEN: Ein fehlender Eintrag ist nicht von einem
@@ -197,22 +234,23 @@ def pcsx2_bios_setzen(region):
 #   geprueft:   Ist das am laufenden Emulator NACHGEMESSEN oder nur angenommen?
 PROFILE = {
     "pcsx2":     {"system": "PS2",           "controller": pcsx2_apply,
-                  "bios": pcsx2_bios_setzen, "geprueft": True},
-    "dolphin":   {"system": "GameCube/Wii",  "controller": None, "bios": None,
+                  "bios": pcsx2_bios_setzen, "vollbild": pcsx2_vollbild,
+                  "geprueft": True},
+    "dolphin":   {"system": "GameCube/Wii",  "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
-    "flycast":   {"system": "Dreamcast",     "controller": None, "bios": None,
+    "flycast":   {"system": "Dreamcast",     "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
-    "xemu":      {"system": "Xbox",          "controller": None, "bios": None,
+    "xemu":      {"system": "Xbox",          "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
-    "cemu":      {"system": "Wii U",         "controller": None, "bios": None,
+    "cemu":      {"system": "Wii U",         "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
-    "azahar":    {"system": "3DS",           "controller": None, "bios": None,
+    "azahar":    {"system": "3DS",           "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
-    "vita3k":    {"system": "PS Vita",       "controller": None, "bios": None,
+    "vita3k":    {"system": "PS Vita",       "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
-    "rpcs3":     {"system": "PS3",           "controller": None, "bios": None,
+    "rpcs3":     {"system": "PS3",           "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
-    "switchemu": {"system": "Switch",        "controller": None, "bios": None,
+    "switchemu": {"system": "Switch",        "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
 }
 # "geprueft: False" heisst NICHT "funktioniert nicht", sondern "noch nicht am
@@ -220,7 +258,137 @@ PROFILE = {
 # eine Zusage auf Messung beruht und wo auf Annahme. Siehe #136.
 
 
+# --------------------------------------------------------- Nur das Emulatorfenster
+# Der Stream zeigt sonst den ganzen XFCE-Desktop: Panel, Fensterrahmen, Raender. Das
+# kostet Bildflaeche (und damit Bandbreite), laedt zu Fehlklicks ein, und ein
+# verlorener Fokus bedeutet einen stummen Controller.
+#
+# BEWUSST EMULATORUNABHAENGIG: Jeder Emulator hat einen anderen Vollbild-Schalter, und
+# einige haben gar keinen. Statt neun Sonderfaelle zu pflegen, wird das FENSTER
+# behandelt — das koennen alle, weil es keiner von ihnen tun muss.
+#
+# Deliberately emulator-agnostic: every emulator has a different fullscreen switch and
+# some have none, so the WINDOW is handled instead of nine special cases.
+#
+# `xdotool windowstate` gaebe es dafuer, ist aber erst ab 3.2021 dabei; hier liegt
+# 3.2016. Deshalb der klassische Weg: _MOTIF_WM_HINTS entfernt die Dekoration, und
+# Groesse/Position kommen von der Bildschirmgeometrie.
+XPROP_KEINE_DEKO = ["-f", "_MOTIF_WM_HINTS", "32c", "-set", "_MOTIF_WM_HINTS", "2, 0, 0, 0, 0"]
+
+
+def _x(*args, **kw):
+    umg = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":1")}
+    return subprocess.run(args, capture_output=True, text=True, env=umg, timeout=20, **kw)
+
+
+def sichtbare_fenster(pid):
+    """Sichtbare Fenster des Prozesses, groesstes zuerst.
+
+    `--onlyvisible` ist wichtig: Emulatoren legen unsichtbare Hilfsfenster an, und ohne
+    den Filter erwischt man eines davon. Beim ersten Anlauf hier genau passiert — das
+    Skript meldete Erfolg an einem Fenster, das niemand sieht, waehrend das Spielfenster
+    unveraendert danebenstand.
+    Without --onlyvisible one grabs a helper window and reports success on something
+    nobody sees, which is exactly what happened on the first attempt."""
+    r = _x("xdotool", "search", "--onlyvisible", "--pid", str(pid))
+    mit_flaeche = []
+    for i in [z for z in r.stdout.split() if z.strip()]:
+        g = _x("xdotool", "getwindowgeometry", "--shell", i).stdout
+        masse = dict(z.split("=", 1) for z in g.strip().splitlines() if "=" in z)
+        try:
+            f = int(masse.get("WIDTH", 0)) * int(masse.get("HEIGHT", 0))
+        except ValueError:
+            f = 0
+        if f > 10000:                     # echte Fenster, keine Platzhalter
+            mit_flaeche.append((f, i))
+    return [i for _f, i in sorted(mit_flaeche, reverse=True)]
+
+
+def fenster_von_pid(pid, versuche=20):
+    """Groesstes sichtbares Fenster. Ein Emulator braucht Sekunden bis dahin."""
+    for _ in range(versuche):
+        ids = sichtbare_fenster(pid)
+        if ids:
+            return ids[0]
+        time.sleep(1)
+    return ""
+
+
+def _fenster_fuellen(fid, b, h):
+    # REIHENFOLGE ZAEHLT: erst Groesse, dann Position. Andersherum schiebt xfwm4 das
+    # Fenster beim Vergroessern wieder unter die Panel-Zeile — gemessen: y=50 statt 0,
+    # also genau die Panelhoehe. Und danach noch einmal setzen, weil der
+    # Fenstermanager auf die Groessenaenderung selbst mit einer Positionierung
+    # antwortet.
+    # Order matters: size first, then position, then position again — xfwm4 answers a
+    # resize with a reposition, which put the window back under the panel row.
+    _x("xprop", "-id", fid, *XPROP_KEINE_DEKO)
+    _x("xdotool", "windowsize", fid, b, h)
+    _x("xdotool", "windowmove", fid, "0", "0")
+    _x("xdotool", "windowactivate", "--sync", fid)
+    _x("xdotool", "windowraise", fid)
+    time.sleep(0.4)
+    _x("xdotool", "windowmove", fid, "0", "0")
+
+
+def nur_emulator(pid, runden=3, pause=6):
+    """-> (ok, meldung). Panel weg, Dekoration weg, Fenster auf volle Flaeche.
+
+    MEHRERE RUNDEN, weil das SPIELFENSTER spaeter entsteht als das erste Fenster des
+    Emulators. Einmalig anzuwenden traf beim ersten Anlauf ein Hilfsfenster, meldete
+    Erfolg, und der Nutzer sah weiter den Desktop. Deshalb wird nach dem Start noch
+    ein paar Mal nachgesehen, ob ein neues, groesseres Fenster dazugekommen ist.
+    Several rounds because the game window appears after the first one; applying once
+    reported success on a helper window while the user still saw the desktop."""
+    breite_hoehe = _x("xdotool", "getdisplaygeometry").stdout.split()
+    if len(breite_hoehe) != 2:
+        return False, "Bildschirmgroesse nicht ermittelbar"
+    b, h = breite_hoehe
+    if not fenster_von_pid(pid):
+        return False, "kein sichtbares Fenster zum Prozess gefunden"
+    # Panel ausblenden. Schlaegt es fehl, ist das kein Grund abzubrechen — ein Fenster
+    # ueber dem Panel ist immer noch besser als ein Desktop.
+    _x("xfconf-query", "-c", "xfce4-panel", "-p", "/panels/panel-1/autohide-behavior",
+       "-t", "int", "-s", "2", "--create")
+    behandelt = set()
+    for runde in range(runden):
+        for fid in sichtbare_fenster(pid):
+            _fenster_fuellen(fid, b, h)
+            behandelt.add(fid)
+        if runde < runden - 1:
+            time.sleep(pause)
+    if not behandelt:
+        return False, "kein sichtbares Fenster"
+    return True, f"{len(behandelt)} Fenster auf {b}x{h}, ohne Rahmen, Panel ausgeblendet"
+
+
+def panel_zurueck():
+    """Nach der Sitzung: Desktop wieder bedienbar. Ein Panel, das versteckt bleibt,
+    macht den Host unbenutzbar fuer alles, was eine GUI braucht — etwa das Einrichten
+    eines Emulators."""
+    _x("xfconf-query", "-c", "xfce4-panel", "-p", "/panels/panel-1/autohide-behavior",
+       "-t", "int", "-s", "0", "--create")
+
+
 def main(argv):
+    if argv and argv[0] == "--fullscreen":
+        if len(argv) < 2 or argv[1] not in PROFILE:
+            print("Aufruf: --fullscreen <emulator>", file=sys.stderr); return 1
+        fn = PROFILE[argv[1]].get("vollbild")
+        if not fn:
+            print(f"[vollbild] {argv[1]}: kein eigener Schalter — Fenstertrick greift")
+            return 2                       # 2 = Rueckfall noetig
+        geaendert, msg = fn()
+        print(f"[vollbild] {argv[1]}: {msg}")
+        return 0
+    if argv and argv[0] == "--window":
+        if len(argv) < 2 or not argv[1].isdigit():
+            print("Aufruf: --window <pid>", file=sys.stderr); return 1
+        ok, msg = nur_emulator(int(argv[1]))
+        print(f"[fenster] {msg}")
+        return 0 if ok else 1
+    if argv and argv[0] == "--desktop":
+        panel_zurueck(); print("[fenster] Panel wieder eingeblendet"); return 0
     if argv and argv[0] == "--bios":
         if len(argv) < 3 or argv[1] not in PROFILE:
             print("Aufruf: --bios <emulator> <Region>", file=sys.stderr); return 1

@@ -272,9 +272,12 @@ def launch(path, platform, rel="", region=""):
         # es laeuft nur "komisch".
         # Guessing a region would be worse than leaving it: a wrong BIOS does not
         # announce itself, the game merely behaves oddly.
-        auftraege = [["--apply", profil]]
+        # Reihenfolge: Controller, BIOS, Vollbild — alles BEVOR der Emulator seine
+        # Konfiguration liest. Danach zu setzen hiesse, gegen einen laufenden Prozess
+        # zu arbeiten, der seine eigene Geometrie zurueckschreibt.
+        auftraege = [["--apply", profil], ["--fullscreen", profil]]
         if region:
-            auftraege.append(["--bios", profil, region])
+            auftraege.insert(1, ["--bios", profil, region])
         for a in auftraege:
             try:
                 r = subprocess.run([sys.executable, PROFILE_SCRIPT] + a,
@@ -298,6 +301,23 @@ def launch(path, platform, rel="", region=""):
             return False, f"Start fehlgeschlagen / launch failed: {e.__class__.__name__}"
         _current["platform"] = platform
         _current["path"] = real
+
+    # Nur das Emulatorfenster zeigen (#141). Im Hintergrund, weil auf das Fenster bis
+    # zu 20 Sekunden gewartet wird — der Aufrufer soll darauf nicht haengen. Schlaegt
+    # es fehl, laeuft das Spiel trotzdem: ein Desktop drumherum ist unschoen, ein
+    # nicht gestarteter Titel waere schlimmer.
+    # Backgrounded because it waits for the window; a failure here must not cost the
+    # launch, only the framing.
+    if os.path.isfile(PROFILE_SCRIPT):
+        pid = _current["proc"].pid
+        def _fenster():
+            try:
+                r = subprocess.run([sys.executable, PROFILE_SCRIPT, "--window", str(pid)],
+                                   capture_output=True, text=True, timeout=60)
+                print((r.stdout + r.stderr).strip(), flush=True)
+            except (subprocess.TimeoutExpired, OSError) as e:
+                print(f"[fenster] {e.__class__.__name__}", flush=True)
+        threading.Thread(target=_fenster, daemon=True).start()
     return True, os.path.basename(real)
 
 
@@ -343,6 +363,16 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/stop":
             with _lock:
                 _stop_locked()
+            # Panel zurueckholen: ein dauerhaft verstecktes Panel macht den Host
+            # unbenutzbar fuer alles, was eine GUI braucht — etwa das Einrichten eines
+            # Emulators. Was eine Sitzung aendert, raeumt sie auch wieder weg.
+            # A permanently hidden panel would make the host unusable for setup work.
+            if os.path.isfile(PROFILE_SCRIPT):
+                try:
+                    subprocess.run([sys.executable, PROFILE_SCRIPT, "--desktop"],
+                                   capture_output=True, timeout=20)
+                except (subprocess.TimeoutExpired, OSError):
+                    pass
             return self._reply(200, {"ok": True})
         if u.path == "/update":
             if _update["running"]:
