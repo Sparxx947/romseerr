@@ -35,6 +35,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import tempfile
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -66,6 +67,49 @@ _lock = threading.Lock()
 # Runs in the background; downloads are hundreds of megabytes.
 UPDATE_SCRIPT = os.environ.get("EMU_UPDATE_SCRIPT", "/custom-cont-init.d/20-emulators")
 _update = {"running": False, "started": 0, "finished": 0, "rc": None, "log": "", "target": ""}
+
+# Firmware und BIOS. Dasselbe Muster: die Tabelle steht im Skript, hier wird sie nur
+# abgefragt. / Same pattern as the emulator catalogue: the table lives in the script.
+FIRMWARE_SCRIPT = os.environ.get("FIRMWARE_SCRIPT", "/custom-cont-init.d/25-firmware")
+# Grenze fuer einen Upload. Die groesste Datei, die hier real ankommt, ist Sonys
+# PS3-Paket mit gut 200 MB; 512 MB lassen Luft, ohne dass jemand den Container mit
+# einem Dauerstrom volllaufen lassen kann.
+# Cap for uploads: Sony's PS3 package is the largest real case at ~200 MB.
+MAX_UPLOAD = int(os.environ.get("FIRMWARE_MAX_BYTES", str(512 * 1024 * 1024)))
+_vendor = {"running": False, "rc": None, "log": "", "target": ""}
+
+
+def firmware_status():
+    try:
+        r = subprocess.run(["/bin/bash", FIRMWARE_SCRIPT, "--status"],
+                           capture_output=True, text=True, timeout=120)
+        return json.loads(r.stdout) if r.returncode == 0 else {"ok": False, "platforms": []}
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        return {"ok": False, "platforms": []}
+
+
+def firmware_platforms():
+    """Welche Plattformkuerzel kennt das Skript? Damit wird eine Eingabe geprueft —
+    gegen die TABELLE, nicht gegen ein Muster. Ein Muster sagt nur, wie ein Name
+    aussehen darf; die Tabelle sagt, welcher existiert."""
+    return {p.get("platform") for p in firmware_status().get("platforms", [])}
+
+
+def run_vendor(platform):
+    """Herstellerbezug im Hintergrund — Sonys Paket ist ueber 200 MB."""
+    _vendor.update({"running": True, "rc": None, "log": "", "target": platform})
+    try:
+        r = subprocess.run(["/bin/bash", FIRMWARE_SCRIPT, "--vendor", platform],
+                           capture_output=True, text=True, timeout=3600)
+        _vendor["rc"] = r.returncode
+        _vendor["log"] = (r.stdout + r.stderr)[-8000:]
+    except subprocess.TimeoutExpired:
+        _vendor["rc"] = -1; _vendor["log"] = "Zeitueberschreitung / timed out"
+    except OSError as e:
+        _vendor["rc"] = -1
+        _vendor["log"] = f"Start fehlgeschlagen / launch failed: {e.__class__.__name__}"
+    finally:
+        _vendor["running"] = False
 
 
 def run_update():
@@ -228,8 +272,22 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         if not self._authorised(q):
             return self._reply(401, {"ok": False, "msg": "unauthorised"})
-        if u.path not in ("/launch", "/stop", "/update", "/rollback", "/install"):
+        if u.path not in ("/launch", "/stop", "/update", "/rollback", "/install",
+                          "/firmware/upload", "/firmware/vendor"):
             return self._reply(404, {"ok": False, "msg": "not found"})
+        if u.path == "/firmware/vendor":
+            if _vendor["running"]:
+                return self._reply(409, {"ok": False, "msg": "laeuft bereits / already running"})
+            plat = (q.get("platform") or [""])[0]
+            # Herstellerbezug gibt es nur da, wo der Hersteller wirklich ausliefert.
+            # Vita3K laedt NICHTS herunter - der Quelltext oeffnet einen Dateidialog.
+            if plat != "ps3":
+                return self._reply(400, {"ok": False, "reason": "no_vendor_source",
+                                         "msg": "Herstellerbezug nur fuer ps3 / vendor fetch only for ps3"})
+            threading.Thread(target=run_vendor, args=(plat,), daemon=True).start()
+            return self._reply(200, {"ok": True, "msg": "gestartet / started"})
+        if u.path == "/firmware/upload":
+            return self._firmware_upload(q)
         if u.path == "/stop":
             with _lock:
                 _stop_locked()
@@ -282,12 +340,67 @@ class Handler(BaseHTTPRequestHandler):
         ok, msg = launch(str(d.get("path") or ""), str(d.get("platform") or ""))
         return self._reply(200 if ok else 400, {"ok": ok, "msg": msg})
 
+    def _firmware_upload(self, q):
+        """Rohe Datei im Rumpf, Plattform und Name in der Abfrage. Kein Multipart:
+        das waere ein Parser mehr in einem Dienst, der Prozesse startet — und der
+        Aufrufer ist Romseerr, kein Browser-Formular.
+        Raw body, no multipart: one parser less in a service that spawns processes."""
+        plat = (q.get("platform") or [""])[0]
+        name = (q.get("name") or [""])[0]
+        if plat not in firmware_platforms():
+            return self._reply(400, {"ok": False, "reason": "bad_platform"})
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", name or ""):
+            return self._reply(400, {"ok": False, "reason": "bad_name"})
+        try:
+            laenge = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return self._reply(400, {"ok": False, "reason": "bad_length"})
+        if laenge <= 0:
+            return self._reply(400, {"ok": False, "reason": "empty"})
+        if laenge > MAX_UPLOAD:
+            return self._reply(413, {"ok": False, "reason": "too_large",
+                                     "limit": MAX_UPLOAD})
+
+        # In eine temporaere Datei schreiben und erst dann dem Skript uebergeben:
+        # ein abgebrochener Upload darf keine halbe Firmware in der Ablage hinterlassen,
+        # die spaeter als "vorhanden" durchgeht.
+        # Write to a temp file first; an aborted upload must not leave half a firmware
+        # in place that later reads as "present".
+        tmp = tempfile.NamedTemporaryFile(delete=False, prefix="fw-", suffix=".part")
+        gelesen = 0
+        try:
+            while gelesen < laenge:
+                block = self.rfile.read(min(65536, laenge - gelesen))
+                if not block:
+                    break
+                tmp.write(block); gelesen += len(block)
+            tmp.close()
+            if gelesen != laenge:
+                return self._reply(400, {"ok": False, "reason": "short_body",
+                                         "expected": laenge, "got": gelesen})
+            r = subprocess.run(["/bin/bash", FIRMWARE_SCRIPT, "--import", plat, tmp.name, name],
+                               capture_output=True, text=True, timeout=300)
+            return self._reply(200 if r.returncode == 0 else 400,
+                               {"ok": r.returncode == 0,
+                                "log": (r.stdout + r.stderr)[-4000:],
+                                "status": firmware_status()})
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return self._reply(500, {"ok": False, "reason": e.__class__.__name__})
+        finally:
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+
     def do_GET(self):
         u = urlparse(self.path)
-        if u.path not in ("/status", "/update", "/catalog"):
+        if u.path not in ("/status", "/update", "/catalog", "/firmware"):
             return self._reply(404, {"ok": False, "msg": "not found"})
         if not self._authorised(parse_qs(u.query)):
             return self._reply(401, {"ok": False, "msg": "unauthorised"})
+        if u.path == "/firmware":
+            return self._reply(200, {"ok": True, **firmware_status(),
+                                     "vendor": dict(_vendor)})
         if u.path == "/catalog":
             return self._reply(200, {"ok": True, "catalog": catalogue(),
                                      "busy": _update["running"],

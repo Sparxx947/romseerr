@@ -601,6 +601,66 @@ paths:
               properties:
                 name:
                   type: string
+  /api/stream/firmware:
+    get:
+      summary: Firmware-/BIOS-Zustand je Plattform auf dem Streaming-Host
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: Zustand je Plattform
+        '400':
+          description: kein Start-Dienst hinterlegt
+        '502':
+          description: Start-Dienst nicht erreichbar
+      security: *id002
+  /api/stream/firmware/upload:
+    post:
+      summary: Eine BIOS-/Firmware-Datei zum Streaming-Host durchreichen (multipart, Feld 'file'). Romseerr
+        speichert sie nicht.
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: eingespielt
+        '400':
+          description: keine Datei / unzulaessige Plattform oder Name
+        '413':
+          description: zu gross
+        '502':
+          description: Start-Dienst nicht erreichbar
+      security: *id002
+  /api/stream/firmware/vendor:
+    post:
+      summary: Firmware beim Hersteller holen. Nur PS3 - Sony veroeffentlicht seine Systemsoftware selbst;
+        fuer andere Plattformen gibt es keine berechtigte Quelle.
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: gestartet
+        '400':
+          description: kein Start-Dienst / keine Herstellerquelle
+        '409':
+          description: laeuft bereits
+        '502':
+          description: Start-Dienst nicht erreichbar
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - platform
+              properties:
+                platform:
+                  type: string
+                  enum:
+                  - ps3
   /api/stream/emulators/rollback:
     post:
       summary: Einen Emulator auf die vorige Fassung zuruecksetzen

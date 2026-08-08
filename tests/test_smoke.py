@@ -7,6 +7,7 @@ import ast
 import json
 import os
 import re
+import sys
 import shutil
 import subprocess
 import tempfile
@@ -1777,3 +1778,73 @@ def test_published_image_carries_provenance():
     assert "attest-build-provenance" in text
     assert "steps.push.outputs.digest" in text, "Bescheinigung muss am Digest haengen, nicht am Tag"
     assert "sbom: true" in text
+
+
+# ---------------------------------------------------------- Firmware/BIOS (#107)
+
+def test_firmware_routes_need_manage_settings(appmod, client):
+    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": ["request"]}})
+    with client.session_transaction() as sess:
+        sess["user"] = "lena"; sess["role"] = "user"
+    assert client.get("/api/stream/firmware").status_code == 403
+    assert client.post("/api/stream/firmware/vendor", json={"platform": "ps3"}).status_code == 403
+    appmod.save_users({})
+
+
+def test_firmware_vendor_only_where_the_vendor_publishes(appmod, client):
+    """Nur Sony liefert Systemsoftware selbst aus. Fuer PS2, Xbox, Dreamcast, 3DS,
+    Switch und Wii U gibt es keine berechtigte Quelle — ein Knopf, der so tut, waere
+    eine Einladung, ihn woanders zu suchen. (#107)"""
+    appmod.save_settings({"connections": {"stream_launch": "http://s.example:8901/launch?token=x"}})
+    appmod.save_users({"a": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "a"; sess["role"] = "admin"
+    for plat in ("ps2", "xbox", "dreamcast", "switch", "psvita", "wiiu", "3ds", ""):
+        r = client.post("/api/stream/firmware/vendor", json={"platform": plat})
+        assert r.status_code == 400 and r.get_json()["reason"] == "no_vendor_source", plat
+    appmod.save_settings({}); appmod.save_users({})
+
+
+def test_firmware_upload_validates_platform_and_name(appmod, client):
+    """Beides wird auf dem Streaming-Host zu einem Pfad. (#107)"""
+    import io as _io
+    appmod.save_settings({"connections": {"stream_launch": "http://s.example:8901/launch?token=x"}})
+    appmod.save_users({"a": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "a"; sess["role"] = "admin"
+
+    def post(platform, name):
+        return client.post("/api/stream/firmware/upload", content_type="multipart/form-data",
+                           data={"platform": platform, "name": name,
+                                 "file": (_io.BytesIO(b"x" * 16), "f.bin")})
+
+    for plat in ("../etc", "PS2", "ps2;rm -rf /", ""):
+        assert post(plat, "dc_boot.bin").get_json()["reason"] == "bad_platform", plat
+    for name in ("../../etc/passwd", "a/b", ".ssh", ""):
+        r = post("dreamcast", name)
+        # Ein leerer Name faellt auf den Dateinamen zurueck und ist dann gueltig.
+        if name:
+            assert r.get_json()["reason"] == "bad_name", name
+    appmod.save_settings({}); appmod.save_users({})
+
+
+def test_firmware_script_uses_the_same_platform_slugs():
+    """Der Streaming-Host, Romseerr und das Firmware-Skript muessen dieselben Kuerzel
+    verwenden. Eine zweite Schreibweise braeuchte eine Uebersetzungstabelle, und die
+    waere genau die Stelle, an der spaeter ein Eintrag fehlt. (#107)"""
+    pfad = os.path.join(REPO, "contrib/streaming-host/init/25-firmware")
+    text = open(pfad, encoding="utf-8").read()
+    tabelle = re.search(r"KATALOG=\((.*?)\n\)", text, re.S).group(1)
+    slugs = {z.strip().strip('"').split("|")[0] for z in tabelle.strip().splitlines() if z.strip().startswith('"')}
+    import app as appmod
+    unbekannt = slugs - set(appmod.STREAMABLE)
+    assert not unbekannt, f"Kuerzel kennt Romseerr nicht: {sorted(unbekannt)}"
+
+
+def test_no_firmware_or_bios_files_in_the_repository():
+    """Die Inhaltsregel deckt das ab — hier steht es noch einmal ausdruecklich, damit
+    die Absicht bei einem Beitrag zu diesem Bereich sichtbar ist. (#107)"""
+    import subprocess
+    r = subprocess.run([sys.executable, os.path.join(REPO, "scripts/check_content_policy.py")],
+                       capture_output=True, text=True, env={**os.environ, "POLICY_ROOT": REPO})
+    assert r.returncode == 0, r.stderr

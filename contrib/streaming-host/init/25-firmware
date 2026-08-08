@@ -1,0 +1,220 @@
+#!/bin/bash
+# Firmware und BIOS: prüfen, einspielen, vom Hersteller holen. (#107)
+# Firmware and BIOS: check, import, fetch from the vendor.
+#
+# WAS DIESES SKRIPT NICHT TUT: BIOS-Abbilder besorgen. Für PS2, Xbox, Dreamcast, 3DS,
+# Switch und Wii U gibt es keine berechtigte Quelle — ein Skript könnte sie nur von
+# Seiten holen, die sie ohne Erlaubnis verbreiten. Jedes Emulator-Projekt lehnt das ab,
+# dieses ebenfalls. Was hier passiert, ist die eigentliche Arbeit: WELCHE Datei, ob sie
+# heil ist, und WOHIN sie gehört.
+#
+# WHAT THIS DOES NOT DO: obtain BIOS images. There is no authorised source for most
+# platforms, so the tooling covers the real work instead — which file, is it intact,
+# and where does it belong.
+#
+# Nur PS3 lädt echt herunter, und zwar von Sonys eigenen Update-Servern.
+# Only PS3 downloads, and only from Sony's own update servers.
+set -u
+
+# Ueberschreibbar, damit sich das Skript ohne Container pruefen laesst — und damit ein
+# Test nicht in ein echtes /config schreiben kann.
+# Overridable so this can be exercised without a container.
+CFG="${FW_CONFIG_ROOT:-/config}"
+FW="$CFG/firmware"                  # Ablage des Eingespielten / staging area
+umask 077
+
+# --------------------------------------------------------------------------- Tabelle
+# plattform|Anzeige|Emulator|Zielverzeichnis (unter /config)|Dateien|Doku
+#
+# Die Plattformkuerzel sind DIESELBEN wie in Romseerr und im Start-Dienst. Eine eigene
+# Schreibweise hier haette eine Uebersetzungstabelle noetig gemacht, und die waere
+# genau die Stelle, an der spaeter ein Eintrag fehlt.
+# The platform slugs match Romseerr and the launch service; a second spelling would
+# need a translation table, which is exactly where an entry goes missing later.
+#
+# Dateien: name=groesse, mehrere durch ';'. groesse '*' = nicht prüfbar (Textschlüssel,
+# Pakete variabler Länge). Ein '*' im NAMEN ist ein Muster — bei der PS2 heisst das
+# BIOS je nach Konsole anders, entscheidend ist die Größe.
+#
+# Die Größen sind GEMESSEN, nicht abgeschrieben: an den Beständen im Testsystem und an
+# den Angaben der jeweiligen Projekte gegengeprüft. Wo ich keine belastbare Größe habe,
+# steht '*' — lieber keine Prüfung als eine erfundene.
+KATALOG=(
+  "ps2|PlayStation 2|pcsx2|.config/PCSX2/bios|*.bin=4194304|https://pcsx2.net/docs/setup/bios/"
+  "dreamcast|Dreamcast|flycast|.local/share/flycast|dc_boot.bin=2097152;dc_flash.bin=131072|https://github.com/flyinghead/flycast/wiki"
+  "xbox|Xbox|xemu|.local/share/xemu/xemu|mcpx_1.0.bin=512;bios.bin=*|https://xemu.app/docs/getting-started/"
+  "3ds|Nintendo 3DS|azahar|.local/share/azahar-emu/sysdata|boot9.bin=65536;aes_keys.txt=*|https://github.com/azahar-emu/azahar"
+  "switch|Nintendo Switch|switchemu|.local/share/eden/keys|prod.keys=*|https://github.com/eden-emulator"
+  "wiiu|Wii U|cemu|emulators/cemu|keys.txt=*|https://github.com/cemu-project/Cemu"
+  "ps3|PlayStation 3|rpcs3|firmware/ps3|PS3UPDAT.PUP=*|https://rpcs3.net/quickstart"
+  "psvita|PlayStation Vita|vita3k|firmware/vita|PSVITAUPDAT.PUP=*|https://github.com/Vita3K/Vita3K"
+)
+# Dolphin (GameCube/Wii) fehlt bewusst: es braucht keine Firmware, um zu starten.
+# Dolphin is deliberately absent; it needs no firmware to run.
+
+feld() { echo "$1" | cut -d'|' -f"$2"; }
+
+# Nur PS3 hat einen Herstellerbezug. Sonys Update-Liste nennt die aktuelle Fassung im
+# Klartext; wir lesen die Zeile mit PS3UPDAT.PUP heraus, statt eine Adresse fest zu
+# verdrahten — die enthält einen Datums- und Hash-Anteil und ändert sich mit jeder
+# Fassung. / Sony's update list names the current PUP; the URL carries a date and hash
+# component, so it must be read rather than hard-coded.
+PS3_LISTE="http://dus01.ps3.update.playstation.net/update/ps3/list/us/ps3-updatelist.txt"
+
+sha() { sha256sum "$1" 2>/dev/null | cut -d' ' -f1; }
+
+# --------------------------------------------------------- eine Datei-Anforderung prüfen
+# -> "name|status|groesse|sha"   status: fehlt | ok | groesse_unerwartet
+pruefe() {  # pruefe <verzeichnis> <spec>
+  local dir="$1" spec="$2"
+  local name="${spec%%=*}" soll="${spec#*=}" treffer=""
+
+  if [ "${name#*\*}" != "$name" ]; then     # Muster: erste passende Datei zählt
+    local f
+    for f in "$dir"/$name; do [ -f "$f" ] && { treffer="$f"; break; }; done
+  else
+    [ -f "$dir/$name" ] && treffer="$dir/$name"
+  fi
+
+  [ -z "$treffer" ] && { echo "$name|fehlt||"; return; }
+
+  local ist; ist=$(stat -c%s "$treffer" 2>/dev/null || echo 0)
+  local status="ok"
+  # Größe ist ein schwacher, aber ehrlicher Test: sie schlägt bei abgebrochenen
+  # Downloads und offensichtlich falschen Dateien an. Sie sagt NICHT, dass der Inhalt
+  # korrekt ist — deshalb heisst der Zustand "ok" und nicht "verifiziert".
+  # Size is a weak but honest test: it catches truncated and obviously wrong files.
+  # It does not prove the contents, hence "ok" rather than "verified".
+  [ "$soll" != "*" ] && [ "$ist" != "$soll" ] && status="groesse_unerwartet"
+  echo "$(basename "$treffer")|$status|$ist|$(sha "$treffer")"
+}
+
+# ------------------------------------------------------------------------ Platzieren
+# Kopiert Eingespieltes dorthin, wo der jeweilige Emulator sucht. Getrennt gehalten,
+# damit eine Neuinstallation des Emulators die Firmware nicht mitnimmt: die Ablage
+# unter /config/firmware bleibt die Quelle, das Zielverzeichnis ist eine Kopie.
+# Kept separate so reinstalling an emulator does not take the firmware with it.
+platzieren() {  # platzieren [plattform]
+  local nur="${1:-}" e p ziel quelle f
+  for e in "${KATALOG[@]}"; do
+    p=$(feld "$e" 1); [ -n "$nur" ] && [ "$nur" != "$p" ] && continue
+    quelle="$FW/$p"; ziel="$CFG/$(feld "$e" 4)"
+    [ -d "$quelle" ] || continue
+    mkdir -p "$ziel"
+    # PS3/Vita: das Zielverzeichnis IST die Ablage — nicht auf sich selbst kopieren.
+    [ "$(readlink -f "$quelle")" = "$(readlink -f "$ziel")" ] && continue
+    for f in "$quelle"/*; do
+      [ -f "$f" ] || continue
+      cp -f "$f" "$ziel/" 2>/dev/null && echo "[firmware] $p: $(basename "$f") -> $ziel"
+    done
+  done
+}
+
+# --------------------------------------------------------------------------- Status
+status_json() {
+  local e p erste=1 f fs feld_erste
+  printf '{"ok":true,"platforms":['
+  for e in "${KATALOG[@]}"; do
+    p=$(feld "$e" 1)
+    local ziel="$CFG/$(feld "$e" 4)" dateien; dateien=$(feld "$e" 5)
+    local alles_da=1 ausg="" feld_erste=1
+    IFS=';' read -ra fs <<< "$dateien"
+    for f in "${fs[@]}"; do
+      local r; r=$(pruefe "$ziel" "$f")
+      local n s g h; IFS='|' read -r n s g h <<< "$r"
+      [ "$s" = "fehlt" ] && alles_da=0
+      [ "$s" = "groesse_unerwartet" ] && alles_da=0
+      [ $feld_erste -eq 0 ] && ausg="$ausg,"; feld_erste=0
+      ausg="$ausg{\"name\":\"$n\",\"state\":\"$s\",\"size\":${g:-0},\"sha256\":\"$h\"}"
+    done
+    [ $erste -eq 0 ] && printf ','; erste=0
+    printf '{"platform":"%s","name":"%s","emulator":"%s","dir":"%s","ready":%s,"vendor_fetch":%s,"docs":"%s","files":[%s]}' \
+      "$p" "$(feld "$e" 2)" "$(feld "$e" 3)" "$(feld "$e" 4)" \
+      "$([ $alles_da -eq 1 ] && echo true || echo false)" \
+      "$([ "$p" = "ps3" ] && echo true || echo false)" \
+      "$(feld "$e" 6)" "$ausg"
+  done
+  printf ']}\n'
+}
+
+# ------------------------------------------------------------------------ Einspielen
+eintrag_von() { local e; for e in "${KATALOG[@]}"; do [ "$(feld "$e" 1)" = "$1" ] && { echo "$e"; return 0; }; done; return 1; }
+
+importieren() {  # importieren <plattform> <datei> [zielname]
+  local p="$1" quelle="$2" name="${3:-}"
+  local e; e=$(eintrag_von "$p") || { echo "[firmware] unbekannte Plattform: $p" >&2; return 1; }
+  [ -f "$quelle" ] || { echo "[firmware] Datei nicht gefunden: $quelle" >&2; return 1; }
+  [ -z "$name" ] && name=$(basename "$quelle")
+  # Der Name kommt von aussen und wird zu einem Pfad. ABLEHNEN, nicht zurechtbiegen:
+  # ein `basename` auf "../../etc/passwd" ergaebe "passwd" und schriebe klaglos eine
+  # Datei mit ueberraschendem Namen. Verhindert waere der Ausbruch, erklaert waere
+  # nichts — und wer den Pfad falsch angibt, merkt es nie.
+  # REJECT rather than sanitise: basename("../../etc/passwd") is "passwd", which would
+  # be written without complaint. The escape is prevented, nothing is explained.
+  if ! printf '%s' "$name" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'; then
+    echo "[firmware] unzulaessiger Name: $name" >&2
+    echo "[firmware] erlaubt sind Buchstaben, Ziffern, Punkt, Strich und Unterstrich; kein Pfad, kein fuehrender Punkt." >&2
+    return 1
+  fi
+
+  # Hinweis, kein Abbruch: der Betreiber darf ablegen, was er will — aber wenn der Name
+  # keiner ist, nach dem diese Plattform sucht, wird die Datei schlicht nie benutzt.
+  # Das still hinzunehmen ist genau die Sorte Fehler, die als schwarzes Bild endet.
+  # A hint, not a refusal: a file whose name the platform never looks for would simply
+  # sit there unused, and that failure shows up as a black screen much later.
+  local erwartet spec passt=0
+  erwartet=$(feld "$e" 5)
+  IFS=';' read -ra __specs <<< "$erwartet"
+  for spec in "${__specs[@]}"; do
+    case "$name" in ${spec%%=*}) passt=1;; esac
+  done
+  [ $passt -eq 0 ] && echo "[firmware] Hinweis: $p sucht nach '${erwartet//;/, }' — '$name' wird dort nicht gelesen." >&2
+
+  mkdir -p "$FW/$p"
+  cp -f "$quelle" "$FW/$p/$name" || return 1
+  echo "[firmware] $p: $name eingespielt ($(stat -c%s "$FW/$p/$name") B, sha256 $(sha "$FW/$p/$name"))"
+  platzieren "$p"
+}
+
+# -------------------------------------------------------------- Hersteller: PS3 (Sony)
+vendor_ps3() {
+  local url
+  url=$(curl -fsSL --max-time 60 "$PS3_LISTE" 2>/dev/null \
+        | tr ';' '\n' | grep -o 'http[^ ]*PS3UPDAT\.PUP' | head -1)
+  [ -z "$url" ] && { echo "[firmware] PS3: Update-Liste lieferte keine PUP-Adresse" >&2; return 1; }
+  echo "[firmware] PS3: $url"
+  mkdir -p "$FW/ps3"
+  curl -fL --max-time 3600 -o "$FW/ps3/PS3UPDAT.PUP.part" "$url" || {
+    rm -f "$FW/ps3/PS3UPDAT.PUP.part"; echo "[firmware] PS3: Download fehlgeschlagen" >&2; return 1; }
+  mv "$FW/ps3/PS3UPDAT.PUP.part" "$FW/ps3/PS3UPDAT.PUP"
+  echo "[firmware] PS3: $(stat -c%s "$FW/ps3/PS3UPDAT.PUP") B, sha256 $(sha "$FW/ps3/PS3UPDAT.PUP")"
+
+  # RPCS3 spielt die PUP selbst ein. Ohne installierten Emulator bleibt die Datei
+  # liegen — sie wird beim naechsten Lauf verwendet, sobald RPCS3 da ist.
+  if [ -x "/config/emulators/rpcs3/AppRun" ]; then
+    echo "[firmware] PS3: installiere in RPCS3 / installing into RPCS3"
+    /config/emulators/rpcs3/AppRun --installfw "$FW/ps3/PS3UPDAT.PUP" 2>&1 | tail -3
+  else
+    echo "[firmware] PS3: RPCS3 nicht installiert — PUP liegt bereit / not installed, PUP is staged"
+  fi
+}
+
+# ----------------------------------------------------------------------------- Modi
+case "${1:-}" in
+  --status)  status_json ;;
+  --place)   platzieren "${2:-}" ;;
+  --import)  shift; importieren "$@" ;;
+  --vendor)
+    case "${2:-}" in
+      ps3) vendor_ps3 ;;
+      *) echo "[firmware] Herstellerbezug gibt es nur fuer ps3. Vita3K laedt NICHTS herunter — es spielt eine PUP ein, die du ihm gibst (Upload in Romseerr)." >&2; exit 1 ;;
+    esac ;;
+  "")
+    # Beim Containerstart: Ablagen anlegen und Vorhandenes platzieren. Kein Download.
+    for e in "${KATALOG[@]}"; do mkdir -p "$FW/$(feld "$e" 1)"; done
+    platzieren
+    bereit=$(status_json | grep -o '"ready":true' | wc -l)
+    echo "[firmware] $bereit von ${#KATALOG[@]} Plattformen vollstaendig / platforms complete"
+    ;;
+  *) echo "Aufruf: $0 [--status|--place [plattform]|--import <plattform> <datei> [name]|--vendor ps3]" >&2; exit 2 ;;
+esac

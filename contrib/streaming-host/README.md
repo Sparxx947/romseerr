@@ -157,6 +157,45 @@ ermitteln lässt: **RPCS3** (keine Release-Dateien auf GitHub, offizieller Direk
 weist automatisierte Abrufe ab) und der **Switch-Emulator** (bewusst ohne eingebaute
 Adresse). Romseerr zeigt sie als „URL nötig".
 
+## BIOS und Firmware
+
+Mehrere Emulatoren starten ohne Firmware **gar nicht** — und das äußert sich als
+schwarzes Bild, nicht als Fehlermeldung. Romseerr zeigt deshalb unter **Einstellungen →
+Verbindungen** je Plattform an, was fehlt.
+
+**Dieses Projekt besorgt keine BIOS-Abbilder.** Für PS2, Xbox, Dreamcast, 3DS, Switch
+und Wii U gibt es keine berechtigte Quelle; ein Skript könnte sie nur von Seiten holen,
+die sie ohne Erlaubnis verbreiten. Jedes Emulator-Projekt lehnt das ab, dieses ebenfalls.
+Was hier automatisiert ist, ist die eigentliche Arbeit: **welche** Datei, ob sie heil
+aussieht, und **wohin** sie gehört.
+
+| Weg | Wofür |
+|---|---|
+| **Hersteller** | Nur **PS3**: Sony veröffentlicht seine Systemsoftware selbst. Ein Klick, der Rest läuft. |
+| **Hochladen** | Alles andere. Du wählst die Datei, Romseerr reicht sie durch — **Romseerr speichert sie nicht**. |
+
+Die Dateien landen unter `/config/firmware/<plattform>/` und werden von dort dorthin
+kopiert, wo der jeweilige Emulator sucht. Diese Trennung ist Absicht: Wird ein Emulator
+neu installiert, bleibt die Firmware erhalten.
+
+**PS Vita:** Vita3K **lädt nichts herunter** — der Quelltext öffnet einen Dateidialog
+(`firmware_install_dialog.cpp`). Es gibt dort also nichts zu automatisieren außer dem
+Einspielen; die PUP besorgst du dir selbst und lädst sie hoch.
+
+**Was geprüft wird — und was nicht.** Geprüft wird die **Größe**. Das schlägt bei
+abgebrochenen Downloads und offensichtlich falschen Dateien an, und genau dafür ist es
+da. Es beweist **nicht**, dass der Inhalt korrekt ist — deshalb heißt der Zustand „ok"
+und nicht „verifiziert". Eine mitgelieferte Prüfsummenliste gäbe es hier nicht: sie wäre
+in der Praxis ein Verzeichnis dafür, welche Kopie „die richtige" ist.
+
+Von Hand geht es auch:
+
+```bash
+docker exec stream-host /custom-cont-init.d/25-firmware --status
+docker exec stream-host /custom-cont-init.d/25-firmware --import dreamcast /pfad/dc_boot.bin
+docker exec stream-host /custom-cont-init.d/25-firmware --vendor ps3
+```
+
 ## Emulatoren aktualisieren und zurücksetzen
 
 Läuft bei jedem Containerstart: die aktuelle Release-URL wird geholt und mit der
@@ -301,6 +340,43 @@ Two need a URL from you because their source cannot be resolved automatically: *
 (no GitHub release assets; the official direct link refuses automated requests) and the
 **Switch emulator** (deliberately without a built-in address). Romseerr shows these as
 "URL required".
+
+## BIOS and firmware
+
+Several emulators do not start **at all** without firmware, and that shows up as a black
+screen rather than an error. Romseerr therefore lists, per platform, what is missing —
+under **Settings → Connections**.
+
+**This project does not obtain BIOS images.** There is no authorised source for PS2,
+Xbox, Dreamcast, 3DS, Switch or Wii U; a script could only pull them from sites
+distributing them without permission. Every emulator project refuses this, and so does
+this one. What is automated here is the real work: **which** file, does it look intact,
+and **where** does it belong.
+
+| Route | For |
+|---|---|
+| **Vendor** | **PS3** only: Sony publishes its own system software. One click. |
+| **Upload** | Everything else. You pick the file; Romseerr passes it through and **stores nothing**. |
+
+Files land in `/config/firmware/<platform>/` and are copied from there to wherever the
+emulator looks. That separation is deliberate: reinstalling an emulator does not take
+the firmware with it.
+
+**PS Vita:** Vita3K **downloads nothing** — its source opens a file dialog
+(`firmware_install_dialog.cpp`). There is nothing to automate beyond the import.
+
+**What is checked, and what is not.** Size is checked. That catches truncated downloads
+and obviously wrong files, which is what it is for. It does **not** prove the contents
+are correct — hence the state is "ok", not "verified". No checksum list is shipped: in
+practice it would function as an index of which copy is "the right one".
+
+By hand:
+
+```bash
+docker exec stream-host /custom-cont-init.d/25-firmware --status
+docker exec stream-host /custom-cont-init.d/25-firmware --import dreamcast /path/dc_boot.bin
+docker exec stream-host /custom-cont-init.d/25-firmware --vendor ps3
+```
 
 ## Updating and rolling back emulators
 

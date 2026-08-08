@@ -2021,6 +2021,10 @@ STREAMABLE = {"ps2", "ngc", "wii", "wiiu", "switch", "dreamcast", "3ds",
 # Verzeichnisname je Plattform. Der Umweg ueber diese feste Tabelle ist Absicht: der
 # Pfad wird damit aus einer KONSTANTE gebaut, nicht aus der Eingabe. Ein '../'-Versuch
 # findet hier schlicht keinen Eintrag, statt bis in os.path.join durchzureichen.
+# Grenze fuer eine hochgeladene Firmware-Datei. Sonys PS3-Paket ist mit gut 200 MB der
+# groesste reale Fall; darueber hinaus soll niemand den Streaming-Host volllaufen lassen.
+FIRMWARE_MAX_BYTES = int(os.environ.get("FIRMWARE_MAX_BYTES", str(512 * 1024 * 1024)))
+
 STREAM_DIR = {s: s for s in STREAMABLE}
 STREAM_TTL = int(os.environ.get("ROMSEERR_STREAM_TTL", "7200"))   # 2 h, dann faellt der Platz frei
 STREAM_LOCK = threading.Lock()
@@ -2670,6 +2674,82 @@ def api_stream_install():
     except Exception as e:
         log(f"Stream-Installation: {e}")
         return jsonify({"ok": False, "reason": err_kind(e)}), 502
+
+# ------------------------------------------------------- Firmware und BIOS (#107)
+
+@app.route("/api/stream/firmware")
+@perm_required("manage_settings")
+def api_stream_firmware():
+    """Welche Plattform braucht Firmware, ist sie da, sieht sie heil aus? Die Antwort
+    kommt vom Streaming-Host — Romseerr hat die Dateien nicht und soll nicht raten."""
+    url = _agent_url("firmware")
+    if not url: return jsonify({"ok": False, "reason": "no_launcher"}), 400
+    try:
+        r = safe_request("get", url, timeout=30)
+        return jsonify(r.json() if r.ok else {"ok": False, "reason": "agent"}), (200 if r.ok else 502)
+    except Exception as e:
+        log(f"Firmware-Status: {e}")
+        return jsonify({"ok": False, "reason": err_kind(e)}), 502
+
+
+@app.route("/api/stream/firmware/upload", methods=["POST"])
+@perm_required("manage_settings")
+def api_stream_firmware_upload():
+    """Eine BIOS-/Firmware-Datei zum Streaming-Host durchreichen.
+
+    Romseerr speichert sie NICHT und legt sie nirgends ab: sie geht durch, und was
+    hier bleibt, ist nichts. Das ist keine Bequemlichkeit, sondern Absicht — die
+    Dateien gehoeren dem Betreiber, und ein zweiter Aufbewahrungsort waere ein
+    zweiter Ort, an dem sie verloren gehen oder auftauchen koennen.
+
+    Passed through to the streaming host; Romseerr stores nothing."""
+    url = _agent_url("firmware/upload")
+    if not url: return jsonify({"ok": False, "reason": "no_launcher"}), 400
+    datei = request.files.get("file")
+    if not datei or not datei.filename:
+        return jsonify({"ok": False, "reason": "no_file"}), 400
+    plattform = (request.form.get("platform") or "").strip()
+    # Der Name darf vom Betreiber kommen (manche Emulatoren erwarten genau einen),
+    # sonst nehmen wir den der hochgeladenen Datei.
+    name = (request.form.get("name") or "").strip() or os.path.basename(datei.filename)
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", plattform):
+        return jsonify({"ok": False, "reason": "bad_platform"}), 400
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", name):
+        return jsonify({"ok": False, "reason": "bad_name"}), 400
+    try:
+        roh = datei.read(FIRMWARE_MAX_BYTES + 1)
+        if len(roh) > FIRMWARE_MAX_BYTES:
+            return jsonify({"ok": False, "reason": "too_large",
+                            "limit": FIRMWARE_MAX_BYTES}), 413
+        r = safe_post(f"{url}{'&' if '?' in url else '?'}"
+                      f"platform={urllib.parse.quote(plattform)}&name={urllib.parse.quote(name)}",
+                      data=roh, headers={"Content-Type": "application/octet-stream"},
+                      timeout=300)
+        return jsonify(r.json() if r.content else {"ok": r.ok}), (200 if r.ok else 400)
+    except Exception as e:
+        log(f"Firmware-Upload: {e}")
+        return jsonify({"ok": False, "reason": err_kind(e)}), 502
+
+
+@app.route("/api/stream/firmware/vendor", methods=["POST"])
+@perm_required("manage_settings")
+def api_stream_firmware_vendor():
+    """Firmware beim Hersteller holen. Gibt es nur fuer die PS3: Sony veroeffentlicht
+    seine Systemsoftware selbst. Fuer alles andere existiert keine berechtigte Quelle,
+    und dieses Projekt baut keine."""
+    url = _agent_url("firmware/vendor")
+    if not url: return jsonify({"ok": False, "reason": "no_launcher"}), 400
+    plattform = ((request.get_json(silent=True) or {}).get("platform") or "").strip()
+    if plattform != "ps3":
+        return jsonify({"ok": False, "reason": "no_vendor_source"}), 400
+    try:
+        r = safe_post(f"{url}{'&' if '?' in url else '?'}platform=ps3", timeout=30)
+        if r.status_code == 409: return jsonify({"ok": False, "reason": "already_running"}), 409
+        return jsonify({"ok": r.ok}), (200 if r.ok else 502)
+    except Exception as e:
+        log(f"Firmware vom Hersteller: {e}")
+        return jsonify({"ok": False, "reason": err_kind(e)}), 502
+
 
 @app.route("/api/stream/emulators")
 @perm_required("manage_settings")
@@ -4078,6 +4158,27 @@ OPENAPI = {
                        "400": {"description": "kein Start-Dienst / unzulaessiger Name"},
                        "404": {"description": "nicht im Katalog"},
                        "409": {"description": "laeuft bereits"}})},
+        "/api/stream/firmware": {"get": _op("Firmware-/BIOS-Zustand je Plattform auf dem Streaming-Host", "Admin",
+            responses={**_R_PERM, "200": {"description": "Zustand je Plattform"},
+                       "400": {"description": "kein Start-Dienst hinterlegt"},
+                       "502": {"description": "Start-Dienst nicht erreichbar"}})},
+        "/api/stream/firmware/upload": {"post": _op(
+            "Eine BIOS-/Firmware-Datei zum Streaming-Host durchreichen (multipart, Feld 'file'). "
+            "Romseerr speichert sie nicht.", "Admin",
+            responses={**_R_PERM, "200": {"description": "eingespielt"},
+                       "400": {"description": "keine Datei / unzulaessige Plattform oder Name"},
+                       "413": {"description": "zu gross"},
+                       "502": {"description": "Start-Dienst nicht erreichbar"}})},
+        "/api/stream/firmware/vendor": {"post": _op(
+            "Firmware beim Hersteller holen. Nur PS3 - Sony veroeffentlicht seine "
+            "Systemsoftware selbst; fuer andere Plattformen gibt es keine berechtigte Quelle.",
+            "Admin",
+            body={"type": "object", "required": ["platform"],
+                  "properties": {"platform": {"type": "string", "enum": ["ps3"]}}},
+            responses={**_R_PERM, "200": {"description": "gestartet"},
+                       "400": {"description": "kein Start-Dienst / keine Herstellerquelle"},
+                       "409": {"description": "laeuft bereits"},
+                       "502": {"description": "Start-Dienst nicht erreichbar"}})},
         "/api/stream/emulators/rollback": {"post": _op("Einen Emulator auf die vorige Fassung zuruecksetzen", "Admin",
             body={"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}},
             responses={**_R_PERM, "200": {"description": "zurueckgesetzt"},
