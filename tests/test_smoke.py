@@ -2209,3 +2209,25 @@ def test_launch_sends_the_region(appmod, client, monkeypatch):
     appmod.stream_start("lena", "Ratchet & Clank", "ps2")
     assert gesehen.get("region") == "Europe", gesehen
     appmod.kv_put("stream_session", None); appmod.save_settings({})
+
+
+def test_version_says_whether_it_knows_its_own_build(appmod, client, monkeypatch):
+    """`{"commit": null}` sieht aus wie eine Antwort und ist die Abwesenheit einer.
+    Genau daran ist hier ein Container einen ganzen Arbeitstag mit dem Stand vom
+    Vortag gelaufen, ohne dass es jemand sah. (#129)"""
+    monkeypatch.setattr(appmod, "BUILD_COMMIT", None)
+    monkeypatch.setattr(appmod, "BUILD_DATE", None)
+    d = client.get("/api/version").get_json()
+    assert d["provenance"] == "unbekannt"
+    assert "provenance_hint" in d and "ROMSEERR_COMMIT" in d["provenance_hint"]
+
+    monkeypatch.setattr(appmod, "BUILD_COMMIT", "abc1234")
+    monkeypatch.setattr(appmod, "BUILD_DATE", "2026-08-08T12:00:00Z")
+    d = client.get("/api/version").get_json()
+    assert d["provenance"] == "build" and "provenance_hint" not in d
+
+
+def test_docs_explain_how_to_build_with_provenance():
+    """Ein Hinweis, der nicht sagt, WIE man ihn abstellt, ist ein Vorwurf. (#129)"""
+    readme = open(os.path.join(REPO, "README.md"), encoding="utf-8").read()
+    assert "ROMSEERR_COMMIT" in readme and "ROMSEERR_BUILT_AT" in readme

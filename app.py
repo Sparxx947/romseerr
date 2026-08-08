@@ -3186,7 +3186,22 @@ def api_version():
     """Laufende Version + Build-Herkunft. Bewusst ohne Auth (die Login-Seite zeigt sie an);
     verrät nur, was ohnehin im Release-Feed steht. Der Update-Abgleich ist optional und
     passiert nur bei ?check=1, damit die normale Abfrage nie ins Netz greift."""
-    out = {"version": VERSION, "commit": BUILD_COMMIT, "built_at": BUILD_DATE}
+    # `provenance` beantwortet die Frage, die `null` offen laesst: Weiss diese Instanz,
+    # woraus sie gebaut wurde? Ein Container lief hier einen ganzen Arbeitstag mit dem
+    # Stand vom Vortag, und `{"commit": null}` sah aus wie eine Antwort, war aber
+    # keine. Fehlende Angaben sind jetzt ein benannter Zustand, kein Loch.
+    # `provenance` answers what a bare null leaves open: does this instance know what it
+    # was built from? A container ran a full day on the previous day's code and
+    # {"commit": null} read like an answer while being the absence of one.
+    herkunft = "build" if (BUILD_COMMIT and BUILD_DATE) else (
+        "teilweise" if (BUILD_COMMIT or BUILD_DATE) else "unbekannt")
+    out = {"version": VERSION, "commit": BUILD_COMMIT, "built_at": BUILD_DATE,
+           "provenance": herkunft}
+    if herkunft != "build":
+        out["provenance_hint"] = (
+            "Ohne ROMSEERR_COMMIT und ROMSEERR_BUILT_AT beim Bauen laesst sich nicht "
+            "feststellen, ob diese Instanz dem Quellstand entspricht. "
+            "/ Without those build args an instance cannot say whether it matches the source.")
     if request.args.get("check") == "1" and load_settings().get("update_check", True):
         latest = latest_release()
         out["latest"] = latest
