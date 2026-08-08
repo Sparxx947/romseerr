@@ -4,6 +4,74 @@ Alle nennenswerten Änderungen an diesem Projekt. Format nach
 [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung nach [SemVer](https://semver.org/lang/de/).
 
+## [1.1.0-beta.1](https://github.com/Sparxx947/romseerr/compare/v1.0.0-beta.1...v1.1.0-beta.1) (2026-08-08)
+
+
+### Neu / Features
+
+* add configuration export and import ([#85](https://github.com/Sparxx947/romseerr/issues/85)) ([d82256f](https://github.com/Sparxx947/romseerr/commit/d82256f2ea2d91a389616eb703033ca4280aabf4))
+* add in-browser play via RomM's built-in EmulatorJS player ([#93](https://github.com/Sparxx947/romseerr/issues/93)) ([f381d3c](https://github.com/Sparxx947/romseerr/commit/f381d3cc51a5f42728634e9b181e2e9ade0769c1))
+* add the home computers and early consoles the player can actually run ([#144](https://github.com/Sparxx947/romseerr/issues/144)) ([cd9b68e](https://github.com/Sparxx947/romseerr/commit/cd9b68e0c8c66a4e456f00db749af7b37654f10f))
+* expose operational metrics at /metrics ([#82](https://github.com/Sparxx947/romseerr/issues/82)) ([e59df94](https://github.com/Sparxx947/romseerr/commit/e59df948c6ee6d50c96fe49213ca4a2fbb51ba6e))
+* expose running version via /api/version ([#81](https://github.com/Sparxx947/romseerr/issues/81)) ([fce767d](https://github.com/Sparxx947/romseerr/commit/fce767da5988a5754da33d8f3d15177895dafcde))
+* import a wishlist from a pasted list or file ([#84](https://github.com/Sparxx947/romseerr/issues/84)) ([a3218fc](https://github.com/Sparxx947/romseerr/commit/a3218fc8905c955cbb51bb5d16f6afe9ee33c21d))
+* install emulators on demand from Romseerr, not automatically ([#110](https://github.com/Sparxx947/romseerr/issues/110)) ([abf85ef](https://github.com/Sparxx947/romseerr/commit/abf85ef8dabb35d38086e75f8ddb6b6405eb380a))
+* JDownloader service status and configurable paths ([#91](https://github.com/Sparxx947/romseerr/issues/91)) ([d423bc9](https://github.com/Sparxx947/romseerr/commit/d423bc9faed7ba9e05f79505fc85f8b62e6c6ebc))
+* let an instance say whether it knows what it is running ([#143](https://github.com/Sparxx947/romseerr/issues/143)) ([da4cb18](https://github.com/Sparxx947/romseerr/commit/da4cb1893f190f50038cc0ad9eddc135e893e3c9))
+* more emulators, and update/rollback from Romseerr ([#103](https://github.com/Sparxx947/romseerr/issues/103)) ([b73d221](https://github.com/Sparxx947/romseerr/commit/b73d221449f914672f1fa587bfdc1cdd3a3b656e))
+* per-platform coverage and a browsable missing-titles list ([#86](https://github.com/Sparxx947/romseerr/issues/86)) ([22b15c7](https://github.com/Sparxx947/romseerr/commit/22b15c7118a2a4209ea969d47e625ce12dcf62ef))
+* resolve platform folder names instead of renaming the library ([#138](https://github.com/Sparxx947/romseerr/issues/138)) ([cd910b0](https://github.com/Sparxx947/romseerr/commit/cd910b09c66eba7f1e063234a6403498181833bd))
+* ship the streaming host in this repository ([#98](https://github.com/Sparxx947/romseerr/issues/98)) ([5fea21b](https://github.com/Sparxx947/romseerr/commit/5fea21b6f930f6dbf32108d2c5d262688c894e21))
+* show RetroAchievements data on the detail view ([#87](https://github.com/Sparxx947/romseerr/issues/87)) ([b56c7bd](https://github.com/Sparxx947/romseerr/commit/b56c7bdeb1dcc6101c7e837cd9e5e1248ed6de7a))
+* stream natively-emulated platforms into the browser ([#96](https://github.com/Sparxx947/romseerr/issues/96)) ([f6b81ec](https://github.com/Sparxx947/romseerr/commit/f6b81ec337aa141c290559410dec8aa846c86264))
+* **stream:** add a gamepad check page, because the stream page eats F12 ([#134](https://github.com/Sparxx947/romseerr/issues/134)) ([0124ec8](https://github.com/Sparxx947/romseerr/commit/0124ec899181b582650f3af6b67b1264b57931b8))
+* **stream:** add a setup starter, and give the pad name its index ([#161](https://github.com/Sparxx947/romseerr/issues/161)) ([7ee37ad](https://github.com/Sparxx947/romseerr/commit/7ee37ad98cd371bbbe2624666b9d66ed1e8ca1b4)), closes [#160](https://github.com/Sparxx947/romseerr/issues/160)
+* **stream:** bind the controller automatically before each launch ([#132](https://github.com/Sparxx947/romseerr/issues/132)) ([8ad0972](https://github.com/Sparxx947/romseerr/commit/8ad0972a065028ee1b7f9aa0db02966e1474cb77))
+* **stream:** make PS3 reachable — resolve RPCS3, and launch folder titles ([#147](https://github.com/Sparxx947/romseerr/issues/147)) ([9902ca4](https://github.com/Sparxx947/romseerr/commit/9902ca4e5a600a0cdbee9fdcd945213f7225a2e8))
+* **stream:** manage BIOS and firmware without obtaining any ([#120](https://github.com/Sparxx947/romseerr/issues/120)) ([ce2251f](https://github.com/Sparxx947/romseerr/commit/ce2251fd78600920583f23c3fe8ecf0bc048137c))
+* **stream:** pick the BIOS that matches the title's region ([#140](https://github.com/Sparxx947/romseerr/issues/140)) ([bdc75cf](https://github.com/Sparxx947/romseerr/commit/bdc75cfbab361ab5fc930191f780e67096f1fa61))
+* **stream:** show only the emulator, not the desktop around it ([#145](https://github.com/Sparxx947/romseerr/issues/145)) ([40327a1](https://github.com/Sparxx947/romseerr/commit/40327a197faa3d6a5b74f458e76d1b6945b79f36))
+* un-stub the filehoster path with a generic catalogue-JSON indexer ([#92](https://github.com/Sparxx947/romseerr/issues/92)) ([68c6c02](https://github.com/Sparxx947/romseerr/commit/68c6c024cead443c7666ded299ac2316019d964f))
+
+
+### Behoben / Fixes
+
+* **ci:** keep release tags continuous, drop the component prefix ([#115](https://github.com/Sparxx947/romseerr/issues/115)) ([0ee985a](https://github.com/Sparxx947/romseerr/commit/0ee985adc1e9984bed72f319684fa6a02946f497))
+* **ci:** let release-please carry the version into the OpenAPI spec ([#182](https://github.com/Sparxx947/romseerr/issues/182)) ([6c4de40](https://github.com/Sparxx947/romseerr/commit/6c4de40357efcf0e5b4df54972a14d5331f445ea)), closes [#181](https://github.com/Sparxx947/romseerr/issues/181)
+* **ci:** let the release commit hold the release version ([#184](https://github.com/Sparxx947/romseerr/issues/184)) ([806fc5c](https://github.com/Sparxx947/romseerr/commit/806fc5c835424e4e4165d145e0b551f16a539c81)), closes [#183](https://github.com/Sparxx947/romseerr/issues/183)
+* **firmware:** match by size where the file names legitimately vary ([#173](https://github.com/Sparxx947/romseerr/issues/173)) ([583c65d](https://github.com/Sparxx947/romseerr/commit/583c65d0790c52e31c511ade8d0a0aef412e9946)), closes [#172](https://github.com/Sparxx947/romseerr/issues/172)
+* **library:** strip PS3 disc IDs and the ps3 platform tag in norm() ([#153](https://github.com/Sparxx947/romseerr/issues/153)) ([3f50c57](https://github.com/Sparxx947/romseerr/commit/3f50c579eb37514dfc0980a8f0a45649ca7b6b8e)), closes [#152](https://github.com/Sparxx947/romseerr/issues/152)
+* mount the launch agent instead of expecting it in /config ([#105](https://github.com/Sparxx947/romseerr/issues/105)) ([ec77799](https://github.com/Sparxx947/romseerr/commit/ec77799f4c0db06bfd8cf39b52cc77c310df9e53))
+* pass the init scripts' variables into the container ([#99](https://github.com/Sparxx947/romseerr/issues/99)) ([326b305](https://github.com/Sparxx947/romseerr/commit/326b3056aa936a4ac67c1ad73e43fc8cff27d1b0))
+* refuse outbound requests to internal targets and stop leaking exception text ([#94](https://github.com/Sparxx947/romseerr/issues/94)) ([82fd45e](https://github.com/Sparxx947/romseerr/commit/82fd45e1e27a1385f5f714de08b6c986c98248d3))
+* stop returning exception text from import, TLS upload and catalogue status ([#95](https://github.com/Sparxx947/romseerr/issues/95)) ([1d7e3fa](https://github.com/Sparxx947/romseerr/commit/1d7e3fada235f8ca453ad5c25f9c5335db568515))
+* **stream:** bind RPCS3 player one to SDL instead of the keyboard ([#157](https://github.com/Sparxx947/romseerr/issues/157)) ([c385f24](https://github.com/Sparxx947/romseerr/commit/c385f24fd7c73a7260925ef0b156bf9e2d34d4b7)), closes [#156](https://github.com/Sparxx947/romseerr/issues/156)
+* **stream:** count a folder title as present in the library ([#151](https://github.com/Sparxx947/romseerr/issues/151)) ([20a596f](https://github.com/Sparxx947/romseerr/commit/20a596f8ca69bb0893d24443e4556efdf0b50abf)), closes [#150](https://github.com/Sparxx947/romseerr/issues/150)
+* **stream:** do not abort on an unset LD_PRELOAD, and add ShellCheck ([#126](https://github.com/Sparxx947/romseerr/issues/126)) ([fe2b483](https://github.com/Sparxx947/romseerr/commit/fe2b483cc012edebc9aa1fba7daa5adc7d499eac))
+* **stream:** give emulators the gamepad variable Selkies documents ([#125](https://github.com/Sparxx947/romseerr/issues/125)) ([8ae9bf5](https://github.com/Sparxx947/romseerr/commit/8ae9bf5b8160e06dce13b387c4326182c22ed594))
+* **stream:** keep Vita firmware in one place, not two ([#121](https://github.com/Sparxx947/romseerr/issues/121)) ([fd8ef66](https://github.com/Sparxx947/romseerr/commit/fd8ef66720061368996a03862b47af4ce4bbead1))
+* **stream:** let the emulator read its own firmware, and place before reporting ([#122](https://github.com/Sparxx947/romseerr/issues/122)) ([e33794d](https://github.com/Sparxx947/romseerr/commit/e33794d41080c41f6834a27c4e66bcb196514aea))
+* **stream:** never overwrite an RPCS3 mapping, and stop claiming the pad is ready ([#159](https://github.com/Sparxx947/romseerr/issues/159)) ([3644b10](https://github.com/Sparxx947/romseerr/commit/3644b10a1f03cec4586cae7d26e68277fdee87fa)), closes [#158](https://github.com/Sparxx947/romseerr/issues/158)
+* **stream:** own the firmware parent directory, not just what is inside it ([#123](https://github.com/Sparxx947/romseerr/issues/123)) ([9cb8d09](https://github.com/Sparxx947/romseerr/commit/9cb8d09917f5ca4e4bce87278b386ea9441a6e54))
+* **stream:** pin the display backend instead of relying on Wayland being absent ([#179](https://github.com/Sparxx947/romseerr/issues/179)) ([17693e7](https://github.com/Sparxx947/romseerr/commit/17693e72de3ec4d976f6d1b15d16a1b7063e30cf)), closes [#178](https://github.com/Sparxx947/romseerr/issues/178)
+* **stream:** report firmware the emulator has, not the file it was made from ([#163](https://github.com/Sparxx947/romseerr/issues/163)) ([0b6f49d](https://github.com/Sparxx947/romseerr/commit/0b6f49d71140f1def2f602902bb688f7a76b4271)), closes [#162](https://github.com/Sparxx947/romseerr/issues/162)
+* **stream:** send a library-relative path, and say why a launch failed ([#131](https://github.com/Sparxx947/romseerr/issues/131)) ([9a1e72b](https://github.com/Sparxx947/romseerr/commit/9a1e72bb9dcc2d061ebd587bf72d030d33b920d5))
+* **stream:** ship Dolphin as an AppImage; the apt build never opens a window ([#166](https://github.com/Sparxx947/romseerr/issues/166)) ([8f06866](https://github.com/Sparxx947/romseerr/commit/8f06866da549cd6c3982b030acb73286ac30507d)), closes [#165](https://github.com/Sparxx947/romseerr/issues/165)
+* **stream:** stop mounting into the web root the image wipes on boot ([#146](https://github.com/Sparxx947/romseerr/issues/146)) ([02c7f1e](https://github.com/Sparxx947/romseerr/commit/02c7f1e256339189275e6122be9e45becd7e3128))
+* **stream:** take LD_PRELOAD from the image, do not rebuild it by hand ([#128](https://github.com/Sparxx947/romseerr/issues/128)) ([4b2f2ec](https://github.com/Sparxx947/romseerr/commit/4b2f2ece6233c42869f00701b701375f2ae2f1d2))
+* **stream:** take the platform from the library, not from the search hit ([#155](https://github.com/Sparxx947/romseerr/issues/155)) ([5fcefce](https://github.com/Sparxx947/romseerr/commit/5fcefce31a4fff9d04ff7d002a5f25fca8ca9fb3)), closes [#154](https://github.com/Sparxx947/romseerr/issues/154)
+* **stream:** two emulators installed into one shared directory ([#180](https://github.com/Sparxx947/romseerr/issues/180)) ([b8a6ed6](https://github.com/Sparxx947/romseerr/commit/b8a6ed63f9d5d76ac2dd488d5a6993e65810538a)), closes [#176](https://github.com/Sparxx947/romseerr/issues/176)
+
+
+### Dokumentation / Documentation
+
+* state the content policy, and enforce it in CI ([#109](https://github.com/Sparxx947/romseerr/issues/109)) ([e50be1e](https://github.com/Sparxx947/romseerr/commit/e50be1eb176c8ca2b488cd6e22eba11ab48a446c))
+
+
+### Umbau / Refactoring
+
+* move the front-end out of Python strings into templates/ and static/ ([#90](https://github.com/Sparxx947/romseerr/issues/90)) ([8cd9d41](https://github.com/Sparxx947/romseerr/commit/8cd9d41eb53c7522c6849010ed13979e9568cf7d))
+
 ## [Unreleased]
 
 ### Hinzugefügt / Added
