@@ -1923,3 +1923,70 @@ def test_agent_takes_the_preload_from_the_image_not_a_reconstruction():
     text = open(os.path.join(REPO, "contrib/streaming-host/init/30-agent"), encoding="utf-8").read()
     assert "/run/s6/container_environment/LD_PRELOAD" in text, \
         "die Vorgabe des Abbilds muss gelesen, nicht nachgebaut werden"
+
+
+# ------------------------------------------- Pfadvertrag zum Streaming-Host (#130)
+
+def _agent_module(roms, **umgebung):
+    """Den Start-Dienst als Modul laden. Der Serverstart haengt an __main__, das
+    Importieren ist also folgenlos."""
+    import importlib.util
+    alt = dict(os.environ)
+    os.environ.update({"STREAM_AGENT_TOKEN": "t", "STREAM_ROMS": str(roms), **umgebung})
+    try:
+        pfad = os.path.join(REPO, "contrib/streaming-host/stream-agent.py")
+        spec = importlib.util.spec_from_file_location("stream_agent_test", pfad)
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+    finally:
+        os.environ.clear(); os.environ.update(alt)
+
+
+def test_agent_rejects_traversal_in_the_relative_path(tmp_path):
+    """`rel` wird an die Bibliothekswurzel geheftet und ist damit genauso eine Eingabe
+    von aussen wie der absolute Pfad vorher. Die Pruefung muss GREIFEN, sonst hat der
+    bequemere Vertrag ein Loch aufgemacht. (#130)"""
+    m = _agent_module(tmp_path, EMU_PS2="/bin/true %s")
+    for boese in ("../../etc/passwd", "../../../etc/shadow", "/etc/passwd"):
+        ok, msg = m.launch("", "ps2", boese)
+        assert not ok, f"durchgelassen: {boese!r}"
+
+
+def test_agent_prefers_the_relative_path(tmp_path):
+    """Beides wird geschickt; massgeblich ist `rel`. Ein absoluter Pfad bedeutet in
+    zwei Containern nicht dasselbe. (#130)"""
+    (tmp_path / "ps2").mkdir()
+    (tmp_path / "ps2" / "spiel.iso").write_bytes(b"x")
+    m = _agent_module(tmp_path, EMU_PS2="/bin/true %s")
+    # Der absolute Pfad ist absichtlich falsch — mit `rel` muss es trotzdem gehen.
+    ok, msg = m.launch("/woanders/ps2/spiel.iso", "ps2", "ps2/spiel.iso")
+    assert ok, msg
+    m._stop_locked()
+
+
+def test_romseerr_sends_a_library_relative_path(appmod, client, monkeypatch):
+    """Der Fehler, der das ausgeloest hat: Romseerr schickte einen absoluten Pfad, der
+    Streaming-Host haengt die Bibliothek woanders ein, der Start scheiterte still und
+    der Nutzer sah nur den Desktop. (#130)"""
+    gesehen = {}
+
+    class Antwort:
+        ok, status_code, content = True, 200, b"{}"
+        def json(self): return {"ok": True}
+
+    def falsches_post(url, **kw):
+        gesehen.update(kw.get("json") or {})
+        return Antwort()
+
+    monkeypatch.setattr(appmod, "safe_post", falsches_post)
+    monkeypatch.setattr(appmod, "stream_info", lambda t, s, u="": {
+        "streamable": True, "platform": "ps2",
+        "path": os.path.join(appmod.ROMS, "ps2", "ISO", "spiel.iso"), "reason": ""})
+    appmod.save_settings({"connections": {"stream_url": "https://h.example",
+                                          "stream_launch": "http://h.example:8901/launch?token=x"}})
+    out, code = appmod.stream_start("lena", "Spiel", "ps2")
+    assert code == 200 and out["launched"] is True
+    assert gesehen.get("rel") == os.path.join("ps2", "ISO", "spiel.iso"), gesehen
+    assert "path" in gesehen, "der absolute Pfad geht zur Vertraeglichkeit weiter mit"
+    appmod.kv_put("stream_session", None); appmod.save_settings({})

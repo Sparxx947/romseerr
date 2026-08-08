@@ -157,6 +157,24 @@ ermitteln lässt: **RPCS3** (keine Release-Dateien auf GitHub, offizieller Direk
 weist automatisierte Abrufe ab) und der **Switch-Emulator** (bewusst ohne eingebaute
 Adresse). Romseerr zeigt sie als „URL nötig".
 
+## Die Bibliothek muss auf beiden Seiten dieselbe sein
+
+Romseerr und der Streaming-Host hängen beide die ROM-Bibliothek ein. **Beide müssen
+dieselbe Wurzel meinen** — sonst startet der Emulator nicht, und zwar ohne dass es
+danach aussieht: Romseerr öffnet brav den Desktop, der Titel bleibt zu.
+
+```
+Romseerr    : /pfad/zur/bibliothek  ->  /roms
+Stream-Host : /pfad/zur/bibliothek  ->  /roms     # DIESELBE Quelle
+```
+
+Falsch wäre, bei Romseerr `…/bibliothek/roms` einzuhängen und beim Streaming-Host
+`…/bibliothek`. Beide heißen im Container `/roms`, meinen aber verschiedene Ordner.
+
+Romseerr schickt den Pfad inzwischen **relativ zur Wurzel**, damit nicht auch noch der
+Einhängepunkt übereinstimmen muss. Die Wurzel selbst muss es aber weiterhin — und wenn
+sie es nicht tut, sagt der Start-Dienst das im Klartext, statt nur „nicht gefunden".
+
 ## Controller
 
 Ein Container darf keine Eingabegeräte anlegen. Selkies löst das mit einem
@@ -364,6 +382,24 @@ Two need a URL from you because their source cannot be resolved automatically: *
 (no GitHub release assets; the official direct link refuses automated requests) and the
 **Switch emulator** (deliberately without a built-in address). Romseerr shows these as
 "URL required".
+
+## The library must be the same on both sides
+
+Romseerr and the streaming host both mount the ROM library. **Both must mean the same
+root** — otherwise the emulator does not start, and it does not look like a fault:
+Romseerr dutifully opens the desktop and the title stays closed.
+
+```
+Romseerr     : /path/to/library  ->  /roms
+Stream host  : /path/to/library  ->  /roms     # the SAME source
+```
+
+Mounting `…/library/roms` for Romseerr and `…/library` for the streaming host is wrong.
+Both are called `/roms` inside the container but mean different directories.
+
+Romseerr now sends the path **relative to the root**, so the mount point no longer has
+to match. The root still does — and when it does not, the launch service says so plainly
+instead of merely reporting "not found".
 
 ## Controllers
 
