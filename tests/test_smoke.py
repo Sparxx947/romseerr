@@ -2758,3 +2758,23 @@ def test_the_kept_previous_build_is_not_listed_as_an_emulator():
     assert 'name.endswith(".alt")' in block, block
     # can_rollback muss weiterhin GENAU auf dieses Verzeichnis schauen.
     assert 'name + ".alt", "AppRun"' in block
+
+
+def test_the_openapi_version_line_carries_the_release_marker():
+    """Die Versionszeile in docs/openapi.yaml hat ZWEI Besitzer: den Generator und
+    release-please. Ohne die Marke hebt release-please version.txt an, die Spec
+    bleibt zurueck, und `test_openapi_yaml_in_sync` scheitert — bei JEDEM Release.
+    Genau daran hing #116 tagelang, ohne dass der Grund sichtbar war.
+
+    Die Marke muss jede Neuerzeugung ueberleben, deshalb wird hier BEIDES geprueft:
+    dass sie in der Datei steht, und dass die Konfiguration die Datei ueberhaupt
+    anfasst. Eine der beiden Haelften allein ist wirkungslos."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    spec = open(os.path.join(root, "docs", "openapi.yaml"), encoding="utf-8").read()
+    zeile = [z for z in spec.splitlines() if z.startswith("  version:")]
+    assert zeile, "keine Versionszeile unter info:"
+    assert "x-release-please-version" in zeile[0], zeile[0]
+
+    cfg = json.load(open(os.path.join(root, "release-please-config.json"), encoding="utf-8"))
+    extra = cfg["packages"]["."].get("extra-files", [])
+    assert "docs/openapi.yaml" in extra, f"release-please fasst die Spec nicht an: {extra}"
