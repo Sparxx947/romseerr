@@ -1,6 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "release-type": "simple",
+  "_kommentar-entwurf": "Der Release-PR wird als ENTWURF geoeffnet. Er ist eine Vorschau auf den naechsten Release, kein Angebot: GitHub verweigert das Zusammenfuehren eines Entwurfs. Ein Release entsteht damit erst, wenn jemand den PR bewusst auf bereit setzt. / The release PR opens as a draft: a preview, not an offer. GitHub refuses to merge a draft, so a release takes a deliberate act.",
+  "draft-pull-request": true,
   "packages": {
     ".": {
       "changelog-path": "CHANGELOG.md",

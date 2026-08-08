@@ -2829,3 +2829,18 @@ def test_the_readme_says_how_to_run_an_older_version():
         assert pflicht in r, pflicht
     # Der ehrliche Vorbehalt gehoert dazu, sonst liest sich das wie eine Zusage.
     assert "nicht garantiert lauffähig" in r
+
+
+def test_the_release_pull_request_cannot_be_merged_by_accident():
+    """Minuten nach v1.1.0-beta.1 stand der naechste Release-PR da — gruen, bereit,
+    ungefragt. Ein Release soll aber aus einer Entscheidung entstehen und nicht aus
+    dem Takt der Commits. Als ENTWURF bleibt der PR die nuetzliche Vorschau auf den
+    naechsten Release, ist aber nicht zusammenfuehrbar: GitHub verweigert das bei
+    einem Entwurf. Damit ist die Sperre ein Mechanismus und keine Absprache. (#189)"""
+    cfg = json.load(open(os.path.join(REPO, "release-please-config.json"), encoding="utf-8"))
+    assert cfg.get("draft-pull-request") is True, \
+        "ohne draft-pull-request oeffnet der Release-PR wieder zusammenfuehrbar"
+    # Und die Begruendung muss dort stehen, wo jemand nachsieht, warum es klemmt.
+    wf = open(os.path.join(REPO, ".github/workflows/release-please.yml"),
+              encoding="utf-8").read()
+    assert "KEIN RELEASE OHNE ENTSCHEIDUNG" in wf
