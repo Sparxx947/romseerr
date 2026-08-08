@@ -53,14 +53,25 @@ umask 077
 KATALOG=(
   "ps2|PlayStation 2|pcsx2|.config/PCSX2/bios|*.bin=4194304|https://pcsx2.net/docs/setup/bios/|"
   "dreamcast|Dreamcast|flycast|.local/share/flycast|dc_boot.bin=2097152;dc_flash.bin=131072|https://github.com/flyinghead/flycast/wiki|"
-  "xbox|Xbox|xemu|.local/share/xemu/xemu|mcpx_1.0.bin=512;bios.bin=*|https://xemu.app/docs/getting-started/|"
+  # Xbox: NACH GROESSE statt nach Namen. xemu bekommt die Pfade in seiner eigenen
+  # Konfiguration und schert sich nicht um Dateinamen; die festen Namen hier waren
+  # unsere Erfindung. Real vorgefunden: "mcpx-1.1.bin" und "xbox-5838.bin" — beide
+  # gueltig, beide mit passender Groesse, beide als "fehlt" gemeldet. (#172)
+  # Match by size: xemu takes paths from its own config and does not care about names.
+  "xbox|Xbox|xemu|.local/share/xemu/xemu|*mcpx*=512;*.bin=>200000|https://xemu.app/docs/getting-started/|"
   "3ds|Nintendo 3DS|azahar|.local/share/azahar-emu/sysdata|boot9.bin=65536;aes_keys.txt=*|https://github.com/azahar-emu/azahar|"
   "switch|Nintendo Switch|switchemu|.local/share/eden/keys|prod.keys=*|https://github.com/eden-emulator|"
   "wiiu|Wii U|cemu|emulators/cemu|keys.txt=*|https://github.com/cemu-project/Cemu|"
   "ps3|PlayStation 3|rpcs3|firmware/ps3|PS3UPDAT.PUP=*|https://rpcs3.net/quickstart|.config/rpcs3/dev_flash"
   # Vita3K spielt seine Firmware ebenfalls ein, aber die Ablage ist hier UNGEPRUEFT —
   # die Datei fehlt, also gab es nichts zu messen. Lieber leer als geraten.
-  "psvita|PlayStation Vita|vita3k|firmware/psvita|PSVITAUPDAT.PUP=*|https://github.com/Vita3K/Vita3K|"
+  # Vita: Sonys Datei heisst PSVUPDAT.PUP — "PSVITAUPDAT.PUP" stand hier und war
+  # schlicht falsch geraten. Real vorgefunden:
+  # "PSV_CRC[39075D41]_FW[v3.74]_PSVUPDAT.PUP", also mit Praefix. Deshalb Muster plus
+  # Mindestgroesse: die echte Firmware ist gut 130 MB, eine verirrte kleine .PUP nicht.
+  # Sony's file is PSVUPDAT.PUP; the name here was simply wrong, and real downloads
+  # carry a prefix.
+  "psvita|PlayStation Vita|vita3k|firmware/psvita|*PSVUPDAT.PUP=>100000000|https://github.com/Vita3K/Vita3K|"
 )
 # Dolphin (GameCube/Wii) fehlt bewusst: es braucht keine Firmware, um zu starten.
 # Dolphin is deliberately absent; it needs no firmware to run.
@@ -99,13 +110,41 @@ besitz_richten() {  # besitz_richten <pfad...>
 
 # --------------------------------------------------------- eine Datei-Anforderung prüfen
 # -> "name|status|groesse|sha"   status: fehlt | ok | groesse_unerwartet
+# Erfuellt eine Datei die Groessenangabe? '*' = egal, '>N' = mindestens N, sonst genau.
+#
+# WOZU DAS MINDESTMASS: Das Xbox-BIOS gibt es in 256 KB, 512 KB und 1 MB. Eine feste
+# Zahl waere fuer alle ausser einem falsch, und '*' wuerde jede beliebige Datei
+# durchwinken — auch das 512 Byte grosse MCPX, das direkt danebenliegt.
+# A minimum: the Xbox BIOS legitimately comes in 256 KB, 512 KB and 1 MB.
+groesse_passt() {  # groesse_passt <datei> <soll>
+  local ist; ist=$(stat -c%s "$1" 2>/dev/null || echo 0)
+  case "$2" in
+    "*")  return 0 ;;
+    ">"*) [ "$ist" -ge "${2#>}" ] ;;
+    *)    [ "$ist" = "$2" ] ;;
+  esac
+}
+
 pruefe() {  # pruefe <verzeichnis> <spec>
   local dir="$1" spec="$2"
   local name="${spec%%=*}" soll="${spec#*=}" treffer=""
 
-  if [ "${name#*\*}" != "$name" ]; then     # Muster: erste passende Datei zählt
-    local f
-    for f in "$dir"/$name; do [ -f "$f" ] && { treffer="$f"; break; }; done
+  if [ "${name#*\*}" != "$name" ]; then
+    # MUSTER: die erste Datei nehmen, die die GROESSE ERFUELLT — nicht bloss die erste
+    # ueberhaupt. Beim Xbox liegen zwei .bin nebeneinander (MCPX 512 B und das BIOS mit
+    # 256 KB); die alphabetisch erste war immer das MCPX, und das BIOS wurde als
+    # "Groesse unerwartet" gemeldet, obwohl es danebenlag. (#172)
+    # Pick the first file that SATISFIES the size, not merely the first one: two .bin
+    # files sit side by side for Xbox and the alphabetically first always won.
+    local f erste=""
+    for f in "$dir"/$name; do
+      [ -f "$f" ] || continue
+      [ -z "$erste" ] && erste="$f"
+      if groesse_passt "$f" "$soll"; then treffer="$f"; break; fi
+    done
+    # Nichts Passendes: die erste gefundene melden, damit die Groesse im Bericht steht
+    # statt eines nichtssagenden "fehlt".
+    [ -z "$treffer" ] && treffer="$erste"
   else
     [ -f "$dir/$name" ] && treffer="$dir/$name"
   fi
@@ -119,7 +158,7 @@ pruefe() {  # pruefe <verzeichnis> <spec>
   # korrekt ist — deshalb heisst der Zustand "ok" und nicht "verifiziert".
   # Size is a weak but honest test: it catches truncated and obviously wrong files.
   # It does not prove the contents, hence "ok" rather than "verified".
-  [ "$soll" != "*" ] && [ "$ist" != "$soll" ] && status="groesse_unerwartet"
+  groesse_passt "$treffer" "$soll" || status="groesse_unerwartet"
   echo "$(basename "$treffer")|$status|$ist|$(sha "$treffer")"
 }
 
