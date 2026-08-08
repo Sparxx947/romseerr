@@ -62,6 +62,81 @@ EMULATORS = {
 _current = {"proc": None, "platform": "", "path": ""}
 _lock = threading.Lock()
 
+# Ordner-Titel -> die Datei, mit der der Emulator startet.
+#
+# WARUM EINE TABELLE UND KEINE SUCHE NACH "der groessten Datei": Bei einer PS3-Disc
+# waere das oft ein Video oder ein Datenarchiv, nicht die EBOOT.BIN. Die Reihenfolge
+# ist die Rangfolge; der erste Treffer gewinnt.
+# A table, not a "largest file" heuristic: on a PS3 disc that would usually pick a
+# video, not the boot binary.
+BOOTPFADE = {
+    "ps3": ("PS3_GAME/USRDIR/EBOOT.BIN", "USRDIR/EBOOT.BIN", "EBOOT.BIN"),
+}
+# Rueckfall fuer Ordner ohne bekannte Struktur: eine einzelne Abbilddatei darin ist
+# eindeutig. Bei MEHREREN wird bewusst NICHT geraten — lieber eine klare Absage als
+# ein zufaellig gewaehltes Spiel.
+BOOT_ENDUNGEN = (".iso", ".chd", ".cue", ".gdi", ".rvz", ".wbfs", ".nsp", ".xci", ".pkg")
+
+
+def _bibliothekspfad(rel):
+    """Loest einen bibliotheksrelativen Pfad auf. -> absoluter Pfad oder ''.
+
+    WARUM NICHT EINFACH os.path.join(ROMS, rel) UND HINTERHER PRUEFEN:
+    Weil dabei aus der Anfrage ein Pfad GEBAUT wird und man den Ausbruch danach wieder
+    einfangen muss. Das ging bisher gut (realpath + commonpath), war aber eine Zusage,
+    die bei jeder Aenderung neu einzuhalten ist — und genau daran ist es beinahe
+    gescheitert: die Startdatei aus einem Ordner lief anfangs an der Pruefung vorbei.
+    Zudem sieht CodeQL diese Bauart grundsaetzlich als `py/path-injection`, weil ihm
+    nicht beweisbar ist, dass die Pruefung greift.
+    Hier wird stattdessen STUFE FUER STUFE gegen den ECHTEN Verzeichnisinhalt
+    abgeglichen. Der Wert stammt damit aus dem Dateisystem, die Anfrage bestimmt nur
+    noch die AUSWAHL. Ein Ausbruch ist so nicht mehr abzufangen, sondern gar nicht
+    erst zu formulieren.
+    Resolved by matching each step against the actual directory listing: the value
+    comes from the filesystem, the request only selects. Escaping is not caught after
+    the fact, it cannot be expressed.
+
+    Symlinks werden bewusst NICHT verfolgt. Eine Bibliothek darf welche enthalten, aber
+    dann zeigt der Emulator moeglicherweise auf etwas ausserhalb — und was ausserhalb
+    liegt, ist hier nie startbar.
+    """
+    teile = [t for t in (rel or "").split("/") if t not in ("", ".")]
+    if not teile or any(t == ".." for t in teile):
+        return ""
+    aktuell = ROMS
+    for gesucht in teile:
+        gefunden = ""
+        try:
+            for eintrag in os.listdir(aktuell):
+                if eintrag == gesucht:
+                    gefunden = eintrag      # aus dem Dateisystem, nicht aus der Anfrage
+                    break
+        except OSError:
+            return ""
+        if not gefunden:
+            return ""
+        aktuell = os.path.join(aktuell, gefunden)
+        if os.path.islink(aktuell):
+            return ""
+    return aktuell
+
+
+def _bootdatei(ordner, platform):
+    """-> absoluter Pfad der Startdatei, oder '' wenn nicht eindeutig bestimmbar."""
+    for rel in BOOTPFADE.get(platform, ()):
+        k = os.path.join(ordner, *rel.split("/"))
+        if os.path.isfile(k):
+            return k
+    treffer = []
+    try:
+        for e in sorted(os.listdir(ordner)):
+            k = os.path.join(ordner, e)
+            if os.path.isfile(k) and e.lower().endswith(BOOT_ENDUNGEN):
+                treffer.append(k)
+    except OSError:
+        return ""
+    return treffer[0] if len(treffer) == 1 else ""
+
 # Emulator-Aktualisierung. Laeuft im Hintergrund, damit der Aufrufer nicht minutenlang
 # auf einer HTTP-Antwort haengt — Downloads sind hier hunderte Megabyte.
 # Runs in the background; downloads are hundreds of megabytes.
@@ -239,26 +314,52 @@ def launch(path, platform, rel="", region=""):
     if not cmd:
         return False, f"kein Emulator fuer '{platform}' hinterlegt / no emulator configured"
 
-    if rel:
-        path = os.path.join(ROMS, rel)   # Ausbruchsversuche faengt die Pruefung unten
+    # Der Altweg gibt einen absoluten Pfad. Er wird in einen bibliotheksrelativen
+    # umgerechnet, damit auch er durch dieselbe Aufloesung geht — eine Tuer, nicht zwei.
+    # The legacy absolute path is reduced to a relative one so both go through the
+    # same resolution.
+    if not rel and path:
+        p = os.path.normpath(path)
+        if p != ROMS and not p.startswith(ROMS + os.sep):
+            return False, "Pfad ausserhalb der Bibliothek / path outside the library"
+        rel = p[len(ROMS) + 1:]
 
-    # Der Pfad kommt von aussen. Nach Aufloesung der Symlinks MUSS er unter ROMS liegen —
-    # sonst waere dies ein Fernstart fuer beliebige Dateien auf dem Host. Geprueft wird die
-    # AUFGELOESTE Form (realpath), sonst genuegt ein Symlink oder ein '..' zum Ausbrechen.
-    try:
-        real = os.path.realpath(path)
-        if os.path.commonpath([real, ROMS]) != ROMS:
-            raise ValueError
-    except (ValueError, OSError):
-        return False, "Pfad ausserhalb der Bibliothek / path outside the library"
-    if not os.path.isfile(real):
+    real = _bibliothekspfad(rel)
+    if not real:
         # Der haeufigste Grund ist KEIN fehlendes Spiel, sondern zwei Container, die
         # ihre Bibliothek an verschiedenen Stellen einhaengen. Das gehoert in die
         # Meldung, sonst sucht der Betreiber die Datei statt die Einhaengung.
         # The usual cause is two containers mounting the library differently.
-        return False, (f"Datei nicht gefunden / file not found: {real} — "
-                       "haengen Romseerr und der Streaming-Host DIESELBE "
+        return False, (f"In der Bibliothek nicht gefunden / not found in the library: "
+                       f"{rel} — haengen Romseerr und der Streaming-Host DIESELBE "
                        "Bibliothekswurzel ein? / do both mount the same library root?")
+
+    # Ein Titel ist nicht immer eine Datei. Eine PS3-Disc ist ein ORDNER mit
+    # PS3_DISC.SFB und PS3_GAME/USRDIR/EBOOT.BIN darin — nachgemessen, 13 von 17
+    # Titeln der Testbibliothek. Die frueher hier stehende Pruefung auf `isfile`
+    # hat solche Titel abgewiesen, und zwar mit der Meldung ueber verschiedene
+    # Einhaengepunkte: eine PLAUSIBLE, aber falsche Faehrte, die genau in die
+    # falsche Richtung schickt.
+    #
+    # A title is not always a file: a PS3 disc is a directory. The previous `isfile`
+    # check rejected those with a message about differing mount points — plausible
+    # and wrong, which is the worst kind of error message.
+    if os.path.isdir(real):
+        boot = _bootdatei(real, platform)
+        if not boot:
+            return False, (f"Ordner ohne startbaren Inhalt / folder has no bootable file: "
+                           f"{os.path.basename(real)}")
+        # ERNEUT pruefen. Der Ordner liegt in der Bibliothek, die Startdatei darin muss
+        # es deshalb noch lange nicht: ein Symlink genuegt, um heraus zu zeigen.
+        # Gefunden hat diese Luecke CodeQL, nicht der Testlauf.
+        # The folder being inside the library says nothing about a symlink within it.
+        try:
+            real = os.path.realpath(boot)
+            if os.path.commonpath([real, ROMS]) != ROMS:
+                raise ValueError
+        except (ValueError, OSError):
+            return False, ("Startdatei zeigt aus der Bibliothek heraus / "
+                           "boot file points outside the library")
 
     # Controller-Belegung setzen, bevor der Emulator die Konfiguration liest. Scheitert
     # das, wird trotzdem gestartet: ohne Pad spielen ist schlechter als gar nicht

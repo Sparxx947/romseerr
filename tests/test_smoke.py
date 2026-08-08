@@ -1997,6 +1997,82 @@ def test_agent_prefers_the_relative_path(tmp_path):
     m._stop_locked()
 
 
+def test_agent_launches_a_folder_title(tmp_path):
+    """Eine PS3-Disc ist ein ORDNER (PS3_DISC.SFB + PS3_GAME/USRDIR/EBOOT.BIN) —
+    nachgemessen, 13 von 17 Titeln der Testbibliothek. Die frühere Prüfung auf
+    `isfile` wies solche Titel ab, und zwar mit der Meldung über verschiedene
+    Einhängepunkte: eine plausible, aber falsche Fährte."""
+    spiel = tmp_path / "ps3" / "Ein Spiel"
+    (spiel / "PS3_GAME" / "USRDIR").mkdir(parents=True)
+    (spiel / "PS3_GAME" / "USRDIR" / "EBOOT.BIN").write_bytes(b"x")
+    (spiel / "PS3_DISC.SFB").write_bytes(b"x")
+    m = _agent_module(tmp_path, EMU_PS3="/bin/true %s")
+    ok, msg = m.launch("", "ps3", "ps3/Ein Spiel")
+    assert ok, msg
+    assert m._current["path"].endswith("EBOOT.BIN"), m._current["path"]
+    m._stop_locked()
+
+
+def test_agent_resolves_against_the_listing_not_by_building_a_path(tmp_path):
+    """Der Kern des Umbaus: der Pfad wird nicht aus der Anfrage GEBAUT, sondern Stufe
+    fuer Stufe gegen den echten Verzeichnisinhalt abgeglichen. Der zurueckgegebene
+    Wert stammt damit aus dem Dateisystem; die Anfrage bestimmt nur die Auswahl.
+
+    Nachweis ueber einen Namen, der sich nur in der Gross-/Kleinschreibung
+    unterscheidet: `os.path.join` haette daraus klaglos einen Pfad gebaut, der auf
+    einem case-insensitiven Dateisystem sogar existiert. Der Abgleich gegen das
+    Listing nimmt ihn nicht an, weil der Eintrag so nicht heisst."""
+    (tmp_path / "ps2").mkdir()
+    (tmp_path / "ps2" / "Spiel.iso").write_bytes(b"x")
+    m = _agent_module(tmp_path, EMU_PS2="/bin/true %s")
+    assert m._bibliothekspfad("ps2/Spiel.iso"), "der echte Name muss gehen"
+    assert not m._bibliothekspfad("ps2/spiel.ISO"), "nur was so im Listing steht"
+    assert not m._bibliothekspfad("ps2/../ps2/Spiel.iso"), "'..' bleibt verboten"
+    assert not m._bibliothekspfad(""), "leer ist kein Titel"
+    # Symlinks werden nicht verfolgt — was ausserhalb liegt, ist nie startbar.
+    (tmp_path / "draussen.iso").write_bytes(b"x")
+    (tmp_path / "ps2" / "Verweis.iso").symlink_to(tmp_path / "draussen.iso")
+    assert not m._bibliothekspfad("ps2/Verweis.iso")
+
+
+def test_agent_refuses_a_boot_file_that_symlinks_out_of_the_library(tmp_path):
+    """Der ORDNER liegt in der Bibliothek — die Startdatei darin muss es deshalb
+    nicht. Ein Symlink genuegt, um heraus zu zeigen, und dann startet der Emulator
+    auf einer beliebigen Datei des Hosts.
+
+    Diese Luecke war im ersten Anlauf drin: die Pruefung lief nur auf dem Pfad von
+    aussen, nicht auf der aus dem Ordner aufgeloesten Datei. Gefunden hat sie CodeQL
+    (`py/path-injection`), nicht der Testlauf — deshalb steht sie jetzt hier."""
+    draussen = tmp_path / "geheim.bin"
+    draussen.write_bytes(b"x")
+    roms = tmp_path / "lib"
+    spiel = roms / "ps3" / "Boeses Spiel" / "PS3_GAME" / "USRDIR"
+    spiel.mkdir(parents=True)
+    (spiel / "EBOOT.BIN").symlink_to(draussen)
+    m = _agent_module(roms, EMU_PS3="/bin/true %s")
+    ok, msg = m.launch("", "ps3", "ps3/Boeses Spiel")
+    assert not ok, "Symlink aus der Bibliothek heraus wurde gestartet"
+    assert "Bibliothek" in msg, msg
+
+
+def test_agent_refuses_a_folder_it_cannot_boot_instead_of_guessing(tmp_path):
+    """Zwei Abbilder in einem Ordner: welches gemeint ist, weiss der Agent nicht.
+    Ein geratenes Spiel zu starten waere schlimmer als eine klare Absage — der
+    Nutzer sucht sonst den Fehler im Emulator."""
+    ordner = tmp_path / "ps2" / "Sammlung"
+    ordner.mkdir(parents=True)
+    for n in ("a.iso", "b.iso"):
+        (ordner / n).write_bytes(b"x")
+    m = _agent_module(tmp_path, EMU_PS2="/bin/true %s")
+    ok, msg = m.launch("", "ps2", "ps2/Sammlung")
+    assert not ok and "startbaren" in msg, msg
+    # Ein EINZELNES Abbild ist dagegen eindeutig und muss gehen.
+    (ordner / "b.iso").unlink()
+    ok, msg = m.launch("", "ps2", "ps2/Sammlung")
+    assert ok, msg
+    m._stop_locked()
+
+
 def test_romseerr_sends_a_library_relative_path(appmod, client, monkeypatch):
     """Der Fehler, der das ausgeloest hat: Romseerr schickte einen absoluten Pfad, der
     Streaming-Host haengt die Bibliothek woanders ein, der Start scheiterte still und
@@ -2204,6 +2280,26 @@ def test_every_provided_emulator_has_a_profile_entry(tmp_path):
     m = _profil_modul(tmp_path)
     fehlt = dirs - set(m.PROFILE)
     assert not fehlt, f"ohne Profil-Eintrag: {sorted(fehlt)}"
+
+
+def test_rpcs3_resolves_itself_instead_of_needing_a_hand_typed_url():
+    """RPCS3 stand als `url|RPCS3_URL`, weil rpcs3.net automatisierte Abrufe mit 403
+    abweist. Folge: PS3 blieb uninstalliert, obwohl Firmware und Titel vorhanden waren
+    — und niemand sah, warum. Das Projekt veroeffentlicht seine Linux-Builds selbst in
+    einem GitHub-Binaerdepot, das sich wie jedes andere Release aufloesen laesst.
+
+    Bewusst OHNE Netz geprueft: der Test haelt die Entscheidung fest, nicht die
+    Verfuegbarkeit von GitHub. Ein Test, der bei jedem Ausfall von GitHub rot wird,
+    wird abgeschaltet und schuetzt dann gar nichts mehr."""
+    katalog = open(os.path.join(REPO, "contrib/streaming-host/init/20-emulators"),
+                   encoding="utf-8").read()
+    tabelle = re.search(r"KATALOG=\((.*?)\n\)", katalog, re.S).group(1)
+    zeilen = {z.strip().strip('"').split("|")[1]: z.strip().strip('"').split("|")
+              for z in tabelle.strip().splitlines() if z.strip().startswith('"')}
+    art, quelle, muster = zeilen["rpcs3"][3], zeilen["rpcs3"][4], zeilen["rpcs3"][5]
+    assert art == "release", f"RPCS3 soll sich selbst aufloesen, ist aber '{art}'"
+    assert "rpcs3-binaries-linux" in quelle, quelle
+    assert muster, "ohne Muster waehlt release_asset das erstbeste Asset"
 
 
 def test_bios_region_is_read_not_guessed(tmp_path):

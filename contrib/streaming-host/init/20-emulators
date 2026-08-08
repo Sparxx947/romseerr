@@ -175,9 +175,15 @@ KATALOG=(
   "Cemu|cemu|Wii U|release|$GH/cemu-project/Cemu/releases/latest|Cemu-[0-9.]+-x86_64\.AppImage$"
   "Azahar|azahar|3DS|release|$GH/azahar-emu/azahar/releases/latest|azahar\.AppImage$"
   "Vita3K|vita3k|PS Vita|release|$GH/Vita3K/Vita3K/releases/latest|Vita3K-x86_64\.AppImage$"
-  # RPCS3 legt keine Release-Dateien auf GitHub ab, und der offizielle Direktlink
-  # weist automatisierte Abrufe mit HTTP 403 ab -> URL selbst eintragen.
-  "RPCS3|rpcs3|PS3|url|RPCS3_URL|"
+  # RPCS3: Der offizielle Direktlink auf rpcs3.net weist automatisierte Abrufe mit
+  # HTTP 403 ab — deshalb stand hier bisher "URL selbst eintragen". Das Projekt
+  # veroeffentlicht seine Linux-Builds aber selbst auf GitHub, in einem eigenen
+  # Binaerdepot. Das laesst sich wie jedes andere Release aufloesen, und damit
+  # entfaellt der Handgriff.
+  # Nachgemessen: genau EIN Asset trifft das Muster.
+  # rpcs3.net rejects automated fetches, but the project publishes its Linux builds
+  # in its own GitHub binaries repository, which resolves like any other release.
+  "RPCS3|rpcs3|PS3|release|$GH/RPCS3/rpcs3-binaries-linux/releases/latest|rpcs3-.*linux64\.AppImage$"
   # Switch: bewusst ohne eingebaute Adresse. Die grossen Emulatoren wurden nach
   # Rechtsstreit eingestellt, die Forks wechseln ihre Bezugsquelle. Entweder
   # SWITCH_EMU_API + SWITCH_EMU_ASSET (aktualisiert sich dann selbst) oder
