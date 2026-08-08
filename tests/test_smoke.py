@@ -1550,6 +1550,70 @@ def test_dedup_key_does_not_get_looser(appmod):
     assert appmod.norm("Brutal Legend BLES00562") == "brutal legend"
 
 
+def _mit_index(appmod, per):
+    """Den Bibliotheks-Index fuer einen Test setzen und hinterher zuruecklegen."""
+    with appmod.LIB_LOCK:
+        alt = dict(appmod.LIB["per"]), set(appmod.LIB["slugs"])
+        appmod.LIB["per"] = {k: set(v) for k, v in per.items()}
+        appmod.LIB["slugs"] = set(per)
+    return alt
+
+
+def _index_zurueck(appmod, alt):
+    with appmod.LIB_LOCK:
+        appmod.LIB["per"], appmod.LIB["slugs"] = alt[0], alt[1]
+
+
+def test_platform_comes_from_the_library_not_from_the_search_hit(appmod, tmp_path, monkeypatch):
+    """Ein Suchtreffer kann `Mixed` heissen — ein realer Ordner mit gemischtem Inhalt,
+    keine Plattform — waehrend die passende Datei in `ps2/` liegt. Vorher gab
+    stream_info() genau hier auf: kein Stream-Knopf, obwohl der Titel dalag. Am
+    laufenden System reproduziert mit Silent Hill 4 und Resident Evil 4. (#154)"""
+    (tmp_path / "ps2").mkdir()
+    (tmp_path / "ps2" / "Silent Hill 4 - The Room (Europe).iso").write_bytes(b"x")
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    appmod.save_settings({"connections": {"stream_url": "http://s.example/"}})
+    alt = _mit_index(appmod, {"ps2": {appmod.norm("Silent Hill 4 - The Room (Europe).iso")}})
+    try:
+        info = appmod.stream_info("Silent Hill 4 - The Room", "Mixed")
+        assert info.get("streamable") is True, info
+        assert info.get("platform") == "ps2", info
+    finally:
+        _index_zurueck(appmod, alt); appmod.save_settings({})
+
+
+def test_an_ambiguous_platform_is_refused_rather_than_guessed(appmod, tmp_path, monkeypatch):
+    """Denselben Titel gibt es fuer PS2 und GameCube. Das PS2-Abbild zu starten, wenn
+    die GameCube-Fassung gemeint war, ist eine stille Fehlentscheidung — der Nutzer
+    sucht den Fehler dann im Emulator. Lieber absagen und sagen warum. (#154)"""
+    for ordner in ("ps2", "ngc"):
+        (tmp_path / ordner).mkdir()
+        (tmp_path / ordner / "Resident Evil 4.iso").write_bytes(b"x")
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    appmod.save_settings({"connections": {"stream_url": "http://s.example/"}})
+    n = appmod.norm("Resident Evil 4.iso")
+    alt = _mit_index(appmod, {"ps2": {n}, "ngc": {n}})
+    try:
+        info = appmod.stream_info("Resident Evil 4", "Mixed")
+        assert info.get("streamable") is False, info
+        assert info.get("reason") == "ambiguous_platform", info
+    finally:
+        _index_zurueck(appmod, alt); appmod.save_settings({})
+
+
+def test_an_unknown_platform_with_nothing_in_the_library_still_says_not_supported(appmod, tmp_path, monkeypatch):
+    """Die Erweiterung darf die klare Absage nicht verwaessern: was nirgends liegt,
+    bleibt `not_supported`. (#154)"""
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    appmod.save_settings({"connections": {"stream_url": "http://s.example/"}})
+    alt = _mit_index(appmod, {"ps2": set()})
+    try:
+        info = appmod.stream_info("Gibt Es Nicht", "Mixed")
+        assert info.get("reason") == "not_supported", info
+    finally:
+        _index_zurueck(appmod, alt); appmod.save_settings({})
+
+
 def test_stream_finds_a_title_that_is_a_folder(appmod, tmp_path, monkeypatch):
     """Eine PS3-Disc ist ein ORDNER, kein Abbild. Ohne diesen Zweig meldete jeder
     PS3-Titel `not_in_library`, der Stream-Knopf erschien nie — waehrend der

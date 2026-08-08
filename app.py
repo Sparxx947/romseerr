@@ -2195,6 +2195,31 @@ def stream_find_file(title, slug):
         return None
     return None
 
+def plattform_aus_bibliothek(title):
+    """Welche STREAMBARE Plattform haelt diesen Titel? -> Slug, '' oder '?' (mehrdeutig).
+
+    WOZU: Die Plattform am Suchtreffer ist nicht die des Bestands. Ein Treffer kann
+    `Mixed` heissen — ein realer Ordner mit gemischtem Inhalt, keine Plattform —
+    waehrend die passende Datei in `ps2/` liegt. Bisher gab stream_info() an dieser
+    Stelle auf, und der Nutzer sah keinen Stream-Knopf, obwohl der Titel dalag.
+    Der Index weiss laengst, wo er liegt; diese Kenntnis wird jetzt benutzt. (#154)
+
+    The platform on a search hit is not the platform of the copy in the library.
+    The index already knows where the file is; use that instead of giving up.
+    """
+    n = norm(title)
+    if not n:
+        return ""
+    with LIB_LOCK:
+        treffer = sorted(s for s in STREAMABLE if n in (LIB["per"].get(s) or set()))
+    if len(treffer) == 1:
+        return treffer[0]
+    # MEHRDEUTIG WIRD NICHT GERATEN. Denselben Titel gibt es fuer PS2 und Wii; das
+    # PS2-Abbild zu starten, wenn die Wii-Fassung gemeint war, ist genau die stille
+    # Fehlentscheidung, die dieses Projekt vermeidet. Lieber eine Absage mit Grund.
+    return "?" if treffer else ""
+
+
 def stream_info(title, slug, user=""):
     """Ist der Titel streambar — und wenn nein, warum nicht? Antwortet immer mit Grund."""
     slug = resolve_slug(slug) if slug else ""
@@ -2205,7 +2230,14 @@ def stream_info(title, slug, user=""):
         # Dafuer gibt es einen Browser-Kern — Stream waere die schlechtere Wahl.
         return {"streamable": False, "reason": "use_play", "platform": slug}
     if slug not in STREAMABLE:
-        return {"streamable": False, "reason": "not_supported", "platform": slug}
+        # Der Treffer nennt keine streambare Plattform. Bevor abgesagt wird: liegt der
+        # Titel vielleicht trotzdem in einer? (#154)
+        ersatz = plattform_aus_bibliothek(title)
+        if ersatz == "?":
+            return {"streamable": False, "reason": "ambiguous_platform", "platform": slug}
+        if not ersatz:
+            return {"streamable": False, "reason": "not_supported", "platform": slug}
+        slug = ersatz
     path = stream_find_file(title, slug)
     if not path:
         return {"streamable": False, "reason": "not_in_library", "platform": slug}
