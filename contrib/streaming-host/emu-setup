@@ -65,7 +65,7 @@ fi
 # Only display, audio and input variables — not the service token.
 while IFS= read -r -d '' z; do
   case "$z" in
-    LD_PRELOAD=*|LD_LIBRARY_PATH=*|SDL_*|SELKIES_*|DISPLAY=*|HOME=*|PULSE_*|XDG_*|PATH=*)
+    LD_PRELOAD=*|LD_LIBRARY_PATH=*|SDL_*|SELKIES_*|DISPLAY=*|HOME=*|PULSE_*|XDG_*|PATH=*|QT_QPA_PLATFORM=*|GDK_BACKEND=*)
       export "${z?}" ;;
   esac
 done < "/proc/$pid/environ"
