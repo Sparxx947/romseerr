@@ -2016,7 +2016,8 @@ def play_info(title, slug=""):
 #
 # EINZELPLATZ: mit einer GPU ist das eine Sitzung gleichzeitig. Das muss die Oberflaeche
 # klar sagen, statt beim zweiten Versuch zu scheitern.
-STREAMABLE = {"ps2", "ngc", "wii", "wiiu", "switch", "dreamcast", "3ds"}
+STREAMABLE = {"ps2", "ngc", "wii", "wiiu", "switch", "dreamcast", "3ds",
+              "xbox", "ps3", "psvita"}
 # Verzeichnisname je Plattform. Der Umweg ueber diese feste Tabelle ist Absicht: der
 # Pfad wird damit aus einer KONSTANTE gebaut, nicht aus der Eingabe. Ein '../'-Versuch
 # findet hier schlicht keinen Eintrag, statt bis in os.path.join durchzureichen.
@@ -2626,6 +2627,65 @@ def api_stream_stop():
         return jsonify({"ok": False, "msg": "fremde Sitzung / not your session"}), 403
     kv_put("stream_session", None)
     return jsonify({"ok": True, "was_running": True})
+
+@app.route("/api/stream/emulators")
+@perm_required("manage_settings")
+def api_stream_emulators():
+    """Welche Emulatoren liegen auf dem Streaming-Host, aus welcher Quelle, und
+    laeuft gerade eine Aktualisierung? Fragt den Start-Dienst — Romseerr weiss das
+    nicht selbst und soll es auch nicht raten."""
+    conf = stream_cfg()
+    if not conf["launch"]:
+        return jsonify({"ok": False, "reason": "no_launcher"}), 400
+    # Der Start-Dienst hat /update neben /launch; die URL wird entsprechend abgeleitet.
+    url = conf["launch"].split("?")[0].rsplit("/", 1)[0] + "/update"
+    q = conf["launch"].split("?", 1)[1] if "?" in conf["launch"] else ""
+    try:
+        r = safe_get(url + (("?" + q) if q else ""), timeout=15)
+        return jsonify({"ok": r.ok, **(r.json() if r.ok else {})}), (200 if r.ok else 502)
+    except Exception as e:
+        log(f"Stream-Emulatoren: {e}")
+        return jsonify({"ok": False, "reason": err_kind(e)}), 502
+
+@app.route("/api/stream/emulators/update", methods=["POST"])
+@perm_required("manage_settings")
+def api_stream_emulators_update():
+    """Aktualisierung der Emulatoren auf dem Streaming-Host anstossen. Der Lauf
+    dauert Minuten (hunderte Megabyte), deshalb antwortet der Dienst sofort und der
+    Fortschritt wird ueber /api/stream/emulators abgefragt."""
+    conf = stream_cfg()
+    if not conf["launch"]:
+        return jsonify({"ok": False, "reason": "no_launcher"}), 400
+    url = conf["launch"].split("?")[0].rsplit("/", 1)[0] + "/update"
+    q = conf["launch"].split("?", 1)[1] if "?" in conf["launch"] else ""
+    try:
+        r = safe_post(url + (("?" + q) if q else ""), timeout=20)
+        if r.status_code == 409:
+            return jsonify({"ok": False, "reason": "already_running"}), 409
+        return jsonify({"ok": r.ok}), (200 if r.ok else 502)
+    except Exception as e:
+        log(f"Stream-Emulator-Update: {e}")
+        return jsonify({"ok": False, "reason": err_kind(e)}), 502
+
+@app.route("/api/stream/emulators/rollback", methods=["POST"])
+@perm_required("manage_settings")
+def api_stream_emulators_rollback():
+    """Einen Emulator auf die vorige Fassung zuruecksetzen. Ein Update kann eine
+    Regression bringen — dann soll der Rueckweg ein Klick sein und keine Suche."""
+    conf = stream_cfg()
+    if not conf["launch"]:
+        return jsonify({"ok": False, "reason": "no_launcher"}), 400
+    name = ((request.get_json(silent=True) or {}).get("name") or "").strip()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", name):
+        return jsonify({"ok": False, "reason": "bad_name"}), 400
+    url = conf["launch"].split("?")[0].rsplit("/", 1)[0] + "/rollback"
+    q = conf["launch"].split("?", 1)[1] if "?" in conf["launch"] else ""
+    try:
+        r = safe_post(url + (("?" + q) if q else ""), json={"name": name}, timeout=120)
+        return jsonify({"ok": r.ok, **(r.json() if r.ok else {})}), (200 if r.ok else 502)
+    except Exception as e:
+        log(f"Stream-Emulator-Rueckkehr: {e}")
+        return jsonify({"ok": False, "reason": err_kind(e)}), 502
 
 @app.route("/api/stream/status")
 @perm_required("request")
@@ -3961,6 +4021,19 @@ OPENAPI = {
         "/api/stream/stop": {"post": _op("Sitzung beenden (Inhaber oder manage_requests)", "Requests",
             responses={**_R_PERM, "200": {"description": "freigegeben"}})},
         "/api/stream/status": {"get": _op("Zustand des Einzelplatzes", "Requests", responses=_R_PERM)},
+        "/api/stream/emulators": {"get": _op("Emulatoren auf dem Streaming-Host: Stand, Quelle, laufende Aktualisierung", "Admin",
+            responses={**_R_PERM, "200": {"description": "Liste + Update-Zustand"},
+                       "400": {"description": "kein Start-Dienst hinterlegt"},
+                       "502": {"description": "Start-Dienst nicht erreichbar"}})},
+        "/api/stream/emulators/rollback": {"post": _op("Einen Emulator auf die vorige Fassung zuruecksetzen", "Admin",
+            body={"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}},
+            responses={**_R_PERM, "200": {"description": "zurueckgesetzt"},
+                       "400": {"description": "kein Start-Dienst / unzulaessiger Name"},
+                       "502": {"description": "Start-Dienst nicht erreichbar"}})},
+        "/api/stream/emulators/update": {"post": _op("Emulatoren auf dem Streaming-Host aktualisieren (Hintergrundlauf)", "Admin",
+            responses={**_R_PERM, "200": {"description": "gestartet"},
+                       "409": {"description": "laeuft bereits"},
+                       "502": {"description": "Start-Dienst nicht erreichbar"}})},
         "/api/cover": {"get": _op("Cover-URL zu einem Titel (lazy, via IGDB)", "Search",
             params=[_qp("title", "Titel")])},
         "/api/platforms": {"get": _op("Verfügbare Plattformen/Slugs", "Search")},

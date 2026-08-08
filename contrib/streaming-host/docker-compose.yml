@@ -48,8 +48,26 @@ services:
       AGENT_PORT: ${AGENT_PORT:-8901}
       INSTALL_PCSX2: ${INSTALL_PCSX2:-false}
       INSTALL_DOLPHIN: ${INSTALL_DOLPHIN:-false}
+      INSTALL_FLYCAST: ${INSTALL_FLYCAST:-false}
+      INSTALL_XEMU: ${INSTALL_XEMU:-false}
+      INSTALL_CEMU: ${INSTALL_CEMU:-false}
+      INSTALL_AZAHAR: ${INSTALL_AZAHAR:-false}
+      INSTALL_VITA3K: ${INSTALL_VITA3K:-false}
+      INSTALL_RPCS3: ${INSTALL_RPCS3:-false}
+      RPCS3_URL: ${RPCS3_URL:-}
       INSTALL_SWITCH_EMU: ${INSTALL_SWITCH_EMU:-false}
       SWITCH_EMU_URL: ${SWITCH_EMU_URL:-}
+      SWITCH_EMU_API: ${SWITCH_EMU_API:-}
+      SWITCH_EMU_ASSET: ${SWITCH_EMU_ASSET:-}
+      EMU_AUTO_UPDATE: ${EMU_AUTO_UPDATE:-true}
+      # Feste Versionen (Downgrade). Leer = jeweils neueste Fassung.
+      # Pinned versions (downgrade). Empty = latest release.
+      PCSX2_URL: ${PCSX2_URL:-}
+      FLYCAST_URL: ${FLYCAST_URL:-}
+      XEMU_URL: ${XEMU_URL:-}
+      CEMU_URL: ${CEMU_URL:-}
+      AZAHAR_URL: ${AZAHAR_URL:-}
+      VITA3K_URL: ${VITA3K_URL:-}
       VGL_VERSION: ${VGL_VERSION:-3.1.4}
     volumes:
       - ${CONFIG_DIR:-./data}/config:/config

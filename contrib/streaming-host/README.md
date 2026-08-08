@@ -140,6 +140,25 @@ Zwei Einstellungen sind dafür nötig und im Compose gesetzt:
 
 ---
 
+## Emulatoren aktualisieren und zurücksetzen
+
+Läuft bei jedem Containerstart: die aktuelle Release-URL wird geholt und mit der
+installierten verglichen. Aus Romseerr heraus geht es auch direkt —
+**Einstellungen → Verbindungen → „Emulatoren aktualisieren"**.
+
+Zwei Sicherheitsnetze, weil ein Update auch schaden kann:
+
+* Ein fehlgeschlagener **Download** oder ein fehlgeschlagenes **Entpacken** lässt
+  die laufende Fassung unangetastet. Es wird daneben entpackt und nur bei Erfolg
+  getauscht.
+* Die **vorige Fassung wird aufgehoben** (genau eine Generation). Bringt ein Update
+  eine Regression, ist der Rückweg ein Klick — ohne Netz und ohne die alte Version
+  suchen zu müssen.
+
+Für dauerhaftes Bleiben auf einer bestimmten Fassung: die vollständige URL des
+gewünschten Release-Assets in `<NAME>_URL` eintragen (z. B. `PCSX2_URL`). Sie
+schlägt die Release-Abfrage, auch bei eingeschaltetem Auto-Update.
+
 ## Der Start-Dienst
 
 `stream-agent.py` nimmt von Romseerr entgegen, welche Datei zu starten ist. Er
@@ -249,6 +268,18 @@ silent.
 `stream-agent.py` starts processes, so: it refuses to run without a shared token,
 never uses a shell, and resolves the path with `realpath`, rejecting anything
 outside the ROM library. Do not expose it to the open internet.
+
+## Updating and rolling back emulators
+
+Runs on every container start, and can be triggered from Romseerr under
+**Settings → Connections**. Two safety nets, because an update can also break
+things: a failed download or extraction leaves the working build untouched (it is
+extracted beside the old one and swapped only on success), and the **previous
+build is kept** — exactly one generation — so a regression is one click away from
+being undone, with no network and no version hunting.
+
+To stay on a specific build indefinitely, set `<NAME>_URL` (e.g. `PCSX2_URL`) to
+the full asset URL; it beats the release lookup even with auto-update on.
 
 ## Certificate renewal
 

@@ -40,6 +40,12 @@ export STREAM_ROMS=/roms
 [ -x "$EMU/pcsx2/AppRun" ]     && export EMU_PS2="$VGL $EMU/pcsx2/AppRun -- %s"
 [ -x /usr/games/dolphin-emu ]  && export EMU_GC="$VGL /usr/games/dolphin-emu -b -e %s"
 [ -x "$EMU/switchemu/AppRun" ] && export EMU_SWITCH="$VGL $EMU/switchemu/AppRun -f -g %s"
+[ -x "$EMU/flycast/AppRun" ]   && export EMU_DC="$VGL $EMU/flycast/AppRun %s"
+[ -x "$EMU/xemu/AppRun" ]      && export EMU_XBOX="$VGL $EMU/xemu/AppRun -dvd_path %s"
+[ -x "$EMU/cemu/AppRun" ]      && export EMU_WIIU="$VGL $EMU/cemu/AppRun -g %s"
+[ -x "$EMU/azahar/AppRun" ]    && export EMU_3DS="$VGL $EMU/azahar/AppRun %s"
+[ -x "$EMU/vita3k/AppRun" ]    && export EMU_VITA="$VGL $EMU/vita3k/AppRun -r %s"
+[ -x "$EMU/rpcs3/AppRun" ]     && export EMU_PS3="$VGL $EMU/rpcs3/AppRun --no-gui %s"
 
 pkill -f stream-agent.py 2>/dev/null || true
 setsid nohup python3 /config/stream-agent.py >> /config/stream-agent.log 2>&1 &

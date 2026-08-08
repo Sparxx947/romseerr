@@ -547,6 +547,58 @@ paths:
       - Requests
       responses: *id005
       security: *id002
+  /api/stream/emulators:
+    get:
+      summary: 'Emulatoren auf dem Streaming-Host: Stand, Quelle, laufende Aktualisierung'
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: Liste + Update-Zustand
+        '400':
+          description: kein Start-Dienst hinterlegt
+        '502':
+          description: Start-Dienst nicht erreichbar
+      security: *id002
+  /api/stream/emulators/rollback:
+    post:
+      summary: Einen Emulator auf die vorige Fassung zuruecksetzen
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: zurueckgesetzt
+        '400':
+          description: kein Start-Dienst / unzulaessiger Name
+        '502':
+          description: Start-Dienst nicht erreichbar
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - name
+              properties:
+                name:
+                  type: string
+  /api/stream/emulators/update:
+    post:
+      summary: Emulatoren auf dem Streaming-Host aktualisieren (Hintergrundlauf)
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: gestartet
+        '409':
+          description: laeuft bereits
+        '502':
+          description: Start-Dienst nicht erreichbar
+      security: *id002
   /api/cover:
     get:
       summary: Cover-URL zu einem Titel (lazy, via IGDB)

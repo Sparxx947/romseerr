@@ -1498,6 +1498,9 @@ def test_stream_agent_refuses_paths_outside_the_library(appmod):
     spec = importlib.util.spec_from_file_location("stream_agent", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    # Ohne konfigurierten Emulator lehnt der Dienst schon vorher ab — dann wuerde der
+    # Test die PFADPRUEFUNG gar nicht erreichen und faelschlich gruen sein.
+    mod.EMULATORS["ps2"] = "/bin/true %s"
     ok, msg = mod.launch("/etc/passwd", "ps2")
     assert ok is False and "ausserhalb" in msg
     ok, msg = mod.launch(os.path.join(appmod.ROMS, "gibt-es-nicht.iso"), "ps2")
@@ -1563,3 +1566,40 @@ def test_no_private_infrastructure_details_in_repo():
                          + "\n  ".join(treffer)
                          + "\n\nEntweder entfernen, oder — wenn es wirklich ein Beispiel ist —"
                            " oben in BEISPIELE aufnehmen.")
+
+
+def test_streamable_and_playable_stay_disjoint(appmod):
+    """#69 und #71 duerfen sich nicht widersprechen: wo ein Browser-Kern existiert,
+    gibt es keinen Stream-Knopf. Beim Nachruesten von Plattformen ist genau das die
+    Stelle, an der man es kaputt macht. (#101)"""
+    ueberschneidung = appmod.STREAMABLE & set(appmod.PLAYABLE)
+    assert not ueberschneidung, f"Plattform in beiden Mengen: {ueberschneidung}"
+    # die nachgeruesteten Plattformen sind wirklich drin
+    for slug in ("xbox", "ps3", "psvita", "dreamcast", "3ds", "wiiu"):
+        assert slug in appmod.STREAMABLE, slug
+
+
+def test_emulator_endpoints_need_manage_settings(appmod, client):
+    """Emulatoren aktualisieren und zuruecksetzen ist Administration. (#102)"""
+    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": ["request"]}})
+    with client.session_transaction() as sess:
+        sess["user"] = "lena"; sess["role"] = "user"
+    assert client.get("/api/stream/emulators").status_code == 403
+    assert client.post("/api/stream/emulators/update").status_code == 403
+    assert client.post("/api/stream/emulators/rollback", json={"name": "pcsx2"}).status_code == 403
+    appmod.save_users({})
+
+
+def test_rollback_name_is_validated(appmod, client):
+    """Der Name geht in eine Argumentliste auf dem Streaming-Host — er wird hier
+    geprueft und nicht erst dort. (#102)"""
+    appmod.save_settings({"connections": {"stream_url": "http://s.example/",
+                                          "stream_launch": "http://s.example:8901/launch?token=x"}})
+    appmod.save_users({"a": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "a"; sess["role"] = "admin"
+    for boes in ("../etc", "pcsx2; rm -rf /", "PCSX2", "", "a" * 40, "/absolut"):
+        r = client.post("/api/stream/emulators/rollback", json={"name": boes})
+        assert r.status_code == 400, f"durchgelassen: {boes!r}"
+        assert r.get_json()["reason"] == "bad_name"
+    appmod.save_settings({}); appmod.save_users({})
