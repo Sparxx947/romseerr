@@ -2403,9 +2403,23 @@ def test_rpcs3_binds_player_one_to_sdl_not_the_keyboard(tmp_path):
     text = open(pfad, encoding="utf-8").read()
     assert "Handler: SDL" in text, text
     assert "Microsoft X-Box 360 pad" in text, text
-    # Zweiter Lauf darf nichts mehr tun — das Profil wird VOR JEDEM Start angewandt.
-    geaendert2, msg2 = m.rpcs3_apply()
-    assert not geaendert2 and "bereits" in msg2, msg2
+    # Die Meldung darf NICHT behaupten, das Pad sei fertig — die Belegung fehlt noch.
+    assert "belegung" in msg.lower(), msg
+
+
+def test_rpcs3_never_overwrites_an_existing_mapping(tmp_path):
+    """Das Profil laeuft VOR JEDEM Start. Wuerde es eine vorhandene Datei ersetzen,
+    waere die von Hand im Pad-Dialog gesetzte Belegung beim naechsten Start weg —
+    lautlos, und es haette die Arbeit des Nutzers zunichte gemacht. Genau so war es
+    im ersten Wurf. (#158)"""
+    m = _profil_modul(tmp_path)
+    pfad = m.rpcs3_input()
+    os.makedirs(os.path.dirname(pfad), exist_ok=True)
+    eigen = "Player 1 Input:\n  Handler: SDL\n  Device: \"Mein Pad\"\n  Config:\n    Cross: A\n"
+    open(pfad, "w", encoding="utf-8").write(eigen)
+    geaendert, msg = m.rpcs3_apply()
+    assert not geaendert, msg
+    assert open(pfad, encoding="utf-8").read() == eigen, "die eigene Belegung wurde angetastet"
 
 
 def test_rpcs3_device_name_is_overridable(tmp_path, monkeypatch):
