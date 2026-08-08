@@ -356,6 +356,23 @@ python scripts/build_openapi.py   # docs/openapi.yaml aus der OPENAPI-Spec erzeu
 - Das **Frontend** liegt in `static/` und `templates/`; die Tests prüfen u. a., dass jede
   JavaScript-Datei von Node **geparst** wird und die **OpenAPI-Spec alle Routen** abdeckt.
 
+### Aus dem Quellstand bauen / building from source
+
+```bash
+docker build -t romseerr:local \
+  --build-arg ROMSEERR_COMMIT="$(git rev-parse --short HEAD)" \
+  --build-arg ROMSEERR_BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
+```
+
+**Die beiden Build-Argumente sind kein Beiwerk.** Ohne sie meldet `/api/version` nur
+`{"commit": null}` — und das sieht aus wie eine Antwort, ist aber die Abwesenheit einer.
+Eine Instanz kann dann nicht sagen, ob sie dem Quellstand entspricht; genau so lief hier
+ein Container einen ganzen Arbeitstag mit dem Stand vom Vortag, ohne dass es auffiel.
+Fehlen sie, sagt Romseerr das in den Einstellungen ausdrücklich.
+
+*Without those two build args an instance cannot say whether it matches the source, and
+`{"commit": null}` reads like an answer while being the absence of one.*
+
 ### Zweige / branches
 
 | Zweig | Inhalt |
