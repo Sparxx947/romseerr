@@ -1520,6 +1520,36 @@ def test_stream_find_file_validates_the_slug_itself(appmod):
     appmod.save_settings({})
 
 
+def test_disc_id_does_not_defeat_title_matching(appmod):
+    """PS3-Abzuege tragen ihre Disc-Kennung im Namen (BLES00562). Ohne sie zu
+    entfernen traf KEIN einziger PS3-Titel seinen Katalogeintrag — die Suche meldete
+    „nicht vorhanden", obwohl der Titel dalag. (#152)"""
+    paare = [("Brutal Legend BLES00562", "Brutal Legend"),
+             ("Alone in the Dark Inferno BLUS30232", "Alone in the Dark: Inferno"),
+             ("Best of PlayStation Network Vol.1 BCUS99205", "Best of PlayStation Network Vol.1")]
+    for datei, katalog in paare:
+        assert appmod.norm(datei) == appmod.norm(katalog), (datei, appmod.norm(datei))
+
+
+def test_ps3_is_stripped_like_every_other_platform_token(appmod):
+    """`ps1`, `ps2` und `psp` standen in REGION_RE, `ps3` nicht — eine schlichte
+    Luecke, die sich als plattformspezifischer Fehler tarnte. (#152)"""
+    assert "ps3" not in appmod.norm("Some Game PS3").split()
+    assert appmod.norm("Some Game PS3") == appmod.norm("Some Game PS2")
+
+
+def test_dedup_key_does_not_get_looser(appmod):
+    """`norm()` ist die Grundlage der Dedup. Eine zu grosszuegige Regel liesse zwei
+    verschiedene Spiele zusammenfallen — ein Fehler, der sich still auswirkt und
+    erst auffaellt, wenn ein Titel verschwunden ist. Deshalb steht die Gegenprobe
+    neben der Erweiterung. (#152)"""
+    for a, b in [("Portal 2", "Portal"), ("FIFA 2005", "FIFA 2006"),
+                 ("Half-Life 2", "Half-Life"), ("Rock Band 3", "Rock Band")]:
+        assert appmod.norm(a) != appmod.norm(b), (a, b)
+    # Eine Kennung mitten im Titel ist kein Grund, den Rest zu verlieren.
+    assert appmod.norm("Brutal Legend BLES00562") == "brutal legend"
+
+
 def test_stream_finds_a_title_that_is_a_folder(appmod, tmp_path, monkeypatch):
     """Eine PS3-Disc ist ein ORDNER, kein Abbild. Ohne diesen Zweig meldete jeder
     PS3-Titel `not_in_library`, der Stream-Knopf erschien nie — waehrend der
