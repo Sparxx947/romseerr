@@ -41,6 +41,21 @@ teilen sich **RomM** (Browser/Player) und **RetroNAS**.
 
 ---
 
+## Was Romseerr ist — und was nicht
+
+Romseerr ist **Werkzeug**: es sucht, fragt an, lädt herunter und sortiert ein.
+Es **hostet keine Inhalte, beschafft keine und verlinkt keine**. Welche Quellen es
+abfragt, trägt der Betreiber in den Einstellungen ein — nichts davon steht in
+diesem Repository, und nichts ist voreingestellt.
+
+Ebenso wenig enthält dieses Repository Emulatoren, BIOS-Abbilder, Firmware oder
+Konsolen-Schlüssel. Emulatoren werden auf Wunsch von den **offiziellen
+Projektquellen** geholt; Firmware und BIOS stammen aus **Hardware, die dir
+gehört**. Ein CI-Lauf prüft das bei jedem Pull Request.
+
+Die vollständige Regel steht in
+[CONTRIBUTING](.github/CONTRIBUTING.md#was-hier-nicht-hineingehört).
+
 ## Highlights
 
 - 🔍 **Suchen & Entdecken** über **Archive.org** und **Usenet** (Prowlarr → SABnzbd), mit

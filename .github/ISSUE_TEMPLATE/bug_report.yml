@@ -7,6 +7,12 @@ body:
       value: |
         Danke für den Bericht! Bitte **keine Geheimnisse** (Keys, Tokens, `.env`) einfügen.
         Thanks! Please do **not** include secrets (keys, tokens, `.env`).
+
+        **Keine Inhaltsquellen.** Fragen nach Bezugsquellen für Spiele, ROMs, BIOS
+        oder Firmware werden geschlossen — Romseerr ist Werkzeug, die Quellen trägt
+        der Betreiber selbst ein. Siehe [CONTRIBUTING](../blob/main/.github/CONTRIBUTING.md).
+        **No content sources.** Requests for where to obtain games, ROMs, BIOS or
+        firmware are closed — Romseerr is tooling; sources are the operator's own.
   - type: textarea
     id: what-happened
     attributes:

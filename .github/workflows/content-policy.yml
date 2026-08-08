@@ -1,0 +1,80 @@
+# Inhaltsregel durchsetzen / enforce the content policy
+#
+# Das Repository enthält nur Werkzeug — keine Spielinhalte, keine Firmware, keine
+# Schlüssel, keine Verweise auf Bezugsquellen. Die Regel steht in
+# .github/CONTRIBUTING.md, geprüft wird sie hier.
+#
+# WARUM EIN EIGENER WORKFLOW UND NICHT NUR EIN TEST:
+# Ein Test läuft aus dem Code DES Pull Requests. Ein Beitrag, der Inhalte mitbringt,
+# könnte im selben Zug die Prüfung aufweichen oder die Ausnahmeliste erweitern.
+# Deshalb wird das Prüfskript hier aus dem HAUPTZWEIG ausgecheckt und gegen die
+# Dateien des Pull Requests laufen gelassen — ein PR kann seine eigene Schranke
+# damit nicht senken.
+#
+# WHY A SEPARATE WORKFLOW: a test runs from the pull request's own code and could be
+# weakened in the same commit. Here the checker is taken from the DEFAULT branch and
+# run against the pull request's files, so a PR cannot lower its own gate.
+name: Content policy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    name: Content policy
+    runs-on: ubuntu-latest
+    steps:
+      # 1) Der zu prüfende Stand.
+      - name: Checkout (zu prüfen / under review)
+        uses: actions/checkout@v4
+        with:
+          path: pr
+          fetch-depth: 0
+
+      # 2) Das Prüfskript — bewusst aus dem Hauptzweig, nicht aus dem PR.
+      - name: Checkout policy checker from the default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: policy
+          sparse-checkout: scripts/check_content_policy.py
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 3) Erst der Diff: was fügt DIESER Beitrag hinzu? Das ist die Frage, die ein
+      #    Baum-Scan schlecht beantwortet — eine große Datei fällt darin leicht durch.
+      - name: Was fügt dieser Beitrag hinzu? / What does this change add?
+        if: github.event_name == 'pull_request'
+        working-directory: pr
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          echo "### Hinzugefügte oder geänderte Dateien / added or changed files"
+          git diff --name-only --diff-filter=AM "origin/${{ github.base_ref }}...HEAD" \
+            | tee /tmp/changed.txt
+          echo
+          echo "### Größen / sizes"
+          while read -r f; do
+            [ -f "$f" ] && printf '%8s  %s\n' "$(du -h "$f" | cut -f1)" "$f"
+          done < /tmp/changed.txt || true
+
+      # 4) Die eigentliche Prüfung. Der ganze Baum, damit auch Altbestand auffällt —
+      #    das Skript ist schnell genug, dass sich eine Diff-Beschränkung nicht lohnt.
+      - name: Inhaltsregel prüfen / check content policy
+        run: |
+          cp policy/scripts/check_content_policy.py /tmp/check.py
+          cd pr
+          python /tmp/check.py
+
+      - name: Hinweis bei Verstoß / note on failure
+        if: failure()
+        run: |
+          echo "::error title=Inhaltsregel verletzt::Dieses Repository enthält nur Werkzeug — keine Inhalte, Firmware, Schlüssel oder Bezugsquellen. Siehe .github/CONTRIBUTING.md"
