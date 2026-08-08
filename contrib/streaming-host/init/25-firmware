@@ -154,7 +154,8 @@ status_json() {
   printf '{"ok":true,"platforms":['
   for e in "${KATALOG[@]}"; do
     p=$(feld "$e" 1)
-    local ziel="$CFG/$(feld "$e" 4)" dateien; dateien=$(feld "$e" 5)
+    local ziel dateien
+    ziel="$CFG/$(feld "$e" 4)"; dateien=$(feld "$e" 5)
     local alles_da=1 ausg="" feld_erste=1
     IFS=';' read -ra fs <<< "$dateien"
     for f in "${fs[@]}"; do
@@ -204,6 +205,11 @@ importieren() {  # importieren <plattform> <datei> [zielname]
   erwartet=$(feld "$e" 5)
   IFS=';' read -ra __specs <<< "$erwartet"
   for spec in "${__specs[@]}"; do
+    # Das Muster SOLL ein Glob sein: bei der PS2 heisst das BIOS je nach Konsole
+    # anders und steht im Katalog als `*.bin`. Quotieren wuerde genau die Wirkung
+    # aufheben, um die es hier geht.
+    # The pattern is meant to glob (`*.bin`); quoting would defeat the purpose.
+    # shellcheck disable=SC2254
     case "$name" in ${spec%%=*}) passt=1;; esac
   done
   [ $passt -eq 0 ] && echo "[firmware] Hinweis: $p sucht nach '${erwartet//;/, }' — '$name' wird dort nicht gelesen." >&2
