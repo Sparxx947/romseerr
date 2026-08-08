@@ -169,7 +169,22 @@ GH="https://api.github.com/repos"
 # from this table, so there is only one place to add an emulator.
 KATALOG=(
   "PCSX2|pcsx2|PS2|release|$GH/PCSX2/pcsx2/releases|linux-appimage-x64-Qt\.AppImage$"
-  "Dolphin|dolphin|GameCube/Wii|apt|dolphin-emu|"
+  # Dolphin als AppImage, NICHT als Distributionspaket. Gemessen im Container: das
+  # apt-Paket startet, legt alle Konfigurationsdateien an — und oeffnet NIE ein
+  # Fenster. Weder mit noch ohne VirtualGL, mit erzwungenem `-platform xcb`, ohne
+  # Argumente und mit oder ohne den Selkies-Interposer. Im X-Baum steht nur Qts
+  # internes 3x3-Fenster "Qt Selection Owner for dolphin-emu". Die AppImage oeffnet
+  # an derselben Stelle "Dolphin 2606". Es war das einzige apt-Paket im Katalog; alle
+  # AppImages funktionieren, weil sie ihr eigenes Qt mitbringen. (#165)
+  #
+  # QUELLE IST INOFFIZIELL — bewusst so entschieden. Dolphin liefert fuer Linux
+  # ausschliesslich Flatpak, und Flatpak scheidet hier aus: es braucht bubblewrap, und
+  # das kann im unprivilegierten Container keinen Namensraum anlegen
+  # ("Operation not permitted"). Eine Sandbox wuerde ausserdem LD_PRELOAD nicht nach
+  # innen reichen — daran haengt der Gamepad-Interposer.
+  # Unofficial source on purpose: Dolphin ships only Flatpak for Linux, and bubblewrap
+  # cannot create a namespace in an unprivileged container.
+  "Dolphin|dolphin|GameCube/Wii|release|$GH/pkgforge-dev/Dolphin-emu-AppImage/releases/latest|Dolphin_Emulator-.*x86_64\\.AppImage$"
   "Flycast|flycast|Dreamcast|release|$GH/flyinghead/flycast/releases/latest|flycast-x86_64\.AppImage$"
   "xemu|xemu|Xbox|release|$GH/xemu-project/xemu/releases/latest|xemu-[0-9.]+-x86_64\.AppImage$"
   "Cemu|cemu|Wii U|release|$GH/cemu-project/Cemu/releases/latest|Cemu-[0-9.]+-x86_64\.AppImage$"
@@ -193,7 +208,10 @@ KATALOG=(
 
 feld() { echo "$1" | cut -d"|" -f"$2"; }
 
-installiert() { [ -x "$EMU/$1/AppRun" ] || { [ "$1" = dolphin ] && command -v /usr/games/dolphin-emu >/dev/null 2>&1; }; }
+# Der frueher hier stehende Sonderfall fuer ein apt-installiertes Dolphin ist weg:
+# er meldete "installiert" fuer einen Emulator, der nachweislich kein Fenster oeffnet.
+# Lieber als fehlend fuehren als als vorhanden luegen. (#165)
+installiert() { [ -x "$EMU/$1/AppRun" ]; }
 
 # Quelle eines Eintrags aufloesen -> URL (oder leer, wenn nicht ermittelbar)
 quelle_von() {  # quelle_von <zeile>

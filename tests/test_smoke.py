@@ -2596,3 +2596,32 @@ def test_firmware_panel_names_the_not_installed_state():
     js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
     assert "p.needs_install&&!p.installed" in js, "der Zustand wird nicht abgefragt"
     assert js.count("fw_notinstalled:") >= 5, "Text fehlt in mindestens einer Sprache"
+
+
+def test_dolphin_is_an_appimage_not_a_distribution_package():
+    """Das apt-Paket startet, legt alle Konfigurationsdateien an — und oeffnet NIE ein
+    Fenster. Nachgemessen im Container: weder mit noch ohne VirtualGL, mit erzwungenem
+    `-platform xcb`, ohne Argumente, mit und ohne Selkies-Interposer. Im X-Baum stand
+    nur Qts internes 3x3-Fenster. Die AppImage oeffnet an derselben Stelle
+    "Dolphin 2606". (#165)"""
+    katalog = open(os.path.join(REPO, "contrib/streaming-host/init/20-emulators"),
+                   encoding="utf-8").read()
+    tabelle = re.search(r"KATALOG=\((.*?)\n\)", katalog, re.S).group(1)
+    zeilen = {z.strip().strip('"').split("|")[1]: z.strip().strip('"').split("|")
+              for z in tabelle.strip().splitlines() if z.strip().startswith('"')}
+    art, quelle = zeilen["dolphin"][3], zeilen["dolphin"][4]
+    assert art == "release", f"Dolphin soll als AppImage kommen, ist aber '{art}'"
+    assert "Dolphin-emu-AppImage" in quelle, quelle
+    assert "|apt|" not in katalog, "es soll kein apt-Eintrag mehr geben"
+
+
+def test_nothing_falls_back_to_the_apt_dolphin():
+    """Ein Rueckfall auf etwas, das nachweislich kein Fenster oeffnet, ist schlechter
+    als keiner: er macht aus einem klaren "nicht installiert" ein stummes "Knopf da,
+    nichts passiert". (#165)"""
+    agent = open(os.path.join(REPO, "contrib/streaming-host/init/30-agent"),
+                 encoding="utf-8").read()
+    aktiv = [z for z in agent.splitlines()
+             if "/usr/games/dolphin-emu" in z and not z.strip().startswith("#")]
+    assert not aktiv, f"noch ein Rueckfall auf das apt-Paket: {aktiv}"
+    assert 'EMU_GC="$VGL $EMU/dolphin/AppRun' in agent
