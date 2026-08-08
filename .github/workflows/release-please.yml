@@ -9,6 +9,14 @@
 # BRANCH MODEL: work happens on `dev`, releases live on `main`. Merging the release PR
 # tags a release, and `main` is fast-forwarded to that exact commit — which is why
 # `main` only ever contains the current release.
+#
+# STOLPERSTELLE: Ein Workflow wird aus dem Baum des Zweigs gelesen, auf den gepusht
+# wird — nicht aus dem Standardzweig. Solange auf `main` noch eine aeltere Fassung
+# liegt, die auf `main` lauscht, feuert beim Vorspulen DEREN Lauf. Das legte sich von
+# selbst, sobald der erste Release die heutige Fassung nach `main` traegt.
+# PITFALL: a workflow is read from the tree of the branch pushed to. An older copy
+# sitting on `main` will fire when `main` moves; it resolves itself with the first
+# release that carries this file to `main`.
 name: release-please
 on:
   workflow_dispatch:
