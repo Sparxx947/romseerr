@@ -1686,3 +1686,57 @@ def test_agent_url_derivation(appmod):
     assert appmod._agent_url("catalog") == "http://h:8901/catalog"
     appmod.save_settings({})
     assert appmod._agent_url("catalog") is None
+
+
+# --------------------------------------------------------------- Zweigmodell (#111)
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _workflow(name):
+    import yaml
+    p = os.path.join(REPO, ".github", "workflows", name)
+    # "on:" ist in YAML 1.1 der Wahrheitswert True — deshalb nicht nach "on" suchen.
+    return yaml.safe_load(open(p, encoding="utf-8"))
+
+
+def test_release_runs_on_dev_and_only_fast_forwards_main():
+    """`main` ist ein Zeiger auf den Release, kein Arbeitszweig. Der Release-Lauf darf
+    ihn nur VORSPULEN — ein --force hier wuerde genau die Garantie aufheben, wegen der
+    das Modell ueberhaupt gebaut wurde. (#111)"""
+    wf = _workflow("release-please.yml")
+    assert wf[True]["push"]["branches"] == ["dev"], "Release-Bot muss auf dev hoeren"
+    rp = wf["jobs"]["release-please"]["steps"][0]
+    assert rp["with"]["target-branch"] == "dev"
+    text = open(os.path.join(REPO, ".github/workflows/release-please.yml"), encoding="utf-8").read()
+    assert "--is-ancestor" in text, "Vorspulen muss geprueft werden, nicht angenommen"
+    assert "push --force" not in text and "-f origin" not in text and "+refs/" not in text, \
+        "main darf niemals erzwungen ueberschrieben werden"
+
+
+def test_ci_also_guards_main():
+    """Der Release-Commit wird auf dev geprueft — aber main soll eigene gruene Laeufe
+    haben, sonst steht der ausgelieferte Zweig ohne Nachweis da. (#111)"""
+    for name in ("ci.yml", "security.yml", "content-policy.yml"):
+        branches = _workflow(name)[True]["push"]["branches"]
+        assert "dev" in branches and "main" in branches, f"{name}: {branches}"
+
+
+def test_content_policy_checker_comes_from_the_target_branch():
+    """Nie aus dem PR selbst — sonst senkt ein Beitrag seine eigene Schranke. Und nicht
+    aus dem Standardzweig, sonst pruefte ein Release-PR nach der falschen Regel. (#111)"""
+    text = open(os.path.join(REPO, ".github/workflows/content-policy.yml"), encoding="utf-8").read()
+    assert "github.base_ref || github.ref_name" in text
+    assert "github.event.repository.default_branch" not in text
+
+
+def test_version_manifest_matches_the_last_release():
+    """Die Version kam aus version.txt und war 0.1.0, waehrend v1.0.0-beta.1 veroeffentlicht
+    war — /api/version log damit seit dem Beta-Release. Das Manifest ist jetzt die
+    Wahrheit; version.txt auf dev traegt nur eine Entwicklungsmarke. (#111)"""
+    import json
+    manifest = json.load(open(os.path.join(REPO, ".release-please-manifest.json")))
+    assert list(manifest) == ["."] and manifest["."], manifest
+    dev_version = open(os.path.join(REPO, "version.txt"), encoding="utf-8").read().strip()
+    assert dev_version.endswith("-dev"), \
+        f"version.txt auf dev muss als Entwicklungsstand erkennbar sein, ist {dev_version!r}"

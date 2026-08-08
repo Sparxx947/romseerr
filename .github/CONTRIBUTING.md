@@ -4,13 +4,55 @@ Danke, dass du zu Romseerr beitragen möchtest! / Thanks for contributing to Rom
 
 ## Deutsch
 
+### Zweigmodell
+
+| Zweig | Was drin ist | Wer schreibt |
+|---|---|---|
+| **`dev`** | Entwicklungsstand, Standardzweig | Feature-Branch → PR → `dev` |
+| **`main`** | **genau der aktuelle Release**, sonst nichts | nur der Release-Lauf |
+
+`main` ist kein Zweig, auf dem gearbeitet wird — es ist ein **Zeiger auf den zuletzt
+veröffentlichten Stand**. Wer das Projekt nachbaut und `main` auscheckt, bekommt
+etwas, das als Release durchgetestet wurde, nicht den Zwischenstand von gestern Abend.
+
+Weil `dev` den Inhalt von `main` immer vollständig enthält, ist jede Bewegung von
+`main` ein **Fast-Forward**. Erzwungene Pushes sind dort gesperrt — und das ist kein
+Hindernis, sondern der Beweis, dass das Modell hält: schlägt das Vorspulen fehl, ist
+etwas an `dev` vorbei auf `main` gelangt, und der Release-Lauf bricht laut ab.
+
 ### Workflow
-1. **Feature-Branch** von `main` erstellen (`feat/…`, `fix/…`, `ci/…`, `docs/…`).
+1. **Feature-Branch** von `dev` erstellen (`feat/…`, `fix/…`, `ci/…`, `docs/…`).
 2. Änderungen committen — **Conventional Commits auf Englisch**
    (`feat(scope): …`, `fix(scope): …`). Der Release-Bot leitet daraus Version & Changelog ab.
-3. **Pull Request** öffnen. `main` ist geschützt: PR-Pflicht, kein Force-Push und **alle
-   Status-Checks müssen grün sein** (Lint, Tests, Docker-Build, Bandit, Gitleaks, Trivy).
+3. **Pull Request gegen `dev`** öffnen. `dev` ist geschützt: PR-Pflicht, kein Force-Push
+   und **alle Status-Checks müssen grün sein** (Lint, Tests, Docker-Build, Bandit,
+   Gitleaks, Trivy, Content-Policy).
 4. Nach dem Merge (Squash) räumt der Bot den Branch auf.
+
+### Wie ein Release entsteht
+1. Der Bot sammelt die Commits auf `dev` und hält einen **Release-PR** offen
+   (Version in `version.txt`, Abschnitt im `CHANGELOG.md`).
+2. Diesen PR mergen = Release: Tag und GitHub-Release entstehen.
+3. Der Lauf spult danach **`main` auf genau diesen Commit** vor.
+
+Die Version wird **nicht von Hand** gesetzt. Auf `dev` steht in `version.txt` eine
+Entwicklungsmarke (`…-dev`); den echten Wert schreibt der Bot im Release-PR. Maßgeblich
+ist `.release-please-manifest.json` — dort steht, worauf zuletzt veröffentlicht wurde.
+
+### Versionszweige — bewusst erst bei Bedarf
+
+Es gibt **keine** `release/x.y`-Zweige, und das ist eine Entscheidung, keine Lücke.
+Sie lohnen sich, wenn mehrere Versionen **gleichzeitig gepflegt** werden müssen — wenn
+also jemand auf einer alten Version festsitzt und trotzdem Fixes braucht. Solange das
+nicht so ist, kosten sie Cherry-Picks und einen weiteren grün zu haltenden Zweig, ohne
+etwas zu kaufen.
+
+Der Aufschub ist gratis: Weil jeder Release ein Tag hat, lässt sich ein Versionszweig
+in dem Moment, in dem er zum ersten Mal gebraucht wird, rückwirkend exakt schneiden.
+
+```bash
+git switch -c release/1.0 v1.0.0     # Fix drauf, taggen als v1.0.1
+```
 
 ### Lokal entwickeln & testen
 ```bash
@@ -51,13 +93,54 @@ erfährt.
 
 ## English
 
+### Branch model
+
+| Branch | Contents | Who writes |
+|---|---|---|
+| **`dev`** | development trunk, default branch | feature branch → PR → `dev` |
+| **`main`** | **exactly the current release**, nothing else | the release run only |
+
+`main` is not a branch you work on — it is a **pointer to what was last published**.
+Check it out and you get something that went through a release, not last night's
+work in progress.
+
+Because `dev` always contains all of `main`, every move of `main` is a **fast-forward**.
+Force-pushes are blocked there, and that is not an obstacle but the proof that the model
+holds: if the fast-forward fails, something reached `main` outside `dev`, and the release
+run fails loudly instead of rewriting history.
+
 ### Workflow
-1. Create a **feature branch** off `main` (`feat/…`, `fix/…`, `ci/…`, `docs/…`).
+1. Create a **feature branch** off `dev` (`feat/…`, `fix/…`, `ci/…`, `docs/…`).
 2. Commit using **English Conventional Commits** (`feat(scope): …`). The release bot
    derives version & changelog from these.
-3. Open a **pull request**. `main` is protected: PR required, no force-push, and **all
-   status checks must pass** (lint, tests, docker build, Bandit, Gitleaks, Trivy).
+3. Open a **pull request against `dev`**. `dev` is protected: PR required, no force-push,
+   and **all status checks must pass** (lint, tests, docker build, Bandit, Gitleaks,
+   Trivy, content policy).
 4. Squash-merge; the bot deletes the branch.
+
+### How a release happens
+1. The bot collects commits on `dev` and keeps a **release PR** open (version in
+   `version.txt`, a section in `CHANGELOG.md`).
+2. Merging that PR is the release: tag and GitHub release are created.
+3. The run then fast-forwards **`main` to exactly that commit**.
+
+Versions are **never set by hand**. `version.txt` on `dev` carries a development marker
+(`…-dev`); the real value is written by the bot in the release PR. The source of truth is
+`.release-please-manifest.json`.
+
+### Version branches — deliberately deferred
+
+There are **no** `release/x.y` branches, and that is a decision rather than an omission.
+They earn their keep when several versions must be **maintained in parallel** — someone
+stuck on an old version who still needs fixes. Until that is true they cost cherry-picks
+and another branch to keep green, and buy nothing.
+
+Deferring is free: every release is tagged, so a version branch can be cut retroactively
+at the exact moment it is first needed.
+
+```bash
+git switch -c release/1.0 v1.0.0     # fix on top, tag as v1.0.1
+```
 
 ### Develop & test locally
 ```bash

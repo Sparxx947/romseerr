@@ -353,8 +353,21 @@ python scripts/build_openapi.py   # docs/openapi.yaml aus der OPENAPI-Spec erzeu
 ```
 
 - Datenpfade über `ROMSEERR_CONFIG` / `ROMSEERR_ROMS`; für einen echten Lauf `cp .env.example .env`.
-- Das **Frontend** liegt als String in `app.py`; die Tests prüfen u. a., dass jeder Inline-`<script>`
-  von Node **geparst** wird und die **OpenAPI-Spec alle Routen** abdeckt.
+- Das **Frontend** liegt in `static/` und `templates/`; die Tests prüfen u. a., dass jede
+  JavaScript-Datei von Node **geparst** wird und die **OpenAPI-Spec alle Routen** abdeckt.
+
+### Zweige / branches
+
+| Zweig | Inhalt |
+|---|---|
+| **`dev`** | Entwicklungsstand, Standardzweig — hierhin gehen alle Pull Requests |
+| **`main`** | **genau der aktuelle Release** — wird vom Release-Lauf vorgespult, nie von Hand |
+
+Wer eine **stabile Fassung** will, nimmt `main` oder einen Tag. Wer **mitentwickelt oder den
+neuesten Stand** braucht, nimmt `dev`. Einzelheiten samt Release-Ablauf:
+[`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md).
+
+*Want a stable checkout? Use `main` or a tag. Want the newest state? Use `dev`.*
 - Beiträge willkommen — siehe [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md),
   [`.github/CODE_OF_CONDUCT.md`](.github/CODE_OF_CONDUCT.md) und [`.github/SECURITY.md`](.github/SECURITY.md).
 - Ausführliche Doku im **[Wiki](../../wiki)**.
