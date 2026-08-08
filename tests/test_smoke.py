@@ -1857,13 +1857,30 @@ def test_content_policy_checker_comes_from_the_target_branch():
 def test_version_manifest_matches_the_last_release():
     """Die Version kam aus version.txt und war 0.1.0, waehrend v1.0.0-beta.1 veroeffentlicht
     war — /api/version log damit seit dem Beta-Release. Das Manifest ist jetzt die
-    Wahrheit; version.txt auf dev traegt nur eine Entwicklungsmarke. (#111)"""
+    Wahrheit; version.txt auf dev traegt nur eine Entwicklungsmarke. (#111)
+
+    ERWEITERT (#183): Die Marke allein war zu eng. Der `simple`-Typ von release-please
+    BESITZT version.txt — die Datei anzuheben ist der Zweck des Release-PR. Die alte
+    Fassung wies damit genau den Commit ab, der zum Release wird, und kein Release kam
+    je durch. Erlaubt ist deshalb beides: die Entwicklungsmarke ODER exakt die Version
+    aus dem Manifest.
+
+    Der Fehler, fuer den die Regel geschrieben wurde, faellt weiterhin durch: `0.1.0`
+    neben einem veroeffentlichten `v1.0.0-beta.1` ist weder das eine noch das andere.
+    Und "welcher Bau ist das genau" war ueber die Version ohnehin nie zu beantworten —
+    dafuer traegt /api/version seit #143 `commit` und `built_at`.
+
+    Extended: release-please owns version.txt, so the release commit legitimately holds
+    the release version. Accept the marker or the manifest version; anything else — the
+    original fault — still fails."""
     import json
     manifest = json.load(open(os.path.join(REPO, ".release-please-manifest.json")))
     assert list(manifest) == ["."] and manifest["."], manifest
     dev_version = open(os.path.join(REPO, "version.txt"), encoding="utf-8").read().strip()
-    assert dev_version.endswith("-dev"), \
-        f"version.txt auf dev muss als Entwicklungsstand erkennbar sein, ist {dev_version!r}"
+    assert dev_version.endswith("-dev") or dev_version == manifest["."], (
+        f"version.txt ist {dev_version!r} — weder Entwicklungsmarke (…-dev) noch die "
+        f"Version aus dem Manifest ({manifest['.']!r}). Genau diese Luecke liess "
+        f"/api/version seit dem Beta-Release luegen.")
 
 
 def test_release_tags_stay_continuous():
