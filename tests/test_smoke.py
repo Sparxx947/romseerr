@@ -2013,6 +2013,28 @@ def test_agent_launches_a_folder_title(tmp_path):
     m._stop_locked()
 
 
+def test_agent_resolves_against_the_listing_not_by_building_a_path(tmp_path):
+    """Der Kern des Umbaus: der Pfad wird nicht aus der Anfrage GEBAUT, sondern Stufe
+    fuer Stufe gegen den echten Verzeichnisinhalt abgeglichen. Der zurueckgegebene
+    Wert stammt damit aus dem Dateisystem; die Anfrage bestimmt nur die Auswahl.
+
+    Nachweis ueber einen Namen, der sich nur in der Gross-/Kleinschreibung
+    unterscheidet: `os.path.join` haette daraus klaglos einen Pfad gebaut, der auf
+    einem case-insensitiven Dateisystem sogar existiert. Der Abgleich gegen das
+    Listing nimmt ihn nicht an, weil der Eintrag so nicht heisst."""
+    (tmp_path / "ps2").mkdir()
+    (tmp_path / "ps2" / "Spiel.iso").write_bytes(b"x")
+    m = _agent_module(tmp_path, EMU_PS2="/bin/true %s")
+    assert m._bibliothekspfad("ps2/Spiel.iso"), "der echte Name muss gehen"
+    assert not m._bibliothekspfad("ps2/spiel.ISO"), "nur was so im Listing steht"
+    assert not m._bibliothekspfad("ps2/../ps2/Spiel.iso"), "'..' bleibt verboten"
+    assert not m._bibliothekspfad(""), "leer ist kein Titel"
+    # Symlinks werden nicht verfolgt — was ausserhalb liegt, ist nie startbar.
+    (tmp_path / "draussen.iso").write_bytes(b"x")
+    (tmp_path / "ps2" / "Verweis.iso").symlink_to(tmp_path / "draussen.iso")
+    assert not m._bibliothekspfad("ps2/Verweis.iso")
+
+
 def test_agent_refuses_a_boot_file_that_symlinks_out_of_the_library(tmp_path):
     """Der ORDNER liegt in der Bibliothek — die Startdatei darin muss es deshalb
     nicht. Ein Symlink genuegt, um heraus zu zeigen, und dann startet der Emulator

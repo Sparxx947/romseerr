@@ -78,6 +78,49 @@ BOOTPFADE = {
 BOOT_ENDUNGEN = (".iso", ".chd", ".cue", ".gdi", ".rvz", ".wbfs", ".nsp", ".xci", ".pkg")
 
 
+def _bibliothekspfad(rel):
+    """Loest einen bibliotheksrelativen Pfad auf. -> absoluter Pfad oder ''.
+
+    WARUM NICHT EINFACH os.path.join(ROMS, rel) UND HINTERHER PRUEFEN:
+    Weil dabei aus der Anfrage ein Pfad GEBAUT wird und man den Ausbruch danach wieder
+    einfangen muss. Das ging bisher gut (realpath + commonpath), war aber eine Zusage,
+    die bei jeder Aenderung neu einzuhalten ist — und genau daran ist es beinahe
+    gescheitert: die Startdatei aus einem Ordner lief anfangs an der Pruefung vorbei.
+    Zudem sieht CodeQL diese Bauart grundsaetzlich als `py/path-injection`, weil ihm
+    nicht beweisbar ist, dass die Pruefung greift.
+    Hier wird stattdessen STUFE FUER STUFE gegen den ECHTEN Verzeichnisinhalt
+    abgeglichen. Der Wert stammt damit aus dem Dateisystem, die Anfrage bestimmt nur
+    noch die AUSWAHL. Ein Ausbruch ist so nicht mehr abzufangen, sondern gar nicht
+    erst zu formulieren.
+    Resolved by matching each step against the actual directory listing: the value
+    comes from the filesystem, the request only selects. Escaping is not caught after
+    the fact, it cannot be expressed.
+
+    Symlinks werden bewusst NICHT verfolgt. Eine Bibliothek darf welche enthalten, aber
+    dann zeigt der Emulator moeglicherweise auf etwas ausserhalb — und was ausserhalb
+    liegt, ist hier nie startbar.
+    """
+    teile = [t for t in (rel or "").split("/") if t not in ("", ".")]
+    if not teile or any(t == ".." for t in teile):
+        return ""
+    aktuell = ROMS
+    for gesucht in teile:
+        gefunden = ""
+        try:
+            for eintrag in os.listdir(aktuell):
+                if eintrag == gesucht:
+                    gefunden = eintrag      # aus dem Dateisystem, nicht aus der Anfrage
+                    break
+        except OSError:
+            return ""
+        if not gefunden:
+            return ""
+        aktuell = os.path.join(aktuell, gefunden)
+        if os.path.islink(aktuell):
+            return ""
+    return aktuell
+
+
 def _bootdatei(ordner, platform):
     """-> absoluter Pfad der Startdatei, oder '' wenn nicht eindeutig bestimmbar."""
     for rel in BOOTPFADE.get(platform, ()):
@@ -271,33 +314,24 @@ def launch(path, platform, rel="", region=""):
     if not cmd:
         return False, f"kein Emulator fuer '{platform}' hinterlegt / no emulator configured"
 
-    if rel:
-        path = os.path.join(ROMS, rel)   # Ausbruchsversuche faengt die Pruefung unten
+    # Der Altweg gibt einen absoluten Pfad. Er wird in einen bibliotheksrelativen
+    # umgerechnet, damit auch er durch dieselbe Aufloesung geht — eine Tuer, nicht zwei.
+    # The legacy absolute path is reduced to a relative one so both go through the
+    # same resolution.
+    if not rel and path:
+        p = os.path.normpath(path)
+        if p != ROMS and not p.startswith(ROMS + os.sep):
+            return False, "Pfad ausserhalb der Bibliothek / path outside the library"
+        rel = p[len(ROMS) + 1:]
 
-    # Der Pfad kommt von aussen. Nach Aufloesung der Symlinks MUSS er unter ROMS liegen —
-    # sonst waere dies ein Fernstart fuer beliebige Dateien auf dem Host. Geprueft wird die
-    # AUFGELOESTE Form (realpath), sonst genuegt ein Symlink oder ein '..' zum Ausbrechen.
-    #
-    # BEWUSST ZWEIMAL AUSGESCHRIEBEN statt in einer Hilfsfunktion: als Funktion
-    # erkennt CodeQL die Pruefung nicht mehr als Barriere und meldet fuenfmal
-    # `py/path-injection`. Der Code war dabei korrekt — die Analyse sieht nur nicht
-    # ueber die Funktionsgrenze. Lesbarkeit gegen ein stilles Abschalten der
-    # Sicherheitspruefung einzutauschen waere der schlechtere Handel.
-    # Written out twice on purpose: as a helper, CodeQL no longer recognises the
-    # guard as a barrier and reports py/path-injection.
-    try:
-        real = os.path.realpath(path)
-        if os.path.commonpath([real, ROMS]) != ROMS:
-            raise ValueError
-    except (ValueError, OSError):
-        return False, "Pfad ausserhalb der Bibliothek / path outside the library"
-    if not os.path.exists(real):
+    real = _bibliothekspfad(rel)
+    if not real:
         # Der haeufigste Grund ist KEIN fehlendes Spiel, sondern zwei Container, die
         # ihre Bibliothek an verschiedenen Stellen einhaengen. Das gehoert in die
         # Meldung, sonst sucht der Betreiber die Datei statt die Einhaengung.
         # The usual cause is two containers mounting the library differently.
-        return False, (f"Datei nicht gefunden / file not found: {real} — "
-                       "haengen Romseerr und der Streaming-Host DIESELBE "
+        return False, (f"In der Bibliothek nicht gefunden / not found in the library: "
+                       f"{rel} — haengen Romseerr und der Streaming-Host DIESELBE "
                        "Bibliothekswurzel ein? / do both mount the same library root?")
 
     # Ein Titel ist nicht immer eine Datei. Eine PS3-Disc ist ein ORDNER mit
