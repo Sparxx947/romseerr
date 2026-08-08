@@ -232,7 +232,14 @@ def pcsx2_vollbild():
 # Er ist stabil, weil Selkies jedes physische Pad auf EIN virtuelles Xbox-Pad abbildet
 # (siehe Kopf dieser Datei) — der Emulator sieht nie "einen DualSense". Ueber
 # RPCS3_PAD_NAME trotzdem ueberschreibbar, falls ein Abbild das anders benennt.
-RPCS3_PAD = os.environ.get("RPCS3_PAD_NAME", "Microsoft X-Box 360 pad")
+# DER INDEX AM ENDE GEHOERT DAZU. RPCS3 unterscheidet die fuenf identischen
+# virtuellen Pads, die Selkies bereitstellt, durch eine angehaengte Nummer. Ohne sie
+# nimmt es das Geraet zwar an, aber ohne Belegung — im Log steht dann
+# "Adding empty device", und das Pad tut im Spiel nichts.
+# Abgelesen aus der Datei, die RPCS3 nach dem Einrichten von Hand selbst geschrieben
+# hat: `Device: Microsoft X-Box 360 pad 1`. (#160)
+# The trailing index matters: RPCS3 disambiguates the five identical virtual pads.
+RPCS3_PAD = os.environ.get("RPCS3_PAD_NAME", "Microsoft X-Box 360 pad 1")
 
 
 def rpcs3_input():

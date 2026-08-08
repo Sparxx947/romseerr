@@ -2402,9 +2402,26 @@ def test_rpcs3_binds_player_one_to_sdl_not_the_keyboard(tmp_path):
     pfad = m.rpcs3_input()
     text = open(pfad, encoding="utf-8").read()
     assert "Handler: SDL" in text, text
-    assert "Microsoft X-Box 360 pad" in text, text
+    assert "Microsoft X-Box 360 pad 1" in text, text
     # Die Meldung darf NICHT behaupten, das Pad sei fertig — die Belegung fehlt noch.
     assert "belegung" in msg.lower(), msg
+
+
+def test_setup_starter_takes_the_environment_from_the_running_agent(tmp_path):
+    """Ein von Hand gestarteter Emulator sieht das Pad NICHT — ohne den
+    Selkies-Interposer existieren die virtuellen Geraete fuer SDL nicht, und die
+    Geraeteliste bleibt leer. Das sah nach kaputtem Controller aus und war eine
+    fehlende Umgebung. Der Starter liest sie beim laufenden Dienst ab statt sie
+    nachzubauen — eine zweite Liste derselben Variablen wuerde lautlos auseinander
+    laufen. (#160)"""
+    text = open(os.path.join(REPO, "contrib/streaming-host/emu-setup"),
+                encoding="utf-8").read()
+    assert "/proc/$pid/environ" in text, "die Umgebung muss vom Dienst kommen"
+    assert "selkies_joystick_interposer" in text, "ohne Interposer-Pruefung fehlt der Hinweis"
+    assert "AppRun.wrapped" in text, "Einzelinstanz muss erkannt werden"
+    # Der Token des Dienstes hat in der Umgebung eines Einrichtungsprogramms nichts
+    # verloren — es wird nur uebernommen, was fuer Anzeige, Ton und Eingabe zaehlt.
+    assert "STREAM_AGENT_TOKEN" not in text
 
 
 def test_rpcs3_never_overwrites_an_existing_mapping(tmp_path):

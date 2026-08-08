@@ -1,0 +1,92 @@
+#!/bin/bash
+# Einen Emulator ZUM EINRICHTEN oeffnen — mit derselben Umgebung wie ein Spielstart.
+# / Open an emulator for setup, with the same environment a launch gets.
+#
+# WOZU ES DAS BRAUCHT: Wer eine Tastenbelegung setzen will, muss den Emulator ohne
+# Spiel oeffnen. Startet man ihn vom Desktop oder ueber SSH, sieht er das Pad
+# UEBERHAUPT NICHT — die Geraeteliste unter dem SDL-Handler bleibt leer. Denn der
+# Start-Dienst exportiert zwei Dinge, die ein blosser Aufruf nicht hat:
+#
+#     LD_PRELOAD=/usr/lib/selkies_joystick_interposer.so:/opt/lib/libudev.so.1.0.0-fake
+#     SDL_JOYSTICK_DEVICE=/dev/input/js0
+#
+# Ohne den Interposer existieren die virtuellen Pads fuer SDL nicht. Das hat einen
+# ganzen Anlauf gekostet: Dialog geoeffnet, kein Geraet, wieder geschlossen — der
+# Fehler sah nach kaputtem Controller aus und war eine fehlende Umgebung. (#160)
+#
+# Without the interposer the virtual pads do not exist for SDL, so a hand-started
+# emulator shows an empty device list and the fault looks like a broken controller.
+#
+# WARUM DIE UMGEBUNG VOM LAUFENDEN AGENTEN GELESEN WIRD UND NICHT NACHGEBAUT:
+# Eine zweite Liste derselben Variablen waere eine zweite Wahrheit — sie geht beim
+# naechsten Abbild-Wechsel auseinander, und zwar lautlos. Das Abbild setzt den
+# Interposer selbst; hier wird nur uebernommen, was tatsaechlich gilt.
+# Read from the running agent, not rebuilt: a second list of the same variables
+# would drift from the image silently.
+#
+#     emu-setup <emulator>    z. B. emu-setup rpcs3
+#     emu-setup --list        was ist installiert
+set -uo pipefail
+
+EMU=${EMU_DIR:-/config/emulators}
+
+liste() {
+  echo "Installiert / installed:"
+  for d in "$EMU"/*/; do
+    n=$(basename "$d")
+    [ -x "$d/AppRun" ] && echo "  $n"
+  done
+}
+
+[ "${1:-}" = "--list" ] && { liste; exit 0; }
+
+ziel=${1:-}
+if [ -z "$ziel" ]; then
+  echo "Aufruf: emu-setup <emulator> | --list" >&2
+  liste >&2
+  exit 2
+fi
+if [ ! -x "$EMU/$ziel/AppRun" ]; then
+  echo "Kein Emulator '$ziel' unter $EMU / no such emulator" >&2
+  liste >&2
+  exit 1
+fi
+
+pid=$(pgrep -f stream-agent.py | head -1)
+if [ -z "$pid" ]; then
+  echo "Der Start-Dienst laeuft nicht — ohne ihn ist die Umgebung nicht zu ermitteln." >&2
+  echo "The launch service is not running; its environment cannot be read." >&2
+  exit 1
+fi
+
+# Nur die Variablen uebernehmen, die fuer Anzeige, Ton und Eingabe zaehlen. Alles
+# blind zu uebernehmen wuerde auch den Token des Dienstes in die Umgebung eines
+# Programms legen, das ihn nicht braucht.
+# Only display, audio and input variables — not the service token.
+while IFS= read -r -d '' z; do
+  case "$z" in
+    LD_PRELOAD=*|LD_LIBRARY_PATH=*|SDL_*|SELKIES_*|DISPLAY=*|HOME=*|PULSE_*|XDG_*|PATH=*)
+      export "${z?}" ;;
+  esac
+done < "/proc/$pid/environ"
+
+echo "[setup] $ziel wird geoeffnet / opening"
+echo "[setup] DISPLAY=${DISPLAY:-?}  HOME=${HOME:-?}"
+echo "[setup] SDL_JOYSTICK_DEVICE=${SDL_JOYSTICK_DEVICE:-nicht gesetzt}"
+case "${LD_PRELOAD:-}" in
+  *selkies_joystick_interposer*) echo "[setup] Interposer aktiv — das Pad ist sichtbar" ;;
+  *) echo "[setup] WARNUNG: kein Interposer in LD_PRELOAD — die Geraeteliste bleibt vermutlich leer" ;;
+esac
+
+# Einzelinstanz: laeuft schon einer, verpufft der Aufruf wortlos. Lieber sagen.
+# RPCS3 and friends are single-instance; a second call would vanish silently.
+laufend=$(pgrep -f "AppRun.wrapped" | head -1)
+if [ -n "$laufend" ]; then
+  echo "[setup] Es laeuft bereits ein Emulator (PID $laufend). Erst beenden," >&2
+  echo "        sonst nimmt der neue Aufruf nichts an. / already running." >&2
+  exit 3
+fi
+
+setsid nohup "$EMU/$ziel/AppRun" >"/config/$ziel-setup.log" 2>&1 &
+echo "[setup] gestartet, Protokoll /config/$ziel-setup.log"
+echo "[setup] Der Einzelplatz ist jetzt belegt — waehrenddessen kein Spiel starten."
