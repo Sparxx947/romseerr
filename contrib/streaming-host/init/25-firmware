@@ -39,15 +39,28 @@ umask 077
 # Die Größen sind GEMESSEN, nicht abgeschrieben: an den Beständen im Testsystem und an
 # den Angaben der jeweiligen Projekte gegengeprüft. Wo ich keine belastbare Größe habe,
 # steht '*' — lieber keine Prüfung als eine erfundene.
+#
+# SIEBTES FELD: die Ablage, in die der Emulator die Firmware EINSPIELEN muss. Leer
+# heisst: die Datei allein genuegt, der Emulator liest sie direkt.
+#
+# WARUM DAS NOETIG WURDE: RPCS3 braucht die PUP nicht als Datei, sondern in seinem
+# dev_flash. Vorher meldete diese Pruefung `ready: true`, sobald die Datei dalag —
+# waehrend RPCS3 im Log `SYS: Missing Firmware` schrieb und jeder Start im schwarzen
+# Bild geendet waere. Am laufenden Host nachgemessen. (#162)
+# Seventh field: the store the emulator must ingest the firmware into. Empty means the
+# file alone is enough. RPCS3 needs it in dev_flash, and the file-only check said ready
+# while the emulator had nothing.
 KATALOG=(
-  "ps2|PlayStation 2|pcsx2|.config/PCSX2/bios|*.bin=4194304|https://pcsx2.net/docs/setup/bios/"
-  "dreamcast|Dreamcast|flycast|.local/share/flycast|dc_boot.bin=2097152;dc_flash.bin=131072|https://github.com/flyinghead/flycast/wiki"
-  "xbox|Xbox|xemu|.local/share/xemu/xemu|mcpx_1.0.bin=512;bios.bin=*|https://xemu.app/docs/getting-started/"
-  "3ds|Nintendo 3DS|azahar|.local/share/azahar-emu/sysdata|boot9.bin=65536;aes_keys.txt=*|https://github.com/azahar-emu/azahar"
-  "switch|Nintendo Switch|switchemu|.local/share/eden/keys|prod.keys=*|https://github.com/eden-emulator"
-  "wiiu|Wii U|cemu|emulators/cemu|keys.txt=*|https://github.com/cemu-project/Cemu"
-  "ps3|PlayStation 3|rpcs3|firmware/ps3|PS3UPDAT.PUP=*|https://rpcs3.net/quickstart"
-  "psvita|PlayStation Vita|vita3k|firmware/psvita|PSVITAUPDAT.PUP=*|https://github.com/Vita3K/Vita3K"
+  "ps2|PlayStation 2|pcsx2|.config/PCSX2/bios|*.bin=4194304|https://pcsx2.net/docs/setup/bios/|"
+  "dreamcast|Dreamcast|flycast|.local/share/flycast|dc_boot.bin=2097152;dc_flash.bin=131072|https://github.com/flyinghead/flycast/wiki|"
+  "xbox|Xbox|xemu|.local/share/xemu/xemu|mcpx_1.0.bin=512;bios.bin=*|https://xemu.app/docs/getting-started/|"
+  "3ds|Nintendo 3DS|azahar|.local/share/azahar-emu/sysdata|boot9.bin=65536;aes_keys.txt=*|https://github.com/azahar-emu/azahar|"
+  "switch|Nintendo Switch|switchemu|.local/share/eden/keys|prod.keys=*|https://github.com/eden-emulator|"
+  "wiiu|Wii U|cemu|emulators/cemu|keys.txt=*|https://github.com/cemu-project/Cemu|"
+  "ps3|PlayStation 3|rpcs3|firmware/ps3|PS3UPDAT.PUP=*|https://rpcs3.net/quickstart|.config/rpcs3/dev_flash"
+  # Vita3K spielt seine Firmware ebenfalls ein, aber die Ablage ist hier UNGEPRUEFT —
+  # die Datei fehlt, also gab es nichts zu messen. Lieber leer als geraten.
+  "psvita|PlayStation Vita|vita3k|firmware/psvita|PSVITAUPDAT.PUP=*|https://github.com/Vita3K/Vita3K|"
 )
 # Dolphin (GameCube/Wii) fehlt bewusst: es braucht keine Firmware, um zu starten.
 # Dolphin is deliberately absent; it needs no firmware to run.
@@ -166,10 +179,19 @@ status_json() {
       [ $feld_erste -eq 0 ] && ausg="$ausg,"; feld_erste=0
       ausg="$ausg{\"name\":\"$n\",\"state\":\"$s\",\"size\":${g:-0},\"sha256\":\"$h\"}"
     done
+    # Eingespielt? Ohne Ablage im Katalog ist die Frage gegenstandslos (true).
+    # Mit Ablage zaehlt, ob dort etwas liegt — nicht, ob die Quelldatei existiert.
+    local ablage eingespielt=1
+    ablage=$(feld "$e" 7)
+    if [ -n "$ablage" ]; then
+      [ -n "$(find "$CFG/$ablage" -type f -print -quit 2>/dev/null)" ] || eingespielt=0
+    fi
     [ $erste -eq 0 ] && printf ','; erste=0
-    printf '{"platform":"%s","name":"%s","emulator":"%s","dir":"%s","ready":%s,"vendor_fetch":%s,"docs":"%s","files":[%s]}' \
+    printf '{"platform":"%s","name":"%s","emulator":"%s","dir":"%s","ready":%s,"installed":%s,"needs_install":%s,"vendor_fetch":%s,"docs":"%s","files":[%s]}' \
       "$p" "$(feld "$e" 2)" "$(feld "$e" 3)" "$(feld "$e" 4)" \
-      "$([ $alles_da -eq 1 ] && echo true || echo false)" \
+      "$([ $alles_da -eq 1 ] && [ $eingespielt -eq 1 ] && echo true || echo false)" \
+      "$([ $eingespielt -eq 1 ] && echo true || echo false)" \
+      "$([ -n "$ablage" ] && echo true || echo false)" \
       "$([ "$p" = "ps3" ] && echo true || echo false)" \
       "$(feld "$e" 6)" "$ausg"
   done

@@ -2568,3 +2568,31 @@ def test_every_playable_platform_is_a_known_platform(appmod):
     """Ein Kern fuer einen Slug, den Romseerr nicht kennt, taucht nirgends auf. (#124)"""
     fremd = [s for s in appmod.PLAYABLE if s not in appmod.SLUG_NAME]
     assert not fremd, f"nicht in PLATFORMS: {fremd}"
+
+
+def test_firmware_status_distinguishes_file_present_from_installed():
+    """`ready` hiess "die Datei liegt da". Fuer RPCS3 ist das nicht dasselbe wie "der
+    Emulator hat sie": die PUP muss ins dev_flash eingespielt werden. Vorher meldete
+    Romseerr PS3 als vollstaendig, waehrend RPCS3 `SYS: Missing Firmware` schrieb und
+    jeder Start im schwarzen Bild geendet waere. Am laufenden Host nachgemessen. (#162)"""
+    text = open(os.path.join(REPO, "contrib/streaming-host/init/25-firmware"),
+                encoding="utf-8").read()
+    tabelle = re.search(r"KATALOG=\((.*?)\n\)", text, re.S).group(1)
+    eintraege = {z.strip().strip('"').split("|")[0]: z.strip().strip('"').split("|")
+                 for z in tabelle.strip().splitlines() if z.strip().startswith('"')}
+    # ps3 muss eine Ablage nennen, sonst ist die Pruefung wirkungslos.
+    assert eintraege["ps3"][6].endswith("dev_flash"), eintraege["ps3"]
+    # Wo die Datei allein genuegt, darf KEINE Ablage stehen — sonst meldet eine
+    # korrekt eingerichtete Plattform ploetzlich "nicht eingespielt".
+    for p in ("ps2", "dreamcast", "xbox", "3ds", "switch", "wiiu"):
+        assert eintraege[p][6] == "", (p, eintraege[p])
+    assert '"installed":%s' in text and '"needs_install":%s' in text
+
+
+def test_firmware_panel_names_the_not_installed_state():
+    """Der Zustand muss in der Oberflaeche ankommen, nicht nur in der API. Vorher war
+    `fehlt` in diesem Fall leer und es wurde GAR NICHTS geschrieben — die Plattform sah
+    aus wie ohne Befund. (#162)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    assert "p.needs_install&&!p.installed" in js, "der Zustand wird nicht abgefragt"
+    assert js.count("fw_notinstalled:") >= 5, "Text fehlt in mindestens einer Sprache"
