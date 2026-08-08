@@ -1925,6 +1925,38 @@ def test_agent_takes_the_preload_from_the_image_not_a_reconstruction():
         "die Vorgabe des Abbilds muss gelesen, nicht nachgebaut werden"
 
 
+def test_nothing_is_mounted_into_the_selkies_web_root():
+    """Das Abbild macht beim Start `rm -Rf /usr/share/selkies/web` und kopiert das
+    Dashboard neu dorthin. Ein Bind-Mount IN dieses Verzeichnis laesst das `rm`
+    scheitern; `cp -a` legt die Quelle dann eine Ebene ZU TIEF ab, die Wurzel bleibt
+    ohne index.html, nginx antwortet 403 — und der Stream startet nie. Am laufenden
+    Host nachgemessen: der Client verband sich als "Legacy client, Slot: None", es
+    lief keine Video-Pipeline. Sah nach einem Browserproblem aus, war ein Kopierschritt.
+
+    The image wipes that directory on boot; mounting into it breaks the web root."""
+    text = open(os.path.join(REPO, "contrib/streaming-host/docker-compose.yml"),
+                encoding="utf-8").read()
+    for zeile in text.splitlines():
+        nackt = zeile.strip()
+        if nackt.startswith("#") or ":" not in nackt:
+            continue
+        assert ":/usr/share/selkies/web/" not in nackt, (
+            f"in die Web-Wurzel darf nichts eingehaengt werden — {nackt!r}; "
+            "stattdessen nach /opt haengen und in init/05-web kopieren")
+
+
+def test_web_root_is_repaired_and_the_check_page_is_copied():
+    """Die Heilung haengt am SYMPTOM (fehlende index.html), nicht an der heutigen
+    Ursache — sonst faengt sie die naechste Variante nicht. Und die Pruefseite wird
+    kopiert statt eingehaengt, siehe Test oben."""
+    text = open(os.path.join(REPO, "contrib/streaming-host/init/05-web"),
+                encoding="utf-8").read()
+    assert 'index.html' in text and 'cp -a "$DASH/." "$WEB/"' in text, \
+        "die Wurzel muss geheilt werden, wenn die index.html fehlt"
+    assert "/opt/gamepad-check.html" in text, \
+        "die Pruefseite muss aus /opt kopiert werden"
+
+
 # ------------------------------------------- Pfadvertrag zum Streaming-Host (#130)
 
 def _agent_module(roms, **umgebung):
@@ -2068,12 +2100,17 @@ def test_gamepad_check_page_is_self_contained():
     assert "getGamepads" in text and "hasFocus" in text and "isSecureContext" in text
 
 
-def test_gamepad_check_page_is_mounted():
-    """Ohne Einhaengung ist die Seite im Repo und nicht im Container. Und faellt die
-    Quelle weg, legt Docker an ihrer Stelle ein VERZEICHNIS an — nginx antwortet dann
-    mit 301 statt mit der Seite, was wie ein Konfigurationsfehler aussieht. (#133)"""
+def test_gamepad_check_page_reaches_the_container():
+    """Ohne Einhaengung ist die Seite im Repo und nicht im Container. (#133)
+
+    Sie wird nach /opt gehaengt und von init/05-web an ihren Platz kopiert — NICHT
+    direkt in die Web-Wurzel, die das Abbild beim Start leerraeumt. Der urspruengliche
+    Weg hat genau das gebrochen, siehe
+    test_nothing_is_mounted_into_the_selkies_web_root."""
     yml = open(os.path.join(REPO, "contrib/streaming-host/docker-compose.yml"), encoding="utf-8").read()
-    assert "./web/gamepad-check.html:/usr/share/selkies/web/gamepad-check.html:ro" in yml
+    assert "./web/gamepad-check.html:/opt/gamepad-check.html:ro" in yml
+    init = open(os.path.join(REPO, "contrib/streaming-host/init/05-web"), encoding="utf-8").read()
+    assert 'cp -f "$QUELLE"' in init, "die eingehaengte Seite muss an ihren Platz kopiert werden"
 
 
 # ------------------------------------------ Ordnernamen -> Plattform (#124)

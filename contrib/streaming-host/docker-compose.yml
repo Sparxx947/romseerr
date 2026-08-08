@@ -83,10 +83,18 @@ services:
       # Startprofil je Emulator: Controller-Belegung und regionsrichtiges BIOS (#119).
       # Eingehaengt, damit das, was laeuft, immer das ist, was im Repo steht.
       - ./launch-profile.py:/opt/launch-profile.py:ro
-      # Pruefseite fuer den Controller (#133). Liegt im Web-Wurzelverzeichnis des
-      # Streaming-Hosts und ist damit unter /gamepad-check.html erreichbar — ohne
-      # Entwicklerwerkzeuge, die auf der Stream-Seite gar nicht zu oeffnen sind.
-      - ./web/gamepad-check.html:/usr/share/selkies/web/gamepad-check.html:ro
+      # Pruefseite fuer den Controller (#133), erreichbar unter /gamepad-check.html —
+      # ohne Entwicklerwerkzeuge, die auf der Stream-Seite gar nicht zu oeffnen sind.
+      #
+      # NACH /opt UND NICHT IN DIE WEB-WURZEL: Das Basis-Image raeumt beim Start
+      # `/usr/share/selkies/web` per `rm -Rf` weg und legt das Dashboard neu hin. Ein
+      # Bind-Mount dort hinein laesst das `rm` scheitern, das folgende `cp -a` kopiert
+      # dann eine Ebene ZU TIEF, und die Wurzel bleibt ohne index.html — nginx
+      # antwortet 403 und der Stream startet nie. init/05-web kopiert die Datei
+      # deshalb nach dem Image-Init an ihren Platz.
+      # Mounting into the web root makes the image's `rm -Rf` fail and nests the
+      # dashboard one level down; init/05-web copies this file in afterwards instead.
+      - ./web/gamepad-check.html:/opt/gamepad-check.html:ro
       # Die ROM-Bibliothek nur lesend. / The ROM library, read-only.
       - ${ROMS_DIR:?ROMS_DIR fehlt - siehe .env.example}:/roms:ro
     devices:

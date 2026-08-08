@@ -1,0 +1,77 @@
+#!/bin/bash
+# Web-Wurzel des Streaming-Hosts herrichten. / Prepare the streaming host web root.
+#
+# DIE FALLE, DIE UNS EINEN GANZEN STREAM GEKOSTET HAT:
+# Das Basis-Image richtet sein Dashboard so ein (init-nginx des LSIO-Images):
+#
+#     rm -Rf /usr/share/selkies/web
+#     cp -a  /usr/share/selkies/${DASHBOARD}  /usr/share/selkies/web
+#
+# Wer eine Datei per Bind-Mount NACH /usr/share/selkies/web/ hineinlegt, sorgt dafuer,
+# dass Docker das Verzeichnis beim Start anlegt und darin einen Mountpunkt haelt. Das
+# `rm -Rf` kann es dann nicht entfernen — und `cp -a QUELLE ZIEL` kopiert bei bereits
+# EXISTIERENDEM Ziel die Quelle HINEIN statt darueber. Ergebnis:
+#
+#     /usr/share/selkies/web/selkies-dashboard/index.html     (eine Ebene zu tief)
+#     /usr/share/selkies/web/index.html                       FEHLT
+#
+# Damit liefert nginx auf `/` eine 403 (kein Indexdokument), der Nutzer landet im
+# Nichts, und wer die Unterebene direkt aufruft, verbindet sich als „Legacy client,
+# Slot: None" — es startet keine Video-Pipeline. Der Fehler sieht nach einem Browser-
+# oder Netzproblem aus und ist in Wahrheit ein Kopierschritt.
+#
+# A bind mount INTO /usr/share/selkies/web makes the image's `rm -Rf` fail, so the
+# following `cp -a` nests the dashboard one level down and no index.html ends up at the
+# root: nginx answers 403 and the stream never starts. Mount elsewhere and copy here.
+#
+# DESHALB ZWEI DINGE:
+#   1. Die Pruefseite wird nach /opt gehaengt (siehe docker-compose.yml) und erst HIER
+#      an ihren Platz kopiert — nach dem Init des Images, das nichts mehr wegraeumt.
+#   2. Bestandsinstallationen, die noch die alte Einhaengung haben, werden geheilt:
+#      fehlt die index.html, wird der Dashboard-Inhalt nachgelegt.
+set -eu
+
+WEB=/usr/share/selkies/web
+DASH=/usr/share/selkies/${DASHBOARD:-selkies-dashboard}
+QUELLE=/opt/gamepad-check.html
+
+# 1. Selbstheilung. Nicht an der Einhaengung festmachen, sondern am ERGEBNIS: fehlt die
+#    index.html, ist die Wurzel kaputt — gleich aus welchem Grund. Eine Pruefung auf
+#    "ist da ein Mount" waere an die heutige Ursache gebunden und wuerde die naechste
+#    uebersehen.
+#    Keyed on the symptom (missing index.html), not on today's cause.
+if [ ! -f "$WEB/index.html" ] && [ -d "$DASH" ]; then
+  echo "[web] $WEB/index.html fehlt — Dashboard-Inhalt wird nachgelegt / repairing web root"
+  cp -a "$DASH/." "$WEB/"
+  # Den Schritt nachholen, den init-nginx nach dem Kopieren macht und der mit der
+  # kaputten Wurzel ins Leere lief.
+  if [ -f "$WEB/nginx/footer.html" ]; then
+    sed -i "s|REPLACE_DOWNLOADS_PATH|${FILE_MANAGER_PATH:-/config/Desktop}|g" \
+      "$WEB/nginx/footer.html" || true
+  fi
+  # Die verschachtelte Kopie ist ab jetzt tote Last und verwirrt beim Nachsehen.
+  # BEWUSST ALS if UND NICHT ALS &&-KETTE: unter `set -e` wuerde eine Kette, deren
+  # erste Bedingung nicht zutrifft, das ganze Skript mit Fehlerstatus beenden — und
+  # damit den Container-Init abbrechen. Wegen eines Aufraeumschritts.
+  # An && chain would abort the whole init under `set -e` when the first test is false.
+  if [ -d "$WEB/selkies-dashboard" ] && [ -f "$WEB/index.html" ]; then
+    rm -rf "$WEB/selkies-dashboard"
+  fi
+fi
+
+# 2. Pruefseite an ihren Platz. Bewusst kopiert statt eingehaengt — siehe oben.
+if [ -f "$QUELLE" ]; then
+  cp -f "$QUELLE" "$WEB/gamepad-check.html"
+  echo "[web] gamepad-check.html bereitgestellt / installed"
+else
+  # Kein Abbruch: die Pruefseite ist ein Hilfsmittel, kein Startkriterium. Ohne sie
+  # laeuft der Stream, und ein harter Fehler hier wuerde den Host nicht hochkommen
+  # lassen — ein schlechter Tausch.
+  echo "[web] $QUELLE nicht vorhanden — Pruefseite wird uebersprungen / skipped"
+fi
+
+if [ -f "$WEB/index.html" ]; then
+  echo "[web] Wurzel in Ordnung / web root OK"
+else
+  echo "[web] WARNUNG: $WEB/index.html fehlt weiterhin — die Oberflaeche wird 403 liefern"
+fi
