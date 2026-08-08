@@ -1895,3 +1895,12 @@ def test_firmware_is_readable_by_the_account_that_runs_the_emulator():
     assert "stat -c '%u:%g'" in text, "Besitzer muss abgelesen werden, nicht geraten"
     assert "besitz_richten" in text
     assert text.count("besitz_richten ") >= 3, "Ablage, Ziel und Datei muessen erfasst sein"
+
+
+def test_firmware_parent_directory_is_owned_too():
+    """Die Plattformordner dem Emulator zu geben genuegt nicht: bleibt /config/firmware
+    bei root und 0700, ist alles darunter unerreichbar, egal wem es gehoert. Genau so
+    war die PS3-PUP nach dem ersten Anlauf nicht lesbar. (#107)"""
+    text = open(os.path.join(REPO, "contrib/streaming-host/init/25-firmware"), encoding="utf-8").read()
+    platzieren = text.split("platzieren() {", 1)[1].split("\n}", 1)[0]
+    assert 'besitz_richten "$FW"' in platzieren, "das uebergeordnete Verzeichnis fehlt"
