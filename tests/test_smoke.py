@@ -1740,3 +1740,14 @@ def test_version_manifest_matches_the_last_release():
     dev_version = open(os.path.join(REPO, "version.txt"), encoding="utf-8").read().strip()
     assert dev_version.endswith("-dev"), \
         f"version.txt auf dev muss als Entwicklungsstand erkennbar sein, ist {dev_version!r}"
+
+
+def test_release_tags_stay_continuous():
+    """Mit einem Komponentennamen taggt release-please `romseerr-v1.2.3` statt `v1.2.3`.
+    Das bricht die Reihe ab v1.0.0-beta.1 — und damit den dokumentierten Weg, einen
+    Versionszweig rueckwirkend aus einem Tag zu schneiden. (#111)"""
+    import json
+    cfg = json.load(open(os.path.join(REPO, "release-please-config.json")))
+    root = cfg["packages"]["."]
+    assert "package-name" not in root, "package-name erzeugt Tags mit Praefix"
+    assert root.get("include-component-in-tag") is False

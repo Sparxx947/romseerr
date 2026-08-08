@@ -3,8 +3,8 @@
   "release-type": "simple",
   "packages": {
     ".": {
-      "package-name": "romseerr",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "include-component-in-tag": false
     }
   },
   "changelog-sections": [
