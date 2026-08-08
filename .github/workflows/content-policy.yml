@@ -70,9 +70,21 @@ jobs:
       #    das Skript ist schnell genug, dass sich eine Diff-Beschränkung nicht lohnt.
       - name: Inhaltsregel prüfen / check content policy
         run: |
-          cp policy/scripts/check_content_policy.py /tmp/check.py
+          # Regelfall: die Prüfung kommt aus dem Hauptzweig.
+          # Sonderfall: der Pull Request FÜHRT sie gerade erst ein — dann gibt es
+          # dort noch nichts, und wir nehmen die mitgebrachte Fassung. Das wird
+          # deutlich gesagt, damit der Sonderfall nicht als Normalzustand durchgeht.
+          # Bootstrap case: the PR that introduces the checker. Said out loud so it
+          # cannot pass for the normal state.
+          if [ -f policy/scripts/check_content_policy.py ]; then
+            cp policy/scripts/check_content_policy.py /tmp/check.py
+            echo "Prüfung aus dem Hauptzweig / checker from the default branch"
+          else
+            cp pr/scripts/check_content_policy.py /tmp/check.py
+            echo "::warning title=Prüfung aus dem Pull Request::Im Hauptzweig gibt es die Prüfung noch nicht — sie wird mit diesem Beitrag eingeführt. Ab dem nächsten Mal kommt sie von dort. / Not on the default branch yet; introduced by this change."
+          fi
           cd pr
-          python /tmp/check.py
+          POLICY_ROOT="$PWD" python /tmp/check.py
 
       - name: Hinweis bei Verstoß / note on failure
         if: failure()

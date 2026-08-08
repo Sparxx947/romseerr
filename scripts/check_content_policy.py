@@ -148,8 +148,13 @@ def check_file(root, rel):
     return out
 
 
-def main(argv):
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+def main(argv, root=None):
+    # Wurzel NICHT aus dem eigenen Dateipfad ableiten: der Workflow kopiert dieses
+    # Skript aus dem Hauptzweig an eine andere Stelle, und dann waere die Wurzel
+    # irgendein Verzeichnis ausserhalb des Repos — im schlimmsten Fall "/".
+    # Do not derive the root from this file's location: the workflow copies this
+    # script elsewhere, which would point the walk outside the repository.
+    root = root or os.environ.get("POLICY_ROOT") or os.getcwd()
     if argv:
         dateien = [os.path.relpath(p, root) if os.path.isabs(p) else p for p in argv]
     else:

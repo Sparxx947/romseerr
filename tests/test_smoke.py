@@ -1618,7 +1618,8 @@ def test_content_policy_holds_for_this_repo():
     spec = importlib.util.spec_from_file_location("content_policy", pfad)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    assert mod.main([]) == 0, "siehe Ausgabe oben / see output above"
+    # Wurzel ausdruecklich uebergeben: pytest kann aus jedem Verzeichnis laufen.
+    assert mod.main([], root=root) == 0, "siehe Ausgabe oben / see output above"
 
 
 def test_content_policy_actually_catches_things(tmp_path):
