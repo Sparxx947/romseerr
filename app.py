@@ -205,8 +205,11 @@ PLATFORMS = [
  ("Sony", [("psx","PS1"),("ps2","PS2"),("ps3","PS3"),("ps4","PS4"),("psp","PSP"),("psvita","Vita")]),
  ("Microsoft", [("xbox","Xbox"),("xbox360","Xbox 360"),("xboxone","Xbox One")]),
  ("Sonstige", [("turbografx16","PC Engine"),("neogeo","Neo Geo"),("neogeopocket","NGP"),
-   ("wonderswan","WonderSwan"),("atari2600","Atari 2600"),("atari7800","Atari 7800"),
+   ("wonderswan","WonderSwan"),("atari2600","Atari 2600"),("atari5200","Atari 5200"),
+   ("atari7800","Atari 7800"),
    ("lynx","Lynx"),("jaguar","Jaguar"),("3do","3DO"),("amiga","Amiga"),("c64","C64"),
+   ("c16","C16 / Plus-4"),("vic20","VIC-20"),("colecovision","ColecoVision"),
+   ("intellivision","Intellivision"),("acpc","Amstrad CPC"),("zxs","ZX Spectrum"),
    ("dos","DOS"),("arcade","Arcade")]),
 ]
 SLUG_NAME = {s:n for _g,items in PLATFORMS for s,n in items}
@@ -612,6 +615,12 @@ FOLDER_ALIASES = {
     "sfam": "snes", "satellaview": "snes", "sufami-turbo": "snes",
     "atari-jaguar-cd": "jaguar",
     # Arcade-Romsets sind keine eigenen Plattformen, sondern Teilmengen desselben Kerns.
+    "c-plus-4": "c16", "plus4": "c16",  # dieselbe Maschinenfamilie, derselbe Kern
+    "c128": "c64",
+    "vic-20": "vic20",
+    "zx-spectrum": "zxs", "spectrum": "zxs",
+    "amstrad": "acpc", "cpc": "acpc",
+    "coleco": "colecovision",
     "cps1": "arcade", "cps2": "arcade", "cps3": "arcade",
     "atomiswave": "arcade", "stv": "arcade",
 }
@@ -2007,7 +2016,25 @@ PLAYABLE = {   # Slug -> EmulatorJS-Kern (nur zur Nachvollziehbarkeit dokumentie
     "jaguar": "virtualjaguar", "atari2600": "stella2014", "atari7800": "prosystem",
     "3do": "opera", "amiga": "puae", "c64": "vice_x64", "dos": "dosbox_pure",
     "arcade": "fbneo", "neogeo": "fbneo",
+    # Heimcomputer und fruehe Konsolen (#124). Die Kernnamen wurden NICHT aus der
+    # libretro-Liste abgeschrieben, sondern in der eingesetzten RomM-Fassung
+    # nachgesehen — ein Eintrag auf einen Kern, den der Player nicht mitbringt, waere
+    # ein Knopf, der nicht funktioniert.
+    # Core names were read out of the deployed RomM build rather than copied from
+    # libretro's catalogue.
+    "c16": "vice_xplus4",              # C16 und Plus/4 teilen sich den Kern
+    "vic20": "vice_xvic",
+    "colecovision": "gearcoleco",
+    "intellivision": "freeintv",
+    "atari5200": "a5200",
+    "acpc": "cap32",                   # Amstrad CPC
+    "zxs": "fuse",                     # ZX Spectrum
 }
+# NICHT eingetragen, weil der Player die Kerne nicht mitbringt — nachgesehen, nicht
+# vermutet: Vectrex (`vecx`, 352 Dateien), Atari 8-Bit (`atari800`, 252), Atari ST
+# (`hatari`, 120) und ScummVM (441). Das ist eine Grenze von RomMs EmulatorJS-Bau,
+# keine Entscheidung dieses Projekts; sobald die Kerne dort auftauchen, sind es vier
+# Zeilen. / Not entered because the player lacks those cores — a limit of the build.
 # Plattformen, deren Kern ohne BIOS startet und dann scheitert — der Nutzer soll das
 # VORHER lesen, statt vor einer schwarzen Flaeche zu sitzen.
 NEEDS_BIOS = {"psx", "3do", "saturn", "amiga", "segacd"}

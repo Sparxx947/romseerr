@@ -2231,3 +2231,26 @@ def test_docs_explain_how_to_build_with_provenance():
     """Ein Hinweis, der nicht sagt, WIE man ihn abstellt, ist ein Vorwurf. (#129)"""
     readme = open(os.path.join(REPO, "README.md"), encoding="utf-8").read()
     assert "ROMSEERR_COMMIT" in readme and "ROMSEERR_BUILT_AT" in readme
+
+
+def test_playable_cores_exist_in_the_player(appmod):
+    """Ein Eintrag auf einen Kern, den RomMs EmulatorJS-Bau nicht mitbringt, ist ein
+    Knopf, der nicht funktioniert. Die hier zugelassenen Kerne wurden in der
+    eingesetzten Fassung NACHGESEHEN — diese Liste haelt die Zusage fest. (#124)"""
+    # In der eingesetzten RomM-Fassung vorhanden (aus deren Frontend abgelesen).
+    vorhanden = {
+        "stella2014", "prosystem", "a5200", "handy", "virtualjaguar", "opera",
+        "fceumm", "snes9x", "mupen64plus_next", "gambatte", "mgba", "melonds",
+        "beetle_vb", "smsplus", "genesis_plus_gx", "picodrive", "yabause",
+        "mednafen_psx_hw", "ppsspp", "mednafen_pce", "mednafen_ngp",
+        "mednafen_wswan", "puae", "vice_x64", "vice_xplus4", "vice_xvic",
+        "dosbox_pure", "fbneo", "gearcoleco", "bluemsx", "freeintv", "cap32", "fuse",
+    }
+    unbekannt = {s: k for s, k in appmod.PLAYABLE.items() if k not in vorhanden}
+    assert not unbekannt, f"Kern nicht im Player: {unbekannt}"
+
+
+def test_every_playable_platform_is_a_known_platform(appmod):
+    """Ein Kern fuer einen Slug, den Romseerr nicht kennt, taucht nirgends auf. (#124)"""
+    fremd = [s for s in appmod.PLAYABLE if s not in appmod.SLUG_NAME]
+    assert not fremd, f"nicht in PLATFORMS: {fremd}"
