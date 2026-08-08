@@ -2074,3 +2074,69 @@ def test_gamepad_check_page_is_mounted():
     mit 301 statt mit der Seite, was wie ein Konfigurationsfehler aussieht. (#133)"""
     yml = open(os.path.join(REPO, "contrib/streaming-host/docker-compose.yml"), encoding="utf-8").read()
     assert "./web/gamepad-check.html:/usr/share/selkies/web/gamepad-check.html:ro" in yml
+
+
+# ------------------------------------------ Ordnernamen -> Plattform (#124)
+
+def test_folder_aliases_reach_the_platforms_romseerr_knows(appmod):
+    """Der Sinn der Tabelle: aus einem Ordnernamen, den Romseerr nicht kennt, wird ein
+    Slug, den es kennt. Ein Alias, der auf etwas Unbekanntes zeigt, waere folgenlos —
+    genau das soll hier auffallen. (#124)"""
+    ohne_wirkung = [f"{f} -> {z}" for f, z in appmod.FOLDER_ALIASES.items()
+                    if z not in appmod._PLAT_LOOKUP]
+    assert not ohne_wirkung, "Alias zeigt auf eine unbekannte Plattform: " + ", ".join(ohne_wirkung)
+
+
+def test_unknown_folders_pass_through_unchanged(appmod):
+    """Eine unbekannte Plattform ist kein Fehler, sondern eine, die dieses Projekt noch
+    nicht kennt. Sie umzubenennen oder kleinzuschreiben wuerde bestehende Bibliotheken
+    umsortieren. (#124)"""
+    for name in ("GP32", "Dingoo", "wasm-4", "meine-eigene-plattform"):
+        assert appmod.folder_slug(name) == name
+
+
+def test_non_platform_folders_are_ignored(appmod):
+    """Ohne diese Liste wird eine Spieldatendatei zu einer Plattform — in RomM ist
+    genau das passiert (dort gibt es eine Plattform 'VVVVVV Data file'). (#124)"""
+    for name in appmod.IGNORE_FOLDERS:
+        assert appmod.folder_slug(name) == ""
+
+
+def test_slug_folders_comes_from_the_constant_table(appmod):
+    """Der Streaming-Host bekommt daraus Pfade. Die Liste muss aus der KONSTANTEN
+    Tabelle stammen, nie aus einer Eingabe — sonst haengt die Sicherheit daran, wer
+    sie aufruft. (#124)"""
+    assert appmod.slug_folders("arcade")[0] == "arcade"
+    assert "cps1" in appmod.slug_folders("arcade") and "cps2" in appmod.slug_folders("arcade")
+    # Nichts Fremdes: jeder Eintrag ist entweder der Slug selbst oder steht in der Tabelle
+    for s in appmod.STREAMABLE:
+        for f in appmod.slug_folders(s):
+            assert f == s or appmod.FOLDER_ALIASES.get(f) == s, f
+
+
+def test_stream_finds_a_file_in_an_aliased_folder(appmod, tmp_path, monkeypatch):
+    """GameCube liegt bei RetroNAS in `gc`. Ohne Aufloesung findet der Stream nichts,
+    und der Knopf erscheint gar nicht erst. (#124)"""
+    (tmp_path / "gc").mkdir()
+    ziel = tmp_path / "gc" / "Zelda Wind Waker.iso"
+    ziel.write_bytes(b"x")
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    gefunden = appmod.stream_find_file("Zelda Wind Waker", "ngc")
+    assert gefunden == str(ziel), gefunden
+
+
+def test_index_merges_several_folders_into_one_platform(appmod, tmp_path, monkeypatch):
+    """cps1, cps2 und Atomiswave sind keine eigenen Plattformen, sondern Teilmengen
+    desselben Kerns. Wuerde der zweite Ordner den ersten ueberschreiben statt sich zu
+    ergaenzen, verschwaende die Haelfte lautlos. (#124)"""
+    for ordner, datei in (("cps1", "Final Fight.zip"), ("cps2", "Marvel vs Capcom.zip")):
+        (tmp_path / ordner).mkdir()
+        (tmp_path / ordner / datei).write_bytes(b"x")
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    monkeypatch.setattr(appmod, "save_index_to_db", lambda *a, **k: None)
+    appmod.build_index()
+    with appmod.LIB_LOCK:
+        arcade = appmod.LIB["per"].get("arcade", set())
+        slugs = set(appmod.LIB["slugs"])
+    assert "arcade" in slugs and "cps1" not in slugs and "cps2" not in slugs
+    assert len(arcade) == 2, arcade

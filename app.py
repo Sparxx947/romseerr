@@ -577,16 +577,85 @@ def load_index_from_db():
     except Exception as e:
         log(f"Index-DB-Laden-Fehler: {e}"); return None
 
+# ---------- Ordnernamen -> Plattform (#124) ----------
+# Drei Systeme sehen dieselben Ordner und meinen Verschiedenes damit:
+#
+#   RetroNAS  legt den Baum SELBST an (633 Ordner, davon 406 leer) und bestimmt damit
+#             die Namen. Umbenennen haelt bis zu seinem naechsten Lauf.
+#   RomM      nimmt den Ordnernamen woertlich als Plattform — es versteht sie ebenso
+#             wenig, meldet es aber nicht.
+#   Romseerr  schlug sie bisher nach und meldete "unbekannt" — die Plattform verschwand
+#             samt Inhalt aus Abdeckung, Spielen und Streamen.
+#
+# WARUM EINE TABELLE UND KEINE SYMLINKS: Ein Symlink auf ein Verzeichnis IST fuer RomM
+# ein Verzeichnis. `ngc -> gc` ergaebe zwei Plattformen mit denselben Dateien, also eine
+# doppelte Bibliothek. Und ein Umbenennen macht RetroNAS beim naechsten Lauf rueckgaengig,
+# wonach die Bibliothek still auf zwei Ordner verteilt liegt.
+#
+# Diese Tabelle aendert nichts auf der Platte, uebersteht jeden RetroNAS-Lauf und wirkt
+# bei jeder Installation ohne Zutun des Betreibers.
+#
+# Three systems read the same folders and mean different things by them. A table beats
+# symlinks (RomM would scan both and duplicate the library) and beats renaming (RetroNAS
+# recreates its own names on the next run, splitting the library silently).
+FOLDER_ALIASES = {
+    "gc": "ngc",                       # GameCube
+    "dc": "dreamcast",
+    "tg16": "turbografx16",
+    "turbografx-cd": "turbografx16",
+    "neogeoaes": "neogeo", "neogeomvs": "neogeo", "neo-geo-cd": "neogeo",
+    "neo-geo-pocket": "neogeopocket", "neo-geo-pocket-color": "neogeopocket",
+    "wonderswan-color": "wonderswan",
+    "sega32": "sega32x", "sega-32x": "sega32x",
+    "gen": "genesis",
+    "famicom": "nes", "fds": "nes",
+    "sfam": "snes", "satellaview": "snes", "sufami-turbo": "snes",
+    "atari-jaguar-cd": "jaguar",
+    # Arcade-Romsets sind keine eigenen Plattformen, sondern Teilmengen desselben Kerns.
+    "cps1": "arcade", "cps2": "arcade", "cps3": "arcade",
+    "atomiswave": "arcade", "stv": "arcade",
+}
+
+# Ordner, die GAR KEINE Plattform sind. Ohne diese Liste werden sie zu einer — in RomM
+# ist das bereits passiert (dort existiert eine Plattform "VVVVVV Data file").
+# Folders that are not platforms at all; without this they become one.
+IGNORE_FOLDERS = {
+    "VVVVVV Data file for RPi",        # eine Spieldatendatei (data.zip)
+    "Amiga-Fullset", "Amiga-Fullset.rar",
+}
+
+
+def folder_slug(ordner):
+    """Ordnername -> Plattform-Slug. Leer = ignorieren.
+
+    Ohne Treffer bleibt der Name UNVERAENDERT: eine unbekannte Plattform ist kein
+    Fehler, sondern eine, die dieses Projekt noch nicht kennt. Sie kleinzuschreiben
+    oder zu raten wuerde bestehende Bibliotheken umsortieren."""
+    if ordner in IGNORE_FOLDERS:
+        return ""
+    return FOLDER_ALIASES.get(ordner.lower(), ordner)
+
+
+def slug_folders(slug):
+    """Slug -> alle Ordner, die dazu beitragen. Aus der KONSTANTEN Tabelle abgeleitet,
+    nie aus der Eingabe — dieselbe Regel wie bisher bei STREAM_DIR."""
+    return [slug] + sorted(f for f, z in FOLDER_ALIASES.items() if z == slug)
+
+
 def build_index():
     """Bibliotheks-Index aus dem Dateisystem neu aufbauen (ROMS/<slug>/…, 2 Ebenen tief),
     in LIB (RAM) ablegen UND in SQLite persistieren. Läuft beim allerersten Start und
     danach periodisch im Hintergrund (periodic_index) sowie nach jedem Import."""
     per, allset, slugs = {}, set(), set()
     try:
-        for slug in os.listdir(ROMS):
-            p = os.path.join(ROMS, slug)
+        for ordner in os.listdir(ROMS):
+            p = os.path.join(ROMS, ordner)
             if not os.path.isdir(p): continue
+            slug = folder_slug(ordner)
+            if not slug: continue          # kein Plattformordner (#124)
             slugs.add(slug)
+            # Mehrere Ordner koennen auf denselben Slug zeigen (cps1, cps2 -> arcade).
+            # setdefault statt Zuweisung, sonst ueberschreibt der zweite den ersten.
             s = per.setdefault(slug, set())
             try:
                 for root, dirs, files in os.walk(p):
@@ -2025,7 +2094,9 @@ STREAMABLE = {"ps2", "ngc", "wii", "wiiu", "switch", "dreamcast", "3ds",
 # groesste reale Fall; darueber hinaus soll niemand den Streaming-Host volllaufen lassen.
 FIRMWARE_MAX_BYTES = int(os.environ.get("FIRMWARE_MAX_BYTES", str(512 * 1024 * 1024)))
 
-STREAM_DIR = {s: s for s in STREAMABLE}
+# Slug -> Ordner, in denen gesucht werden darf. Aus der konstanten Aliastabelle
+# abgeleitet, damit weiterhin gilt: nachschlagen statt durchreichen.
+STREAM_DIR = {s: slug_folders(s) for s in STREAMABLE}
 STREAM_TTL = int(os.environ.get("ROMSEERR_STREAM_TTL", "7200"))   # 2 h, dann faellt der Platz frei
 STREAM_LOCK = threading.Lock()
 
@@ -2047,17 +2118,19 @@ def stream_find_file(title, slug):
     Der Slug kommt vom Aufrufer und geht in einen Pfad. Er wird deshalb HIER gegen die
     feste Menge geprueft und nicht nur beim Aufrufer — sonst haenge die Sicherheit an der
     Reihenfolge der Pruefungen in stream_info(), und die kann sich aendern."""
-    safe = STREAM_DIR.get(slug)          # Nachschlagen statt Durchreichen
-    if not safe: return None
+    ordner = STREAM_DIR.get(slug)        # Nachschlagen statt Durchreichen
+    if not ordner: return None
     want = norm(title)
-    base = os.path.join(ROMS, safe)
-    if not (want and os.path.isdir(base)): return None
+    if not want: return None
     try:
-        for root, _dirs, files in os.walk(base):
-            for fn in files:
-                ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else ""
-                if ext in ROM_EXT and norm(fn) == want:
-                    return os.path.join(root, fn)
+        for name in ordner:
+            base = os.path.join(ROMS, name)
+            if not os.path.isdir(base): continue
+            for root, _dirs, files in os.walk(base):
+                for fn in files:
+                    ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else ""
+                    if ext in ROM_EXT and norm(fn) == want:
+                        return os.path.join(root, fn)
             if root != base and os.path.relpath(root, base).count(os.sep) >= 1:
                 break
     except OSError:
