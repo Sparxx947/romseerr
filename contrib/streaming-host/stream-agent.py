@@ -62,6 +62,38 @@ EMULATORS = {
 _current = {"proc": None, "platform": "", "path": ""}
 _lock = threading.Lock()
 
+# Ordner-Titel -> die Datei, mit der der Emulator startet.
+#
+# WARUM EINE TABELLE UND KEINE SUCHE NACH "der groessten Datei": Bei einer PS3-Disc
+# waere das oft ein Video oder ein Datenarchiv, nicht die EBOOT.BIN. Die Reihenfolge
+# ist die Rangfolge; der erste Treffer gewinnt.
+# A table, not a "largest file" heuristic: on a PS3 disc that would usually pick a
+# video, not the boot binary.
+BOOTPFADE = {
+    "ps3": ("PS3_GAME/USRDIR/EBOOT.BIN", "USRDIR/EBOOT.BIN", "EBOOT.BIN"),
+}
+# Rueckfall fuer Ordner ohne bekannte Struktur: eine einzelne Abbilddatei darin ist
+# eindeutig. Bei MEHREREN wird bewusst NICHT geraten — lieber eine klare Absage als
+# ein zufaellig gewaehltes Spiel.
+BOOT_ENDUNGEN = (".iso", ".chd", ".cue", ".gdi", ".rvz", ".wbfs", ".nsp", ".xci", ".pkg")
+
+
+def _bootdatei(ordner, platform):
+    """-> absoluter Pfad der Startdatei, oder '' wenn nicht eindeutig bestimmbar."""
+    for rel in BOOTPFADE.get(platform, ()):
+        k = os.path.join(ordner, *rel.split("/"))
+        if os.path.isfile(k):
+            return k
+    treffer = []
+    try:
+        for e in sorted(os.listdir(ordner)):
+            k = os.path.join(ordner, e)
+            if os.path.isfile(k) and e.lower().endswith(BOOT_ENDUNGEN):
+                treffer.append(k)
+    except OSError:
+        return ""
+    return treffer[0] if len(treffer) == 1 else ""
+
 # Emulator-Aktualisierung. Laeuft im Hintergrund, damit der Aufrufer nicht minutenlang
 # auf einer HTTP-Antwort haengt — Downloads sind hier hunderte Megabyte.
 # Runs in the background; downloads are hundreds of megabytes.
@@ -251,7 +283,7 @@ def launch(path, platform, rel="", region=""):
             raise ValueError
     except (ValueError, OSError):
         return False, "Pfad ausserhalb der Bibliothek / path outside the library"
-    if not os.path.isfile(real):
+    if not os.path.exists(real):
         # Der haeufigste Grund ist KEIN fehlendes Spiel, sondern zwei Container, die
         # ihre Bibliothek an verschiedenen Stellen einhaengen. Das gehoert in die
         # Meldung, sonst sucht der Betreiber die Datei statt die Einhaengung.
@@ -259,6 +291,23 @@ def launch(path, platform, rel="", region=""):
         return False, (f"Datei nicht gefunden / file not found: {real} — "
                        "haengen Romseerr und der Streaming-Host DIESELBE "
                        "Bibliothekswurzel ein? / do both mount the same library root?")
+
+    # Ein Titel ist nicht immer eine Datei. Eine PS3-Disc ist ein ORDNER mit
+    # PS3_DISC.SFB und PS3_GAME/USRDIR/EBOOT.BIN darin — nachgemessen, 13 von 17
+    # Titeln der Testbibliothek. Die frueher hier stehende Pruefung auf `isfile`
+    # hat solche Titel abgewiesen, und zwar mit der Meldung ueber verschiedene
+    # Einhaengepunkte: eine PLAUSIBLE, aber falsche Faehrte, die genau in die
+    # falsche Richtung schickt.
+    #
+    # A title is not always a file: a PS3 disc is a directory. The previous `isfile`
+    # check rejected those with a message about differing mount points — plausible
+    # and wrong, which is the worst kind of error message.
+    if os.path.isdir(real):
+        boot = _bootdatei(real, platform)
+        if not boot:
+            return False, (f"Ordner ohne startbaren Inhalt / folder has no bootable file: "
+                           f"{os.path.basename(real)}")
+        real = boot
 
     # Controller-Belegung setzen, bevor der Emulator die Konfiguration liest. Scheitert
     # das, wird trotzdem gestartet: ohne Pad spielen ist schlechter als gar nicht
