@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gamepad-Prüfung / gamepad check</title>
+<!--
+  Warum es diese Seite gibt: Die Stream-Seite faengt die Tastatur ab und reicht sie an
+  den entfernten Desktop weiter — F12 kommt dort nie beim Browser an. Ausgerechnet die
+  Seite, auf der man die Konsole braucht, ist die, auf der man sie nicht oeffnen kann.
+  Diese Seite braucht keine.  (#133)
+
+  Why this page exists: the stream page captures the keyboard and forwards it to the
+  remote session, so F12 never reaches the browser. This page needs no console.
+
+  Bewusst ohne jede externe Ressource: der Streaming-Host muss nicht ins Internet
+  koennen, damit die Fehlersuche funktioniert.
+-->
+<style>
+  :root { color-scheme: dark; }
+  body { background:#0b0d10; color:#e6e8ec; font:14px/1.5 system-ui,sans-serif;
+         margin:0; padding:24px; }
+  h1 { font-size:19px; margin:0 0 4px }
+  .sub { color:#8b93a1; font-size:12px; margin-bottom:20px }
+  .karte { background:#12151a; border:1px solid #232833; border-radius:10px;
+           padding:14px 16px; margin-bottom:14px; }
+  .zeile { display:flex; justify-content:space-between; gap:16px; padding:3px 0 }
+  .ok { color:#7ac57a } .warn { color:#d29922 } .bad { color:#e06c75 }
+  .taste { display:inline-block; min-width:30px; text-align:center; margin:2px;
+           padding:3px 5px; border-radius:5px; background:#1c2129; font-size:11px;
+           font-variant-numeric:tabular-nums }
+  .an { background:#2a4d8f; color:#fff }
+  .achse { height:6px; background:#1c2129; border-radius:3px; margin:4px 0; position:relative }
+  .achse i { position:absolute; top:0; bottom:0; width:3px; background:#7aa2f7; border-radius:2px }
+  code { background:#1c2129; padding:1px 5px; border-radius:4px; font-size:12px }
+  .hinweis { color:#8b93a1; font-size:12px; margin-top:8px }
+</style>
+</head>
+<body>
+<h1>Gamepad-Prüfung</h1>
+<div class=sub>Was sieht der <b>Browser</b>? / What does the <b>browser</b> see?</div>
+
+<div class=karte>
+  <div class=zeile><span>Sicherer Kontext / secure context</span><b id=sicher>…</b></div>
+  <div class=zeile><span>Fenster im Vordergrund / document focus</span><b id=fokus>…</b></div>
+  <div class=zeile><span>Gamepad-API vorhanden</span><b id=api>…</b></div>
+  <div class=zeile><span>Gemeldete Pads / gamepads reported</span><b id=anzahl>…</b></div>
+</div>
+
+<div id=pads></div>
+
+<div class=karte>
+  <b>So geht es:</b>
+  <div class=hinweis>
+    1. Diese Seite anklicken, damit sie den Fokus hat.<br>
+    2. <b>Eine Taste am Controller drücken.</b> Die Gamepad-API meldet aus
+       Datenschutzgründen nichts, bevor das passiert ist — ein angeschlossener,
+       unberührter Controller ist für den Browser unsichtbar.<br>
+    3. Erscheint hier nichts, kommt das Pad nicht bis in den Browser. Dann hilft kein
+       Blick in den Streaming-Host — dort kann nichts ankommen, was hier nicht ist.
+  </div>
+  <div class=hinweis style="margin-top:10px">
+    <b>How to:</b> click this page so it has focus, then <b>press a button</b>. The
+    Gamepad API reports nothing until a button is pressed. If nothing appears here, the
+    pad is not reaching the browser and nothing on the streaming host can help.
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+function setzen(el, ok, text) { el.textContent = text; el.className = ok ? 'ok' : 'bad'; }
+
+setzen($('sicher'), isSecureContext, isSecureContext ? 'ja' : 'NEIN — ohne HTTPS keine Gamepad-API');
+setzen($('api'), !!navigator.getGamepads, navigator.getGamepads ? 'ja' : 'NEIN');
+
+let gesehen = new Set();
+addEventListener('gamepadconnected', e => { gesehen.add(e.gamepad.id); });
+
+function zeichne() {
+  const f = document.hasFocus();
+  setzen($('fokus'), f, f ? 'ja' : 'nein — hier hineinklicken');
+
+  const pads = (navigator.getGamepads ? navigator.getGamepads() : []);
+  const da = [].filter.call(pads, p => p);
+  $('anzahl').textContent = da.length;
+  $('anzahl').className = da.length ? 'ok' : 'warn';
+
+  $('pads').innerHTML = da.length ? '' : '';
+  da.forEach(p => {
+    const k = document.createElement('div'); k.className = 'karte';
+    let h = '<div class=zeile><span><b>' + p.index + '</b> · ' +
+            String(p.id).replace(/[<>]/g, '') + '</span><span class=ok>' +
+            p.buttons.length + ' Tasten / ' + p.axes.length + ' Achsen</span></div>';
+    h += '<div>';
+    p.buttons.forEach((b, i) => {
+      h += '<span class="taste' + (b.pressed ? ' an' : '') + '">' + i + '</span>';
+    });
+    h += '</div>';
+    p.axes.forEach(a => {
+      const pos = ((a + 1) / 2 * 100).toFixed(1);
+      h += '<div class=achse><i style="left:calc(' + pos + '% - 1.5px)"></i></div>';
+    });
+    k.innerHTML = h;
+    $('pads').appendChild(k);
+  });
+  requestAnimationFrame(zeichne);
+}
+zeichne();
+</script>
+</body>
+</html>
