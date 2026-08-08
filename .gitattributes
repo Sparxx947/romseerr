@@ -1,0 +1,24 @@
+# Zeilenenden festnageln. Ohne das entscheidet die Arbeitsstation, und ein Beitrag von
+# einem Windows-Rechner kommt als Datei an, in der JEDE Zeile geaendert ist — der Diff
+# wird unlesbar und die Prüfung sinnlos.
+# Pin line endings; otherwise a contribution from a Windows machine arrives with every
+# line changed and the diff becomes unreadable.
+* text=auto eol=lf
+
+# Skripte, die im Container laufen, MUESSEN LF haben — mit CRLF scheitert die
+# Shebang-Zeile mit "bad interpreter: no such file or directory".
+# These must be LF or the shebang fails inside the container.
+*.sh              text eol=lf
+contrib/streaming-host/init/*   text eol=lf
+contrib/streaming-host/renew.sh text eol=lf
+
+# Erzeugte Dateien: nicht in die Sprachstatistik, im Diff standardmaessig eingeklappt.
+# Sie werden nicht von Hand gepflegt, sondern von scripts/build_openapi.py.
+# Generated, not hand-maintained: collapsed in diffs, excluded from language stats.
+docs/openapi.yaml linguist-generated=true
+CHANGELOG.md      linguist-generated=true
+
+# Binaeres ohne Zeilenenden-Umschreibung.
+*.png  binary
+*.ico  binary
+*.webp binary

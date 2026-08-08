@@ -1,0 +1,60 @@
+# OpenSSF Scorecard — die Prüfliste, die diese Härtung ausgelöst hat, läuft ab jetzt
+# selbst mit. Sie bewertet Lieferkette und Projekthygiene: gepinnte Actions, Rechte der
+# Workflows, Schutzregeln der Zweige, gefährliche Muster in Workflows, gepflegte
+# Abhängigkeiten. Ergebnisse landen im Code-Scanning des Repos.
+#
+# WARUM ALS EIGENER LAUF UND NICHT EINMALIG VON HAND: Eine Prüfliste, die einmal
+# abgehakt wurde, verfällt lautlos. Der nächste bequeme Griff — eine Action schnell auf
+# ein Tag zurück, eine Berechtigung „nur zum Testen" — fällt dann niemandem mehr auf.
+#
+# Runs the same checklist that prompted this hardening, so it cannot quietly decay.
+name: Scorecard
+
+on:
+  branch_protection_rule:
+  schedule:
+    - cron: "30 5 * * 1"     # montags / Mondays
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard-Analyse / analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write   # Ergebnis ins Code-Scanning
+      id-token: write          # signierter Nachweis des Laufs
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
+
+      - name: Scorecard
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc  # v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Ohne Token laufen die Prüfungen, die die GitHub-API brauchen (Zweigschutz,
+          # Mitwirkende), gar nicht erst — sie melden dann "keine Daten" statt eines
+          # Befunds. Ein reines Lesetoken genügt; ohne es ist die Bewertung geschönt.
+          # Without a token the API-based checks silently report "no data" rather than
+          # a finding, which flatters the score.
+          repo_token: ${{ secrets.SCORECARD_TOKEN || github.token }}
+          publish_results: false
+
+      - name: Ergebnis aufbewahren / keep the result
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: scorecard-results
+          path: results.sarif
+          retention-days: 30
+
+      - name: Ins Code-Scanning / upload to code scanning
+        uses: github/codeql-action/upload-sarif@c4dd10e44af883a891fe31ced449bcb4a6728b9b  # v3
+        with:
+          sarif_file: results.sarif
