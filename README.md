@@ -32,6 +32,7 @@ teilen sich **RomM** (Browser/Player) und **RetroNAS**.
 - [Benachrichtigungen](#benachrichtigungen)
 - [Designs & Sprachen](#designs--sprachen)
 - [API](#api)
+- [Versionen: aktualisieren und zurückgehen](#versionen-aktualisieren-und-zurückgehen)
 - [Sicherheit](#sicherheit)
 - [HTTPS & PWA](#https--pwa)
 - [Entwicklung & Tests](#entwicklung--tests)
@@ -322,6 +323,63 @@ curl -H "X-Api-Key: $KEY" http://<host>:8770/api/jobs
 ```
 
 Der Schlüssel wird unter *Einstellungen → Allgemein* erzeugt und kann dort rotiert werden.
+
+---
+
+## Versionen: aktualisieren und zurückgehen
+
+*Versions: updating, and going back*
+
+Jeder Release hinterlässt **drei** Dinge, die dasselbe bezeichnen und Verschiedenes können:
+
+| | wofür | änderbar |
+|---|---|---|
+| Abbild `ghcr.io/sparxx947/romseerr:1.1.0-beta.1` | ein Container, der **zieht** | nein |
+| Git-Tag `v1.1.0-beta.1` | ein Bau **aus dem Quelltext** | nein — Tags sind unveränderlich |
+| Zweig `release/v1.1.0-beta.1` | ein Bau aus dem Quelltext | **ja** — hierhin darf eine nachgezogene Korrektur |
+
+**Eine andere Version fahren** heißt für einen ziehenden Container: die Marke am Abbild
+ändern, mehr nicht.
+
+```yaml
+services:
+  romseerr:
+    image: ghcr.io/sparxx947/romseerr:1.0.0-beta.1   # statt :1.1.0-beta.1
+```
+
+`latest` zeigt bewusst **nie** auf ein Pre-Release. Wer Betas will, trägt sie namentlich ein.
+
+**Aus dem Quelltext bauen** — so läuft die Referenzinstallation, und so kommt die Instanz
+zu einer belastbaren Auskunft über sich selbst:
+
+```bash
+git checkout release/v1.1.0-beta.1        # oder: git checkout v1.1.0-beta.1
+docker build -t romseerr:local \
+  --build-arg "ROMSEERR_COMMIT=$(git rev-parse --short HEAD)" \
+  --build-arg "ROMSEERR_BUILT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
+```
+
+**Ohne die beiden Argumente** meldet `/api/version` weder Commit noch Bauzeitpunkt, und
+die Frage „läuft das, was im Repo steht?" ist wieder Ratesache — genau der Fall, der
+einmal einen Arbeitstag gekostet hat. Nach dem Ausrollen prüfen:
+
+```bash
+curl -s http://<host>:8770/api/version
+{"version":"1.1.0-beta.1","commit":"24a331e","built_at":"…","provenance":"build"}
+```
+
+Meldet `provenance` etwas anderes als `build`, wurde ohne diese Angaben gebaut.
+
+**Was ein alter Stand nicht verspricht:** Er ist erreichbar, nicht garantiert lauffähig.
+Abhängigkeiten können sich nicht mehr auflösen, und ein einmal migrierter Datenbestand
+passt womöglich nicht mehr zu einer älteren Fassung. Vor einem Rücksprung die Daten sichern.
+
+*Every release leaves three things: an image tag for a container that pulls, an immutable
+git tag, and a `release/…` branch that can take a backport. Changing the image tag is all
+a pulling container needs; `latest` never points at a pre-release. When building from
+source, pass `ROMSEERR_COMMIT` and `ROMSEERR_BUILT_AT` — without them `/api/version`
+cannot say what it is running. An older state is reachable, not guaranteed to run: back up
+the data before going back.*
 
 ---
 
