@@ -74,6 +74,10 @@ services:
       # Init-Skripte MÜSSEN hierhin — /config/custom-cont-init.d wird ignoriert.
       # Init scripts MUST be mounted here; /config/custom-cont-init.d is ignored.
       - ./init:/custom-cont-init.d:ro
+      # Der Start-Dienst wird EINGEHAENGT, nicht kopiert. Sonst laeuft nach einem
+      # Update des Repos weiter die alte Fassung — und zwar lautlos.
+      # Mounted, not copied: otherwise an outdated copy keeps running silently.
+      - ./stream-agent.py:/opt/stream-agent.py:ro
       # Die ROM-Bibliothek nur lesend. / The ROM library, read-only.
       - ${ROMS_DIR:?ROMS_DIR fehlt - siehe .env.example}:/roms:ro
     devices:

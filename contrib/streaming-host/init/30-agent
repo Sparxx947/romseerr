@@ -48,5 +48,9 @@ export STREAM_ROMS=/roms
 [ -x "$EMU/rpcs3/AppRun" ]     && export EMU_PS3="$VGL $EMU/rpcs3/AppRun --no-gui %s"
 
 pkill -f stream-agent.py 2>/dev/null || true
-setsid nohup python3 /config/stream-agent.py >> /config/stream-agent.log 2>&1 &
+# Aus dem eingehaengten Repo starten, nicht aus /config: was laeuft, ist damit
+# immer das, was im Repo steht. / Run the mounted file, so running == checked out.
+AGENT=/opt/stream-agent.py
+[ -f "$AGENT" ] || AGENT=/config/stream-agent.py   # Rueckfall fuer Altbestand
+setsid nohup python3 "$AGENT" >> /config/stream-agent.log 2>&1 &
 echo "[agent] gestartet auf :${STREAM_AGENT_PORT} / started"
