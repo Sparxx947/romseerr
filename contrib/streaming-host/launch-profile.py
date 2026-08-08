@@ -217,6 +217,64 @@ def pcsx2_vollbild():
     return _ini_setzen(pcsx2_ini(), "[UI]", "StartFullscreen", "true")
 
 
+# ------------------------------------------------------------------ RPCS3 (PS3)
+# Der Standard von RPCS3 bindet Spieler 1 an die TASTATUR. Solange niemand im
+# Einstellungsdialog etwas anfasst, schreibt es ueberhaupt keine Eingabekonfiguration —
+# `input_configs/` existiert dann gar nicht. Am laufenden Host nachgemessen: Selkies
+# liefert das Pad, RPCS3 zaehlt es sogar auf, und im Spiel passiert nichts. (#156)
+#
+# RPCS3's default binds player 1 to the KEYBOARD and writes no input config at all
+# until someone opens its settings dialog.
+#
+# DER GERAETENAME IST NICHT GERATEN, SONDERN ABGELESEN. Aus RPCS3s Log:
+#   SDL: Found game pad 1: name='Microsoft X-Box 360 pad'
+#   SDL: Adding empty device: SDL Device 1        <- vorher, mit falschem Namen
+# Er ist stabil, weil Selkies jedes physische Pad auf EIN virtuelles Xbox-Pad abbildet
+# (siehe Kopf dieser Datei) — der Emulator sieht nie "einen DualSense". Ueber
+# RPCS3_PAD_NAME trotzdem ueberschreibbar, falls ein Abbild das anders benennt.
+RPCS3_PAD = os.environ.get("RPCS3_PAD_NAME", "Microsoft X-Box 360 pad")
+
+
+def rpcs3_input():
+    return os.path.join(CONFIG, ".config/rpcs3/input_configs/global/Default.yml")
+
+
+def rpcs3_apply(pruefen=False):
+    """-> (geaendert, meldung). Bindet Spieler 1 auf SDL statt auf die Tastatur.
+
+    BEWUSST MINIMAL: nur Handler und Geraet. RPCS3 fuellt alles Weitere aus seinen
+    Standardwerten — nachgemessen, es schreibt die Datei nicht um und startet sauber.
+    Eine vollstaendig ausgeschriebene Belegung waere eine zweite Wahrheit neben der
+    des Emulators und muesste bei jeder RPCS3-Version nachgepflegt werden.
+    Deliberately minimal: RPCS3 fills the rest from its own defaults.
+    """
+    pfad = rpcs3_input()
+    soll = f'Player 1 Input:\n  Handler: SDL\n  Device: "{RPCS3_PAD}"\n'
+    if os.path.isfile(pfad):
+        try:
+            with open(pfad, encoding="utf-8", errors="ignore") as f:
+                ist = f.read()
+        except OSError:
+            ist = ""
+        if ist.strip() == soll.strip():
+            return False, "Gamepad-Belegung steht bereits"
+    if pruefen:
+        return True, "Belegung wuerde gesetzt"
+    os.makedirs(os.path.dirname(pfad), exist_ok=True)
+    # Sicherung EINMAL, wie bei PCSX2: der Ausgangsstand, nicht der von vorhin.
+    sicherung = pfad + ".vor-gamepad"
+    if os.path.isfile(pfad) and not os.path.exists(sicherung):
+        try:
+            with open(pfad, encoding="utf-8", errors="ignore") as a, \
+                 open(sicherung, "w", encoding="utf-8") as b:
+                b.write(a.read())
+        except OSError:
+            pass
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write(soll)
+    return True, f"Spieler 1 auf SDL, Geraet '{RPCS3_PAD}'"
+
+
 # JEDER bereitgestellte Emulator steht hier — auch der, der nichts braucht.
 #
 # WARUM AUSDRUECKLICH STATT WEGGELASSEN: Ein fehlender Eintrag ist nicht von einem
@@ -248,7 +306,11 @@ PROFILE = {
                   "geprueft": False},
     "vita3k":    {"system": "PS Vita",       "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
-    "rpcs3":     {"system": "PS3",           "controller": None, "bios": None, "vollbild": None,
+    # geprueft bleibt False, bis ein Mensch das Pad IM SPIEL bewegt hat. Gemessen ist
+    # bisher nur, dass RPCS3 das Geraet annimmt (die Warnung „Adding empty device"
+    # verschwindet) — das ist ein Hinweis, kein Nachweis.
+    "rpcs3":     {"system": "PS3",           "controller": rpcs3_apply,
+                  "bios": None, "vollbild": None,
                   "geprueft": False},
     "switchemu": {"system": "Switch",        "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
