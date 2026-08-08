@@ -117,6 +117,15 @@ pruefe() {  # pruefe <verzeichnis> <spec>
 # Kept separate so reinstalling an emulator does not take the firmware with it.
 platzieren() {  # platzieren [plattform]
   local nur="${1:-}" e p ziel quelle f
+  # Auch das UEBERGEORDNETE Verzeichnis. Die einzelnen Plattformordner dem richtigen
+  # Konto zu geben genuegt nicht: bleibt /config/firmware bei root und 0700, kommt der
+  # Emulator gar nicht erst hinein, und die Datei darunter ist unerreichbar, egal wem
+  # sie gehoert. Beim ersten Anlauf genau so passiert — die Rechte sahen stimmig aus,
+  # `test -r` als der richtige Nutzer sagte etwas anderes.
+  # The parent too: fixing the per-platform directories is not enough if /config/firmware
+  # itself stays root-owned and 0700 — nothing below it can be reached.
+  besitz_richten "$FW" 2>/dev/null
+  chmod u+rwx "$FW" 2>/dev/null || true
   for e in "${KATALOG[@]}"; do
     p=$(feld "$e" 1); [ -n "$nur" ] && [ "$nur" != "$p" ] && continue
     quelle="$FW/$p"; ziel="$CFG/$(feld "$e" 4)"
