@@ -1520,6 +1520,35 @@ def test_stream_find_file_validates_the_slug_itself(appmod):
     appmod.save_settings({})
 
 
+def test_stream_finds_a_title_that_is_a_folder(appmod, tmp_path, monkeypatch):
+    """Eine PS3-Disc ist ein ORDNER, kein Abbild. Ohne diesen Zweig meldete jeder
+    PS3-Titel `not_in_library`, der Stream-Knopf erschien nie — waehrend der
+    Start-Dienst denselben Titel klaglos startet. Zwei Seiten, die sich
+    widersprechen, und der Nutzer sieht nur die falsche Auskunft. (#150)"""
+    spiel = tmp_path / "ps3" / "Ape Escape 4 PS3-EU BG"
+    (spiel / "PS3_GAME" / "USRDIR").mkdir(parents=True)
+    (spiel / "PS3_GAME" / "USRDIR" / "EBOOT.BIN").write_bytes(b"x")
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    gefunden = appmod.stream_find_file("Ape Escape 4 PS3-EU BG", "ps3")
+    assert gefunden == str(spiel), gefunden
+
+
+def test_stream_info_reports_a_folder_title_as_streamable(appmod, tmp_path, monkeypatch):
+    """Der Befund muss bis zur Auskunft durchschlagen — sonst ist der Knopf weiterhin
+    weg, obwohl die Suche den Titel findet. (#150)"""
+    spiel = tmp_path / "ps3" / "Brutal Legend BLES00562"
+    (spiel / "PS3_GAME" / "USRDIR").mkdir(parents=True)
+    (spiel / "PS3_GAME" / "USRDIR" / "EBOOT.BIN").write_bytes(b"x")
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    appmod.save_settings({"connections": {"stream_url": "http://s.example/"}})
+    try:
+        info = appmod.stream_info("Brutal Legend BLES00562", "ps3")
+        assert info.get("streamable") is True, info
+        assert info.get("reason") == "", info
+    finally:
+        appmod.save_settings({})
+
+
 def test_no_private_infrastructure_details_in_repo():
     """Das Repo ist öffentlich. Keine Adressen, Hostnamen oder Anlagenpfade darin.
 
