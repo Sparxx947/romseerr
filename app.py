@@ -2098,18 +2098,34 @@ def stream_start(user, title, slug):
                     "busy_with": ses.get("title", ""), "busy_user": ses.get("user", "")}, 409
         conf = stream_cfg()
         launched = False
+        fehler = ""
         if conf["launch"]:
             try:
-                r = safe_post(conf["launch"], json={"path": info["path"], "platform": info["platform"]},
-                              timeout=15)
+                # RELATIV zur Bibliothekswurzel schicken. Ein absoluter Pfad bedeutet
+                # im Streaming-Host nicht dasselbe wie hier — haengt er die Bibliothek
+                # unter einem anderen Punkt ein, zeigt der Pfad ins Leere, der Start
+                # scheitert still, und der Nutzer sieht nur den Desktop. Genau so
+                # passiert. Der absolute Pfad geht zur Vertraeglichkeit weiter mit.
+                # Send a library-relative path: an absolute one does not mean the same
+                # thing on the streaming host, and the launch fails silently.
+                rel = os.path.relpath(info["path"], ROMS)
+                if rel.startswith(".."): rel = ""     # nicht unterhalb der Wurzel
+                r = safe_post(conf["launch"],
+                              json={"rel": rel, "path": info["path"],
+                                    "platform": info["platform"]}, timeout=15)
                 launched = bool(r.ok)
-                if not r.ok: log(f"Stream-Start abgelehnt: HTTP {r.status_code}")
+                if not r.ok:
+                    try: fehler = str((r.json() or {}).get("msg") or "")[:300]
+                    except Exception: fehler = f"HTTP {r.status_code}"
+                    log(f"Stream-Start abgelehnt: HTTP {r.status_code} {fehler}")
             except Exception as e:
+                fehler = err_kind(e)
                 log(f"Stream-Start-Fehler: {e}")
         kv_put("stream_session", {"user": user, "title": title, "platform": info["platform"],
                                   "started": int(time.time()),
                                   "expires": time.time() + STREAM_TTL, "launched": launched})
     return {"streamable": True, "url": conf["url"], "launched": launched,
+            "launch_error": fehler,
             "platform": info["platform"], "expires_in": STREAM_TTL}, 200
 
 def worker_collect():

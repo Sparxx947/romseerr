@@ -213,11 +213,23 @@ def _stop_locked():
     _current.update({"proc": None, "platform": "", "path": ""})
 
 
-def launch(path, platform):
-    """(ok, meldung). Einzelplatz: ein laufender Emulator wird zuvor beendet."""
+def launch(path, platform, rel=""):
+    """(ok, meldung). Einzelplatz: ein laufender Emulator wird zuvor beendet.
+
+    `rel` ist der Pfad RELATIV zur Bibliothekswurzel und hat Vorrang. Ein absoluter
+    Pfad bedeutet in zwei Containern nicht dasselbe: haengt der eine die Bibliothek
+    unter einem anderen Punkt ein, zeigt er ins Leere. Relativ ist die einzige Angabe,
+    die auf beiden Seiten dieselbe Datei benennt — vorausgesetzt, beide meinen
+    dieselbe WURZEL, und genau das ist die Bedingung, die dokumentiert gehoert.
+
+    `rel` is relative to the library root and takes precedence: an absolute path does
+    not mean the same thing in two containers that mount the library differently."""
     cmd = EMULATORS.get(platform) or ""
     if not cmd:
         return False, f"kein Emulator fuer '{platform}' hinterlegt / no emulator configured"
+
+    if rel:
+        path = os.path.join(ROMS, rel)   # Ausbruchsversuche faengt die Pruefung unten
 
     # Der Pfad kommt von aussen. Nach Aufloesung der Symlinks MUSS er unter ROMS liegen —
     # sonst waere dies ein Fernstart fuer beliebige Dateien auf dem Host. Geprueft wird die
@@ -229,7 +241,13 @@ def launch(path, platform):
     except (ValueError, OSError):
         return False, "Pfad ausserhalb der Bibliothek / path outside the library"
     if not os.path.isfile(real):
-        return False, "Datei nicht gefunden / file not found"
+        # Der haeufigste Grund ist KEIN fehlendes Spiel, sondern zwei Container, die
+        # ihre Bibliothek an verschiedenen Stellen einhaengen. Das gehoert in die
+        # Meldung, sonst sucht der Betreiber die Datei statt die Einhaengung.
+        # The usual cause is two containers mounting the library differently.
+        return False, (f"Datei nicht gefunden / file not found: {real} — "
+                       "haengen Romseerr und der Streaming-Host DIESELBE "
+                       "Bibliothekswurzel ein? / do both mount the same library root?")
 
     # argv ist damit: fester Befehl aus der Umgebung (der Betreiber setzt ihn) + genau EIN
     # geprueftes Argument aus der Bibliothek. Keine Shell, keine Wortzerlegung durch execve.
@@ -337,7 +355,8 @@ class Handler(BaseHTTPRequestHandler):
             d = json.loads(self.rfile.read(min(n, 65536)) or b"{}")
         except (ValueError, OSError):
             return self._reply(400, {"ok": False, "msg": "kein gueltiges JSON / invalid JSON"})
-        ok, msg = launch(str(d.get("path") or ""), str(d.get("platform") or ""))
+        ok, msg = launch(str(d.get("path") or ""), str(d.get("platform") or ""),
+                         str(d.get("rel") or ""))
         return self._reply(200 if ok else 400, {"ok": ok, "msg": msg})
 
     def _firmware_upload(self, q):
