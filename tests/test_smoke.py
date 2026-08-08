@@ -6,6 +6,7 @@ Sperrliste, Setup-/Login-Fluss und dass das eingebettete JavaScript gültig ist.
 import ast
 import json
 import os
+import yaml
 import re
 import sys
 import shutil
@@ -2795,3 +2796,36 @@ def test_the_openapi_version_line_carries_the_release_marker():
     cfg = json.load(open(os.path.join(root, "release-please-config.json"), encoding="utf-8"))
     extra = cfg["packages"]["."].get("extra-files", [])
     assert "docs/openapi.yaml" in extra, f"release-please fasst die Spec nicht an: {extra}"
+
+
+def test_a_release_creates_a_branch_and_never_moves_one():
+    """Ein Tag kann keine nachgezogene Korrektur aufnehmen — dafuer gibt es den
+    Release-Zweig. Der Wert steckt aber ganz darin, dass er NICHT zurueckgesetzt
+    wird: ein vorhandener Zweig kann Backports tragen, und ihn auf den
+    Release-Commit zu schieben wuerfe genau die weg, lautlos. (#186)"""
+    wf = open(os.path.join(REPO, ".github/workflows/release-please.yml"),
+              encoding="utf-8").read()
+    d = yaml.safe_load(wf)
+    job = d["jobs"]["release-branch"]
+    assert job["needs"] == "release-please"
+    # Nur bei einem echten Release, sonst entstuenden Zweige ohne Anlass.
+    assert "released == 'true'" in job["if"]
+    schritt = " ".join(s.get("run", "") for s in job["steps"])
+    assert "release/$TAG" in schritt
+    # Die Schutzregel: erst nachsehen, dann anlegen — und niemals ueberschreiben.
+    assert "git/ref/heads/" in schritt and "exit 0" in schritt
+    for verboten in ("--force", "-X PATCH", "-X PUT"):
+        assert verboten not in schritt, f"{verboten} wuerde einen Zweig verschieben"
+
+
+def test_the_readme_says_how_to_run_an_older_version():
+    """Eine aeltere Fassung zu fahren war nirgends beschrieben, und die beiden Wege
+    koennen Verschiedenes: die Abbildmarke fuer einen ziehenden Container, der Zweig
+    fuers Bauen und Nachbessern. Ohne die Bau-Argumente meldet /api/version weder
+    Commit noch Bauzeitpunkt — der Fall aus #129. (#186)"""
+    r = open(os.path.join(REPO, "README.md"), encoding="utf-8").read()
+    assert "## Versionen: aktualisieren und zurückgehen" in r
+    for pflicht in ("ROMSEERR_COMMIT", "ROMSEERR_BUILT_AT", "release/v", "ghcr.io"):
+        assert pflicht in r, pflicht
+    # Der ehrliche Vorbehalt gehoert dazu, sonst liest sich das wie eine Zusage.
+    assert "nicht garantiert lauffähig" in r

@@ -75,3 +75,40 @@ jobs:
 
           echo "main $(git rev-parse --short origin/main) -> $SHA ($TAG)"
           git push origin "$SHA:refs/heads/main"
+
+  # Ein Zweig je Release. Der Tag allein genuegt nicht: er ist unveraenderlich, und
+  # spaetestens wenn ein alter Stand EINE nachgezogene Korrektur braucht, muss es einen
+  # Ort geben, an den sie darf. Ausserdem baut die Referenzinstallation aus einem Klon
+  # statt zu ziehen — dort zeigt ein Auschecken auf einen Zweig, nicht auf ein Abbild.
+  #
+  # A branch per release: a tag cannot take a backport, and the reference installation
+  # builds from a clone rather than pulling.
+  release-branch:
+    name: Zweig zum Release anlegen / create the release branch
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Anlegen, aber niemals verschieben / create, never move
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.release-please.outputs.sha }}
+          TAG: ${{ needs.release-please.outputs.tag }}
+        run: |
+          set -eu
+          ZWEIG="release/$TAG"
+
+          # NIEMALS ueberschreiben. Ein vorhandener Release-Zweig kann nachgezogene
+          # Korrekturen tragen; ihn auf den Release-Commit zurueckzusetzen wuerfe genau
+          # das weg, wofuer es ihn gibt — und zwar lautlos.
+          # Never overwrite: an existing release branch may carry backports.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$ZWEIG" >/dev/null 2>&1; then
+            echo "::notice title=Zweig besteht bereits::$ZWEIG wird nicht angefasst / left untouched"
+            exit 0
+          fi
+
+          gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/heads/$ZWEIG" -f "sha=$SHA" >/dev/null
+          echo "$ZWEIG -> $SHA"
