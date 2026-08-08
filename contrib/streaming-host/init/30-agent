@@ -47,6 +47,32 @@ fi
 # Selkies documents three variables; the image sets two and omits SDL_JOYSTICK_DEVICE.
 # Verified missing on the running container.
 export SDL_JOYSTICK_DEVICE="${SDL_JOYSTICK_DEVICE:-/dev/input/js0}"
+
+# ---- Anzeige-Unterbau festnageln --------------------------------------------------
+# Die Emulatoren laufen heute auf X11, weil es im Container NICHTS ANDERES GIBT:
+# WAYLAND_DISPLAY ist nicht gesetzt, ein Wayland-Socket existiert nicht. Das ist eine
+# Abwesenheit, keine Entscheidung — und sie traegt nicht weit. Nachgemessen liefert
+# jedes Qt-AppImage BEIDE Plugins:
+#
+#     /config/emulators/dolphin/usr/plugins/platforms/libqwayland.so
+#     /config/emulators/dolphin/usr/plugins/platforms/libqxcb.so
+#
+# Qt waehlt Wayland, sobald WAYLAND_DISPLAY gesetzt ist; SDL entscheidet ueber seine
+# eigene Treiberliste ebenso. Sobald das Abbild wechselt oder Xvfb durch ein echtes
+# Xorg ersetzt wird (#169), koennte ein Emulator einen Unterbau waehlen, den niemand
+# ausgesucht hat — und der Fehler saehe nach kaputtem Emulator aus, nicht nach
+# geaenderter Umgebung. Genau deshalb steht die Vorgabe hier und nicht im Kommentar.
+#
+# Ueberschreibbar: es geht um eine definierte Vorgabe, nicht um eine Sperre.
+#
+# The emulators run on X11 only because nothing else exists in the container. Every Qt
+# AppImage ships libqwayland.so as well, and Qt prefers it once WAYLAND_DISPLAY is set.
+# Pin the backend so #169 does not silently change it. Overridable on purpose.
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb}"
+export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-x11}"
+export GDK_BACKEND="${GDK_BACKEND:-x11}"
+echo "[agent] Anzeige-Unterbau / display backend: QT_QPA_PLATFORM=$QT_QPA_PLATFORM" \
+     "SDL_VIDEODRIVER=$SDL_VIDEODRIVER GDK_BACKEND=$GDK_BACKEND DISPLAY=${DISPLAY:-?}"
 # Defensiv: laeuft dieses Skript einmal in einem Zusammenhang OHNE die Vorgabe des
 # Abbilds (etwa von Hand nachgestartet), fehlte sonst der Interposer ganz.
 INTERPOSER="${SELKIES_INTERPOSER:-/usr/lib/selkies_joystick_interposer.so}"

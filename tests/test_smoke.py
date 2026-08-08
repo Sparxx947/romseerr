@@ -2697,3 +2697,36 @@ def test_a_pattern_picks_the_file_that_fits_the_size():
     # Mindestmass, weil das Xbox-BIOS in 256 KB, 512 KB und 1 MB vorkommt.
     assert '">"*)' in text, "ein Mindestmass (>N) muss ausdrueckbar sein"
     assert "erste=" in text, "bei mehreren Treffern muss der passende gewaehlt werden"
+
+
+def test_the_display_backend_is_pinned_not_left_to_chance():
+    """Die Emulatoren liefen auf X11, weil es im Container NICHTS ANDERES GAB —
+    WAYLAND_DISPLAY nicht gesetzt, kein Socket. Gleichzeitig liefert jedes
+    Qt-AppImage `libqwayland.so` neben `libqxcb.so`, und Qt nimmt Wayland, sobald
+    die Variable auftaucht. Eine Abwesenheit ist keine Entscheidung: #169 will den
+    Xvfb durch ein echtes Xorg ersetzen, und dieser Umbau ist nur zu beurteilen,
+    wenn der Unterbau vorher und nachher derselbe ist. (#178)"""
+    text = open(os.path.join(REPO, "contrib/streaming-host/init/30-agent"),
+                encoding="utf-8").read()
+    for var, wert in (("QT_QPA_PLATFORM", "xcb"),
+                      ("SDL_VIDEODRIVER", "x11"),
+                      ("GDK_BACKEND", "x11")):
+        # Vorgabe, nicht Sperre: die Zuweisung muss ueberschreibbar bleiben.
+        muster = rf'export {var}="\$\{{{var}:-{wert}\}}"'
+        assert re.search(muster, text), f"{var} fehlt oder ist nicht ueberschreibbar"
+
+
+def test_the_setup_starter_inherits_the_pinned_backend():
+    """emu-setup liest die Umgebung aus dem laufenden Dienst und uebernimmt nur eine
+    Auswahl — bewusst, damit der Token nicht mitwandert. Genau deshalb muss die
+    Auswahl mitwachsen: faellt QT_QPA_PLATFORM heraus, oeffnet der Einrichtungslauf
+    den Emulator mit einem anderen Unterbau als der Spielstart, und die Belegung, die
+    man dort setzt, gilt fuer ein anderes Fenster. (#178)"""
+    text = open(os.path.join(REPO, "contrib/streaming-host/emu-setup"),
+                encoding="utf-8").read()
+    fall = re.search(r"case \"\$z\" in\n(.*?)\n\s*esac", text, re.S).group(1)
+    assert "QT_QPA_PLATFORM=*" in fall, fall
+    assert "GDK_BACKEND=*" in fall, fall
+    assert "SDL_*" in fall, "SDL_VIDEODRIVER haengt an diesem Muster"
+    # Der Token darf weiterhin NICHT mitwandern.
+    assert "STREAM_AGENT_TOKEN" not in fall
