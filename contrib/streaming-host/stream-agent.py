@@ -78,6 +78,24 @@ BOOTPFADE = {
 BOOT_ENDUNGEN = (".iso", ".chd", ".cue", ".gdi", ".rvz", ".wbfs", ".nsp", ".xci", ".pkg")
 
 
+def _in_bibliothek(pfad):
+    """-> aufgeloester Pfad, wenn er unter ROMS liegt, sonst ''.
+
+    Geprueft wird die AUFGELOESTE Form: sonst genuegt ein Symlink oder ein '..' zum
+    Ausbrechen. Bewusst eine eigene Funktion, weil die Pruefung an ZWEI Stellen
+    gebraucht wird — beim Pfad von aussen und noch einmal bei der Startdatei, die aus
+    einem Ordner aufgeloest wurde. Beim ersten Anlauf fehlte die zweite, und ein
+    Symlink im Titelordner haette den Emulator auf eine beliebige Datei des Hosts
+    zeigen lassen. Gefunden hat das CodeQL, nicht ich.
+    Resolved form only; needed twice, and the second call was missing at first.
+    """
+    try:
+        real = os.path.realpath(pfad)
+        return real if os.path.commonpath([real, ROMS]) == ROMS else ""
+    except (ValueError, OSError):
+        return ""
+
+
 def _bootdatei(ordner, platform):
     """-> absoluter Pfad der Startdatei, oder '' wenn nicht eindeutig bestimmbar."""
     for rel in BOOTPFADE.get(platform, ()):
@@ -277,11 +295,8 @@ def launch(path, platform, rel="", region=""):
     # Der Pfad kommt von aussen. Nach Aufloesung der Symlinks MUSS er unter ROMS liegen —
     # sonst waere dies ein Fernstart fuer beliebige Dateien auf dem Host. Geprueft wird die
     # AUFGELOESTE Form (realpath), sonst genuegt ein Symlink oder ein '..' zum Ausbrechen.
-    try:
-        real = os.path.realpath(path)
-        if os.path.commonpath([real, ROMS]) != ROMS:
-            raise ValueError
-    except (ValueError, OSError):
+    real = _in_bibliothek(path)
+    if not real:
         return False, "Pfad ausserhalb der Bibliothek / path outside the library"
     if not os.path.exists(real):
         # Der haeufigste Grund ist KEIN fehlendes Spiel, sondern zwei Container, die
@@ -307,7 +322,13 @@ def launch(path, platform, rel="", region=""):
         if not boot:
             return False, (f"Ordner ohne startbaren Inhalt / folder has no bootable file: "
                            f"{os.path.basename(real)}")
-        real = boot
+        # ERNEUT pruefen. Der Ordner liegt in der Bibliothek, die Startdatei darin muss
+        # es deshalb noch lange nicht: ein Symlink genuegt, um heraus zu zeigen.
+        # The folder being inside the library says nothing about a symlink within it.
+        real = _in_bibliothek(boot)
+        if not real:
+            return False, ("Startdatei zeigt aus der Bibliothek heraus / "
+                           "boot file points outside the library")
 
     # Controller-Belegung setzen, bevor der Emulator die Konfiguration liest. Scheitert
     # das, wird trotzdem gestartet: ohne Pad spielen ist schlechter als gar nicht

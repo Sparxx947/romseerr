@@ -2013,6 +2013,26 @@ def test_agent_launches_a_folder_title(tmp_path):
     m._stop_locked()
 
 
+def test_agent_refuses_a_boot_file_that_symlinks_out_of_the_library(tmp_path):
+    """Der ORDNER liegt in der Bibliothek — die Startdatei darin muss es deshalb
+    nicht. Ein Symlink genuegt, um heraus zu zeigen, und dann startet der Emulator
+    auf einer beliebigen Datei des Hosts.
+
+    Diese Luecke war im ersten Anlauf drin: die Pruefung lief nur auf dem Pfad von
+    aussen, nicht auf der aus dem Ordner aufgeloesten Datei. Gefunden hat sie CodeQL
+    (`py/path-injection`), nicht der Testlauf — deshalb steht sie jetzt hier."""
+    draussen = tmp_path / "geheim.bin"
+    draussen.write_bytes(b"x")
+    roms = tmp_path / "lib"
+    spiel = roms / "ps3" / "Boeses Spiel" / "PS3_GAME" / "USRDIR"
+    spiel.mkdir(parents=True)
+    (spiel / "EBOOT.BIN").symlink_to(draussen)
+    m = _agent_module(roms, EMU_PS3="/bin/true %s")
+    ok, msg = m.launch("", "ps3", "ps3/Boeses Spiel")
+    assert not ok, "Symlink aus der Bibliothek heraus wurde gestartet"
+    assert "Bibliothek" in msg, msg
+
+
 def test_agent_refuses_a_folder_it_cannot_boot_instead_of_guessing(tmp_path):
     """Zwei Abbilder in einem Ordner: welches gemeint ist, weiss der Agent nicht.
     Ein geratenes Spiel zu starten waere schlimmer als eine klare Absage — der
