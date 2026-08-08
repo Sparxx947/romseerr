@@ -2055,3 +2055,22 @@ def test_controller_profile_refuses_unknown_target(tmp_path):
     m = _profil_modul(tmp_path)
     assert m.main(["--apply", "gibtsnicht"]) == 1
     assert m.main([]) == 2
+
+
+def test_gamepad_check_page_is_self_contained():
+    """Die Fehlersuche darf nicht daran scheitern, dass der Host nicht ins Internet
+    kommt — und eine Seite mit externen Verweisen tut genau das, nur langsam und ohne
+    Fehlermeldung. (#133)"""
+    pfad = os.path.join(REPO, "contrib/streaming-host/web/gamepad-check.html")
+    text = open(pfad, encoding="utf-8").read()
+    extern = re.findall(r'(?:src|href)\s*=\s*["\'](https?:)?//[^"\']+', text)
+    assert not extern, f"externe Ressourcen: {extern}"
+    assert "getGamepads" in text and "hasFocus" in text and "isSecureContext" in text
+
+
+def test_gamepad_check_page_is_mounted():
+    """Ohne Einhaengung ist die Seite im Repo und nicht im Container. Und faellt die
+    Quelle weg, legt Docker an ihrer Stelle ein VERZEICHNIS an — nginx antwortet dann
+    mit 301 statt mit der Seite, was wie ein Konfigurationsfehler aussieht. (#133)"""
+    yml = open(os.path.join(REPO, "contrib/streaming-host/docker-compose.yml"), encoding="utf-8").read()
+    assert "./web/gamepad-check.html:/usr/share/selkies/web/gamepad-check.html:ro" in yml

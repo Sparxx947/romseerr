@@ -83,6 +83,10 @@ services:
       # Controller-Belegung je Emulator (#119). Ebenfalls eingehaengt, damit das, was
       # laeuft, immer das ist, was im Repo steht.
       - ./controller-profile.py:/opt/controller-profile.py:ro
+      # Pruefseite fuer den Controller (#133). Liegt im Web-Wurzelverzeichnis des
+      # Streaming-Hosts und ist damit unter /gamepad-check.html erreichbar — ohne
+      # Entwicklerwerkzeuge, die auf der Stream-Seite gar nicht zu oeffnen sind.
+      - ./web/gamepad-check.html:/usr/share/selkies/web/gamepad-check.html:ro
       # Die ROM-Bibliothek nur lesend. / The ROM library, read-only.
       - ${ROMS_DIR:?ROMS_DIR fehlt - siehe .env.example}:/roms:ro
     devices:

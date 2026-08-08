@@ -185,6 +185,22 @@ Die Selkies-Dokumentation nennt drei Variablen; das Abbild setzt zwei davon und 
 `SDL_JOYSTICK_DEVICE` weg. Der Start-Dienst ergänzt sie, sonst hat SDL keinen Hinweis,
 welches Gerät gemeint ist.
 
+### Prüfseite: was sieht der Browser?
+
+```
+https://<host>:<HTTPS_PORT>/gamepad-check.html
+```
+
+Sie zeigt sicheren Kontext, Fokus, alle gemeldeten Pads und **live jede gedrückte
+Taste**. Damit trennt sich der Fehler sauber: Erscheint das Pad dort, sind Rechner und
+Browser in Ordnung und es liegt an der Stream-Seite oder der Übertragung. Erscheint es
+nicht, kann auf dem Streaming-Host nichts ankommen — dort zu suchen wäre vergeudet.
+
+Warum es diese Seite überhaupt gibt: **Die Stream-Seite fängt die Tastatur ab** und
+reicht sie an den entfernten Desktop weiter. `F12` kommt dort nie beim Browser an —
+ausgerechnet die Seite, auf der man die Konsole bräuchte, ist die, auf der man sie nicht
+öffnen kann. Diese Prüfseite braucht keine.
+
 **Die Reihenfolge entscheidet, und sie ist nicht intuitiv:**
 
 1. Controller am eigenen Rechner anschließen
@@ -409,6 +425,21 @@ browser over a unix socket — no `uinput`, no elevated privileges.
 
 Selkies documents three variables; the image sets two and omits `SDL_JOYSTICK_DEVICE`.
 The launch service supplies it, otherwise SDL has no hint which device is meant.
+
+### Check page: what does the browser see?
+
+```
+https://<host>:<HTTPS_PORT>/gamepad-check.html
+```
+
+It shows secure context, focus, every gamepad reported, and **live button activity**.
+That splits the fault cleanly: if the pad appears there, the machine and browser are
+fine and the problem is the streaming page or the transport. If it does not, nothing can
+reach the streaming host and looking there is wasted effort.
+
+Why the page exists at all: **the stream page captures the keyboard** and forwards it to
+the remote session, so `F12` never reaches the browser. The page where you would want the
+console is the one where you cannot open it. This one needs no console.
 
 **Order matters, and it is not intuitive:**
 
