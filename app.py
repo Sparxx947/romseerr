@@ -2153,6 +2153,20 @@ def stream_find_file(title, slug):
         for name in ordner:
             base = os.path.join(ROMS, name)
             if not os.path.isdir(base): continue
+            # Ein Titel ist nicht immer eine DATEI. Eine PS3-Disc ist ein Ordner mit
+            # PS3_GAME/USRDIR/EBOOT.BIN darin — 10 von 17 Titeln der Testbibliothek.
+            # Ohne diesen Zweig meldete jeder PS3-Titel "not_in_library", der Stream-
+            # Knopf erschien nie, und der Start-Dienst haette ihn klaglos gestartet:
+            # zwei Seiten, die sich widersprechen. (#150; die Dienstseite war #149)
+            # A title is not always a file; a PS3 disc is a folder. Without this the
+            # two sides disagree: Romseerr says "not in library", the launcher starts it.
+            #
+            # ZUERST der Ordner, dann die Dateisuche: eine Disc traegt denselben Namen
+            # wie ein evtl. daneben liegendes Abbild, und der Ordner ist der Titel.
+            for eintrag in sorted(os.listdir(base)):
+                voll = os.path.join(base, eintrag)
+                if os.path.isdir(voll) and norm(eintrag) == want:
+                    return voll
             for root, _dirs, files in os.walk(base):
                 for fn in files:
                     ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else ""
