@@ -2667,3 +2667,33 @@ def test_a_failed_mesa_utils_install_is_reported():
                 encoding="utf-8").read()
     assert "WARNUNG: mesa-utils" in text, "ein Fehlschlag muss gemeldet werden"
     assert "glxinfo" in text
+
+
+def test_firmware_is_matched_by_size_where_names_vary():
+    """Zweimal hatten wir Dateinamen ERFUNDEN, die es so nicht gibt: xemu erwartete
+    angeblich `mcpx_1.0.bin` und `bios.bin` (real: `mcpx-1.1.bin`, `xbox-5838.bin`,
+    beide mit korrekter Groesse), und Sonys Vita-Datei heisst `PSVUPDAT.PUP`, nicht
+    `PSVITAUPDAT.PUP`. Beide Plattformen wurden als unvollstaendig gemeldet, obwohl
+    alles dalag. Die PS2-Zeile machte es von Anfang an richtig. (#172)"""
+    text = open(os.path.join(REPO, "contrib/streaming-host/init/25-firmware"),
+                encoding="utf-8").read()
+    tabelle = re.search(r"KATALOG=\((.*?)\n\)", text, re.S).group(1)
+    e = {z.strip().strip('"').split("|")[0]: z.strip().strip('"').split("|")
+         for z in tabelle.strip().splitlines() if z.strip().startswith('"')}
+    assert "*mcpx*" in e["xbox"][4], e["xbox"][4]
+    assert "PSVUPDAT.PUP" in e["psvita"][4] and "PSVITAUPDAT" not in e["psvita"][4]
+    # Beide muessen Muster sein, sonst haengt es wieder am Namen.
+    for p in ("xbox", "psvita"):
+        assert "*" in e[p][4], (p, e[p][4])
+
+
+def test_a_pattern_picks_the_file_that_fits_the_size():
+    """Beim Xbox liegen zwei .bin nebeneinander: MCPX mit 512 B und das BIOS mit
+    256 KB. Die alphabetisch erste war immer das MCPX — das BIOS wurde deshalb als
+    "Groesse unerwartet" gemeldet, obwohl es danebenlag. (#172)"""
+    text = open(os.path.join(REPO, "contrib/streaming-host/init/25-firmware"),
+                encoding="utf-8").read()
+    assert "groesse_passt" in text, "es braucht eine eigene Groessenpruefung"
+    # Mindestmass, weil das Xbox-BIOS in 256 KB, 512 KB und 1 MB vorkommt.
+    assert '">"*)' in text, "ein Mindestmass (>N) muss ausdrueckbar sein"
+    assert "erste=" in text, "bei mehreren Treffern muss der passende gewaehlt werden"
