@@ -157,6 +157,30 @@ ermitteln lässt: **RPCS3** (keine Release-Dateien auf GitHub, offizieller Direk
 weist automatisierte Abrufe ab) und der **Switch-Emulator** (bewusst ohne eingebaute
 Adresse). Romseerr zeigt sie als „URL nötig".
 
+## Controller
+
+Ein Container darf keine Eingabegeräte anlegen. Selkies löst das mit einem
+**vorgeladenen Interposer**, der das Öffnen von `/dev/input/js*` abfängt und die Daten
+über einen Unix-Socket aus dem Browser holt — ohne `uinput`, ohne erweiterte Rechte.
+
+Die Selkies-Dokumentation nennt drei Variablen; das Abbild setzt zwei davon und lässt
+`SDL_JOYSTICK_DEVICE` weg. Der Start-Dienst ergänzt sie, sonst hat SDL keinen Hinweis,
+welches Gerät gemeint ist.
+
+**Die Reihenfolge entscheidet, und sie ist nicht intuitiv:**
+
+1. Controller am eigenen Rechner anschließen
+2. **eine Taste darauf drücken**, während die Stream-Seite im Vordergrund ist
+3. **erst dann** den Titel starten
+
+Grund: Die Gamepad-API des Browsers meldet ein Pad aus Datenschutzgründen erst nach
+einem Tastendruck, und die meisten Emulatoren lesen die Geräteliste nur beim Start.
+Wer zuerst startet und dann den Controller anfasst, bekommt ein stummes Pad — ohne dass
+irgendetwas defekt wäre. In dem Fall genügt es, den Titel neu zu starten.
+
+Zum Nachsehen im Browser: `navigator.getGamepads()` in der Entwicklerkonsole. Kommt
+dort nichts, liegt es nicht am Container.
+
 ## BIOS und Firmware
 
 Mehrere Emulatoren starten ohne Firmware **gar nicht** — und das äußert sich als
@@ -340,6 +364,28 @@ Two need a URL from you because their source cannot be resolved automatically: *
 (no GitHub release assets; the official direct link refuses automated requests) and the
 **Switch emulator** (deliberately without a built-in address). Romseerr shows these as
 "URL required".
+
+## Controllers
+
+A container may not create input devices. Selkies solves this with a **preloaded
+interposer** that intercepts opening `/dev/input/js*` and pulls the data from the
+browser over a unix socket — no `uinput`, no elevated privileges.
+
+Selkies documents three variables; the image sets two and omits `SDL_JOYSTICK_DEVICE`.
+The launch service supplies it, otherwise SDL has no hint which device is meant.
+
+**Order matters, and it is not intuitive:**
+
+1. Connect the controller to your own machine
+2. **Press a button on it** while the stream page has focus
+3. **Then** start the title
+
+The browser's Gamepad API only reports a pad after a button press, and most emulators
+enumerate devices once at startup. Start first and the pad stays silent with nothing
+actually broken — restarting the title is enough.
+
+Check in the browser with `navigator.getGamepads()`. If nothing shows there, the
+container is not the problem.
 
 ## BIOS and firmware
 

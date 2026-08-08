@@ -1904,3 +1904,12 @@ def test_firmware_parent_directory_is_owned_too():
     text = open(os.path.join(REPO, "contrib/streaming-host/init/25-firmware"), encoding="utf-8").read()
     platzieren = text.split("platzieren() {", 1)[1].split("\n}", 1)[0]
     assert 'besitz_richten "$FW"' in platzieren, "das uebergeordnete Verzeichnis fehlt"
+
+
+def test_launch_service_sets_the_documented_gamepad_variable():
+    """Selkies dokumentiert DREI Variablen; das Abbild setzt zwei und laesst
+    SDL_JOYSTICK_DEVICE weg — am laufenden Container nachgemessen. Ohne sie sieht der
+    Emulator kein Pad. (#19)"""
+    text = open(os.path.join(REPO, "contrib/streaming-host/init/30-agent"), encoding="utf-8").read()
+    assert "export SDL_JOYSTICK_DEVICE=" in text
+    assert "SELKIES_INTERPOSER" in text, "der Interposer muss auch ohne Vorgabe des Abbilds greifen"
