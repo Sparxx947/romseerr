@@ -33,6 +33,34 @@ else
   echo "[agent] WARNING: no VirtualGL — rendering will be on the CPU"
 fi
 
+# --- Gamepad ------------------------------------------------------------------
+# Ein Container darf keine Eingabegeraete anlegen. Selkies loest das mit einem
+# vorgeladenen Interposer, der das OEFFNEN von /dev/input/js* abfaengt und die Daten
+# ueber einen Unix-Socket vom Browser holt.
+#
+# Die Doku des Projekts nennt DREI Variablen (docs/component.md). Das Abbild setzt
+# zwei davon selbst — SELKIES_INTERPOSER und LD_PRELOAD — und laesst die dritte weg.
+# Ohne sie hat SDL keinen Hinweis, welches Geraet gemeint ist, und der Emulator sieht
+# schlicht kein Pad. Nachgemessen am laufenden Container: SDL_JOYSTICK_DEVICE war
+# nicht gesetzt.
+#
+# Selkies documents three variables; the image sets two and omits SDL_JOYSTICK_DEVICE.
+# Verified missing on the running container.
+export SDL_JOYSTICK_DEVICE="${SDL_JOYSTICK_DEVICE:-/dev/input/js0}"
+# Defensiv: laeuft dieses Skript einmal in einem Zusammenhang OHNE die Vorgabe des
+# Abbilds (etwa von Hand nachgestartet), fehlte sonst der Interposer ganz.
+INTERPOSER="${SELKIES_INTERPOSER:-/usr/lib/selkies_joystick_interposer.so}"
+if [ -f "$INTERPOSER" ] && [ "${LD_PRELOAD#*$INTERPOSER}" = "${LD_PRELOAD:-}" ]; then
+  export LD_PRELOAD="${INTERPOSER}${LD_PRELOAD:+:${LD_PRELOAD}}"
+fi
+echo "[agent] Gamepad: SDL_JOYSTICK_DEVICE=$SDL_JOYSTICK_DEVICE"
+# WICHTIG fuer die Bedienung: Der Browser meldet ein Pad erst, NACHDEM eine Taste
+# darauf gedrueckt wurde (so ist die Gamepad-API festgelegt), und viele Emulatoren
+# lesen die Geraeteliste nur beim Start. Reihenfolge also: Pad verbinden, Taste
+# druecken, DANN starten. Andersherum bleibt es stumm, ohne dass etwas kaputt ist.
+# The browser only reports a pad after a button press, and emulators enumerate at
+# startup — so connect, press, then launch.
+
 EMU=/config/emulators
 export STREAM_AGENT_TOKEN="$(cat "$TOKFILE")"
 export STREAM_AGENT_PORT="${AGENT_PORT:-8901}"
