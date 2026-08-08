@@ -1751,3 +1751,29 @@ def test_release_tags_stay_continuous():
     root = cfg["packages"]["."]
     assert "package-name" not in root, "package-name erzeugt Tags mit Praefix"
     assert root.get("include-component-in-tag") is False
+
+
+def test_all_actions_are_pinned_to_a_commit(): 
+    """Ein Tag ist ein VERSCHIEBBARER Zeiger. Wer ihn uebernimmt, fuehrt Code in dieser
+    CI aus — release-please laeuft mit contents:write, das Image-Release mit
+    packages:write. Genau so lief der tj-actions/changed-files-Vorfall 2025.
+    Deshalb: nur 40-stellige Commit-SHAs, Version als Kommentar dahinter. (#117)"""
+    import glob
+    unpinned = []
+    for f in sorted(glob.glob(os.path.join(REPO, ".github/workflows/*.yml"))):
+        for n, line in enumerate(open(f, encoding="utf-8"), 1):
+            m = re.search(r"uses:\s*([\w.-]+/[\w./-]+)@(\S+)", line)
+            if not m:
+                continue                       # lokale Actions (./…) haben kein @
+            if not re.fullmatch(r"[0-9a-f]{40}", m.group(2)):
+                unpinned.append(f"{os.path.basename(f)}:{n}: {m.group(1)}@{m.group(2)}")
+    assert not unpinned, "nicht auf Commit gepinnt:\n  " + "\n  ".join(unpinned)
+
+
+def test_published_image_carries_provenance():
+    """Wer das Image zieht, soll pruefen koennen, aus welchem Commit es stammt —
+    `gh attestation verify`. Ohne das ist die Lieferkette am letzten Meter blind. (#117)"""
+    text = open(os.path.join(REPO, ".github/workflows/release-image.yml"), encoding="utf-8").read()
+    assert "attest-build-provenance" in text
+    assert "steps.push.outputs.digest" in text, "Bescheinigung muss am Digest haengen, nicht am Tag"
+    assert "sbom: true" in text

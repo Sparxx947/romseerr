@@ -1,0 +1,15 @@
+# Wer wird automatisch zur Durchsicht angefragt. / Automatic review requests.
+#
+# Solange hier eine Person steht, ist das vor allem Dokumentation: es haelt fest, wer
+# fuer welchen Teil ansprechbar ist. Sobald jemand dazukommt, greift es sofort.
+# With one maintainer this is mostly documentation of who owns what; it starts working
+# the moment a second person appears.
+*                       @Sparxx947
+
+# Sicherheitsrelevant: Bau, Pruefungen, Rechte, Regeln.
+/.github/               @Sparxx947
+/scripts/               @Sparxx947
+/Dockerfile             @Sparxx947
+
+# Der Streaming-Host laeuft mit GPU-Zugriff auf fremden Maschinen.
+/contrib/streaming-host/ @Sparxx947
