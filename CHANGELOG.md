@@ -4,6 +4,91 @@ Alle nennenswerten Änderungen an diesem Projekt. Format nach
 [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung nach [SemVer](https://semver.org/lang/de/).
 
+## [1.1.0-beta.1](https://github.com/Sparxx947/romseerr/compare/romseerr-v1.0.0-beta.1...romseerr-v1.1.0-beta.1) (2026-08-08)
+
+
+### Neu / Features
+
+* add configuration export and import ([#85](https://github.com/Sparxx947/romseerr/issues/85)) ([d82256f](https://github.com/Sparxx947/romseerr/commit/d82256f2ea2d91a389616eb703033ca4280aabf4))
+* add in-browser play via RomM's built-in EmulatorJS player ([#93](https://github.com/Sparxx947/romseerr/issues/93)) ([f381d3c](https://github.com/Sparxx947/romseerr/commit/f381d3cc51a5f42728634e9b181e2e9ade0769c1))
+* add Italian language (5th UI language) ([#51](https://github.com/Sparxx947/romseerr/issues/51)) ([6ab48ef](https://github.com/Sparxx947/romseerr/commit/6ab48ef99bd6d5d098a72890da5e96e1bd197f65))
+* **admin:** consolidated settings page with sections ([#8](https://github.com/Sparxx947/romseerr/issues/8)) ([32083f8](https://github.com/Sparxx947/romseerr/commit/32083f8ab6c90b56deb218263845132ee9a4bd79))
+* **admin:** logs view, stats and maintenance actions ([#21](https://github.com/Sparxx947/romseerr/issues/21)) ([3bcd160](https://github.com/Sparxx947/romseerr/commit/3bcd160fbd4d34dde9624e7d97170cab928ca0e4))
+* **api:** API key for programmatic access ([#14](https://github.com/Sparxx947/romseerr/issues/14)) ([7c57f45](https://github.com/Sparxx947/romseerr/commit/7c57f45bf44ee28b820c0e43d1b4fc3ba400a6c6))
+* **auth:** password reset via email (SMTP) ([#10](https://github.com/Sparxx947/romseerr/issues/10)) ([140918d](https://github.com/Sparxx947/romseerr/commit/140918db2fc5987914f5242f9df6b85a7e821c8a))
+* **blocklist:** admin blocklist filters search, discover and requests ([#11](https://github.com/Sparxx947/romseerr/issues/11)) ([814644b](https://github.com/Sparxx947/romseerr/commit/814644b284380d56da132927f392896cceb22a6d))
+* bulk request and per-user request history ([#48](https://github.com/Sparxx947/romseerr/issues/48)) ([df00cdd](https://github.com/Sparxx947/romseerr/commit/df00cdd327b963fa0bea44fc92288191661e8a8d))
+* **connections:** scraper sources + clear-text reveal ([#40](https://github.com/Sparxx947/romseerr/issues/40)) ([8eb7446](https://github.com/Sparxx947/romseerr/commit/8eb7446142b92c79261aa73af131f84d56a31180))
+* **db:** move settings, issues, maillog and push into SQLite ([#36](https://github.com/Sparxx947/romseerr/issues/36)) ([65f96d5](https://github.com/Sparxx947/romseerr/commit/65f96d56a7788d0c7397df03fd5de71c987e266b))
+* **db:** move users and jobs into SQLite ([#28](https://github.com/Sparxx947/romseerr/issues/28)) ([45c2956](https://github.com/Sparxx947/romseerr/commit/45c29568df025ba0eff58b0b6f8877f57a91c97f))
+* **detail:** rich IGDB metadata in the detail view ([#19](https://github.com/Sparxx947/romseerr/issues/19)) ([898511a](https://github.com/Sparxx947/romseerr/commit/898511ad4d519dd051f57854067ee6ba7d12caf9))
+* **discover:** genre rows and customizable discover ([#18](https://github.com/Sparxx947/romseerr/issues/18)) ([e50f7ea](https://github.com/Sparxx947/romseerr/commit/e50f7ea78fbfc9c66790af0fd7cbb45996f64b88))
+* download progress + multi-arch release image ([#45](https://github.com/Sparxx947/romseerr/issues/45)) ([bd87e6c](https://github.com/Sparxx947/romseerr/commit/bd87e6c743487c9fe885c9432f0220a3d869e251))
+* expose operational metrics at /metrics ([#82](https://github.com/Sparxx947/romseerr/issues/82)) ([e59df94](https://github.com/Sparxx947/romseerr/commit/e59df948c6ee6d50c96fe49213ca4a2fbb51ba6e))
+* expose running version via /api/version ([#81](https://github.com/Sparxx947/romseerr/issues/81)) ([fce767d](https://github.com/Sparxx947/romseerr/commit/fce767da5988a5754da33d8f3d15177895dafcde))
+* **i18n:** add French and Spanish translations ([#22](https://github.com/Sparxx947/romseerr/issues/22)) ([1ddff73](https://github.com/Sparxx947/romseerr/commit/1ddff73e6cc13a23d12d384366d4e034803cf93b))
+* **i18n:** add German/English language switch ([#3](https://github.com/Sparxx947/romseerr/issues/3)) ([32aa692](https://github.com/Sparxx947/romseerr/commit/32aa69280e7a9dd5b3b9bcbfb66f1e0fd1979c46))
+* import a wishlist from a pasted list or file ([#84](https://github.com/Sparxx947/romseerr/issues/84)) ([a3218fc](https://github.com/Sparxx947/romseerr/commit/a3218fc8905c955cbb51bb5d16f6afe9ee33c21d))
+* **index:** persist the library index in SQLite ([#27](https://github.com/Sparxx947/romseerr/issues/27)) ([a0cc795](https://github.com/Sparxx947/romseerr/commit/a0cc795643e3e48f04ee0dc19b444113ac8cccf3))
+* install emulators on demand from Romseerr, not automatically ([#110](https://github.com/Sparxx947/romseerr/issues/110)) ([abf85ef](https://github.com/Sparxx947/romseerr/commit/abf85ef8dabb35d38086e75f8ddb6b6405eb380a))
+* **issues:** comment threads on issues ([#20](https://github.com/Sparxx947/romseerr/issues/20)) ([1263217](https://github.com/Sparxx947/romseerr/commit/1263217a76a903fad27a3c32a8c3487221b0afda))
+* **issues:** user issue reporting with admin management ([#13](https://github.com/Sparxx947/romseerr/issues/13)) ([b9a0b07](https://github.com/Sparxx947/romseerr/commit/b9a0b072dbd969a3c4704b5746f6f5477f7e599e))
+* JDownloader service status and configurable paths ([#91](https://github.com/Sparxx947/romseerr/issues/91)) ([d423bc9](https://github.com/Sparxx947/romseerr/commit/d423bc9faed7ba9e05f79505fc85f8b62e6c6ebc))
+* **jobs:** retry failed requests + startup config check ([#37](https://github.com/Sparxx947/romseerr/issues/37)) ([f95c0f7](https://github.com/Sparxx947/romseerr/commit/f95c0f7a4c6fe9da62e2c1363e10dd9b8fc6e2c7))
+* **mail:** mail send log in the admin area ([#12](https://github.com/Sparxx947/romseerr/issues/12)) ([6684f23](https://github.com/Sparxx947/romseerr/commit/6684f239e8d06884db527af84874c723126c76c8))
+* **messages:** private direct messages between users ([#44](https://github.com/Sparxx947/romseerr/issues/44)) ([6e83740](https://github.com/Sparxx947/romseerr/commit/6e83740eebe194c7590361ddc849836c55a86fbe))
+* more emulators, and update/rollback from Romseerr ([#103](https://github.com/Sparxx947/romseerr/issues/103)) ([b73d221](https://github.com/Sparxx947/romseerr/commit/b73d221449f914672f1fa587bfdc1cdd3a3b656e))
+* **notifications:** additional agents (Telegram, generic webhook, email) ([#15](https://github.com/Sparxx947/romseerr/issues/15)) ([b155e63](https://github.com/Sparxx947/romseerr/commit/b155e63ce0570c1746da59c25f850fb7aec66491))
+* **notify:** native Gotify, ntfy and Pushover agents ([#46](https://github.com/Sparxx947/romseerr/issues/46)) ([3ac2c17](https://github.com/Sparxx947/romseerr/commit/3ac2c1754f476bb9858b81d6fe30a814b5ccd37c))
+* per-platform coverage and a browsable missing-titles list ([#86](https://github.com/Sparxx947/romseerr/issues/86)) ([22b15c7](https://github.com/Sparxx947/romseerr/commit/22b15c7118a2a4209ea969d47e625ce12dcf62ef))
+* **permissions:** granular per-user permissions ([#16](https://github.com/Sparxx947/romseerr/issues/16)) ([d4542da](https://github.com/Sparxx947/romseerr/commit/d4542da6fe7bbf855d250f5877f4bc48d982bcb7))
+* personalized recommendations and game series view ([#49](https://github.com/Sparxx947/romseerr/issues/49)) ([58abd24](https://github.com/Sparxx947/romseerr/commit/58abd24b2c345fea7a97c66fd3386f91983dc8b6))
+* **profile:** user profile with avatar, language, password change and personal webhook ([#9](https://github.com/Sparxx947/romseerr/issues/9)) ([6a6c6ce](https://github.com/Sparxx947/romseerr/commit/6a6c6ced2fb06bdfa9b2c9d128bf07d184817b54))
+* **pwa:** installable PWA and web-push notifications ([#23](https://github.com/Sparxx947/romseerr/issues/23)) ([b44c1e1](https://github.com/Sparxx947/romseerr/commit/b44c1e16205dddc87ad49b1e17259398af76189c))
+* **quotas:** per-user request quotas ([#17](https://github.com/Sparxx947/romseerr/issues/17)) ([da86b20](https://github.com/Sparxx947/romseerr/commit/da86b2042f02f4d15f5bc98582a74948c053d15b))
+* **requests:** request on behalf of another user ([#47](https://github.com/Sparxx947/romseerr/issues/47)) ([0f54b12](https://github.com/Sparxx947/romseerr/commit/0f54b12519d9dcf267218b0697e73cd8ffb37dc9))
+* Romseerr — Seerr-Experience (Auth, Discover, Berechtigungen, Benachrichtigungen, Stack-Doku) ([#2](https://github.com/Sparxx947/romseerr/issues/2)) ([8ecec51](https://github.com/Sparxx947/romseerr/commit/8ecec51b5f82ff80187d6d159e40877984a65cd8))
+* **search:** Plattform-Vorauswahl mit Usenet-Nachfilter ([#1](https://github.com/Sparxx947/romseerr/issues/1)) ([e4da364](https://github.com/Sparxx947/romseerr/commit/e4da36424af489a1d29d009591cc40e6b7540edc))
+* **security:** login rate limiting, cookie hardening, non-root container ([#35](https://github.com/Sparxx947/romseerr/issues/35)) ([dcb1a14](https://github.com/Sparxx947/romseerr/commit/dcb1a14934507f383dba0a7d8e13c4637b3def70))
+* selectable UI designs (Seerr, Glass, Clean) ([#52](https://github.com/Sparxx947/romseerr/issues/52)) ([6d38a74](https://github.com/Sparxx947/romseerr/commit/6d38a74f0ca4123d6f1443d86525099394329453))
+* **settings:** service connections configurable in the UI ([#39](https://github.com/Sparxx947/romseerr/issues/39)) ([d00f22a](https://github.com/Sparxx947/romseerr/commit/d00f22abf3c67dc2376e66ed4192f962c1cfcb62))
+* ship the streaming host in this repository ([#98](https://github.com/Sparxx947/romseerr/issues/98)) ([5fea21b](https://github.com/Sparxx947/romseerr/commit/5fea21b6f930f6dbf32108d2c5d262688c894e21))
+* show RetroAchievements data on the detail view ([#87](https://github.com/Sparxx947/romseerr/issues/87)) ([b56c7bd](https://github.com/Sparxx947/romseerr/commit/b56c7bdeb1dcc6101c7e837cd9e5e1248ed6de7a))
+* show ROM title in SABnzbd/JDownloader and clean up after import ([#66](https://github.com/Sparxx947/romseerr/issues/66)) ([423ed35](https://github.com/Sparxx947/romseerr/commit/423ed35068dde23b7797a40e1d4570070515ea41))
+* stream natively-emulated platforms into the browser ([#96](https://github.com/Sparxx947/romseerr/issues/96)) ([f6b81ec](https://github.com/Sparxx947/romseerr/commit/f6b81ec337aa141c290559410dec8aa846c86264))
+* **tls:** upload an HTTPS certificate via the web UI ([#41](https://github.com/Sparxx947/romseerr/issues/41)) ([2d61304](https://github.com/Sparxx947/romseerr/commit/2d613045899fef8b5a61980bf32e8c9b03998593))
+* **ui:** first-run onboarding wizard and detailed About section ([#43](https://github.com/Sparxx947/romseerr/issues/43)) ([e12796e](https://github.com/Sparxx947/romseerr/commit/e12796e8b91c79f073c4be69356cc72f42f17efb))
+* **ui:** generated default avatar when no picture is set ([#38](https://github.com/Sparxx947/romseerr/issues/38)) ([9216ded](https://github.com/Sparxx947/romseerr/commit/9216ded12027bcca9eaa0c9e8c009af6907c5c44))
+* un-stub the filehoster path with a generic catalogue-JSON indexer ([#92](https://github.com/Sparxx947/romseerr/issues/92)) ([68c6c02](https://github.com/Sparxx947/romseerr/commit/68c6c024cead443c7666ded299ac2316019d964f))
+* wishlist with automatic download ([#50](https://github.com/Sparxx947/romseerr/issues/50)) ([19ec174](https://github.com/Sparxx947/romseerr/commit/19ec1747f5dc63722fc3df75adb3c999352347b3))
+
+
+### Behoben / Fixes
+
+* **db:** avoid f-string SQL in migration helper (bandit B608) ([#29](https://github.com/Sparxx947/romseerr/issues/29)) ([54390ca](https://github.com/Sparxx947/romseerr/commit/54390cab520ecc5451a71ae40537b86dfd74278a))
+* harden user management, wishlist matching and input parsing ([#57](https://github.com/Sparxx947/romseerr/issues/57)) ([d70c9ac](https://github.com/Sparxx947/romseerr/commit/d70c9ac92e1a3535e44d5303ce1609fb2bee92a5))
+* import only recognized ROM extensions, not junk ([#62](https://github.com/Sparxx947/romseerr/issues/62)) ([58a3a0f](https://github.com/Sparxx947/romseerr/commit/58a3a0fa5b154b6683d66786f296f75d157a11f8))
+* mount the launch agent instead of expecting it in /config ([#105](https://github.com/Sparxx947/romseerr/issues/105)) ([ec77799](https://github.com/Sparxx947/romseerr/commit/ec77799f4c0db06bfd8cf39b52cc77c310df9e53))
+* pass the init scripts' variables into the container ([#99](https://github.com/Sparxx947/romseerr/issues/99)) ([326b305](https://github.com/Sparxx947/romseerr/commit/326b3056aa936a4ac67c1ad73e43fc8cff27d1b0))
+* refuse outbound requests to internal targets and stop leaking exception text ([#94](https://github.com/Sparxx947/romseerr/issues/94)) ([82fd45e](https://github.com/Sparxx947/romseerr/commit/82fd45e1e27a1385f5f714de08b6c986c98248d3))
+* request privacy and design-picker active state ([#60](https://github.com/Sparxx947/romseerr/issues/60)) ([8c432c3](https://github.com/Sparxx947/romseerr/commit/8c432c33874040a58d4dac9976359873eca52042))
+* stop returning exception text from import, TLS upload and catalogue status ([#95](https://github.com/Sparxx947/romseerr/issues/95)) ([1d7e3fa](https://github.com/Sparxx947/romseerr/commit/1d7e3fada235f8ca453ad5c25f9c5335db568515))
+* **ui:** escape newline in loadLogs so inline script parses ([#24](https://github.com/Sparxx947/romseerr/issues/24)) ([fc03d89](https://github.com/Sparxx947/romseerr/commit/fc03d896a3ceb98317e66be29089cf2afb99862b))
+
+
+### Dokumentation / Documentation
+
+* add contributor scaffolding and dependency review ([#32](https://github.com/Sparxx947/romseerr/issues/32)) ([470a788](https://github.com/Sparxx947/romseerr/commit/470a7887289f29ee615ea3b8ffd806848ba51e7b))
+* **api:** OpenAPI 3.1 spec served at /api/docs and /api/openapi.json ([#33](https://github.com/Sparxx947/romseerr/issues/33)) ([92ea95d](https://github.com/Sparxx947/romseerr/commit/92ea95d6a91842505fb8488e9fb9c78cd83e2db5))
+* **code:** extensive comments, docstrings and a code tour ([#34](https://github.com/Sparxx947/romseerr/issues/34)) ([90c54bf](https://github.com/Sparxx947/romseerr/commit/90c54bf2a2ab40b2cd172bb334ad81d426753b8f))
+* comprehensive README overhaul (DE + EN) ([#67](https://github.com/Sparxx947/romseerr/issues/67)) ([af3dcfb](https://github.com/Sparxx947/romseerr/commit/af3dcfb8ed89c8177c64bbfed07daa79e99fee01))
+* state the content policy, and enforce it in CI ([#109](https://github.com/Sparxx947/romseerr/issues/109)) ([e50be1e](https://github.com/Sparxx947/romseerr/commit/e50be1eb176c8ca2b488cd6e22eba11ab48a446c))
+
+
+### Umbau / Refactoring
+
+* move the front-end out of Python strings into templates/ and static/ ([#90](https://github.com/Sparxx947/romseerr/issues/90)) ([8cd9d41](https://github.com/Sparxx947/romseerr/commit/8cd9d41eb53c7522c6849010ed13979e9568cf7d))
+
 ## [Unreleased]
 
 ### Hinzugefügt / Added
