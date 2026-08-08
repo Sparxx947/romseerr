@@ -87,7 +87,14 @@ STREAM_AGENT_TOKEN="$(cat "$TOKFILE")"; export STREAM_AGENT_TOKEN
 export STREAM_AGENT_PORT="${AGENT_PORT:-8901}"
 export STREAM_ROMS=/roms
 [ -x "$EMU/pcsx2/AppRun" ]     && export EMU_PS2="$VGL $EMU/pcsx2/AppRun -- %s"
-[ -x /usr/games/dolphin-emu ]  && export EMU_GC="$VGL /usr/games/dolphin-emu -b -e %s"
+# NUR die AppImage. Der frueher hier stehende Rueckfall auf /usr/games/dolphin-emu
+# ist bewusst entfernt: das apt-Paket startet, legt seine Konfiguration an und oeffnet
+# NIE ein Fenster (#165). Ein Rueckfall auf etwas, das nachweislich nicht funktioniert,
+# ist schlechter als keiner — er macht aus einem klaren "nicht installiert" ein
+# stummes "Knopf da, nichts passiert".
+# Only the AppImage: falling back to something that provably does not work turns a
+# clear "not installed" into a silent "button there, nothing happens".
+[ -x "$EMU/dolphin/AppRun" ]   && export EMU_GC="$VGL $EMU/dolphin/AppRun -b -e %s"
 [ -x "$EMU/switchemu/AppRun" ] && export EMU_SWITCH="$VGL $EMU/switchemu/AppRun -f -g %s"
 [ -x "$EMU/flycast/AppRun" ]   && export EMU_DC="$VGL $EMU/flycast/AppRun %s"
 [ -x "$EMU/xemu/AppRun" ]      && export EMU_XBOX="$VGL $EMU/xemu/AppRun -dvd_path %s"
