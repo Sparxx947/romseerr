@@ -2183,9 +2183,16 @@ def stream_start(user, title, slug):
                 # thing on the streaming host, and the launch fails silently.
                 rel = os.path.relpath(info["path"], ROMS)
                 if rel.startswith(".."): rel = ""     # nicht unterhalb der Wurzel
+                # Region aus dem Dateinamen (#77). Sie entscheidet auf dem Host, welches
+                # BIOS gewaehlt wird — bei der PS2 ist es regionsgebunden, und ein
+                # falsches meldet sich nicht, es laeuft nur "komisch". Ohne erkannte
+                # Region wird nichts gesetzt statt geraten.
+                # Region drives BIOS selection on the host; nothing is set when unknown.
+                regionen = parse_release(os.path.basename(info["path"])).get("regions") or []
                 r = safe_post(conf["launch"],
                               json={"rel": rel, "path": info["path"],
-                                    "platform": info["platform"]}, timeout=15)
+                                    "platform": info["platform"],
+                                    "region": regionen[0] if regionen else ""}, timeout=15)
                 launched = bool(r.ok)
                 if not r.ok:
                     try: fehler = str((r.json() or {}).get("msg") or "")[:300]

@@ -80,9 +80,9 @@ services:
       # Update des Repos weiter die alte Fassung — und zwar lautlos.
       # Mounted, not copied: otherwise an outdated copy keeps running silently.
       - ./stream-agent.py:/opt/stream-agent.py:ro
-      # Controller-Belegung je Emulator (#119). Ebenfalls eingehaengt, damit das, was
-      # laeuft, immer das ist, was im Repo steht.
-      - ./controller-profile.py:/opt/controller-profile.py:ro
+      # Startprofil je Emulator: Controller-Belegung und regionsrichtiges BIOS (#119).
+      # Eingehaengt, damit das, was laeuft, immer das ist, was im Repo steht.
+      - ./launch-profile.py:/opt/launch-profile.py:ro
       # Pruefseite fuer den Controller (#133). Liegt im Web-Wurzelverzeichnis des
       # Streaming-Hosts und ist damit unter /gamepad-check.html erreichbar — ohne
       # Entwicklerwerkzeuge, die auf der Stream-Seite gar nicht zu oeffnen sind.

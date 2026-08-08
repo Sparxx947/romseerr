@@ -75,10 +75,13 @@ FIRMWARE_SCRIPT = os.environ.get("FIRMWARE_SCRIPT", "/custom-cont-init.d/25-firm
 # die Emulatoren schreiben ihre Konfiguration beim Beenden zurueck, und eine einmal
 # gesetzte Belegung waere danach womoeglich wieder weg.
 # Applied before every launch, not once at boot: emulators rewrite their config on exit.
-CONTROLLER_SCRIPT = os.environ.get("CONTROLLER_SCRIPT", "/opt/controller-profile.py")
+PROFILE_SCRIPT = os.environ.get("PROFILE_SCRIPT", "/opt/launch-profile.py")
 # Plattform -> Emulator, fuer den es ein Profil gibt. Kein Eintrag = der Emulator ordnet
 # ein erkanntes SDL-Pad selbst zu. / No entry = the emulator maps a detected pad itself.
-CONTROLLER_PROFILE = {"ps2": "pcsx2"}
+# Plattform -> Emulator im Startprofil. Ohne Eintrag wird kein Profil angewandt.
+PROFILE_EMU = {"ps2": "pcsx2", "ngc": "dolphin", "wii": "dolphin", "wiiu": "cemu",
+               "switch": "switchemu", "3ds": "azahar", "dreamcast": "flycast",
+               "xbox": "xemu", "ps3": "rpcs3", "psvita": "vita3k"}
 # Grenze fuer einen Upload. Die groesste Datei, die hier real ankommt, ist Sonys
 # PS3-Paket mit gut 200 MB; 512 MB lassen Luft, ohne dass jemand den Container mit
 # einem Dauerstrom volllaufen lassen kann.
@@ -221,7 +224,7 @@ def _stop_locked():
     _current.update({"proc": None, "platform": "", "path": ""})
 
 
-def launch(path, platform, rel=""):
+def launch(path, platform, rel="", region=""):
     """(ok, meldung). Einzelplatz: ein laufender Emulator wird zuvor beendet.
 
     `rel` ist der Pfad RELATIV zur Bibliothekswurzel und hat Vorrang. Ein absoluter
@@ -262,14 +265,23 @@ def launch(path, platform, rel=""):
     # spielen — aber nur ein bisschen, und die Meldung steht im Log.
     # Applied before the emulator reads its config; a failure here does not block the
     # launch, it is logged.
-    profil = CONTROLLER_PROFILE.get(platform)
-    if profil and os.path.isfile(CONTROLLER_SCRIPT):
-        try:
-            r = subprocess.run([sys.executable, CONTROLLER_SCRIPT, "--apply", profil],
-                               capture_output=True, text=True, timeout=30)
-            print((r.stdout + r.stderr).strip(), flush=True)
-        except (subprocess.TimeoutExpired, OSError) as e:
-            print(f"[controller] {profil}: {e.__class__.__name__}", flush=True)
+    profil = PROFILE_EMU.get(platform)
+    if profil and os.path.isfile(PROFILE_SCRIPT):
+        # Controller immer, BIOS nur wenn eine Region bekannt ist. Ohne Region raten
+        # waere schlimmer als nichts zu tun: ein falsches BIOS meldet sich nicht,
+        # es laeuft nur "komisch".
+        # Guessing a region would be worse than leaving it: a wrong BIOS does not
+        # announce itself, the game merely behaves oddly.
+        auftraege = [["--apply", profil]]
+        if region:
+            auftraege.append(["--bios", profil, region])
+        for a in auftraege:
+            try:
+                r = subprocess.run([sys.executable, PROFILE_SCRIPT] + a,
+                                   capture_output=True, text=True, timeout=30)
+                print((r.stdout + r.stderr).strip(), flush=True)
+            except (subprocess.TimeoutExpired, OSError) as e:
+                print(f"[profil] {profil}: {e.__class__.__name__}", flush=True)
 
     # argv ist damit: fester Befehl aus der Umgebung (der Betreiber setzt ihn) + genau EIN
     # geprueftes Argument aus der Bibliothek. Keine Shell, keine Wortzerlegung durch execve.
@@ -378,7 +390,7 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, OSError):
             return self._reply(400, {"ok": False, "msg": "kein gueltiges JSON / invalid JSON"})
         ok, msg = launch(str(d.get("path") or ""), str(d.get("platform") or ""),
-                         str(d.get("rel") or ""))
+                         str(d.get("rel") or ""), str(d.get("region") or "")[:32])
         return self._reply(200 if ok else 400, {"ok": ok, "msg": msg})
 
     def _firmware_upload(self, q):

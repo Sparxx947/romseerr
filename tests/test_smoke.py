@@ -2140,3 +2140,72 @@ def test_index_merges_several_folders_into_one_platform(appmod, tmp_path, monkey
         slugs = set(appmod.LIB["slugs"])
     assert "arcade" in slugs and "cps1" not in slugs and "cps2" not in slugs
     assert len(arcade) == 2, arcade
+
+
+# ------------------------------------------- Startprofil je Emulator (#119)
+
+def _profil_modul(config_root):
+    import importlib.util
+    alt = dict(os.environ); os.environ["FW_CONFIG_ROOT"] = str(config_root)
+    try:
+        pfad = os.path.join(REPO, "contrib/streaming-host/launch-profile.py")
+        spec = importlib.util.spec_from_file_location("launch_profile_test", pfad)
+        m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
+    finally:
+        os.environ.clear(); os.environ.update(alt)
+
+
+def test_every_provided_emulator_has_a_profile_entry(tmp_path):
+    """Ein fehlender Eintrag ist nicht von 'braucht nichts' zu unterscheiden. Wer einen
+    Emulator hinzufuegt, soll sich entscheiden muessen — deshalb wird die Liste gegen
+    den Katalog gehalten. (#119)"""
+    katalog = open(os.path.join(REPO, "contrib/streaming-host/init/20-emulators"),
+                   encoding="utf-8").read()
+    tabelle = re.search(r"KATALOG=\((.*?)\n\)", katalog, re.S).group(1)
+    dirs = {z.strip().strip('"').split("|")[1] for z in tabelle.strip().splitlines()
+            if z.strip().startswith('"')}
+    m = _profil_modul(tmp_path)
+    fehlt = dirs - set(m.PROFILE)
+    assert not fehlt, f"ohne Profil-Eintrag: {sorted(fehlt)}"
+
+
+def test_bios_region_is_read_not_guessed(tmp_path):
+    """Klartext im Namen zuerst, dann die Regionsziffer der Modellnummer. Alles andere
+    bleibt unbekannt — ein geratenes BIOS meldet sich nicht, das Spiel laeuft nur
+    'komisch'. (#119)"""
+    m = _profil_modul(tmp_path)
+    assert m.bios_region("SCPH-70004_BIOS_V12_PAL_200.BIN") == "Europe"
+    assert m.bios_region("scph39001.bin") == "USA"
+    assert m.bios_region("scph10000.bin") == "Japan"
+    assert m.bios_region("irgendwas.bin") == ""          # nicht raten
+    assert m.bios_region("scph55555.bin") == ""          # unbekannte Ziffer
+
+
+def test_bios_refuses_when_the_region_is_missing(tmp_path):
+    """Lieber kein BIOS setzen als das falsche. Die Meldung nennt, was da ist. (#119)"""
+    bios = tmp_path / ".config/PCSX2/bios"; bios.mkdir(parents=True)
+    (tmp_path / ".config/PCSX2/inis").mkdir(parents=True)
+    (bios / "scph39001.bin").write_bytes(b"\0" * (4 * 1024 * 1024))
+    (tmp_path / ".config/PCSX2/inis/PCSX2.ini").write_text("[Filenames]\nBIOS = x.bin\n", encoding="utf-8")
+    m = _profil_modul(tmp_path)
+    geaendert, msg = m.pcsx2_bios_setzen("Japan")
+    assert not geaendert and "kein BIOS fuer Japan" in msg and "USA" in msg, msg
+    assert "BIOS = x.bin" in (tmp_path / ".config/PCSX2/inis/PCSX2.ini").read_text(encoding="utf-8")
+
+
+def test_launch_sends_the_region(appmod, client, monkeypatch):
+    """Die Region kommt aus der Fassungserkennung (#77) und entscheidet auf dem Host
+    ueber das BIOS. (#119)"""
+    gesehen = {}
+    class Antwort:
+        ok, status_code, content = True, 200, b"{}"
+        def json(self): return {"ok": True}
+    monkeypatch.setattr(appmod, "safe_post", lambda url, **kw: (gesehen.update(kw.get("json") or {}), Antwort())[1])
+    monkeypatch.setattr(appmod, "stream_info", lambda t, s, u="": {
+        "streamable": True, "platform": "ps2", "reason": "",
+        "path": os.path.join(appmod.ROMS, "ps2", "Ratchet & Clank (Europe).iso")})
+    appmod.save_settings({"connections": {"stream_url": "https://h.example",
+                                          "stream_launch": "http://h.example:8901/launch?token=x"}})
+    appmod.stream_start("lena", "Ratchet & Clank", "ps2")
+    assert gesehen.get("region") == "Europe", gesehen
+    appmod.kv_put("stream_session", None); appmod.save_settings({})
