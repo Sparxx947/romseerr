@@ -2730,3 +2730,31 @@ def test_the_setup_starter_inherits_the_pinned_backend():
     assert "SDL_*" in fall, "SDL_VIDEODRIVER haengt an diesem Muster"
     # Der Token darf weiterhin NICHT mitwandern.
     assert "STREAM_AGENT_TOKEN" not in fall
+
+
+def test_extraction_resolves_squashfs_root_instead_of_moving_the_symlink():
+    """Bei uruntime-AppImages (pkgforge-Dolphin, RPCS3) ist `squashfs-root` KEIN
+    Verzeichnis, sondern ein Symlink auf `AppDir`. Das blosse Verschieben legte
+    zwei Emulatoren auf DASSELBE Verzeichnis: `dolphin` und `rpcs3` zeigten beide
+    auf `./AppDir`, dessen AppRun.wrapped auf `usr/bin/rpcs3` verwies — ein
+    GameCube-Titel haette RPCS3 gestartet, ohne eine Fehlermeldung. (#176)"""
+    text = open(os.path.join(REPO, "contrib/streaming-host/init/20-emulators"),
+                encoding="utf-8").read()
+    assert "readlink -f squashfs-root" in text, "das Ziel muss aufgeloest werden"
+    # AppDir muss mit weggeraeumt werden, sonst mischen sich zwei Entpackungen.
+    assert re.search(r"rm -rf squashfs-root AppDir", text), text[:0] or "AppDir bleibt stehen"
+    # Und der Fehlerfall muss laut sein, nicht still.
+    assert re.search(r'if \[ -L "\$EMU/\$dir\.neu" \]', text), "Symlink-Fall wird nicht abgefangen"
+
+
+def test_the_kept_previous_build_is_not_listed_as_an_emulator():
+    """`<name>.alt` ist die aufgehobene vorige Fassung, aus der `can_rollback`
+    gespeist wird. Sie trug ebenfalls ein AppRun und stand deshalb als eigener
+    Emulator ohne Quelle in der Liste — was sie wie eine Altlast aussehen liess.
+    Wer sie daraufhin aufraeumt, loescht den Rueckweg. (#176)"""
+    text = open(os.path.join(REPO, "contrib/streaming-host/stream-agent.py"),
+                encoding="utf-8").read()
+    block = re.search(r"def installed_emulators\(\):(.*?)\n\ndef ", text, re.S).group(1)
+    assert 'name.endswith(".alt")' in block, block
+    # can_rollback muss weiterhin GENAU auf dieses Verzeichnis schauen.
+    assert 'name + ".alt", "AppRun"' in block

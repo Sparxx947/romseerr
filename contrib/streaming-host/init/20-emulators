@@ -88,11 +88,37 @@ install_appimage() {  # install_appimage <name> <ordner> <system> <url>
   chmod +x "$EMU/$name.AppImage"
 
   # Erst daneben entpacken und nur bei Erfolg tauschen — aus demselben Grund.
-  ( cd "$EMU" && rm -rf squashfs-root "$dir.neu" \
+  #
+  # ACHTUNG, NICHT VEREINFACHEN: `squashfs-root` ist bei modernen AppImages KEIN
+  # Verzeichnis. Die uruntime-Laufzeit (pkgforge-Dolphin, RPCS3) entpackt nach
+  # `AppDir/` und legt `squashfs-root -> ./AppDir` nur zur Vertraeglichkeit daneben.
+  # Ein blosses `mv squashfs-root "$dir.neu"` verschiebt dann DEN SYMLINK, und
+  # dieser Ordner zeigt fortan auf ein GETEILTES `AppDir`. Zwei so installierte
+  # Emulatoren sind danach dasselbe Programm — der zuletzt entpackte gewinnt, ohne
+  # eine einzige Fehlermeldung. Nachgemessen: `dolphin` und `rpcs3` zeigten beide
+  # auf `./AppDir`, dessen `AppRun.wrapped` auf `usr/bin/rpcs3` verwies. Ein
+  # GameCube-Titel haette RPCS3 gestartet.
+  #
+  # Deshalb wird aufgeloest, was `squashfs-root` wirklich ist, und DAS verschoben.
+  # `AppDir` wird vorher mitentfernt, sonst mischen sich zwei Entpackungen in
+  # einem Ordner — auch das war zu sehen, mit zwei .desktop-Dateien nebeneinander.
+  #
+  # Do not simplify: with uruntime AppImages `squashfs-root` is a symlink to
+  # `AppDir`, so moving it yields a shared directory and two emulators become the
+  # same program, silently. Resolve it and move the real target.
+  ( cd "$EMU" && rm -rf squashfs-root AppDir "$dir.neu" \
       && "./$name.AppImage" --appimage-extract >/dev/null 2>&1 \
-      && mv squashfs-root "$dir.neu" ) || {
+      && ziel=$(readlink -f squashfs-root) && [ -d "$ziel" ] \
+      && mv "$ziel" "$dir.neu" \
+      && rm -f squashfs-root ) || {
     echo "[emulators] $name: Entpacken fehlgeschlagen / extraction failed"
     rm -rf "$EMU/$dir.neu"; return 1; }
+  # Ein Symlink an dieser Stelle waere genau der Fehler von oben — lieber laut
+  # abbrechen als still ein geteiltes Verzeichnis einhaengen.
+  if [ -L "$EMU/$dir.neu" ]; then
+    echo "[emulators] $name: Entpackziel ist ein Symlink — abgebrochen / symlinked target"
+    rm -f "$EMU/$dir.neu"; return 1
+  fi
   # Die VORIGE Fassung wird aufgehoben, nicht geloescht: ein Update kann eine
   # Regression bringen, und dann will man ohne Netz und ohne Suchen zurueck.
   # Genau eine Generation — mehr waere Speicherverschwendung.

@@ -262,6 +262,13 @@ def installed_emulators():
     out = []
     try:
         for name in sorted(os.listdir(emu)):
+            # `<name>.alt` ist die aufgehobene VORIGE Fassung, aus der `can_rollback`
+            # unten gespeist wird — keine eigene Installation. Sie traegt ebenfalls ein
+            # AppRun und stand deshalb als eigener Emulator in der Liste, ohne Quelle
+            # und ohne Version. Wer sie fuer eine Altlast haelt und aufraeumt, loescht
+            # den Rueckweg. `.alt` is the kept previous build, not an installation.
+            if name.endswith(".alt"):
+                continue
             d = os.path.join(emu, name)
             if not os.path.isdir(d) or not os.path.exists(os.path.join(d, "AppRun")):
                 continue
