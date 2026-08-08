@@ -1651,3 +1651,38 @@ def test_content_policy_actually_catches_things(tmp_path):
                  "quelle.md", "direkt.md"):
         assert mod.check_file(d, name), f"nicht erkannt / not caught: {name}"
     assert mod.check_file(d, "sauber.md") == [], "Fehlalarm auf erlaubter Adresse"
+
+
+def test_emulator_catalog_endpoints_need_manage_settings(appmod, client):
+    """Katalog und Installation sind Administration. (#106)"""
+    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": ["request"]}})
+    with client.session_transaction() as sess:
+        sess["user"] = "lena"; sess["role"] = "user"
+    assert client.get("/api/stream/emulators/catalog").status_code == 403
+    assert client.post("/api/stream/emulators/install", json={"name": "pcsx2"}).status_code == 403
+    appmod.save_users({})
+
+
+def test_install_name_is_validated(appmod, client):
+    """Der Name geht in eine Argumentliste auf dem Streaming-Host. (#106)"""
+    appmod.save_settings({"connections": {"stream_url": "http://s.example/",
+                                          "stream_launch": "http://s.example:8901/launch?token=x"}})
+    appmod.save_users({"a": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "a"; sess["role"] = "admin"
+    for boes in ("../etc", "pcsx2; rm -rf /", "PCSX2", "", "/absolut", "a" * 40):
+        r = client.post("/api/stream/emulators/install", json={"name": boes})
+        assert r.status_code == 400 and r.get_json()["reason"] == "bad_name", f"durchgelassen: {boes!r}"
+    appmod.save_settings({}); appmod.save_users({})
+
+
+def test_agent_url_derivation(appmod):
+    """Aus der /launch-Adresse samt Token werden die uebrigen Endpunkte abgeleitet —
+    der Betreiber soll nicht vier URLs eintragen muessen. (#106)"""
+    appmod.save_settings({"connections": {"stream_launch": "http://h:8901/launch?token=geheim"}})
+    assert appmod._agent_url("catalog") == "http://h:8901/catalog?token=geheim"
+    assert appmod._agent_url("install") == "http://h:8901/install?token=geheim"
+    appmod.save_settings({"connections": {"stream_launch": "http://h:8901/launch"}})
+    assert appmod._agent_url("catalog") == "http://h:8901/catalog"
+    appmod.save_settings({})
+    assert appmod._agent_url("catalog") is None

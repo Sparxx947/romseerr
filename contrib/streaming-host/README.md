@@ -140,6 +140,23 @@ Zwei Einstellungen sind dafür nötig und im Compose gesetzt:
 
 ---
 
+## Emulatoren installieren
+
+**Eine frische Installation bringt keinen einzigen Emulator mit** und lädt auch keinen.
+Du wählst in Romseerr unter **Einstellungen → Verbindungen** aus, was auf die Maschine
+kommt — je Eintrag ein Klick.
+
+Das ist Absicht: welche Emulatoren auf deinem Rechner landen, hat je nach Rechtsordnung
+Gewicht, und diese Entscheidung nimmt dir das Projekt nicht stillschweigend ab.
+
+Für unbeaufsichtigte Ausrollungen gibt es die `INSTALL_*`-Schalter in der `.env` — die
+holen beim Containerstart automatisch. Standard ist bei allen `false`.
+
+Zwei Emulatoren brauchen eine Adresse von dir, weil sich ihre Quelle nicht automatisch
+ermitteln lässt: **RPCS3** (keine Release-Dateien auf GitHub, offizieller Direktlink
+weist automatisierte Abrufe ab) und der **Switch-Emulator** (bewusst ohne eingebaute
+Adresse). Romseerr zeigt sie als „URL nötig".
+
 ## Emulatoren aktualisieren und zurücksetzen
 
 Läuft bei jedem Containerstart: die aktuelle Release-URL wird geholt und mit der
@@ -268,6 +285,22 @@ silent.
 `stream-agent.py` starts processes, so: it refuses to run without a shared token,
 never uses a shell, and resolves the path with `realpath`, rejecting anything
 outside the ROM library. Do not expose it to the open internet.
+
+## Installing emulators
+
+**A fresh host ships with no emulators and downloads none.** You pick them in Romseerr
+under **Settings → Connections**, one click each.
+
+That is deliberate: which emulators end up on your machine carries legal weight in some
+jurisdictions, and the project does not make that choice for you silently.
+
+For unattended deployments the `INSTALL_*` switches in `.env` fetch automatically at
+container start. All default to `false`.
+
+Two need a URL from you because their source cannot be resolved automatically: **RPCS3**
+(no GitHub release assets; the official direct link refuses automated requests) and the
+**Switch emulator** (deliberately without a built-in address). Romseerr shows these as
+"URL required".
 
 ## Updating and rolling back emulators
 

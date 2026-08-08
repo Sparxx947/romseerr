@@ -65,7 +65,7 @@ _lock = threading.Lock()
 # auf einer HTTP-Antwort haengt — Downloads sind hier hunderte Megabyte.
 # Runs in the background; downloads are hundreds of megabytes.
 UPDATE_SCRIPT = os.environ.get("EMU_UPDATE_SCRIPT", "/custom-cont-init.d/20-emulators")
-_update = {"running": False, "started": 0, "finished": 0, "rc": None, "log": ""}
+_update = {"running": False, "started": 0, "finished": 0, "rc": None, "log": "", "target": ""}
 
 
 def run_update():
@@ -84,6 +84,38 @@ def run_update():
     except subprocess.TimeoutExpired:
         _update["rc"] = -1
         _update["log"] = "Zeitueberschreitung / timed out"
+    except OSError as e:
+        _update["rc"] = -1
+        _update["log"] = f"Start fehlgeschlagen / launch failed: {e.__class__.__name__}"
+    finally:
+        _update["running"] = False
+        _update["finished"] = int(time.time())
+
+
+def catalogue():
+    """Was ist installierbar, was ist installiert? Kommt aus dem Installationsskript
+    selbst — dort steht die Tabelle, und zwei Wahrheiten waeren eine zu viel."""
+    try:
+        r = subprocess.run(["/bin/bash", UPDATE_SCRIPT, "--catalog"],
+                           capture_output=True, text=True, timeout=120)
+        return json.loads(r.stdout) if r.returncode == 0 else []
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        return []
+
+
+def run_install(name):
+    """Genau einen Emulator installieren. Laeuft im Hintergrund — das sind hunderte
+    Megabyte, darauf soll niemand in einer HTTP-Antwort warten."""
+    _update.update({"running": True, "started": int(time.time()),
+                    "finished": 0, "rc": None, "log": "", "target": name})
+    try:
+        r = subprocess.run(["/bin/bash", UPDATE_SCRIPT, "--only", name],
+                           env={**os.environ, "EMU_AUTO_UPDATE": "true"},
+                           capture_output=True, text=True, timeout=3600)
+        _update["rc"] = r.returncode
+        _update["log"] = (r.stdout + r.stderr)[-8000:]
+    except subprocess.TimeoutExpired:
+        _update["rc"] = -1; _update["log"] = "Zeitueberschreitung / timed out"
     except OSError as e:
         _update["rc"] = -1
         _update["log"] = f"Start fehlgeschlagen / launch failed: {e.__class__.__name__}"
@@ -196,7 +228,7 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         if not self._authorised(q):
             return self._reply(401, {"ok": False, "msg": "unauthorised"})
-        if u.path not in ("/launch", "/stop", "/update", "/rollback"):
+        if u.path not in ("/launch", "/stop", "/update", "/rollback", "/install"):
             return self._reply(404, {"ok": False, "msg": "not found"})
         if u.path == "/stop":
             with _lock:
@@ -206,6 +238,24 @@ class Handler(BaseHTTPRequestHandler):
             if _update["running"]:
                 return self._reply(409, {"ok": False, "msg": "laeuft bereits / already running"})
             threading.Thread(target=run_update, daemon=True).start()
+            return self._reply(200, {"ok": True, "msg": "gestartet / started"})
+        if u.path == "/install":
+            if _update["running"]:
+                return self._reply(409, {"ok": False, "msg": "laeuft bereits / already running"})
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                d = json.loads(self.rfile.read(min(n, 4096)) or b"{}")
+            except (ValueError, OSError):
+                return self._reply(400, {"ok": False, "msg": "kein gueltiges JSON / invalid JSON"})
+            name = str(d.get("name") or "")
+            # Der Name geht in eine Argumentliste; nur was ein Ordnername sein darf,
+            # und er muss im Katalog stehen. Zwei Pruefungen, weil die erste
+            # Zeichenklassen kennt und die zweite die Wirklichkeit.
+            if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", name):
+                return self._reply(400, {"ok": False, "msg": "unzulaessiger Name / invalid name"})
+            if name not in {e.get("dir") for e in catalogue()}:
+                return self._reply(404, {"ok": False, "msg": "nicht im Katalog / not in catalogue"})
+            threading.Thread(target=run_install, args=(name,), daemon=True).start()
             return self._reply(200, {"ok": True, "msg": "gestartet / started"})
         if u.path == "/rollback":
             # Zurueck zur vorigen Fassung. Der Name kommt von aussen und geht in eine
@@ -234,13 +284,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
-        if u.path not in ("/status", "/update"):
+        if u.path not in ("/status", "/update", "/catalog"):
             return self._reply(404, {"ok": False, "msg": "not found"})
         if not self._authorised(parse_qs(u.query)):
             return self._reply(401, {"ok": False, "msg": "unauthorised"})
+        if u.path == "/catalog":
+            return self._reply(200, {"ok": True, "catalog": catalogue(),
+                                     "busy": _update["running"],
+                                     "target": _update.get("target", "")})
         if u.path == "/update":
             return self._reply(200, {"ok": True, **{k: v for k, v in _update.items()},
-                                     "emulators": installed_emulators()})
+                                     "emulators": installed_emulators(),
+                                     "catalog": catalogue()})
         p = _current["proc"]
         return self._reply(200, {"ok": True, "running": bool(p and p.poll() is None),
                                  "platform": _current["platform"],

@@ -2628,6 +2628,49 @@ def api_stream_stop():
     kv_put("stream_session", None)
     return jsonify({"ok": True, "was_running": True})
 
+def _agent_url(pfad):
+    """Der Start-Dienst hat mehrere Endpunkte unter derselben Wurzel; in den
+    Einstellungen steht die /launch-Adresse samt Token. Beides wird hier getrennt,
+    statt den Betreiber vier URLs eintragen zu lassen."""
+    launch = stream_cfg()["launch"]
+    if not launch: return None
+    basis = launch.split("?")[0].rsplit("/", 1)[0]
+    q = launch.split("?", 1)[1] if "?" in launch else ""
+    return f"{basis}/{pfad}" + (("?" + q) if q else "")
+
+@app.route("/api/stream/emulators/catalog")
+@perm_required("manage_settings")
+def api_stream_catalog():
+    """Was kann der Streaming-Host installieren, was ist installiert? Eine frische
+    Installation hat NICHTS — der Betreiber waehlt hier aus, statt dass beim ersten
+    Start ungefragt hunderte Megabyte geladen werden."""
+    url = _agent_url("catalog")
+    if not url: return jsonify({"ok": False, "reason": "no_launcher"}), 400
+    try:
+        r = safe_get(url, timeout=130)
+        return jsonify({"ok": r.ok, **(r.json() if r.ok else {})}), (200 if r.ok else 502)
+    except Exception as e:
+        log(f"Stream-Katalog: {e}")
+        return jsonify({"ok": False, "reason": err_kind(e)}), 502
+
+@app.route("/api/stream/emulators/install", methods=["POST"])
+@perm_required("manage_settings")
+def api_stream_install():
+    """Einen Emulator auf dem Streaming-Host installieren."""
+    url = _agent_url("install")
+    if not url: return jsonify({"ok": False, "reason": "no_launcher"}), 400
+    name = ((request.get_json(silent=True) or {}).get("name") or "").strip()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", name):
+        return jsonify({"ok": False, "reason": "bad_name"}), 400
+    try:
+        r = safe_post(url, json={"name": name}, timeout=30)
+        if r.status_code == 409: return jsonify({"ok": False, "reason": "already_running"}), 409
+        if r.status_code == 404: return jsonify({"ok": False, "reason": "unknown"}), 404
+        return jsonify({"ok": r.ok}), (200 if r.ok else 502)
+    except Exception as e:
+        log(f"Stream-Installation: {e}")
+        return jsonify({"ok": False, "reason": err_kind(e)}), 502
+
 @app.route("/api/stream/emulators")
 @perm_required("manage_settings")
 def api_stream_emulators():
@@ -4025,6 +4068,16 @@ OPENAPI = {
             responses={**_R_PERM, "200": {"description": "Liste + Update-Zustand"},
                        "400": {"description": "kein Start-Dienst hinterlegt"},
                        "502": {"description": "Start-Dienst nicht erreichbar"}})},
+        "/api/stream/emulators/catalog": {"get": _op("Installierbare und installierte Emulatoren des Streaming-Hosts", "Admin",
+            responses={**_R_PERM, "200": {"description": "Katalog"},
+                       "400": {"description": "kein Start-Dienst hinterlegt"},
+                       "502": {"description": "Start-Dienst nicht erreichbar"}})},
+        "/api/stream/emulators/install": {"post": _op("Einen Emulator auf dem Streaming-Host installieren", "Admin",
+            body={"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}},
+            responses={**_R_PERM, "200": {"description": "gestartet"},
+                       "400": {"description": "kein Start-Dienst / unzulaessiger Name"},
+                       "404": {"description": "nicht im Katalog"},
+                       "409": {"description": "laeuft bereits"}})},
         "/api/stream/emulators/rollback": {"post": _op("Einen Emulator auf die vorige Fassung zuruecksetzen", "Admin",
             body={"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}},
             responses={**_R_PERM, "200": {"description": "zurueckgesetzt"},

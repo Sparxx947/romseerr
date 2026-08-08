@@ -561,6 +561,46 @@ paths:
         '502':
           description: Start-Dienst nicht erreichbar
       security: *id002
+  /api/stream/emulators/catalog:
+    get:
+      summary: Installierbare und installierte Emulatoren des Streaming-Hosts
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: Katalog
+        '400':
+          description: kein Start-Dienst hinterlegt
+        '502':
+          description: Start-Dienst nicht erreichbar
+      security: *id002
+  /api/stream/emulators/install:
+    post:
+      summary: Einen Emulator auf dem Streaming-Host installieren
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: gestartet
+        '400':
+          description: kein Start-Dienst / unzulaessiger Name
+        '404':
+          description: nicht im Katalog
+        '409':
+          description: laeuft bereits
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - name
+              properties:
+                name:
+                  type: string
   /api/stream/emulators/rollback:
     post:
       summary: Einen Emulator auf die vorige Fassung zuruecksetzen
