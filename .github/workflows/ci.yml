@@ -9,6 +9,25 @@ permissions:
   contents: read
 
 jobs:
+  shell:
+    name: Shell-Skripte (ShellCheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      # WARUM: Die Skripte des Streaming-Hosts laufen nur IM Container, also koennen die
+      # Tests sie nicht ausfuehren. Ein `bash -n` prueft nur die Syntax und uebersieht
+      # genau das, was hier schon zugeschlagen hat: eine nicht gesetzte Variable unter
+      # `set -u`, die das Skript abbricht, bevor es seine Arbeit tut.
+      # These scripts only run inside the container, so tests cannot execute them, and
+      # `bash -n` misses the class of bug that already bit: an unset variable under
+      # `set -u` aborting the script before it does its work.
+      - name: ShellCheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          mapfile -t dateien < <(find contrib -type f \( -name '*.sh' -o -path '*/init/*' \) | sort)
+          printf '%s\n' "${dateien[@]}"
+          shellcheck --shell=bash --severity=warning "${dateien[@]}"
+
   lint:
     name: Lint & compile
     runs-on: ubuntu-latest

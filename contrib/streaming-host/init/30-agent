@@ -50,9 +50,15 @@ export SDL_JOYSTICK_DEVICE="${SDL_JOYSTICK_DEVICE:-/dev/input/js0}"
 # Defensiv: laeuft dieses Skript einmal in einem Zusammenhang OHNE die Vorgabe des
 # Abbilds (etwa von Hand nachgestartet), fehlte sonst der Interposer ganz.
 INTERPOSER="${SELKIES_INTERPOSER:-/usr/lib/selkies_joystick_interposer.so}"
-if [ -f "$INTERPOSER" ] && [ "${LD_PRELOAD#*$INTERPOSER}" = "${LD_PRELOAD:-}" ]; then
-  export LD_PRELOAD="${INTERPOSER}${LD_PRELOAD:+:${LD_PRELOAD}}"
-fi
+# `set -u` ist oben gesetzt, und LD_PRELOAD ist NICHT immer da — beim Aufruf von Hand
+# (docker exec) fehlt es. Jede Erwaehnung braucht deshalb einen Vorgabewert, sonst
+# bricht das Skript ab, bevor es den Dienst startet. Genau so passiert.
+# LD_PRELOAD is not always set, and `set -u` turns each bare mention into an abort
+# before the service is ever started.
+case ":${LD_PRELOAD:-}:" in
+  *":$INTERPOSER:"*) ;;                      # schon vorgeladen / already preloaded
+  *) [ -f "$INTERPOSER" ] && export LD_PRELOAD="${INTERPOSER}${LD_PRELOAD:+:${LD_PRELOAD}}" ;;
+esac
 echo "[agent] Gamepad: SDL_JOYSTICK_DEVICE=$SDL_JOYSTICK_DEVICE"
 # WICHTIG fuer die Bedienung: Der Browser meldet ein Pad erst, NACHDEM eine Taste
 # darauf gedrueckt wurde (so ist die Gamepad-API festgelegt), und viele Emulatoren
