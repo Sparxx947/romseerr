@@ -4,6 +4,33 @@ Alle nennenswerten Änderungen an diesem Projekt. Format nach
 [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung nach [SemVer](https://semver.org/lang/de/).
 
+## [1.1.0-beta.1](https://github.com/Sparxx947/romseerr/compare/v1.0.0-beta.1...v1.1.0-beta.1) (2026-08-08)
+
+
+### Features
+
+* add configuration export and import ([#85](https://github.com/Sparxx947/romseerr/issues/85)) ([d82256f](https://github.com/Sparxx947/romseerr/commit/d82256f2ea2d91a389616eb703033ca4280aabf4))
+* add in-browser play via RomM's built-in EmulatorJS player ([#93](https://github.com/Sparxx947/romseerr/issues/93)) ([f381d3c](https://github.com/Sparxx947/romseerr/commit/f381d3cc51a5f42728634e9b181e2e9ade0769c1))
+* expose operational metrics at /metrics ([#82](https://github.com/Sparxx947/romseerr/issues/82)) ([e59df94](https://github.com/Sparxx947/romseerr/commit/e59df948c6ee6d50c96fe49213ca4a2fbb51ba6e))
+* expose running version via /api/version ([#81](https://github.com/Sparxx947/romseerr/issues/81)) ([fce767d](https://github.com/Sparxx947/romseerr/commit/fce767da5988a5754da33d8f3d15177895dafcde))
+* import a wishlist from a pasted list or file ([#84](https://github.com/Sparxx947/romseerr/issues/84)) ([a3218fc](https://github.com/Sparxx947/romseerr/commit/a3218fc8905c955cbb51bb5d16f6afe9ee33c21d))
+* install emulators on demand from Romseerr, not automatically ([#110](https://github.com/Sparxx947/romseerr/issues/110)) ([abf85ef](https://github.com/Sparxx947/romseerr/commit/abf85ef8dabb35d38086e75f8ddb6b6405eb380a))
+* JDownloader service status and configurable paths ([#91](https://github.com/Sparxx947/romseerr/issues/91)) ([d423bc9](https://github.com/Sparxx947/romseerr/commit/d423bc9faed7ba9e05f79505fc85f8b62e6c6ebc))
+* more emulators, and update/rollback from Romseerr ([#103](https://github.com/Sparxx947/romseerr/issues/103)) ([b73d221](https://github.com/Sparxx947/romseerr/commit/b73d221449f914672f1fa587bfdc1cdd3a3b656e))
+* per-platform coverage and a browsable missing-titles list ([#86](https://github.com/Sparxx947/romseerr/issues/86)) ([22b15c7](https://github.com/Sparxx947/romseerr/commit/22b15c7118a2a4209ea969d47e625ce12dcf62ef))
+* ship the streaming host in this repository ([#98](https://github.com/Sparxx947/romseerr/issues/98)) ([5fea21b](https://github.com/Sparxx947/romseerr/commit/5fea21b6f930f6dbf32108d2c5d262688c894e21))
+* show RetroAchievements data on the detail view ([#87](https://github.com/Sparxx947/romseerr/issues/87)) ([b56c7bd](https://github.com/Sparxx947/romseerr/commit/b56c7bdeb1dcc6101c7e837cd9e5e1248ed6de7a))
+* stream natively-emulated platforms into the browser ([#96](https://github.com/Sparxx947/romseerr/issues/96)) ([f6b81ec](https://github.com/Sparxx947/romseerr/commit/f6b81ec337aa141c290559410dec8aa846c86264))
+* un-stub the filehoster path with a generic catalogue-JSON indexer ([#92](https://github.com/Sparxx947/romseerr/issues/92)) ([68c6c02](https://github.com/Sparxx947/romseerr/commit/68c6c024cead443c7666ded299ac2316019d964f))
+
+
+### Bug Fixes
+
+* mount the launch agent instead of expecting it in /config ([#105](https://github.com/Sparxx947/romseerr/issues/105)) ([ec77799](https://github.com/Sparxx947/romseerr/commit/ec77799f4c0db06bfd8cf39b52cc77c310df9e53))
+* pass the init scripts' variables into the container ([#99](https://github.com/Sparxx947/romseerr/issues/99)) ([326b305](https://github.com/Sparxx947/romseerr/commit/326b3056aa936a4ac67c1ad73e43fc8cff27d1b0))
+* refuse outbound requests to internal targets and stop leaking exception text ([#94](https://github.com/Sparxx947/romseerr/issues/94)) ([82fd45e](https://github.com/Sparxx947/romseerr/commit/82fd45e1e27a1385f5f714de08b6c986c98248d3))
+* stop returning exception text from import, TLS upload and catalogue status ([#95](https://github.com/Sparxx947/romseerr/issues/95)) ([1d7e3fa](https://github.com/Sparxx947/romseerr/commit/1d7e3fada235f8ca453ad5c25f9c5335db568515))
+
 ## [Unreleased]
 
 ### Hinzugefügt / Added
