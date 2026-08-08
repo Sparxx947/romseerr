@@ -78,24 +78,6 @@ BOOTPFADE = {
 BOOT_ENDUNGEN = (".iso", ".chd", ".cue", ".gdi", ".rvz", ".wbfs", ".nsp", ".xci", ".pkg")
 
 
-def _in_bibliothek(pfad):
-    """-> aufgeloester Pfad, wenn er unter ROMS liegt, sonst ''.
-
-    Geprueft wird die AUFGELOESTE Form: sonst genuegt ein Symlink oder ein '..' zum
-    Ausbrechen. Bewusst eine eigene Funktion, weil die Pruefung an ZWEI Stellen
-    gebraucht wird — beim Pfad von aussen und noch einmal bei der Startdatei, die aus
-    einem Ordner aufgeloest wurde. Beim ersten Anlauf fehlte die zweite, und ein
-    Symlink im Titelordner haette den Emulator auf eine beliebige Datei des Hosts
-    zeigen lassen. Gefunden hat das CodeQL, nicht ich.
-    Resolved form only; needed twice, and the second call was missing at first.
-    """
-    try:
-        real = os.path.realpath(pfad)
-        return real if os.path.commonpath([real, ROMS]) == ROMS else ""
-    except (ValueError, OSError):
-        return ""
-
-
 def _bootdatei(ordner, platform):
     """-> absoluter Pfad der Startdatei, oder '' wenn nicht eindeutig bestimmbar."""
     for rel in BOOTPFADE.get(platform, ()):
@@ -295,8 +277,19 @@ def launch(path, platform, rel="", region=""):
     # Der Pfad kommt von aussen. Nach Aufloesung der Symlinks MUSS er unter ROMS liegen —
     # sonst waere dies ein Fernstart fuer beliebige Dateien auf dem Host. Geprueft wird die
     # AUFGELOESTE Form (realpath), sonst genuegt ein Symlink oder ein '..' zum Ausbrechen.
-    real = _in_bibliothek(path)
-    if not real:
+    #
+    # BEWUSST ZWEIMAL AUSGESCHRIEBEN statt in einer Hilfsfunktion: als Funktion
+    # erkennt CodeQL die Pruefung nicht mehr als Barriere und meldet fuenfmal
+    # `py/path-injection`. Der Code war dabei korrekt — die Analyse sieht nur nicht
+    # ueber die Funktionsgrenze. Lesbarkeit gegen ein stilles Abschalten der
+    # Sicherheitspruefung einzutauschen waere der schlechtere Handel.
+    # Written out twice on purpose: as a helper, CodeQL no longer recognises the
+    # guard as a barrier and reports py/path-injection.
+    try:
+        real = os.path.realpath(path)
+        if os.path.commonpath([real, ROMS]) != ROMS:
+            raise ValueError
+    except (ValueError, OSError):
         return False, "Pfad ausserhalb der Bibliothek / path outside the library"
     if not os.path.exists(real):
         # Der haeufigste Grund ist KEIN fehlendes Spiel, sondern zwei Container, die
@@ -324,9 +317,13 @@ def launch(path, platform, rel="", region=""):
                            f"{os.path.basename(real)}")
         # ERNEUT pruefen. Der Ordner liegt in der Bibliothek, die Startdatei darin muss
         # es deshalb noch lange nicht: ein Symlink genuegt, um heraus zu zeigen.
+        # Gefunden hat diese Luecke CodeQL, nicht der Testlauf.
         # The folder being inside the library says nothing about a symlink within it.
-        real = _in_bibliothek(boot)
-        if not real:
+        try:
+            real = os.path.realpath(boot)
+            if os.path.commonpath([real, ROMS]) != ROMS:
+                raise ValueError
+        except (ValueError, OSError):
             return False, ("Startdatei zeigt aus der Bibliothek heraus / "
                            "boot file points outside the library")
 
