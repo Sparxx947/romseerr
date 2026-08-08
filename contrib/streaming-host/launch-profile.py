@@ -240,26 +240,36 @@ def rpcs3_input():
 
 
 def rpcs3_apply(pruefen=False):
-    """-> (geaendert, meldung). Bindet Spieler 1 auf SDL statt auf die Tastatur.
+    """-> (geaendert, meldung). Legt den SDL-Handler an, WENN noch nichts da ist.
 
-    BEWUSST MINIMAL: nur Handler und Geraet. RPCS3 fuellt alles Weitere aus seinen
-    Standardwerten — nachgemessen, es schreibt die Datei nicht um und startet sauber.
-    Eine vollstaendig ausgeschriebene Belegung waere eine zweite Wahrheit neben der
-    des Emulators und muesste bei jeder RPCS3-Version nachgepflegt werden.
-    Deliberately minimal: RPCS3 fills the rest from its own defaults.
+    WAS DAS TUT UND WAS NICHT: RPCS3s Standard bindet Spieler 1 an die Tastatur und
+    schreibt bis zum ersten Griff in den Einstellungsdialog gar keine Konfiguration.
+    Dieser Stumpf sorgt dafuer, dass wenigstens der SDL-Handler und das richtige Geraet
+    eingetragen sind.
+
+    ER MACHT DAS PAD NOCH NICHT SPIELBAR. Nachgemessen, entgegen der urspruenglichen
+    Annahme: RPCS3 ergaenzt KEINE Standardbelegung. Im Log steht dann
+
+        Input: Pad 0: device='...', handler=SDL
+        Input: Pad 0: config=            <- leer
+        SDL: Adding empty device: ...
+
+    Die Tastenbelegung muss einmal im Pad-Dialog von RPCS3 gesetzt werden. Danach
+    bleibt sie in /config erhalten.
+
+    UND DESHALB WIRD NIE UEBERSCHRIEBEN: Das Profil laeuft VOR JEDEM Start. Wuerde es
+    eine vorhandene Datei ersetzen, waere die von Hand gesetzte Belegung beim naechsten
+    Start weg — lautlos, und es haette die Arbeit des Nutzers zunichte gemacht. Das war
+    im ersten Wurf tatsaechlich so. (#158)
+    Never overwrites: the profile runs before every launch, so replacing an existing
+    file would silently discard the mapping the operator set by hand.
     """
     pfad = rpcs3_input()
     soll = f'Player 1 Input:\n  Handler: SDL\n  Device: "{RPCS3_PAD}"\n'
     if os.path.isfile(pfad):
-        try:
-            with open(pfad, encoding="utf-8", errors="ignore") as f:
-                ist = f.read()
-        except OSError:
-            ist = ""
-        if ist.strip() == soll.strip():
-            return False, "Gamepad-Belegung steht bereits"
+        return False, "Konfiguration vorhanden — unveraendert gelassen"
     if pruefen:
-        return True, "Belegung wuerde gesetzt"
+        return True, "SDL-Handler wuerde angelegt (Belegung bleibt zu setzen)"
     os.makedirs(os.path.dirname(pfad), exist_ok=True)
     # Sicherung EINMAL, wie bei PCSX2: der Ausgangsstand, nicht der von vorhin.
     sicherung = pfad + ".vor-gamepad"
@@ -272,7 +282,8 @@ def rpcs3_apply(pruefen=False):
             pass
     with open(pfad, "w", encoding="utf-8") as f:
         f.write(soll)
-    return True, f"Spieler 1 auf SDL, Geraet '{RPCS3_PAD}'"
+    return True, (f"SDL-Handler angelegt, Geraet '{RPCS3_PAD}' — "
+                  "Tastenbelegung noch EINMAL im Pad-Dialog von RPCS3 setzen")
 
 
 # JEDER bereitgestellte Emulator steht hier — auch der, der nichts braucht.
