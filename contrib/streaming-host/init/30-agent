@@ -68,7 +68,7 @@ echo "[agent] Gamepad: SDL_JOYSTICK_DEVICE=$SDL_JOYSTICK_DEVICE"
 # startup — so connect, press, then launch.
 
 EMU=/config/emulators
-export STREAM_AGENT_TOKEN="$(cat "$TOKFILE")"
+STREAM_AGENT_TOKEN="$(cat "$TOKFILE")"; export STREAM_AGENT_TOKEN
 export STREAM_AGENT_PORT="${AGENT_PORT:-8901}"
 export STREAM_ROMS=/roms
 [ -x "$EMU/pcsx2/AppRun" ]     && export EMU_PS2="$VGL $EMU/pcsx2/AppRun -- %s"

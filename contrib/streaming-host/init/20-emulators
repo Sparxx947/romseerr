@@ -277,7 +277,11 @@ for zeile in "${KATALOG[@]}"; do
   name=$(feld "$zeile" 1)
   schalter="INSTALL_$(echo "$name" | tr "[:lower:]-" "[:upper:]_")"
   [ "$name" = "SwitchEmu" ] && schalter="INSTALL_SWITCH_EMU"
-  eval "an=\${$schalter:-false}"
+  # Indirekte Expansion statt `eval`: der Schaltername wird aus dem Katalog gebaut,
+  # und ein `eval` darauf ist eine Zeile, die man nicht bauen muss. ${!name} liest
+  # dieselbe Variable, ohne dass irgendetwas als Code ausgewertet wird.
+  # Indirect expansion instead of eval: same lookup, nothing evaluated as code.
+  an="${!schalter:-false}"
   [ "$an" = "true" ] || continue
   eintrag_installieren "$zeile"
 done
@@ -289,4 +293,6 @@ done
 mkdir -p /config/.config/PCSX2/bios 2>/dev/null || true
 
 chown -R "${PUID:-1000}:${PGID:-1000}" /config/emulators /config/.local 2>/dev/null || true
-echo "[emulators] installiert / installed: $(ls -d "$EMU"/*/ 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')"
+installierte=""
+for d in "$EMU"/*/; do [ -d "$d" ] && installierte="$installierte$(basename "$d") "; done
+echo "[emulators] installiert / installed: ${installierte:-keine}"
