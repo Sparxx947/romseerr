@@ -4,7 +4,9 @@
   "packages": {
     ".": {
       "changelog-path": "CHANGELOG.md",
-      "include-component-in-tag": false
+      "include-component-in-tag": false,
+      "_kommentar": "docs/openapi.yaml traegt die Version ebenfalls und wird von scripts/build_openapi.py erzeugt. Ohne diesen Eintrag hebt release-please nur version.txt an, die Spec bleibt zurueck und der Gleichstandstest scheitert bei jedem Release. / The spec carries the version too; without this it lags and the sync test fails on every release.",
+      "extra-files": ["docs/openapi.yaml"]
     }
   },
   "changelog-sections": [
