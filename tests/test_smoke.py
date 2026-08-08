@@ -2625,3 +2625,45 @@ def test_nothing_falls_back_to_the_apt_dolphin():
              if "/usr/games/dolphin-emu" in z and not z.strip().startswith("#")]
     assert not aktiv, f"noch ein Rueckfall auf das apt-Paket: {aktiv}"
     assert 'EMU_GC="$VGL $EMU/dolphin/AppRun' in agent
+
+
+def test_stream_size_and_framerate_are_configured_not_left_to_the_browser():
+    """Ohne feste Werte richtet sich der Stream nach dem Browserfenster — hier waren
+    das 3828x1902 bei 60 fps, und Bildschirmaufnahme samt Farbkonvertierung kosteten
+    dauerhaft CPU. Gemessen: selkies 50 -> 13 %, Xvfb 41 -> 7 %. (#170)"""
+    yml = open(os.path.join(REPO, "contrib/streaming-host/docker-compose.yml"),
+               encoding="utf-8").read()
+    for k in ("SELKIES_MANUAL_WIDTH", "SELKIES_MANUAL_HEIGHT", "SELKIES_FRAMERATE"):
+        assert k in yml, k
+    env = open(os.path.join(REPO, "contrib/streaming-host/.env.example"),
+               encoding="utf-8").read()
+    for k in ("STREAM_WIDTH", "STREAM_HEIGHT", "STREAM_FRAMERATE"):
+        assert k in env, k
+
+
+def test_dolphin_gets_dual_core(tmp_path):
+    """Dolphin laeuft ohne diese Einstellung EINKERNIG — nachgemessen: ein Thread
+    "CPU-GPU thread" bei 100 %, waehrend 27 Threads brachlagen. (#170)"""
+    m = _profil_modul(tmp_path)
+    assert m.PROFILE["dolphin"]["controller"] is m.dolphin_apply
+    # Ohne Dolphin.ini darf es nicht raten, sondern muss das sagen.
+    geaendert, msg = m.dolphin_apply()
+    assert not geaendert and "noch nicht" in msg, msg
+    pfad = m.dolphin_ini()
+    os.makedirs(os.path.dirname(pfad), exist_ok=True)
+    open(pfad, "w", encoding="utf-8").write("[Core]\nGFXBackend = OGL\n")
+    geaendert, msg = m.dolphin_apply()
+    assert geaendert, msg
+    assert "CPUThread = True" in open(pfad, encoding="utf-8").read()
+    # Zweiter Lauf: nichts mehr zu tun (das Profil laeuft vor JEDEM Start).
+    assert m.dolphin_apply()[0] is False
+
+
+def test_a_failed_mesa_utils_install_is_reported():
+    """Der Fehlschlag verschwand in /dev/null — und genau deshalb war spaeter nicht
+    zu beantworten, ob die GPU benutzt wird. Die Fehlersuche lief zweimal in die
+    falsche Richtung. (#170)"""
+    text = open(os.path.join(REPO, "contrib/streaming-host/init/10-virtualgl"),
+                encoding="utf-8").read()
+    assert "WARNUNG: mesa-utils" in text, "ein Fehlschlag muss gemeldet werden"
+    assert "glxinfo" in text

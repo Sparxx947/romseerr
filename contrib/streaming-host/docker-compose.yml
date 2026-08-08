@@ -37,6 +37,30 @@ services:
       # PULSE_RUNTIME_PATH and otherwise fails with pa_context_connect().
       PULSE_SERVER: "unix:/defaults/native"
 
+      # --- Bildgroesse und Bildrate ------------------------------------------------
+      # OHNE DIESE WERTE richtet sich der Stream nach dem Fenster des Browsers. Auf
+      # einem grossen Bildschirm sind das schnell 3828x1902 bei 60 fps — und die
+      # Bildschirmaufnahme samt Farbkonvertierung kostet dann dauerhaft CPU, die der
+      # Emulator besser gebrauchen kann.
+      #
+      # Gemessen (#167): 3828x1902@60 -> selkies 50 %, Xvfb 41 %.
+      #                  1920x1080@30 -> selkies 13 %, Xvfb  7 %.
+      # Ein Drittel weniger Gesamtlast fuer dasselbe Bild.
+      #
+      # EHRLICH DAZU: Es macht den Emulator NICHT schneller. Dessen Video-Thread ist
+      # unabhaengig von Aufloesung und Bildrate ausgelastet — die Kosten fallen pro
+      # Frame und pro Zeichenbefehl an, nicht pro Pixel. Es entlastet den HOST.
+      #
+      # Measured: dropping to 1920x1080@30 cuts capture cost by about two thirds. It
+      # does not speed up the emulator; its video thread saturates regardless.
+      #
+      # 1920x1080 reicht fuer Konsolen, die nativ deutlich darunter liegen (GameCube
+      # 640x528, PS2 640x448). 30 fps, weil die meisten Titel ohnehin nicht mehr
+      # liefern. Wer mehr will, setzt es hier hoch.
+      SELKIES_MANUAL_WIDTH: "${STREAM_WIDTH:-1920}"
+      SELKIES_MANUAL_HEIGHT: "${STREAM_HEIGHT:-1080}"
+      SELKIES_FRAMERATE: "${STREAM_FRAMERATE:-30}"
+
       # --- was die Init-Skripte brauchen / what the init scripts read ------------
       # Ohne diese Zeilen laufen die Skripte mit leeren Variablen: der Start-Dienst
       # verweigert mangels Token den Start, und die Emulatoren werden nicht geholt.

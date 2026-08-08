@@ -45,8 +45,21 @@ fi
 # glxinfo/eglinfo mitinstallieren — ohne sie lässt sich später nicht nachsehen,
 # ob die GPU wirklich benutzt wird. Genau diese Frage stellt sich immer wieder.
 # Keep the diagnostic tools; "is the GPU actually used" is the recurring question.
-dpkg -s mesa-utils >/dev/null 2>&1 || \
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mesa-utils >/dev/null 2>&1
+# Ein FEHLSCHLAG WIRD GEMELDET. Vorher verschwand er in /dev/null — und genau das ist
+# passiert: mesa-utils fehlte auf dem laufenden Host, die Frage "wird die GPU benutzt"
+# war deshalb nicht zu beantworten, und die Fehlersuche lief zweimal in die falsche
+# Richtung (#167). Kein Abbruch: ein fehlendes Diagnosewerkzeug ist kein Grund, den
+# Host nicht hochkommen zu lassen.
+# Report the failure: it was swallowed before, and the missing tool sent an
+# investigation down two wrong paths.
+if ! dpkg -s mesa-utils >/dev/null 2>&1; then
+  if DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mesa-utils >/dev/null 2>&1; then
+    echo "[virtualgl] mesa-utils installiert / installed"
+  else
+    echo "[virtualgl] WARNUNG: mesa-utils liess sich nicht installieren — ohne glxinfo"
+    echo "[virtualgl] ist spaeter nicht pruefbar, ob die GPU wirklich benutzt wird."
+  fi
+fi
 
 if [ -x /opt/VirtualGL/bin/vglrun ]; then
   echo "[virtualgl] bereit / ready"
