@@ -69,6 +69,8 @@ services:
       AZAHAR_URL: ${AZAHAR_URL:-}
       VITA3K_URL: ${VITA3K_URL:-}
       VGL_VERSION: ${VGL_VERSION:-3.1.4}
+      # Grenze fuer eine hochgeladene Firmware-Datei (Sonys PS3-Paket ist ~200 MB).
+      FIRMWARE_MAX_BYTES: ${FIRMWARE_MAX_BYTES:-536870912}
     volumes:
       - ${CONFIG_DIR:-./data}/config:/config
       # Init-Skripte MÜSSEN hierhin — /config/custom-cont-init.d wird ignoriert.
