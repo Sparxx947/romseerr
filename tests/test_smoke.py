@@ -1913,3 +1913,13 @@ def test_launch_service_sets_the_documented_gamepad_variable():
     text = open(os.path.join(REPO, "contrib/streaming-host/init/30-agent"), encoding="utf-8").read()
     assert "export SDL_JOYSTICK_DEVICE=" in text
     assert "SELKIES_INTERPOSER" in text, "der Interposer muss auch ohne Vorgabe des Abbilds greifen"
+
+
+def test_agent_takes_the_preload_from_the_image_not_a_reconstruction():
+    """Das Abbild laedt ZWEI Bibliotheken vor: den Interposer und eine gefaelschte
+    libudev, ueber die SDL die Geraete aufzaehlt. Ein Nachbau von Hand hatte nur die
+    erste — dann steht ein Geraetepfad bereit, den niemand aufzaehlt. Die maszgebliche
+    Fassung steht in der s6-Umgebung. (#19)"""
+    text = open(os.path.join(REPO, "contrib/streaming-host/init/30-agent"), encoding="utf-8").read()
+    assert "/run/s6/container_environment/LD_PRELOAD" in text, \
+        "die Vorgabe des Abbilds muss gelesen, nicht nachgebaut werden"
