@@ -71,6 +71,14 @@ _update = {"running": False, "started": 0, "finished": 0, "rc": None, "log": "",
 # Firmware und BIOS. Dasselbe Muster: die Tabelle steht im Skript, hier wird sie nur
 # abgefragt. / Same pattern as the emulator catalogue: the table lives in the script.
 FIRMWARE_SCRIPT = os.environ.get("FIRMWARE_SCRIPT", "/custom-cont-init.d/25-firmware")
+# Controller-Belegung. Wird VOR jedem Start angewandt, nicht einmalig beim Hochfahren:
+# die Emulatoren schreiben ihre Konfiguration beim Beenden zurueck, und eine einmal
+# gesetzte Belegung waere danach womoeglich wieder weg.
+# Applied before every launch, not once at boot: emulators rewrite their config on exit.
+CONTROLLER_SCRIPT = os.environ.get("CONTROLLER_SCRIPT", "/opt/controller-profile.py")
+# Plattform -> Emulator, fuer den es ein Profil gibt. Kein Eintrag = der Emulator ordnet
+# ein erkanntes SDL-Pad selbst zu. / No entry = the emulator maps a detected pad itself.
+CONTROLLER_PROFILE = {"ps2": "pcsx2"}
 # Grenze fuer einen Upload. Die groesste Datei, die hier real ankommt, ist Sonys
 # PS3-Paket mit gut 200 MB; 512 MB lassen Luft, ohne dass jemand den Container mit
 # einem Dauerstrom volllaufen lassen kann.
@@ -248,6 +256,20 @@ def launch(path, platform, rel=""):
         return False, (f"Datei nicht gefunden / file not found: {real} — "
                        "haengen Romseerr und der Streaming-Host DIESELBE "
                        "Bibliothekswurzel ein? / do both mount the same library root?")
+
+    # Controller-Belegung setzen, bevor der Emulator die Konfiguration liest. Scheitert
+    # das, wird trotzdem gestartet: ohne Pad spielen ist schlechter als gar nicht
+    # spielen — aber nur ein bisschen, und die Meldung steht im Log.
+    # Applied before the emulator reads its config; a failure here does not block the
+    # launch, it is logged.
+    profil = CONTROLLER_PROFILE.get(platform)
+    if profil and os.path.isfile(CONTROLLER_SCRIPT):
+        try:
+            r = subprocess.run([sys.executable, CONTROLLER_SCRIPT, "--apply", profil],
+                               capture_output=True, text=True, timeout=30)
+            print((r.stdout + r.stderr).strip(), flush=True)
+        except (subprocess.TimeoutExpired, OSError) as e:
+            print(f"[controller] {profil}: {e.__class__.__name__}", flush=True)
 
     # argv ist damit: fester Befehl aus der Umgebung (der Betreiber setzt ihn) + genau EIN
     # geprueftes Argument aus der Bibliothek. Keine Shell, keine Wortzerlegung durch execve.

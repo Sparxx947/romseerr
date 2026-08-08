@@ -1990,3 +1990,68 @@ def test_romseerr_sends_a_library_relative_path(appmod, client, monkeypatch):
     assert gesehen.get("rel") == os.path.join("ps2", "ISO", "spiel.iso"), gesehen
     assert "path" in gesehen, "der absolute Pfad geht zur Vertraeglichkeit weiter mit"
     appmod.kv_put("stream_session", None); appmod.save_settings({})
+
+
+# ------------------------------------------------ Controller-Profile (#119)
+
+def _profil_modul(config_root):
+    import importlib.util
+    alt = dict(os.environ); os.environ["FW_CONFIG_ROOT"] = str(config_root)
+    try:
+        pfad = os.path.join(REPO, "contrib/streaming-host/controller-profile.py")
+        spec = importlib.util.spec_from_file_location("controller_profile_test", pfad)
+        m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
+    finally:
+        os.environ.clear(); os.environ.update(alt)
+
+
+def _pcsx2_ini(tmp_path, inhalt):
+    d = tmp_path / ".config/PCSX2/inis"; d.mkdir(parents=True)
+    (d / "PCSX2.ini").write_text(inhalt, encoding="utf-8")
+    return d / "PCSX2.ini"
+
+
+def test_controller_profile_keeps_the_keyboard(tmp_path):
+    """PCSX2 speichert Alternativen als WIEDERHOLTE Schluessel (`&` ist der Akkord).
+    Die Gamepad-Belegung kommt deshalb NEBEN die Tastatur, nicht an ihre Stelle —
+    sonst nimmt ein Profil dem Betreiber weg, was vorher ging. (#119)"""
+    ini = _pcsx2_ini(tmp_path, "[Pad1]\nType = DualShock2\nUp = Keyboard/Up\n\n[Pad2]\n")
+    m = _profil_modul(tmp_path)
+    geaendert, msg = m.pcsx2_apply()
+    text = ini.read_text(encoding="utf-8")
+    assert geaendert, msg
+    assert "Up = Keyboard/Up" in text, "Tastaturbelegung darf nicht verschwinden"
+    assert "Up = SDL-0/DPadUp" in text
+    assert "Cross = SDL-0/FaceSouth" in text
+
+
+def test_controller_profile_is_idempotent(tmp_path):
+    """Es laeuft vor JEDEM Start. Ein zweiter Lauf darf die Datei nicht weiter
+    aufblaehen — sonst waechst die Konfiguration mit jeder Partie. (#119)"""
+    ini = _pcsx2_ini(tmp_path, "[Pad1]\nType = DualShock2\nUp = Keyboard/Up\n\n[Pad2]\n")
+    m = _profil_modul(tmp_path)
+    m.pcsx2_apply()
+    nach_erstem = ini.read_text(encoding="utf-8")
+    geaendert, _ = m.pcsx2_apply()
+    assert not geaendert
+    assert ini.read_text(encoding="utf-8") == nach_erstem
+
+
+def test_controller_profile_keeps_the_original_backup(tmp_path):
+    """Die Sicherung ist der Ausgangsstand vor dem ERSTEN Eingriff. Wuerde sie bei
+    jedem Lauf ueberschrieben, sicherte sie ab dem zweiten Lauf nichts mehr. (#119)"""
+    ini = _pcsx2_ini(tmp_path, "[Pad1]\nType = DualShock2\nUp = Keyboard/Up\n\n[Pad2]\n")
+    m = _profil_modul(tmp_path)
+    m.pcsx2_apply()
+    sicherung = str(ini) + ".vor-gamepad"
+    assert os.path.isfile(sicherung)
+    assert "SDL-0" not in open(sicherung, encoding="utf-8").read()
+    inhalt = open(sicherung, encoding="utf-8").read()
+    m.pcsx2_apply()
+    assert open(sicherung, encoding="utf-8").read() == inhalt, "Sicherung wurde ueberschrieben"
+
+
+def test_controller_profile_refuses_unknown_target(tmp_path):
+    m = _profil_modul(tmp_path)
+    assert m.main(["--apply", "gibtsnicht"]) == 1
+    assert m.main([]) == 2

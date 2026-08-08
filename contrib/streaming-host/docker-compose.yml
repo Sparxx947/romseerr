@@ -80,6 +80,9 @@ services:
       # Update des Repos weiter die alte Fassung — und zwar lautlos.
       # Mounted, not copied: otherwise an outdated copy keeps running silently.
       - ./stream-agent.py:/opt/stream-agent.py:ro
+      # Controller-Belegung je Emulator (#119). Ebenfalls eingehaengt, damit das, was
+      # laeuft, immer das ist, was im Repo steht.
+      - ./controller-profile.py:/opt/controller-profile.py:ro
       # Die ROM-Bibliothek nur lesend. / The ROM library, read-only.
       - ${ROMS_DIR:?ROMS_DIR fehlt - siehe .env.example}:/roms:ro
     devices:
