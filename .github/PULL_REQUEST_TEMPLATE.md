@@ -8,3 +8,6 @@
 - [ ] Doku/CHANGELOG aktualisiert (DE + EN) / docs/CHANGELOG updated (DE + EN)
 - [ ] Tests ergänzt/angepasst, `pytest -q` grün / tests added, `pytest -q` green
 - [ ] Keine Geheimnisse im Diff / no secrets in the diff
+- [ ] **Keine Inhalte, Firmware, Schlüssel oder Inhaltsquellen** im Diff — siehe
+      [CONTRIBUTING](.github/CONTRIBUTING.md) / **no content, firmware, keys or
+      content-source URLs** in the diff

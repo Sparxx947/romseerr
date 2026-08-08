@@ -41,6 +41,20 @@ into the library and notifies when they are available. The library is shared by 
 
 ---
 
+## What Romseerr is — and is not
+
+Romseerr is **tooling**: it searches, requests, downloads and files things away.
+It **hosts no content, obtains none and links to none**. Which sources it queries
+is configured by the operator — none of them live in this repository, and none are
+preset.
+
+Nor does this repository contain emulators, BIOS images, firmware or console keys.
+Emulators are fetched on request from the **projects' own releases**; firmware and
+BIOS come from **hardware you own**. CI checks this on every pull request.
+
+The full rule is in
+[CONTRIBUTING](.github/CONTRIBUTING.md#what-does-not-belong-here).
+
 ## Highlights
 
 - 🔍 **Search & discover** across **Archive.org** and **Usenet** (Prowlarr → SABnzbd), with

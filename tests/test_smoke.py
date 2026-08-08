@@ -1603,3 +1603,51 @@ def test_rollback_name_is_validated(appmod, client):
         assert r.status_code == 400, f"durchgelassen: {boes!r}"
         assert r.get_json()["reason"] == "bad_name"
     appmod.save_settings({}); appmod.save_users({})
+
+
+def test_content_policy_holds_for_this_repo():
+    """Das Repository enthält nur Werkzeug — keine Inhalte, Firmware oder Schlüssel.
+
+    Schnelles Signal beim Entwickeln. Die eigentliche Schranke ist der Workflow
+    „Content policy", der dasselbe Skript aus dem HAUPTZWEIG holt — ein Beitrag
+    kann seine eigene Prüfung damit nicht aufweichen. (#108)
+    """
+    import importlib.util
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    pfad = os.path.join(root, "scripts", "check_content_policy.py")
+    spec = importlib.util.spec_from_file_location("content_policy", pfad)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    # Wurzel ausdruecklich uebergeben: pytest kann aus jedem Verzeichnis laufen.
+    assert mod.main([], root=root) == 0, "siehe Ausgabe oben / see output above"
+
+
+def test_content_policy_actually_catches_things(tmp_path):
+    """Ein Prüfer, der nie anschlägt, beweist nichts. Hier wird er zum Anschlagen
+    gebracht — je Fundart einmal, und einmal etwas Erlaubtes zur Gegenprobe. (#108)"""
+    import importlib.util
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    spec = importlib.util.spec_from_file_location(
+        "content_policy2", os.path.join(root, "scripts", "check_content_policy.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    d = str(tmp_path)
+    (tmp_path / "spiel.iso").write_bytes(b"x")
+    (tmp_path / "scph39001.bin").write_bytes(b"x")
+    (tmp_path / "prod.keys").write_text("x")
+    (tmp_path / "gross.bin").write_bytes(b"\0" * (mod.MAX_BYTES + 1))
+    # Zusammengesetzt, sonst meldet der Pruefer diese Datei selbst — die Beispiele
+    # SIND ja genau das, wonach er sucht. / Assembled, or the checker flags this file.
+    boese_host = "https://beispiel-" + "roms.example.net/pack.zip"
+    boese_datei = "https://cdn.beispiel.example/d/spiel." + "iso"
+    (tmp_path / "quelle.md").write_text("hol es bei " + boese_host)
+    (tmp_path / "direkt.md").write_text(boese_datei)
+    # Gegenprobe: offizielle Projektquelle und ein interner Dienstname sind erlaubt
+    (tmp_path / "sauber.md").write_text(
+        "https://api.github.com/repos/x/y/releases und http://sabnzbd:8080/api")
+
+    for name in ("spiel.iso", "scph39001.bin", "prod.keys", "gross.bin",
+                 "quelle.md", "direkt.md"):
+        assert mod.check_file(d, name), f"nicht erkannt / not caught: {name}"
+    assert mod.check_file(d, "sauber.md") == [], "Fehlalarm auf erlaubter Adresse"
