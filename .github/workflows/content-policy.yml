@@ -19,7 +19,7 @@ name: Content policy
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [dev, main]
   pull_request:
 
 permissions:
@@ -38,10 +38,16 @@ jobs:
           fetch-depth: 0
 
       # 2) Das Prüfskript — bewusst aus dem Hauptzweig, nicht aus dem PR.
-      - name: Checkout policy checker from the default branch
+      # Aus dem ZIELZWEIG, nicht aus dem Standardzweig: ein PR gegen `dev` muss gegen
+      # die Regel geprueft werden, die in `dev` gilt. Beim Standardzweig als Quelle
+      # wuerde ein Release-PR (Ziel `main`) mit der Fassung aus `dev` geprueft — und
+      # umgekehrt. Entscheidend bleibt: die Quelle ist NIE der PR selbst.
+      # From the TARGET branch, not the default branch: a PR must be judged by the rule
+      # in force where it is going. What matters stays the same — never the PR itself.
+      - name: Checkout policy checker from the target branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.base_ref || github.ref_name }}
           path: policy
           sparse-checkout: scripts/check_content_policy.py
           sparse-checkout-cone-mode: false
@@ -78,7 +84,7 @@ jobs:
           # cannot pass for the normal state.
           if [ -f policy/scripts/check_content_policy.py ]; then
             cp policy/scripts/check_content_policy.py /tmp/check.py
-            echo "Prüfung aus dem Hauptzweig / checker from the default branch"
+            echo "Prüfung aus ${{ github.base_ref || github.ref_name }} / checker from the target branch"
           else
             cp pr/scripts/check_content_policy.py /tmp/check.py
             echo "::warning title=Prüfung aus dem Pull Request::Im Hauptzweig gibt es die Prüfung noch nicht — sie wird mit diesem Beitrag eingeführt. Ab dem nächsten Mal kommt sie von dort. / Not on the default branch yet; introduced by this change."

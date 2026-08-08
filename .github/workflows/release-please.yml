@@ -1,9 +1,19 @@
-# Release-Bot / release bot: liest Conventional Commits, pflegt einen Release-PR
-# (Version + CHANGELOG) und erstellt bei Merge ein GitHub-Release samt Tag.
+# Release-Bot / release bot
+#
+# ZWEIGMODELL: gearbeitet wird auf `dev`, veröffentlicht wird auf `main`.
+# Der Bot liest die Conventional Commits auf `dev`, pflegt dort einen Release-PR
+# (Version + CHANGELOG) und erstellt beim Merge Tag und GitHub-Release. Danach wird
+# `main` auf genau diesen Commit VORGESPULT — deshalb enthält `main` immer den
+# aktuellen Release und sonst nichts.
+#
+# BRANCH MODEL: work happens on `dev`, releases live on `main`. Merging the release PR
+# tags a release, and `main` is fast-forwarded to that exact commit — which is why
+# `main` only ever contains the current release.
 name: release-please
 on:
+  workflow_dispatch:
   push:
-    branches: [main]
+    branches: [dev]
 permissions:
   contents: write
   pull-requests: write
@@ -11,7 +21,49 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.rp.outputs.releases_created }}
+      sha:      ${{ steps.rp.outputs.sha }}
+      tag:      ${{ steps.rp.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@v4
+        id: rp
         with:
-          release-type: simple
+          target-branch: dev
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # `main` nachziehen — erst wenn wirklich ein Release entstanden ist.
+  promote:
+    name: main auf den Release vorspulen / fast-forward main to the release
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Vorspulen prüfen und ausführen / verify fast-forward, then push
+        env:
+          SHA: ${{ needs.release-please.outputs.sha }}
+          TAG: ${{ needs.release-please.outputs.tag }}
+        run: |
+          set -eu
+          git fetch --no-tags origin main:refs/remotes/origin/main
+
+          # NIEMALS erzwingen. Ist `main` kein Vorfahr des Release-Commits, stimmt eine
+          # Annahme dieses Modells nicht mehr — dann soll der Lauf laut scheitern statt
+          # Historie zu überschreiben. Genau dafür steht die Sperre gegen Force-Pushes
+          # auf `main`: sie schützt auch vor diesem Workflow.
+          # NEVER force. If main is not an ancestor, an assumption of this model broke;
+          # fail loudly rather than rewrite history.
+          if ! git merge-base --is-ancestor origin/main "$SHA"; then
+            echo "::error title=Kein Fast-Forward möglich::main ($(git rev-parse --short origin/main)) ist kein Vorfahr von $SHA. Auf main liegt etwas, das nicht über dev kam. / main is not an ancestor of the release commit; something reached main outside dev."
+            exit 1
+          fi
+
+          echo "main $(git rev-parse --short origin/main) -> $SHA ($TAG)"
+          git push origin "$SHA:refs/heads/main"
