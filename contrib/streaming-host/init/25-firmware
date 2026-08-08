@@ -63,6 +63,27 @@ PS3_LISTE="http://dus01.ps3.update.playstation.net/update/ps3/list/us/ps3-update
 
 sha() { sha256sum "$1" 2>/dev/null | cut -d' ' -f1; }
 
+# Wem muss das gehoeren? NICHT geraten und nicht aus PUID/PGID abgeleitet, sondern am
+# vorhandenen /config abgelesen — das legt der Container-Unterbau selbst an, und dessen
+# Besitzer ist per Definition der Nutzer, unter dem die Emulatoren laufen.
+#
+# Warum ueberhaupt: Dieses Skript laeuft als root, das Skript setzt umask 077, und der
+# Emulator laeuft als abc. Ohne Korrektur liegt die Firmware als `-rw------- root root`
+# da und der Emulator kann seine EIGENE Firmware nicht lesen. Das aeussert sich als
+# schwarzes Bild — also genau als der Fehler, dessen Vermeidung der Zweck dieses
+# Skripts ist. Streng bleiben die Rechte trotzdem: 0600, nur eben fuer den richtigen.
+#
+# Read the owner off /config rather than guessing: this runs as root with umask 077,
+# while the emulator runs as abc. Without this the firmware sits there unreadable by
+# the very process that needs it, and the symptom is a black screen.
+BESITZER=$(stat -c '%u:%g' "$CFG" 2>/dev/null || echo "")
+
+besitz_richten() {  # besitz_richten <pfad...>
+  [ -z "$BESITZER" ] && return 0
+  chown "$BESITZER" "$@" 2>/dev/null || true
+  chmod u+rw "$@" 2>/dev/null || true
+}
+
 # --------------------------------------------------------- eine Datei-Anforderung prüfen
 # -> "name|status|groesse|sha"   status: fehlt | ok | groesse_unerwartet
 pruefe() {  # pruefe <verzeichnis> <spec>
@@ -101,11 +122,19 @@ platzieren() {  # platzieren [plattform]
     quelle="$FW/$p"; ziel="$CFG/$(feld "$e" 4)"
     [ -d "$quelle" ] || continue
     mkdir -p "$ziel"
+    besitz_richten "$quelle" "$ziel"
+    chmod u+rwx "$quelle" "$ziel" 2>/dev/null || true
     # PS3/Vita: das Zielverzeichnis IST die Ablage — nicht auf sich selbst kopieren.
-    [ "$(readlink -f "$quelle")" = "$(readlink -f "$ziel")" ] && continue
+    if [ "$(readlink -f "$quelle")" = "$(readlink -f "$ziel")" ]; then
+      for f in "$quelle"/*; do [ -f "$f" ] && besitz_richten "$f"; done
+      continue
+    fi
     for f in "$quelle"/*; do
       [ -f "$f" ] || continue
-      cp -f "$f" "$ziel/" 2>/dev/null && echo "[firmware] $p: $(basename "$f") -> $ziel"
+      if cp -f "$f" "$ziel/"; then
+        besitz_richten "$ziel/$(basename "$f")" "$quelle/$(basename "$f")"
+        echo "[firmware] $p: $(basename "$f") -> $ziel"
+      fi
     done
   done
 }
@@ -172,8 +201,17 @@ importieren() {  # importieren <plattform> <datei> [zielname]
 
   mkdir -p "$FW/$p"
   cp -f "$quelle" "$FW/$p/$name" || return 1
-  echo "[firmware] $p: $name eingespielt ($(stat -c%s "$FW/$p/$name") B, sha256 $(sha "$FW/$p/$name"))"
-  platzieren "$p"
+  # ERST platzieren, DANN melden. Andersherum genuegt eine abgeschnittene Ausgabe
+  # (`| head -1` sendet SIGPIPE), um die eigentliche Arbeit ausfallen zu lassen —
+  # die Datei liegt dann in der Ablage, der Emulator sieht sie nie, und der Status
+  # meldet weiterhin "fehlt". Reihenfolge ist hier kein Stil, sondern Verhalten.
+  # Place first, report second: a truncated stdout must at worst cost the message,
+  # never the work.
+  local groesse pruef
+  groesse=$(stat -c%s "$FW/$p/$name"); pruef=$(sha "$FW/$p/$name")
+  platzieren "$p" >/dev/null
+  echo "[firmware] $p: $name eingespielt ($groesse B, sha256 $pruef)"
+  echo "[firmware] $p: abgelegt in $CFG/$(feld "$e" 4)"
 }
 
 # -------------------------------------------------------------- Hersteller: PS3 (Sony)

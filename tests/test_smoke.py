@@ -1865,3 +1865,33 @@ def test_firmware_staging_and_target_agree_where_they_are_the_same_place():
         if ziel.startswith("firmware/"):
             assert ziel == f"firmware/{slug}", \
                 f"{slug}: Ablage firmware/{slug}, Ziel {ziel} — zwei Orte fuer dieselbe Datei"
+
+
+def test_firmware_import_places_even_when_output_is_truncated(tmp_path):
+    """Ein `| head -1` schickt SIGPIPE. Stand das Platzieren HINTER der Meldung, fiel
+    genau die Arbeit aus: die Datei lag in der Ablage, der Emulator sah sie nie, und
+    der Status meldete weiter "fehlt". Reihenfolge ist hier Verhalten, nicht Stil. (#107)"""
+    import subprocess
+    skript = os.path.join(REPO, "contrib/streaming-host/init/25-firmware")
+    umg = {**os.environ, "FW_CONFIG_ROOT": str(tmp_path)}
+    (tmp_path / "dc_boot.bin").write_bytes(b"\0" * 2097152)
+    (tmp_path / "dc_flash.bin").write_bytes(b"\0" * 131072)
+    subprocess.run(["bash", skript], env=umg, capture_output=True)
+    for name in ("dc_boot.bin", "dc_flash.bin"):
+        # Genau der Aufruf, der den Fehler ausgeloest hat: Ausgabe nach einer Zeile zu.
+        subprocess.run(f"bash {skript} --import dreamcast {tmp_path/name} 2>&1 | head -1",
+                       shell=True, env=umg, capture_output=True)  # nosec B602 - Testaufruf
+    ziel = tmp_path / ".local/share/flycast"
+    fehlend = [n for n in ("dc_boot.bin", "dc_flash.bin") if not (ziel / n).exists()]
+    assert not fehlend, f"nicht platziert: {fehlend}"
+
+
+def test_firmware_is_readable_by_the_account_that_runs_the_emulator():
+    """Das Skript laeuft als root mit umask 077, der Emulator als abc. Ohne Korrektur
+    liegt die Firmware als -rw------- root root da und der Emulator kann seine EIGENE
+    Firmware nicht lesen — ein schwarzes Bild, also genau der Fehler, den dieses
+    Skript verhindern soll. (#107)"""
+    text = open(os.path.join(REPO, "contrib/streaming-host/init/25-firmware"), encoding="utf-8").read()
+    assert "stat -c '%u:%g'" in text, "Besitzer muss abgelesen werden, nicht geraten"
+    assert "besitz_richten" in text
+    assert text.count("besitz_richten ") >= 3, "Ablage, Ziel und Datei muessen erfasst sein"
