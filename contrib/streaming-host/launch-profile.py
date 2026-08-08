@@ -293,6 +293,49 @@ def rpcs3_apply(pruefen=False):
                   "Tastenbelegung noch EINMAL im Pad-Dialog von RPCS3 setzen")
 
 
+# ------------------------------------------------------------- Dolphin (GameCube/Wii)
+# Dolphin laeuft ohne diese Einstellung EINKERNIG. Am laufenden Host nachgemessen: ein
+# einzelner Thread namens "CPU-GPU thread" bei 100 %, waehrend 27 Threads brachlagen.
+# Mit Dual Core teilt sich die Arbeit auf CPU- und Video-Thread. Die offizielle
+# Leistungsanleitung nennt das "one of the biggest performance boosts available".
+#
+# WAS ES NICHT LOEST: Der Engpass WANDERT damit auf den Video-Thread, der weiterhin
+# einen Kern saettigt — unabhaengig von Aufloesung und Bildrate. Ursache ist der
+# VirtualGL-Umweg, nicht Dolphin. Siehe #167 und #169. Dual Core ist trotzdem richtig:
+# es verteilt die Arbeit dorthin, wo Platz ist.
+# Dual core moves the bottleneck to the video thread rather than removing it; the
+# VirtualGL detour is the actual cause.
+def dolphin_ini():
+    return os.path.join(CONFIG, ".config/dolphin-emu/Dolphin.ini")
+
+
+def dolphin_apply(pruefen=False):
+    """-> (geaendert, meldung). Schaltet Dual Core ein (CPUThread)."""
+    pfad = dolphin_ini()
+    if not os.path.isfile(pfad):
+        return False, "Dolphin.ini gibt es noch nicht — der Emulator legt sie beim ersten Start an"
+    zeilen = open(pfad, encoding="utf-8", errors="ignore").read().splitlines()
+    for z in zeilen:
+        if z.split("=")[0].strip() == "CPUThread" and z.split("=", 1)[-1].strip() == "True":
+            return False, "Dual Core steht bereits"
+    if pruefen:
+        return True, "Dual Core wuerde gesetzt"
+    # `_ini_setzen` ERSETZT nur einen vorhandenen Schluessel. Dolphin schreibt CPUThread
+    # aber gar nicht erst hin, solange niemand es umstellt — der Standard steht nur im
+    # Code. Also einfuegen statt ersetzen, und den Abschnitt notfalls anlegen.
+    # _ini_setzen only replaces an existing key; Dolphin never writes this one.
+    geaendert, meldung = _ini_setzen(pfad, "[Core]", "CPUThread", "True")
+    if geaendert or "bereits" in meldung:
+        return geaendert, meldung
+    start = next((i for i, z in enumerate(zeilen) if z.strip() == "[Core]"), None)
+    if start is None:
+        zeilen += ["[Core]"]
+        start = len(zeilen) - 1
+    zeilen.insert(start + 1, "CPUThread = True")
+    open(pfad, "w", encoding="utf-8").write("\n".join(zeilen) + "\n")
+    return True, "Dual Core eingeschaltet (CPUThread)"
+
+
 # JEDER bereitgestellte Emulator steht hier — auch der, der nichts braucht.
 #
 # WARUM AUSDRUECKLICH STATT WEGGELASSEN: Ein fehlender Eintrag ist nicht von einem
@@ -312,7 +355,10 @@ PROFILE = {
     "pcsx2":     {"system": "PS2",           "controller": pcsx2_apply,
                   "bios": pcsx2_bios_setzen, "vollbild": pcsx2_vollbild,
                   "geprueft": True},
-    "dolphin":   {"system": "GameCube/Wii",  "controller": None, "bios": None, "vollbild": None,
+    # geprueft bleibt False: Bild und Ton sind gemessen (007 Agent Under Fire und
+    # Metroid Prime starten mit Ton), das Gamepad ist es NICHT.
+    "dolphin":   {"system": "GameCube/Wii",  "controller": dolphin_apply,
+                  "bios": None, "vollbild": None,
                   "geprueft": False},
     "flycast":   {"system": "Dreamcast",     "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
