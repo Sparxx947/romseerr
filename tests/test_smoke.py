@@ -2391,6 +2391,33 @@ def _profil_modul(config_root):
         os.environ.clear(); os.environ.update(alt)
 
 
+def test_rpcs3_binds_player_one_to_sdl_not_the_keyboard(tmp_path):
+    """RPCS3s Standard bindet Spieler 1 an die TASTATUR und schreibt bis zum ersten
+    Griff in den Einstellungsdialog gar keine Eingabekonfiguration. Am laufenden Host
+    nachgemessen: Selkies liefert das Pad, RPCS3 zaehlt es auf, im Spiel passiert
+    nichts. (#156)"""
+    m = _profil_modul(tmp_path)
+    geaendert, msg = m.rpcs3_apply()
+    assert geaendert, msg
+    pfad = m.rpcs3_input()
+    text = open(pfad, encoding="utf-8").read()
+    assert "Handler: SDL" in text, text
+    assert "Microsoft X-Box 360 pad" in text, text
+    # Zweiter Lauf darf nichts mehr tun — das Profil wird VOR JEDEM Start angewandt.
+    geaendert2, msg2 = m.rpcs3_apply()
+    assert not geaendert2 and "bereits" in msg2, msg2
+
+
+def test_rpcs3_device_name_is_overridable(tmp_path, monkeypatch):
+    """Der Name ist abgelesen, nicht geraten — und trotzdem ueberschreibbar, falls ein
+    anderes Abbild das Pad anders benennt. Ohne diesen Ausweg muesste man die Datei
+    aendern, um einen Namen zu korrigieren. (#156)"""
+    monkeypatch.setenv("RPCS3_PAD_NAME", "Irgendein Pad")
+    m = _profil_modul(tmp_path)
+    m.rpcs3_apply()
+    assert "Irgendein Pad" in open(m.rpcs3_input(), encoding="utf-8").read()
+
+
 def test_every_provided_emulator_has_a_profile_entry(tmp_path):
     """Ein fehlender Eintrag ist nicht von 'braucht nichts' zu unterscheiden. Wer einen
     Emulator hinzufuegt, soll sich entscheiden muessen — deshalb wird die Liste gegen
