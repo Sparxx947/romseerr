@@ -4518,3 +4518,76 @@ def test_new_routes_carry_a_docstring(appmod):
         f"{len(ohne)} Route-Handler ohne Docstring (erlaubt: {DOC_ROUTEN_OHNE}). "
         f"Deine neue Route braucht einen: was tut sie, und warum so? "
         f"(Welche es ist, zeigt `git diff` — die Namen hier zu raten wäre irreführend.)")
+
+
+# ---------- Wo liegt was? (#192) ----------
+# Der Umzug von JSON-Dateien nach SQLite lief Speicher für Speicher, und danach hat
+# niemand die Gesamtfrage gestellt. Nachgemessen auf der laufenden Anlage:
+#
+#   users.json / jobs.json / settings.json  -> migriert, `.migrated` daneben, Tabelle gefüllt
+#   issues.json / maillog.json / push_subs.json -> NIE geschrieben (kein .migrated, kein kv-Schlüssel)
+#   vapid.json                              -> aktive Datei, absichtlich nicht in der DB
+#   secret.key                              -> ebenso
+#
+# „Keine Datei" war dabei kein Beleg für „migriert": bei den drei mittleren heißt es, dass
+# das Feature auf dieser Installation nie benutzt wurde. Genau diese Zweideutigkeit soll
+# nicht noch einmal von Hand aufgelöst werden müssen.
+DATEI_SPEICHER = {
+    "users.json": "migriert -> Tabelle users",
+    "jobs.json": "migriert -> Tabelle jobs",
+    "settings.json": "migriert -> kv['settings']",
+    "issues.json": "migriert -> kv['issues'] (Datei entsteht nur bei Altbestand)",
+    "maillog.json": "migriert -> kv['maillog'] (dito)",
+    "push_subs.json": "migriert -> kv['push'] (dito)",
+    "vapid.json": "BLEIBT Datei: privater Push-Schlüssel, absichtlich außerhalb der DB",
+    "secret.key": "BLEIBT Datei: Sitzungssignatur, absichtlich außerhalb der DB",
+    # In der Neuprüfung zu #192 zusätzlich gefunden — im Issue kamen sie nicht vor:
+    "tls": "BLEIBT Verzeichnis: Zertifikat + privater Schlüssel (0600)",
+    "logos": "BLEIBT Verzeichnis: Bilddateien gehören nicht in eine Spalte",
+    ".schreibprobe": "keine Daten: Schreibprobe für /health (#216)",
+}
+
+
+def test_no_new_json_store_appears_unnoticed(appmod):
+    """Ein neuer Dateispeicher muss eine Entscheidung sein, kein Versehen. (#192)
+
+    Wer eine Datei im Konfigverzeichnis anlegt, trifft eine Grundsatzentscheidung — sie
+    fehlt im Export, im Import und in jeder Sicherung, die nur die Datenbank kennt.
+    """
+    import re
+    quelle = open("app.py", encoding="utf-8").read()
+    gefunden = set(re.findall(r'os\.path\.join\(CONFIG_DIR,\s*"([^"]+)"\)', quelle))
+    gefunden = {g for g in gefunden if not g.endswith((".db", ".log")) and "staging" not in g}
+    neu = gefunden - set(DATEI_SPEICHER)
+    assert not neu, (
+        f"neuer Dateispeicher im Konfigverzeichnis: {sorted(neu)}. Gehört er in die "
+        f"Datenbank? Wenn nein, trag ihn mit Begründung in DATEI_SPEICHER ein — "
+        f"Dateien fehlen im Export und in DB-Sicherungen.")
+
+
+def test_key_material_is_not_world_readable(appmod, tmp_path, monkeypatch):
+    """Schlüsselmaterial liegt mit 0600, auch wenn es schon da war. (#192)
+
+    Gemessen auf der laufenden Anlage: `vapid.json` und `secret.key` standen auf **0664**
+    — lesbar für Gruppe und alle. Beide entstanden über ein schlichtes `open(..., "w")`.
+    """
+    ziel = tmp_path / "geheim.key"
+    appmod.schreibe_geheim(str(ziel), "abc")
+    assert ziel.read_text() == "abc"
+    assert oct(ziel.stat().st_mode & 0o777) == "0o600", "neu geschrieben muss 0600 sein"
+
+    # Und der Altbestand wird nachgezogen — ein Fix nur für Neuinstallationen repariert
+    # keine einzige laufende Anlage.
+    alt = tmp_path / "alt.json"
+    alt.write_text("{}")
+    alt.chmod(0o664)
+    zeilen = []
+    monkeypatch.setattr(appmod, "log", lambda m: zeilen.append(m))
+    appmod.geheim_absichern(str(alt))
+    assert oct(alt.stat().st_mode & 0o777) == "0o600"
+    assert any("0600" in z for z in zeilen), "die Korrektur gehört ins Protokoll"
+
+    # Was schon eng ist, wird nicht angefasst und nicht protokolliert.
+    zeilen.clear()
+    appmod.geheim_absichern(str(alt))
+    assert zeilen == []

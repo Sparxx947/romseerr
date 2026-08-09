@@ -270,12 +270,39 @@ mit Test) und melden neue Anfragen sowie Verfügbarkeit; Fallback über `DISCORD
 
 Alles unter `CONFIG_DIR` (Default `/config`):
 
-- **`romseerr.db` (SQLite):** Tabelle `library` (Dedup-Index), `meta`, `users`, `jobs`.
-  Der Bibliotheks-Index wird beim Start **aus der DB geladen** (~1 s) statt das Dateisystem
-  zu durchlaufen (~24 s); im Hintergrund frischt er auf. Bestehende `users.json`/`jobs.json`
-  werden beim ersten Start **verlustfrei migriert** (danach als `.migrated` gesichert).
-- **JSON-Dateien** (klein, menschenlesbar, bewusst nicht in der DB): `settings.json`,
-  `issues.json`, `maillog.json`, `push_subs.json`, sowie `secret.key` und `vapid.json`.
+- **`romseerr.db` (SQLite)** — der Normalfall. Tabellen: `library` (Dedup-Index), `meta`,
+  `users`, `jobs`, `kv` (Einstellungen, Probleme, Mail-Protokoll, Push-Abos, Favoriten,
+  Bewertungen, Wunschlisten, Abdeckung, Sitzung), `catalog` und `fh_items` (Kataloge),
+  `messages`, `ra_games`. Der Bibliotheks-Index wird beim Start **aus der DB geladen**
+  (~1 s) statt das Dateisystem zu durchlaufen (~24 s).
+  `users.json`, `jobs.json`, `settings.json`, `issues.json`, `maillog.json` und
+  `push_subs.json` werden beim ersten Start **verlustfrei migriert** und danach als
+  `.migrated` gesichert. Wo eine dieser Dateien nie existierte, gibt es auch keine
+  `.migrated` — „keine Datei" ist also **kein** Beleg für eine Migration, sondern meist
+  dafür, dass das Feature auf dieser Installation nie benutzt wurde.
+- **Dateien, die bewusst Dateien bleiben** — jeweils mit Grund, nicht aus Versehen:
+  `secret.key` (Sitzungssignatur) und `vapid.json` (privater Push-Schlüssel) gehören nicht
+  in dieselbe Datei wie die Daten, die sie schützen: eine DB-Sicherung, ein Export oder
+  eine Kopie zum Nachsehen nähme sie sonst mit. `tls/` (Zertifikat und Schlüssel) aus
+  demselben Grund, `logos/` weil Bilddateien nicht in eine Spalte gehören.
+  Alles Schlüsselmaterial entsteht über `schreibe_geheim()` mit **0600** und wird beim
+  Lesen nachgezogen, falls es aus einer älteren Fassung mit offeneren Rechten stammt —
+  gemessen lagen `secret.key` und `vapid.json` bei `0664`.
+
+**Eine leere Tabelle ist nicht automatisch ein Fehler**, aber auch kein Beweis für
+Absicht — von außen sieht ein ungenutztes Feature aus wie ein stehengebliebener Schreiber.
+Nachgemessen: `catalog` füllt sich ausschließlich über *Abdeckung → Katalog aktualisieren*
+(kein Timer), `ra_games` bleibt ohne RetroAchievements-Schlüssel leer, `messages` ist ein
+reines Nutzerfeature. Was tatsächlich läuft, schreibt auch: `fh_items` trug bei der Messung
+650 Einträge.
+
+*EN: SQLite is the default; six former JSON stores are migrated on first start, and a
+missing file usually means the feature was never used here rather than that it moved. Key
+material stays in files on purpose — a database backup or export would otherwise carry the
+keys that protect it — and is written with 0600, with older permissions corrected on read.
+An empty table is not proof of a fault, but not proof of intent either: `catalog` only
+fills on an explicit refresh, `ra_games` needs a key that is not set, `messages` is a user
+feature.*
 
 Die ROM-Bibliothek selbst liegt unter `ROMS` (Default `/roms/<plattform>/…`).
 
