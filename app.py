@@ -37,9 +37,22 @@ AUFBAU DIESER DATEI / HOW THIS FILE IS ORGANIZED  (Reihenfolge = Abschnitts-Head
 ================================================================================
 DATENHALTUNG / STORAGE  (alles unter CONFIG_DIR, Default /config)
 ================================================================================
-  romseerr.db  – SQLite: Tabelle `library` (Dedup-Index), `meta`, `users`, `jobs`.
-  settings.json, issues.json, maillog.json, push_subs.json, secret.key, vapid.json
-               – kleine, menschenlesbare JSON-/Key-Dateien (bewusst NICHT in der DB).
+  romseerr.db  – SQLite, der Normalfall: `library` (Dedup-Index), `meta`, `users`,
+                 `jobs`, `kv` (Einstellungen, Probleme, Mail-Protokoll, Push-Abos,
+                 Favoriten, Bewertungen, Wunschlisten), `catalog`, `fh_items`,
+                 `messages`, `ra_games`. settings/issues/maillog/push_subs.json werden
+                 beim ersten Start migriert (danach `.migrated`). Fehlt so eine Datei,
+                 heisst das meist: hier nie benutzt — kein Beleg fuer eine Migration.
+  secret.key, vapid.json, tls/, logos/
+               – bleiben BEWUSST Dateien. Schluesselmaterial gehoert nicht in dieselbe
+                 Datei wie die Daten, die es schuetzt: eine DB-Sicherung oder ein Export
+                 naehme es sonst mit. Geschrieben wird es mit 0600 (schreibe_geheim);
+                 aeltere Bestaende werden beim Lesen nachgezogen. Bilder gehoeren nicht
+                 in eine Spalte.
+
+                 EN: SQLite is the default. Six former JSON stores are migrated on first
+                 start; a missing file usually means the feature was never used here.
+                 Key material stays in files on purpose and is written with 0600.
   Die ROM-Bibliothek selbst liegt unter ROMS (Default /roms/<plattform>/…).
 
 ================================================================================
@@ -570,6 +583,42 @@ def db_init():
             if done: os.rename(path, path + ".migrated"); log(f"{os.path.basename(path)} -> SQLite migriert")
     except Exception as e:
         log(f"DB-Init-Fehler: {e}")
+
+def schreibe_geheim(pfad, inhalt):
+    """Schluesselmaterial mit 0600 schreiben, nicht mit der Standard-umask. (#192)
+
+    Beide Dateien hier — `secret.key` (Sitzungssignatur) und `vapid.json` (privater
+    Push-Schluessel) — entstanden bisher ueber ein schlichtes `open(..., "w")` und lagen
+    damit auf einer gemessenen Installation als **0664** im Konfigverzeichnis: lesbar fuer
+    Gruppe und alle anderen. Bei einem Verzeichnis, das per Bind-Mount aus einem Container
+    kommt, ist das keine theoretische Groesse.
+
+    Key material is written with an explicit 0600 rather than whatever the umask allows;
+    on a measured installation both files sat at 0664 in a bind-mounted config directory.
+    """
+    fd = os.open(pfad, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, inhalt.encode() if isinstance(inhalt, str) else inhalt)
+    finally:
+        os.close(fd)
+
+def geheim_absichern(pfad):
+    """Bestehendes Schluesselmaterial auf 0600 nachziehen. (#192)
+
+    Neue Dateien entstehen ueber `schreibe_geheim`; diese Funktion ist fuer die, die es
+    schon gibt — ein Fix, der nur bei Neuinstallationen wirkt, repariert keine einzige
+    laufende Anlage.
+
+    New files come from `schreibe_geheim`; this one exists for the files that are already
+    there, because a fix that only applies to fresh installs repairs nothing that runs.
+    """
+    try:
+        modus = os.stat(pfad).st_mode & 0o777
+        if modus & 0o077:
+            os.chmod(pfad, 0o600)
+            log(f"Rechte auf 0600 gesetzt (war {modus:o}): {os.path.basename(pfad)}")
+    except OSError:
+        pass
 
 def save_index_to_db(per, allset, slugs, ts):
     """RAM-Index atomar in SQLite spiegeln (library-Tabelle komplett ersetzen + meta-Zähler)."""
@@ -2769,7 +2818,9 @@ def ensure_vapid():
     if not PUSH_OK: return None
     if VAPID_CACHE: return VAPID_CACHE
     try:
-        d = json.load(open(VAPID_FILE)); VAPID_CACHE.update(d); return VAPID_CACHE
+        d = json.load(open(VAPID_FILE))
+        geheim_absichern(VAPID_FILE)      # Altbestand nachziehen (#192)
+        VAPID_CACHE.update(d); return VAPID_CACHE
     except Exception: pass
     try:
         v = Vapid(); v.generate_keys()
@@ -2778,7 +2829,7 @@ def ensure_vapid():
                                         serialization.PublicFormat.UncompressedPoint)
         pub_b64 = base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
         d = {"priv_pem": priv_pem, "pub_b64": pub_b64}
-        json.dump(d, open(VAPID_FILE, "w")); VAPID_CACHE.update(d)
+        schreibe_geheim(VAPID_FILE, json.dumps(d)); VAPID_CACHE.update(d)
         log("VAPID-Schlüssel erzeugt")
         return VAPID_CACHE
     except Exception as e:
@@ -2821,10 +2872,13 @@ def check_reset(tok):
     return d["user"] if d and d["exp"] > time.time() else None
 def app_secret():
     """Signaturschlüssel für die Flask-Session (secret.key). Beim ersten Mal erzeugt & gespeichert."""
-    try: return open(SECRET_FILE).read().strip()
+    try:
+        wert = open(SECRET_FILE).read().strip()
+        geheim_absichern(SECRET_FILE)
+        return wert
     except Exception:
         s = secrets.token_hex(32)
-        try: open(SECRET_FILE, "w").write(s)
+        try: schreibe_geheim(SECRET_FILE, s)
         except Exception: pass
         return s
 # Decorators zum Schutz von Routen. Alle akzeptieren auch den API-Key (g.api_auth, s. _guard).
@@ -4690,10 +4744,11 @@ def api_tls_set():
             return jsonify({"ok": False, "msg": "Zertifikat oder Schlüssel ungültig / "
                                                 "certificate or key invalid"}), 400
         os.makedirs(TLS_DIR, exist_ok=True)
-        with open(TLS_CERT, "w") as f: f.write(cert)
-        with open(TLS_KEY, "w") as f: f.write(key)
-        try: os.chmod(TLS_CERT, 0o600); os.chmod(TLS_KEY, 0o600)
-        except Exception: pass
+        # Ueber schreibe_geheim, nicht open()+chmod: dazwischen laege die Datei mit den
+        # Rechten der umask auf der Platte, und ein privater Schluessel soll gar nicht
+        # erst so entstehen. (#192)
+        schreibe_geheim(TLS_CERT, cert)
+        schreibe_geheim(TLS_KEY, key)
         log("TLS-Zertifikat aktualisiert (Neustart nötig zum Aktivieren)")
     s = load_settings(); s["tls"] = {"enabled": enabled, "port": port}; save_settings(s)
     return jsonify({"ok": True, "restart": True, **tls_info()})
