@@ -854,6 +854,17 @@ paths:
                   type: string
                 text:
                   type: string
+  /api/usenet/check:
+    get:
+      summary: Den Usenet-Weg stufenweise durchmessen, ohne etwas zu laden (Suche, SAB-Kategorie, Warteschlange,
+        Einsammelordner)
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
   /api/logos:
     get:
       summary: Welche Logos der Betreiber hinterlegt hat (Dateinamen ohne Endung). Im Repo liegt bewusst

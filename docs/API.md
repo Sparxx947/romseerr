@@ -62,6 +62,13 @@ ohne gültige Session/Key mit **401**.
 | Profil | `GET/POST /api/profile`, `/api/profile/password` |
 | Push | `GET /api/push/pubkey`, `POST /api/push/subscribe` |
 | Admin | `/api/users`, `/api/settings`, `/api/blocklist`, `/api/logs`, `/api/apikey`, `/api/export`, `/api/import` |
+| Diagnose | `GET /api/services/status`, `GET /api/config/warnings`, `GET /api/usenet/check` |
+
+`GET /api/usenet/check` misst den Usenet-Weg stufenweise durch (Suche, SAB-Kategorie,
+Warteschlange, Einsammelordner) und lädt dabei **nichts** herunter. Die letzte Stufe
+nennt Romseerrs und SABnzbds Sicht auf den Ordner mit den fertigen Downloads
+nebeneinander — laufen sie auseinander, läuft der Download durch und wird nie
+eingesammelt. Antwort: `{"ok": bool, "steps": [{"step", "ok", "info"}]}`.
 
 Details (Parameter, Bodies, Antworten) → `/api/docs`.
 
@@ -125,6 +132,14 @@ permission returns **403**; missing/invalid auth returns **401**.
 - JSON request bodies (`Content-Type: application/json`).
 - Success is usually `{"ok": true, …}`; errors are `{"error": "…"}` with an appropriate HTTP
   status. `/api/forgot` responds generically (does not reveal whether an account exists).
+
+### Diagnostics
+`GET /api/services/status`, `GET /api/config/warnings` and `GET /api/usenet/check` (all
+`manage_settings`). The last one measures the usenet path stage by stage — search, SAB
+category, queue, collect folder — and downloads **nothing**. Its final stage prints
+Romseerr's and SABnzbd's view of the completed-downloads folder side by side: if they
+diverge, downloads finish and are never picked up. Response:
+`{"ok": bool, "steps": [{"step", "ok", "info"}]}`.
 
 Full details (parameters, bodies, responses) live in the interactive docs at `/api/docs`.
 

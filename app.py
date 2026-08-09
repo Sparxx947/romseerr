@@ -4482,6 +4482,61 @@ def config_warnings():
 def api_config_warnings():
     return jsonify({"warnings": config_warnings()})
 
+@app.route("/api/usenet/check")
+@perm_required("manage_settings")
+def api_usenet_check():
+    """Den Usenet-Weg durchmessen, OHNE etwas herunterzuladen. (#196)
+
+    Der Bericht „Usenet geht nicht" konnte drei verschiedene Dinge bedeuten — leere Suche,
+    abgelehnter NZB, nicht eingesammelter Download —, und von aussen sahen alle drei gleich
+    aus. Das war der eigentliche Defekt: eine Kette ohne Messpunkte. Hier ist jede Stufe
+    einzeln beantwortet.
+
+    Der Ordner-Vergleich am Ende ist die Lehre aus #197: Romseerr und SABnzbd sehen
+    denselben Ordner unter verschiedenen Namen, und wenn die Sichten auseinanderlaufen,
+    laeuft der Download durch und wird trotzdem nie gefunden. Ein Automat kann die beiden
+    Namensraeume nicht vergleichen — beide Sichten nebeneinander kann ein Mensch."""
+    schritte = []
+    def schritt(name, ok, info): schritte.append({"step": name, "ok": bool(ok), "info": info})
+
+    # 1. Suche
+    try:
+        treffer = search_usenet("mario", cfg("prow_cats"), limit=10)
+        schritt("search", bool(treffer),
+                f"{len(treffer)} Treffer / results"
+                + ("" if treffer else f" — Kategorien: {cfg('prow_cats') or '—'}"))
+    except Exception as e:
+        schritt("search", False, err_kind(e))
+
+    # 2. SABnzbd: erreichbar, nicht pausiert, Kategorie vorhanden
+    kat = (cfg("sab_cat") or "").strip()
+    try:
+        j = requests.get(f"{cfg('sab_url')}/api", params={"mode": "get_cats", "output": "json",
+                         "apikey": cfg("sab_apikey")}, timeout=10).json()
+        kats = j.get("categories") or []
+        schritt("category", (not kat) or kat in kats,
+                f"{kat or '—'} in [{', '.join(map(str, kats)) or '—'}]")
+        q = requests.get(f"{cfg('sab_url')}/api", params={"mode": "queue", "output": "json",
+                         "apikey": cfg("sab_apikey")}, timeout=10).json().get("queue", {})
+        schritt("queue", not q.get("paused"),
+                "pausiert / paused" if q.get("paused") else f"{q.get('noofslots', 0)} in der Warteschlange")
+    except Exception as e:
+        schritt("category", False, err_kind(e)); schritt("queue", False, err_kind(e))
+
+    # 3. Einsammelordner — beide Sichten nebeneinander, damit ein Mensch sie vergleichen kann
+    sab_sicht = ""
+    try:
+        c = (requests.get(f"{cfg('sab_url')}/api", params={"mode": "get_config", "output": "json",
+             "apikey": cfg("sab_apikey")}, timeout=10).json().get("config") or {})
+        ziel = (c.get("misc") or {}).get("complete_dir", "")
+        unter = next((x.get("dir") for x in (c.get("categories") or []) if x.get("name") == kat), "")
+        sab_sicht = "/".join(p for p in [str(ziel).rstrip("/"), str(unter or "").strip("/")] if p)
+    except Exception as e:
+        sab_sicht = f"({err_kind(e)})"
+    schritt("collect", os.path.isdir(SAB_DONE),
+            f"Romseerr: {SAB_DONE} · SABnzbd: {sab_sicht or '—'}")
+    return jsonify({"steps": schritte, "ok": all(s["ok"] for s in schritte)})
+
 @app.route("/api/services/status")
 @admin_required
 def api_services_status():
@@ -4762,6 +4817,9 @@ OPENAPI = {
         "/api/titlemeta/comment": {"post": _op("Kommentar zu einem Titel schreiben", "User",
             body={"type": "object", "properties": {"title": {"type": "string"}, "text": {"type": "string"}}},
             responses={**_R_AUTH, "200": {"description": "OK"}})},
+        "/api/usenet/check": {"get": _op("Den Usenet-Weg stufenweise durchmessen, ohne etwas zu laden "
+                                        "(Suche, SAB-Kategorie, Warteschlange, Einsammelordner)", "Admin",
+            responses={**_R_PERM, "200": {"description": "OK"}})},
         "/api/logos": {"get": _op("Welche Logos der Betreiber hinterlegt hat (Dateinamen ohne Endung). "
                                   "Im Repo liegt bewusst keines — Konsolenlogos sind Marken.", "System", _PUB)},
         "/logo/{name}": {"get": _op("Ein hinterlegtes Logo ausliefern", "System", _PUB,
