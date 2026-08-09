@@ -1205,8 +1205,12 @@ applyI18n();loadAuth();loadPlatforms();loadDiscover();updateMsgBadge();
 // Adresse zuerst auswerten: sonst landet ein Neuladen immer auf Entdecken, egal was in
 // der Adresszeile steht. replaceState, damit vor der Startansicht kein leerer Eintrag
 // im Verlauf liegt. (#194)
-routeSetzen(routeParse(location.hash).view,routeParse(location.hash).detail,true);
-routeAnwenden();
+// ERST parsen, DANN normalisieren: routeSetzen schreibt die Adresse, und wer sie
+// vorher liest, liest seine eigene Ausgabe. Genau so ging beim Start die Unterseite
+// verloren — `#/settings/notif/telegram` landete auf `#/settings/general`. (#194/#202)
+{let r0=routeParse(location.hash);
+ routeSetzen(r0.view,r0.detail,true,r0.sec,r0.sub);
+ routeAnwenden();}
 if('serviceWorker'in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key=='Enter')search();});
 setInterval(()=>{if(cur=='j')loadJobs();},4000);
