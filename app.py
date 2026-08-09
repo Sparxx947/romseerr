@@ -1884,13 +1884,27 @@ def write_crawljob(jid, links, folder, name):
     (z. B. /output/romseerr/...); JD legt sie selbst an.
 
     Schlaegt das Schreiben fehl, MUSS die Ausnahme durch: frueher wurde nur geloggt und
-    der Job blieb fuer immer auf `downloading` stehen — der Ausfall war unsichtbar. (#83)"""
+    der Job blieb fuer immer auf `downloading` stehen — der Ausfall war unsichtbar. (#83)
+
+    FELDER: nur diese vier, und `autoStart`/`autoConfirm` genau so geschrieben. Beide sind
+    in JDownloader vom Typ **BooleanStatus** (`TRUE`/`FALSE`/`UNSET`), nicht boolean —
+    `"true"` laesst sich nicht darauf abbilden, und die Extension verwirft daraufhin den
+    **ganzen Auftrag**, ohne Fehler, ohne Eintrag, ohne Log. Am Bestand nachgemessen:
+    `"TRUE"` laedt herunter, `"true"` und JSON `true` verschwinden spurlos. (#219)
+
+    Ebenfalls nachgemessen und deshalb NICHT mehr dabei: `enabled` (in jeder Schreibweise)
+    und `overwritePackagizerEnabled` lassen den Auftrag genauso verschwinden. Das frueher
+    hier stehende `overwritePackagizerRules` gibt es ueberhaupt nicht — der Setter heisst
+    `setOverwritePackagizerEnabled`. Es war also immer wirkungslos.
+
+    Jedes zusaetzliche Feld gehoert vorher am laufenden JDownloader geprueft: ein
+    unpassender Wert kostet hier nicht das Feld, sondern den Auftrag."""
     st = jd_check(anlegen=True)
     if not st["ok"]:
         raise RuntimeError(f"JDownloader-Uebergabe nicht moeglich / handover not possible: {st['info']}")
     data = [{"text":"\n".join(links) if isinstance(links,list) else links,
-             "downloadFolder":folder,"packageName":name,"enabled":"true","autoStart":"true",
-             "autoConfirm":"true","overwritePackagizerRules":"true"}]
+             "downloadFolder":folder,"packageName":name,
+             "autoStart":"TRUE","autoConfirm":"TRUE"}]
     path = os.path.join(jd_watch_dir(), f"romseerr_{jid}.crawljob")
     with open(path,"w") as f: json.dump(data,f)
     log(f"crawljob geschrieben: {path}")

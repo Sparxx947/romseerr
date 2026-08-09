@@ -94,6 +94,39 @@ JDownloader löscht sie nach dem Einlesen. Fehlt es, startet nie ein Download �
 sichtbar nur als Warnung, deshalb steht sie seit #197 auch in der Oberfläche
 (`/api/config/warnings`).
 
+Auf JDownloader-Seite muss die **FolderWatch-Erweiterung installiert und aktiviert**
+sein (*Einstellungen → Extension Modules*). Sie ist nicht Teil der Grundinstallation;
+ohne sie wird der Ordner nie gelesen, und Romseerr kann das nicht erkennen — geprüft
+wird nur die eigene Hälfte der Übergabe.
+
+#### Das Format der `.crawljob` — Werte, die den Auftrag kosten (#219)
+
+```json
+[{"text": "…", "downloadFolder": "/output/romseerr/…", "packageName": "…",
+  "autoStart": "TRUE", "autoConfirm": "TRUE"}]
+```
+
+`autoStart` und `autoConfirm` sind vom Typ **`BooleanStatus`** (`TRUE` / `FALSE` /
+`UNSET`), **nicht** boolean. Am laufenden JDownloader nachgemessen:
+
+| Geschrieben | Ergebnis |
+|---|---|
+| `"TRUE"` | Download läuft durch ✅ |
+| `"true"` | Auftrag **verschwindet spurlos** ❌ |
+| JSON `true` | Auftrag **verschwindet spurlos** ❌ |
+| zusätzlich `enabled` (jede Schreibweise) | Auftrag verschwindet ❌ |
+| zusätzlich `overwritePackagizerEnabled` | Auftrag verschwindet ❌ |
+
+„Verschwindet" heißt: Datei wird eingelesen und nach `folderwatch/added/` verschoben,
+der Link-Collector protokolliert `Added CrawlerJob … Origin:EXTENSION` — und danach gibt
+es weder Eintrag noch Download noch Fehlermeldung. **Ein unpassender Wert kostet nicht
+das Feld, sondern den ganzen Auftrag.** Deshalb schreibt Romseerr nur diese fünf
+Schlüssel; jedes weitere gehört vorher am laufenden JDownloader geprüft.
+
+*EN: `autoStart`/`autoConfirm` are `BooleanStatus` (`TRUE`/`FALSE`/`UNSET`), not boolean.
+A lowercase `"true"`, a JSON `true`, or the extra fields above make JDownloader discard
+the entire job silently. The FolderWatch extension must be installed and enabled.*
+
 *EN: three views of the same two directories. `JD_OUT` is derived from `JD_DL_BASE`
 unless set; the watch folder must be writable by both containers.*
 

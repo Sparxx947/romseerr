@@ -283,6 +283,12 @@ Zwei Wege, die sich ergänzen — **die Weboberfläche hat Vorrang, `.env` ist d
 | `JD_DL_BASE` | Basis-Zielordner für JDownloader (Filehoster), **aus Sicht des JD-Containers** |
 | `JD_WATCH` / `JD_OUT` | Romseerrs Sicht auf Übergabe- und Zielordner. `JD_OUT` leer = **aus `JD_DL_BASE` abgeleitet** |
 
+> **JDownloader braucht die FolderWatch-Erweiterung** (*Einstellungen → Extension Modules*).
+> Sie gehört nicht zur Grundinstallation; ohne sie wird der Übergabe-Ordner nie gelesen.
+> Zum Format der `.crawljob` siehe `docs/ARCHITECTURE.md` — `autoStart`/`autoConfirm` sind
+> `BooleanStatus` (`TRUE`), und ein falscher Wert lässt JDownloader den **ganzen Auftrag**
+> stillschweigend verwerfen.
+
 Vollständige Liste und Standardwerte: **`.env.example`**.
 
 ---
