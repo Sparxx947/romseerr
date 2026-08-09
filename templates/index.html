@@ -10,11 +10,6 @@
  <a class=nav id=nC data-i18n=nav_coverage onclick="show('cov')">📊 Abdeckung</a>
  <a class=nav id=nM onclick="show('msg')">✉ <span data-i18n=nav_messages>Nachrichten</span><span id=msgbadge></span></a>
  <a class=nav id=nSet data-i18n=nav_settings onclick="show('set')" style="display:none">⚙️ Einstellungen</a>
- <div class=grow></div>
- <div id=langsw><b data-l=de class=on onclick="setLang('de')">DE</b><b data-l=en onclick="setLang('en')">EN</b><b data-l=fr onclick="setLang('fr')">FR</b><b data-l=es onclick="setLang('es')">ES</b><b data-l=it onclick="setLang('it')">IT</b></div>
- <div class=ubox><div id=who onclick="openProfile()" style="cursor:pointer"></div>
-  <a class=nav data-i18n=profile onclick="openProfile()">👤 Profil</a>
-  <a class=nav data-i18n=logout onclick="logout()">🚪 Abmelden</a></div>
 </div>
 <main>
  <!-- Konfigurationswarnungen: nur für Verwalter, nur wenn etwas kaputt ist. Ein Weg,
@@ -24,6 +19,21 @@
   <input id=q data-i18n-ph=search_ph placeholder="Spiel suchen … (Enter)" autofocus>
   <button class=fbtn id=tF onclick="toggleFilter()">🎛 Plattformen: Alle</button>
   <button class=fbtn id=tRA onclick="toggleRA()" title="RetroAchievements">🏆</button>
+  <!-- Alles, was zur PERSON gehört, steht oben rechts — dort wird es gesucht. Vorher lag
+       es unten links und kostete drei Dauerzeilen für selten Benutztes. (#206) -->
+  <div class=kopfrechts>
+   <div class=aufklapp id=langbox>
+    <button class=fbtn id=langbtn onclick="toggleMenu('langmenu',event)" aria-haspopup=true aria-expanded=false></button>
+    <div class=menu id=langmenu></div>
+   </div>
+   <div class=aufklapp id=userbox>
+    <button class=fbtn id=userbtn onclick="toggleMenu('usermenu',event)" aria-haspopup=true aria-expanded=false></button>
+    <div class=menu id=usermenu>
+     <a class=mitem data-i18n=profile onclick="closeMenus();openProfile()">👤 Profil</a>
+     <a class=mitem data-i18n=logout onclick="closeMenus();logout()">🚪 Abmelden</a>
+    </div>
+   </div>
+  </div>
  </div>
  <div id=filter></div>
  <div id=discview><div id=grid></div><div class=hint id=hint data-i18n=hint_type>Tippe einen Titel und drücke Enter.</div></div>

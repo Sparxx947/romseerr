@@ -3228,3 +3228,48 @@ def test_the_notification_page_only_sends_what_it_shows():
     for feld in ("agtgen", "agwhen", "aggoen", "agnten", "agpoen", "agem"):
         assert f"if(w('{feld}'))" in fn, f"{feld} wird ungeprüft gelesen"
     assert "if(!Object.keys(a).length)return true" in fn, "eine leere Sendung muss unterbleiben"
+
+
+def test_language_entries_carry_a_name_not_just_a_flag():
+    """Eine Flagge ist ein Land, keine Sprache — Englisch unter 🇬🇧 liest sich für
+    Amerikaner falsch, Spanisch unter 🇪🇸 für Lateinamerika. Im Aufklappmenü ist Platz
+    für beides, also steht dort Flagge **und** Eigenname. (#206)"""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node nicht verfügbar")
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    i = js.index("const SPRACHEN=")
+    prog = js[i:js.index("\n", js.index("]];", i))] + "\nconsole.log(JSON.stringify(SPRACHEN));"
+    r = subprocess.run([node, "-e", prog], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr.strip()
+    sprachen = json.loads(r.stdout)
+    codes = [x[0] for x in sprachen]
+    assert codes == ["de", "en", "fr", "es", "it"], "die Liste muss den fünf Sprachen der App folgen"
+    for code, flagge, name in sprachen:
+        assert flagge and not flagge.isascii(), f"{code}: keine Flagge"
+        assert name and name.isprintable() and len(name) > 2, f"{code}: kein Sprachname neben der Flagge"
+    assert len({x[2] for x in sprachen}) == 5, "die Namen müssen sich unterscheiden"
+
+
+def test_the_header_menus_close_the_ways_people_expect():
+    """Ein Menü, das nur der erneute Klick auf denselben Knopf schließt, ärgert täglich.
+    Klick daneben und Escape gehören dazu — beides ist im Issue ausdrücklich verlangt. (#206)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    assert "closest('.aufklapp')" in js, "Klick außerhalb schließt nicht"
+    assert "e.key==='Escape'" in js, "Escape schließt nicht"
+    auf = js[js.index("function toggleMenu("):]
+    auf = auf[:auf.index("\nfunction ", 1)]
+    assert "closeMenus()" in auf, "ein zweites Menü bliebe sonst offen"
+    assert "aria-expanded" in js, "der Knopf sagt nicht, ob er offen ist"
+
+
+def test_the_sidebar_no_longer_carries_the_person():
+    """Die drei Dauerzeilen unten links (Sprache, Profil, Abmelden) sind frei — sonst
+    wäre die Kopfleiste nur eine zweite Stelle für dasselbe. (#206)"""
+    html = open(os.path.join(REPO, "templates/index.html"), encoding="utf-8").read()
+    seite = html[html.index("<div id=side>"):html.index("<main>")]
+    for weg in ("langsw", "ubox", "logout()", "openProfile()"):
+        assert weg not in seite, f"{weg} steht weiterhin in der Seitenleiste"
+    kopf = html[html.index("<div id=topbar>"):html.index("</main>")]
+    assert "usermenu" in kopf and "langmenu" in kopf, "die Kopfleiste trägt die Menüs nicht"
+    assert "logout()" in kopf and "openProfile()" in kopf
