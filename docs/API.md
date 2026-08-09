@@ -68,7 +68,9 @@ ohne gültige Session/Key mit **401**.
 Warteschlange, Einsammelordner) und lädt dabei **nichts** herunter. Die letzte Stufe
 nennt Romseerrs und SABnzbds Sicht auf den Ordner mit den fertigen Downloads
 nebeneinander — laufen sie auseinander, läuft der Download durch und wird nie
-eingesammelt. Antwort: `{"ok": bool, "steps": [{"step", "ok", "info"}]}`.
+eingesammelt. Eine weitere Stufe je Indexer (`step: "indexer:<Name>"`) holt **eine**
+Datei ab und meldet, ob wirklich eine NZB kommt; das zählt beim Indexer als Abruf gegen
+sein Stundenlimit. Antwort: `{"ok": bool, "steps": [{"step", "ok", "info"}]}`.
 
 Details (Parameter, Bodies, Antworten) → `/api/docs`.
 
@@ -138,7 +140,9 @@ permission returns **403**; missing/invalid auth returns **401**.
 `manage_settings`). The last one measures the usenet path stage by stage — search, SAB
 category, queue, collect folder — and downloads **nothing**. Its final stage prints
 Romseerr's and SABnzbd's view of the completed-downloads folder side by side: if they
-diverge, downloads finish and are never picked up. Response:
+diverge, downloads finish and are never picked up. One further stage per indexer
+(`step: "indexer:<name>"`) fetches **one** file and reports whether an actual NZB comes
+back — this counts as a grab against that indexer's hourly limit. Response:
 `{"ok": bool, "steps": [{"step", "ok", "info"}]}`.
 
 Full details (parameters, bodies, responses) live in the interactive docs at `/api/docs`.

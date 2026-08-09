@@ -283,7 +283,9 @@ Der Container läuft **non-root** und bringt einen **Healthcheck** auf `/health`
 4. **Usenet-Weg prüfen** — *Einstellungen → Verbindungen → SABnzbd* misst Suche, Kategorie,
    Warteschlange und Einsammelordner einzeln durch, ohne etwas herunterzuladen. Die letzte
    Zeile zeigt Romseerrs und SABnzbds Sicht auf denselben Ordner: laufen sie auseinander,
-   läuft der Download durch und wird nie eingesammelt.
+   läuft der Download durch und wird nie eingesammelt. Eine Stufe je Indexer holt zudem
+   **eine** Datei ab und meldet, ob wirklich eine NZB kommt — ein Indexer kann reichlich
+   Treffer liefern und auf jede Download-Adresse mit einer HTML-Seite antworten.
 
 ---
 

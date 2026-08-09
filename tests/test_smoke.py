@@ -3685,3 +3685,99 @@ def test_usenet_check_needs_permission(appmod, client):
         sess["user"] = "g"; sess["role"] = "user"
     assert client.get("/api/usenet/check").status_code == 403
     appmod.save_users({})
+
+
+def test_sab_failed_reads_history(appmod, monkeypatch):
+    """Ein von SABnzbd verworfener Download wird als Fehlschlag erkannt. (#235)
+
+    Vorher fiel genau dieser Fall zwischen zwei Fragen hindurch: der Eintrag ist nicht
+    mehr in der Warteschlange, ein Ordner ist nie entstanden — und der Auftrag blieb
+    unbegrenzt auf `downloading`. Die History ist die einzige Stelle, die den Fehlschlag
+    kennt.
+    """
+    appmod.save_settings({"connections": {"sab_url": "http://sab", "sab_apikey": "k"}})
+
+    slots = [
+        {"name": "romseerr_111__Foo", "status": "Failed",
+         "fail_message": "Abrufen der URL fehlgeschlagen"},
+        {"name": "romseerr_222__Bar", "status": "Completed", "fail_message": ""},
+        {"name": "fremder_333__Baz", "status": "Failed", "fail_message": "nicht unserer"},
+    ]
+
+    class R:
+        def json(self): return {"history": {"slots": slots}}
+    monkeypatch.setattr(appmod.requests, "get", lambda *a, **k: R())
+
+    assert appmod.sab_failed("111") == "Abrufen der URL fehlgeschlagen"
+    assert appmod.sab_failed("222") is None, "ein erfolgreicher Download ist kein Fehler"
+    assert appmod.sab_failed("333") is None, "fremde Einträge gehören nicht uns"
+    assert appmod.sab_failed("999") is None, "unbekannte ID darf nichts melden"
+
+    # Fehlschlag ohne Begründung muss trotzdem eine Begründung liefern — sonst steht in
+    # der Oberfläche ein leerer Fehler, und das ist so unbrauchbar wie „downloading".
+    slots[0]["fail_message"] = ""
+    assert appmod.sab_failed("111")
+    appmod.save_settings({})
+
+
+def test_collect_moves_failed_job_to_error(appmod, monkeypatch):
+    """Der Fehlschlag landet auch wirklich am Auftrag — nicht nur im Log. (#235)"""
+    appmod.JOBS[:] = [{"id": "111", "title": "Foo", "source": "usenet",
+                       "state": "downloading", "ref": "http://x"}]
+    monkeypatch.setattr(appmod, "find_output", lambda *a, **k: None)   # nie ein Ordner
+    monkeypatch.setattr(appmod, "sab_queue", lambda: {})               # nicht in der Queue
+    monkeypatch.setattr(appmod, "sab_failed", lambda jid: "kaputt")
+    monkeypatch.setattr(appmod, "save_jobs", lambda: None)
+
+    # Eine Runde der Dauerschleife: der Schlaf am Ende bricht sie ab.
+    class Fertig(Exception): pass
+    def schlaf(_): raise Fertig()
+    monkeypatch.setattr(appmod.time, "sleep", schlaf)
+    try:
+        appmod.worker_collect()
+    except Fertig:
+        pass
+
+    j = appmod.JOBS[0]
+    assert j["state"] == "error", "gescheiterter Download muss als Fehler enden"
+    assert j.get("msg") == "kaputt", "der Grund von SABnzbd muss am Auftrag stehen"
+    appmod.JOBS[:] = []
+
+
+def test_usenet_check_flags_indexer_serving_html(appmod, client, monkeypatch):
+    """Ein Indexer, der Treffer liefert aber keine NZB-Dateien, muss auffallen. (#236)
+
+    Das ist der Fall, den die vier bisherigen Stufen nicht sehen konnten: Suche grün,
+    Kategorie grün, Warteschlange grün, Ordner grün — und trotzdem scheitert jeder
+    Download, weil die Download-Adresse eine Webseite zurückgibt statt einer Datei.
+    """
+    appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "j"; sess["role"] = "admin"
+
+    monkeypatch.setattr(appmod, "search_usenet", lambda *a, **k: [
+        {"indexer": "Gut", "downloadUrl": "http://i/gut"},
+        {"indexer": "Html", "downloadUrl": "http://i/html"},
+        {"indexer": "Html", "downloadUrl": "http://i/html2"},
+    ])
+
+    class R:
+        def __init__(self, ct, body): self.headers = {"content-type": ct}; self._b = body
+        def iter_content(self, n): yield self._b
+        def close(self): pass
+        def json(self): return {}
+    def fake_get(url, *a, **k):
+        if url.endswith("/gut"): return R("application/x-nzb", b"<nzb><file/></nzb>")
+        if "/html" in url: return R("text/html; charset=UTF-8", b"<!doctype html><html>")
+        raise RuntimeError("kein SAB im Test")
+    monkeypatch.setattr(appmod.requests, "get", fake_get)
+
+    d = client.get("/api/usenet/check").get_json()
+    st = {s["step"]: s for s in d["steps"]}
+    assert st["indexer:Gut"]["ok"] is True, "eine echte NZB muss durchgehen"
+    assert st["indexer:Html"]["ok"] is False, "eine HTML-Seite ist keine NZB"
+    # Das Gewicht gehört dazu: ein Indexer, der fast alle Treffer stellt und nichts
+    # ausliefert, ist ein anderer Befund als ein unwichtiger, der klemmt.
+    assert "2/3" in st["indexer:Html"]["info"]
+    assert d["ok"] is False
+    appmod.save_users({})

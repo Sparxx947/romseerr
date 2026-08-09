@@ -1876,6 +1876,32 @@ def sab_cleanup(jid):
     except Exception as e:
         log(f"SAB-Cleanup {jid}: {e}")
 
+def sab_failed(jid):
+    """Die Fehlermeldung aus SABnzbds History, wenn der Auftrag dort gescheitert ist. (#235)
+
+    Ein NZB, das SAB nicht laden konnte, verlaesst die Warteschlange **ohne** je einen
+    Ordner anzulegen. worker_collect kannte nur „Ordner da?" und „noch in der Queue?" —
+    zwischen diesen beiden Fragen fiel der Fehlschlag hindurch, und der Auftrag blieb fuer
+    immer auf `downloading`. Die History ist die einzige Stelle, an der SAB den Fehlschlag
+    festhaelt; gelesen wurde sie bisher nur nach einem ERFOLGREICHEN Import.
+
+    Gibt den Grund zurueck (immer eine nicht-leere Zeichenkette, wenn gescheitert), sonst
+    None. Der History-Eintrag bleibt liegen: er ist der Beleg fuer den Betreiber, und der
+    Auftrag steht danach nicht mehr auf `downloading`, kann also nicht doppelt anschlagen.
+    """
+    if not (cfg("sab_url") and cfg("sab_apikey")): return None
+    pref = f"romseerr_{jid}"
+    try:
+        j = requests.get(f"{cfg('sab_url')}/api", params={"mode":"history","output":"json",
+            "apikey":cfg("sab_apikey"),"limit":200}, timeout=10).json()
+        for s in (j.get("history",{}) or {}).get("slots",[]) or []:
+            nm = (s.get("name","") or "") + " " + (s.get("nzb_name","") or "")
+            if pref in nm and str(s.get("status","")).lower() == "failed":
+                return (s.get("fail_message") or "").strip() or "SABnzbd: fehlgeschlagen / failed"
+    except Exception as e:
+        log(f"SAB-History {jid}: {e}")
+    return None
+
 def sab_queue():
     """SAB-Warteschlange -> {Dateiname: Prozent}. Best effort (für die Fortschrittsanzeige)."""
     out = {}
@@ -2480,7 +2506,16 @@ def worker_collect():
                     if not cand:  # noch in der SAB-Queue -> Fortschritt anzeigen
                         if sabq is None: sabq = sab_queue()
                         pct = next((v for k, v in sabq.items() if pref in k), None)
-                        if pct not in (None, ""): set_state(jid, msg=f"{pct}%")
+                        if pct not in (None, ""):
+                            set_state(jid, msg=f"{pct}%")
+                        else:
+                            # Weder auf der Platte noch in der Warteschlange: entweder gerade
+                            # dazwischen, oder gescheitert. Nur die History weiss es. (#235)
+                            grund = sab_failed(jid)
+                            if grund:
+                                log(f"Job {jid}: SAB gescheitert — {grund}")
+                                set_state(jid, state="error", msg=grund)
+                                continue
                 else:
                     p = find_output(jd_out_dir(), jid)
                     if p and any(os.scandir(p)): cand = p
@@ -4500,6 +4535,7 @@ def api_usenet_check():
     def schritt(name, ok, info): schritte.append({"step": name, "ok": bool(ok), "info": info})
 
     # 1. Suche
+    treffer = []
     try:
         treffer = search_usenet("mario", cfg("prow_cats"), limit=10)
         schritt("search", bool(treffer),
@@ -4535,6 +4571,39 @@ def api_usenet_check():
         sab_sicht = f"({err_kind(e)})"
     schritt("collect", os.path.isdir(SAB_DONE),
             f"Romseerr: {SAB_DONE} · SABnzbd: {sab_sicht or '—'}")
+
+    # 4. Liefert jeder Indexer ueberhaupt NZB-Dateien aus? (#236)
+    #
+    # Die vier Stufen oben koennen komplett gruen sein, waehrend jeder Download scheitert:
+    # ein Indexer, der Treffer liefert, aber auf die Download-Adresse mit seiner eigenen
+    # HTML-Seite antwortet, ist von hier aus sonst unsichtbar. Genau das war der Fall —
+    # ein Indexer stellte 94 % der Treffer und keine einzige NZB. Unterschieden wird das
+    # an einem einzigen Header.
+    #
+    # Ein Abruf zaehlt bei den meisten Indexern als „grab" gegen ein Stundenlimit, deshalb
+    # hoechstens einer je Indexer und nur auf ausdruecklichen Aufruf — nie im Hintergrund.
+    if treffer:
+        proben = {}
+        for t in treffer:
+            proben.setdefault(t.get("indexer") or "?", []).append(t)
+        for name, ts in proben.items():
+            url = (ts[0].get("downloadUrl") or "").strip()
+            anteil = f"{len(ts)}/{len(treffer)} Treffer"
+            if not url:
+                schritt(f"indexer:{name}", False, f"{anteil} · keine Download-Adresse")
+                continue
+            try:
+                r = requests.get(url, timeout=45, stream=True)
+                kopf = next(r.iter_content(400), b"") or b""
+                r.close()
+                ct = (r.headers.get("content-type") or "").lower()
+                ist_nzb = "nzb" in ct or b"<nzb" in kopf
+                schritt(f"indexer:{name}", ist_nzb,
+                        f"{anteil} · liefert {ct.split(';')[0] or '—'}"
+                        + ("" if ist_nzb else "  ← keine NZB-Datei / not an NZB"))
+            except Exception as e:
+                schritt(f"indexer:{name}", False, f"{anteil} · {err_kind(e)}")
+
     return jsonify({"steps": schritte, "ok": all(s["ok"] for s in schritte)})
 
 @app.route("/api/services/status")
