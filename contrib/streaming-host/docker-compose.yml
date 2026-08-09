@@ -119,6 +119,13 @@ services:
       # Update des Repos weiter die alte Fassung — und zwar lautlos.
       # Mounted, not copied: otherwise an outdated copy keeps running silently.
       - ./stream-agent.py:/opt/stream-agent.py:ro
+      # Bruecke Selkies-Sockets -> echte Kernel-Geraete (#119). Wie der Start-Dienst als
+      # Datei eingehaengt: sonst liegt sie nur im Container-Dateisystem und ist beim
+      # naechsten Neuerstellen weg. Noch KEIN Dienst — sie wird von Hand gestartet, bis
+      # Selkies' eigene Interposer-Geraete abgeschaltet sind.
+      # EN: mounted like the launch service so it does not live only inside the container.
+      # Not a service yet; started by hand until Selkies' own fake devices are disabled.
+      - ./selkies-uinput-bridge.py:/opt/selkies-uinput-bridge.py:ro
       # Startprofil je Emulator: Controller-Belegung und regionsrichtiges BIOS (#119).
       # Eingehaengt, damit das, was laeuft, immer das ist, was im Repo steht.
       - ./launch-profile.py:/opt/launch-profile.py:ro
