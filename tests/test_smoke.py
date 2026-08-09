@@ -4591,3 +4591,32 @@ def test_key_material_is_not_world_readable(appmod, tmp_path, monkeypatch):
     zeilen.clear()
     appmod.geheim_absichern(str(alt))
     assert zeilen == []
+
+
+def test_unused_key_is_tightened_at_startup(appmod, tmp_path, monkeypatch):
+    """Auch ein Schlüssel, den niemand liest, wird eng gemacht. (#256)
+
+    Der Fix aus #192 zog die Rechte beim **Lesen** nach. `vapid.json` wird aber nur
+    angefasst, wenn Web-Push benutzt wird — auf der gemessenen Anlage nie. Also behielt
+    ausgerechnet der Schlüssel die offenen Rechte, den niemand anfasst.
+
+    Der Test liest die Datei bewusst NICHT: täte er es, liefe er auch gegen die alte
+    Fassung durch und bewiese nichts.
+    """
+    vapid = tmp_path / "vapid.json"; vapid.write_text('{"priv_pem": "x"}'); vapid.chmod(0o664)
+    secret = tmp_path / "secret.key"; secret.write_text("abc"); secret.chmod(0o644)
+    fehlt = tmp_path / "gibtsnicht.pem"
+
+    monkeypatch.setattr(appmod, "VAPID_FILE", str(vapid))
+    monkeypatch.setattr(appmod, "SECRET_FILE", str(secret))
+    monkeypatch.setattr(appmod, "TLS_CERT", str(fehlt))
+    monkeypatch.setattr(appmod, "TLS_KEY", str(fehlt))
+    monkeypatch.setattr(appmod, "log", lambda m: None)
+
+    appmod.geheimnisse_absichern()
+
+    assert oct(vapid.stat().st_mode & 0o777) == "0o600", "ungelesener Schlüssel blieb offen"
+    assert oct(secret.stat().st_mode & 0o777) == "0o600"
+    assert vapid.read_text() == '{"priv_pem": "x"}', "der Inhalt darf sich nicht ändern"
+    # Eine fehlende Datei ist kein Fehler — TLS ist optional.
+    appmod.geheimnisse_absichern()

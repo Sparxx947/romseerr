@@ -285,9 +285,11 @@ Alles unter `CONFIG_DIR` (Default `/config`):
   in dieselbe Datei wie die Daten, die sie schützen: eine DB-Sicherung, ein Export oder
   eine Kopie zum Nachsehen nähme sie sonst mit. `tls/` (Zertifikat und Schlüssel) aus
   demselben Grund, `logos/` weil Bilddateien nicht in eine Spalte gehören.
-  Alles Schlüsselmaterial entsteht über `schreibe_geheim()` mit **0600** und wird beim
-  Lesen nachgezogen, falls es aus einer älteren Fassung mit offeneren Rechten stammt —
-  gemessen lagen `secret.key` und `vapid.json` bei `0664`.
+  Alles Schlüsselmaterial entsteht über `schreibe_geheim()` mit **0600**; ältere Bestände
+  zieht `geheimnisse_absichern()` **beim Start** nach — gemessen lagen `secret.key` und
+  `vapid.json` bei `0664`. Beim Start und nicht erst beim Lesen, weil `vapid.json` nur
+  angefasst wird, wenn Web-Push tatsächlich benutzt wird: sonst behielte ausgerechnet der
+  Schlüssel die offenen Rechte, den niemand anfasst. (#256)
 
 **Eine leere Tabelle ist nicht automatisch ein Fehler**, aber auch kein Beweis für
 Absicht — von außen sieht ein ungenutztes Feature aus wie ein stehengebliebener Schreiber.

@@ -620,6 +620,21 @@ def geheim_absichern(pfad):
     except OSError:
         pass
 
+def geheimnisse_absichern():
+    """Alles bekannte Schluesselmaterial beim Start auf 0600 ziehen. (#256)
+
+    `geheim_absichern` beim Lesen reicht nicht: `vapid.json` wird nur angefasst, wenn
+    Web-Push tatsaechlich benutzt wird. Auf der gemessenen Anlage ist das nie der Fall —
+    also behielt ausgerechnet der Schluessel die offenen Rechte, den niemand anfasst. Das
+    ist genau verkehrt herum, ein ungenutztes Geheimnis ist kein sichereres Geheimnis.
+
+    EN: tightening on read is not enough — a key nobody reads keeps its loose permissions,
+    which is exactly backwards. This runs at startup regardless of use.
+    """
+    for pfad in (SECRET_FILE, VAPID_FILE, TLS_CERT, TLS_KEY):
+        if os.path.exists(pfad):
+            geheim_absichern(pfad)
+
 def save_index_to_db(per, allset, slugs, ts):
     """RAM-Index atomar in SQLite spiegeln (library-Tabelle komplett ersetzen + meta-Zähler)."""
     rows = [(slug, n) for slug, s in per.items() for n in s]
@@ -5642,6 +5657,7 @@ def check_config():
 
 if __name__ == "__main__":
     os.makedirs(STAGING, exist_ok=True)
+    geheimnisse_absichern()      # vor allem anderen: Rechte am Schluesselmaterial (#256)
     db_init(); load_jobs()
     if load_index_from_db():
         log(f"Bibliotheks-Index aus DB geladen: {len(LIB['slugs'])} Plattformen, {len(LIB['all'])} Titel")
