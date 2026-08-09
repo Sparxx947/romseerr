@@ -93,6 +93,21 @@ services:
       AZAHAR_URL: ${AZAHAR_URL:-}
       VITA3K_URL: ${VITA3K_URL:-}
       VGL_VERSION: ${VGL_VERSION:-3.1.4}
+
+      # --- DRI3 fuer den X-Server -------------------------------------------------
+      # Der X-Dienst des Abbilds KANN DRI3, sucht dafuer aber fest nach
+      # /dev/dri/renderD128. Haengt die Karte woanders (hier: renderD129), greift die
+      # Erkennung nie: Xvfb laeuft ohne GPU-Knoten, DRI3 fehlt, und Vulkan kann gar
+      # nicht praesentieren ("No DRI3 support detected - required for presentation").
+      # Genau deshalb war VirtualGL ueberhaupt noetig.
+      #
+      # Nachgemessen (#169): mit diesem Knoten meldet derselbe Xvfb DRI3, vulkaninfo
+      # eine praesentierfaehige Oberflaeche, und Dolphins Video-Thread faellt von
+      # "saettigt einen Kern" auf 14 % — ohne VirtualGL im Prozess.
+      #
+      # EN: the image's X service supports DRI3 but hard-codes renderD128; point it at
+      # the actual render node and Vulkan can present, dropping VirtualGL entirely.
+      DRINODE: ${DRI_RENDER_NODE}
       # Grenze fuer eine hochgeladene Firmware-Datei (Sonys PS3-Paket ist ~200 MB).
       FIRMWARE_MAX_BYTES: ${FIRMWARE_MAX_BYTES:-536870912}
     volumes:
@@ -126,6 +141,18 @@ services:
       # den Render-Knoten UND den Card-Knoten — VirtualGL will letzteren.
       # Give BOTH nodes of the same card: VirtualGL needs the card node.
       - ${DRI_RENDER_NODE:?DRI_RENDER_NODE fehlt}:${DRI_RENDER_NODE}
+      # Gamepads als ECHTE Kernel-Geraete (#119). Selkies reicht sie sonst ueber einen
+      # LD_PRELOAD-Interposer weiter — und auf die Emulatoren hier wirkt LD_PRELOAD
+      # NICHT, weil ihre AppImage-Runtime statisch gelinkt ist (`AppRun` ist static-pie;
+      # gemessen: im laufenden Emulator ist kein Interposer geladen und er sieht null
+      # Eingabegeraete). Ueber uinput entstehen Geraete, die jeder Prozess sieht.
+      #
+      # Das Modul muss auf dem HOST geladen sein, sonst existiert /dev/uinput zwar,
+      # /proc/misc kennt es aber nicht und open() scheitert.
+      #
+      # EN: real kernel devices for gamepads; LD_PRELOAD cannot reach a statically
+      # linked AppImage runtime. Requires the uinput module loaded on the host.
+      - /dev/uinput:/dev/uinput
       - ${DRI_CARD_NODE:?DRI_CARD_NODE fehlt}:${DRI_CARD_NODE}
     shm_size: ${SHM_SIZE:-2g}
     ports:
