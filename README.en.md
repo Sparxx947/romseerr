@@ -322,6 +322,17 @@ The symbol carries the meaning and the colour only reinforces it — on a dark c
 alone says nothing to a red-green colour blind reader. **Nothing is hidden:** knowing a
 title is already there is useful, it just should not have to be *read*.
 
+### Footer
+
+Pinned to the bottom of the window and centred: name, the **running version** (linking to
+its own release), **GitHub**, and the **short commit**. The commit is what tells a `dev`
+build apart from the release whose number it carries — both report the same version. If an
+image was built without the build arguments, a ⚠ appears as well.
+
+Every screenshot therefore carries its own version, without anyone having to ask. **When
+signed out** only the repository link is shown: a version number on a login page tells a
+stranger which vulnerabilities to look up.
+
 ### Header
 
 **Language** and **user** live in the top right: language as a dropdown (collapsed to the

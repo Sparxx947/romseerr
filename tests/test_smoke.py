@@ -3256,7 +3256,7 @@ def test_the_header_menus_close_the_ways_people_expect():
     Klick daneben und Escape gehören dazu — beides ist im Issue ausdrücklich verlangt. (#206)"""
     js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
     assert "closest('.aufklapp')" in js, "Klick außerhalb schließt nicht"
-    assert "e.key==='Escape'" in js, "Escape schließt nicht"
+    assert "'Escape'" in js, "Escape schließt nicht"
     auf = js[js.index("function toggleMenu("):]
     auf = auf[:auf.index("\nfunction ", 1)]
     assert "closeMenus()" in auf, "ein zweites Menü bliebe sonst offen"
@@ -3328,3 +3328,57 @@ def test_the_card_names_the_platform_instead_of_printing_the_slug():
     karte = karte[:karte.index("\nlet RAONLY", 1)]
     assert "SLUGNAME[it.platform_slug]||it.platform_slug||'?'" in karte, \
         "der Slug wird weiterhin ungefiltert gedruckt"
+
+
+def test_the_footer_shows_the_version_only_to_signed_in_visitors():
+    """Eine Versionsnummer auf der Anmeldeseite sagt einem Fremden, welche Lücken er
+    nachschlagen kann — und einem Ausgeloggten nützt sie nichts. Deshalb: Repo-Link für
+    alle, Version erst nach der Anmeldung. Das war die offene Frage im Issue. (#208)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    fn = js[js.index("async function zeichneFuss(){"):]
+    fn = fn[:fn.index("\n\n", 1)]
+    assert "if(window.ROLE)" in fn, "die Version hängt nicht an der Anmeldung"
+    vor, nach = fn.split("if(window.ROLE)", 1)
+    assert "REPO_URL" in vor, "der Repo-Link muss auch ohne Anmeldung stehen"
+    assert "/api/version" in nach and "ver.commit" in nach, \
+        "Version und Commit gehören hinter die Anmeldung"
+    assert "provenance" in nach, "die Provenance-Warnung fehlt"
+    assert "releases/tag/v" in nach, "die Version verlinkt nicht auf ihren eigenen Release"
+    html = open(os.path.join(REPO, "templates/index.html"), encoding="utf-8").read()
+    assert "<footer id=fuss>" in html
+    css = open(os.path.join(REPO, "static/css/index.css"), encoding="utf-8").read()
+    fuss = css[css.index("#fuss{"):css.index("}", css.index("#fuss{"))]
+    # Auf Wunsch angeheftet und mittig. Wer eine Zeile dauerhaft belegt, muss dafür sorgen,
+    # dass nichts darunter verschwindet — deshalb der Ausgleich am Inhalt.
+    assert "position:fixed" in fuss and "bottom:0" in fuss, "die Fußzeile ist nicht angeheftet"
+    assert "justify-content:center" in fuss, "die Fußzeile steht nicht mittig"
+    assert "main{padding-bottom:" in css, "ohne Ausgleich verdeckt die Fußzeile den Inhalt"
+
+
+def test_escape_closes_the_menu_first_and_the_dialog_second():
+    """Ein Handler für Escape, nicht zwei, die um dieselbe Taste konkurrieren. Und mit
+    offenem Menü über dem Fenster schließt der erste Druck das Menü, der zweite das
+    Fenster — sonst verliert man mit einem Tastendruck beides. (#226)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    assert js.count("'Escape'") == 1, "es gibt mehr als einen Escape-Handler"
+    h = js[js.index("document.addEventListener('keydown'"):]
+    h = h[:h.index("\nfunction ", 1)]
+    assert h.index(".aufklapp.auf") < h.index("closeModal()"), \
+        "das Fenster würde vor dem Menü geschlossen"
+    assert "return;" in h.split(".aufklapp.auf")[1][:60], "beides schließt gleichzeitig"
+
+
+def test_closing_a_directly_opened_title_does_not_leave_the_application():
+    """Wer einen Titel-Link direkt öffnet, hat genau einen Verlaufseintrag — davor liegt
+    fremdes Gebiet. Ein blindes `history.back()` beim Schließen würde Romseerr verlassen.
+    Gezählt wird deshalb, wie viele Einträge die App selbst angelegt hat. (#226)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    assert "let EIGENE_SCHRITTE=0" in js
+    setzen = js[js.index("function routeSetzen("):]
+    setzen = setzen[:setzen.index("\nfunction ", 1)]
+    assert "EIGENE_SCHRITTE++" in setzen, "gepushte Einträge werden nicht gezählt"
+    assert "EIGENE_SCHRITTE=Math.max(0,EIGENE_SCHRITTE-1)" in js, "popstate zählt nicht zurück"
+    zu = js[js.index("function closeModal("):]
+    zu = zu[:zu.index("\n}", 1) + 2]
+    assert "EIGENE_SCHRITTE>0" in zu and "history.back()" in zu
+    assert "routeSetzen(cur,null,true)" in zu, "ohne eigenen Eintrag muss die Adresse ersetzt werden"

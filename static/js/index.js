@@ -95,7 +95,14 @@ function closeMenus(){document.querySelectorAll('.aufklapp.auf').forEach(b=>{
  b.classList.remove('auf');let x=b.querySelector('button');if(x)x.setAttribute('aria-expanded','false');});}
 // Ein Menue, das nur der erneute Klick auf denselben Knopf schliesst, aergert taeglich.
 document.addEventListener('click',e=>{if(!e.target.closest('.aufklapp'))closeMenus();});
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMenus();});
+// EIN Handler für Escape, nicht zwei, die um dieselbe Taste konkurrieren (#226).
+// Reihenfolge: erst das Menü, dann das Fenster darunter — sonst verliert man mit einem
+// Tastendruck beides und damit seinen Platz.
+document.addEventListener('keydown',e=>{
+ if(e.key!=='Escape')return;
+ if(document.querySelector('.aufklapp.auf')){closeMenus();return;}
+ let m=document.getElementById('modal');
+ if(m&&m.style.display==='block')closeModal();});
 function zeichneKopf(){
  let lb=document.getElementById('langbtn'),lm=document.getElementById('langmenu');
  if(lb&&lm){
@@ -147,12 +154,18 @@ function routeBauen(v,detail,sec,sub){
 // Setzt die Adresse, ohne die Ansicht erneut zu zeichnen. `ersetzen` für den ersten
 // Aufruf beim Start — sonst läge ein leerer Eintrag vor der Startseite im Verlauf.
 let ROUTE_STUMM=false;
+// Wie viele Verlaufseintraege haben WIR angelegt. Ohne das weiss `closeModal` nicht, ob
+// ein `history.back()` zur vorigen Ansicht fuehrt oder aus Romseerr hinaus: Wer einen
+// Titel-Link direkt oeffnet, hat genau einen Eintrag — davor liegt fremdes Gebiet. (#226)
+let EIGENE_SCHRITTE=0;
 function routeSetzen(v,detail,ersetzen,sec,sub){
  let neu=routeBauen(v,detail,sec,sub);
  if(location.hash===neu)return;
  ROUTE_STUMM=true;
- try{ersetzen?history.replaceState({v,detail},'',neu):history.pushState({v,detail},'',neu);}
- finally{setTimeout(()=>{ROUTE_STUMM=false;},0);}
+ try{
+  if(ersetzen)history.replaceState({v,detail},'',neu);
+  else{history.pushState({v,detail},'',neu);EIGENE_SCHRITTE++;}
+ }finally{setTimeout(()=>{ROUTE_STUMM=false;},0);}
 }
 function routeAnwenden(){
  let {view,detail,sec,sub}=routeParse(location.hash);
@@ -161,7 +174,7 @@ function routeAnwenden(){
  if(detail&&detail.ref)openDetail(detail,true);
  else closeModal(true);
 }
-window.addEventListener('popstate',()=>{if(!ROUTE_STUMM)routeAnwenden();});
+window.addEventListener('popstate',()=>{EIGENE_SCHRITTE=Math.max(0,EIGENE_SCHRITTE-1);if(!ROUTE_STUMM)routeAnwenden();});
 window.addEventListener('hashchange',()=>{if(!ROUTE_STUMM)routeAnwenden();});
 
 function show(v){zeige(v);routeSetzen(v,null,false,v==='set'?SETSEC:'',v==='set'?SETSUB:'');}
@@ -522,7 +535,12 @@ async function stopStream(){await fetch('/api/stream/stop',{method:'POST'});clos
 function closeModal(ausRoute){
  document.getElementById('modal').style.display='none';
  if(ausRoute)return;
- if(routeParse(location.hash).detail)history.back();
+ if(!routeParse(location.hash).detail)return;
+ // Zurueck nur, wenn wir den Eintrag selbst angelegt haben. Wurde der Titel direkt ueber
+ // seine Adresse geoeffnet, gibt es nichts Eigenes davor — dann die Adresse ERSETZEN,
+ // sonst schliesst das Fenster die Anwendung. (#226)
+ if(EIGENE_SCHRITTE>0)history.back();
+ else routeSetzen(cur,null,true);
 }
 // --- Wunschlisten-Import: Vorschau ZUERST, geschrieben wird erst nach Bestaetigung (#80) ---
 const WLST={matched:['#3fb950','wl_s_matched'],ambiguous:['#d29922','wl_s_ambiguous'],
@@ -674,7 +692,31 @@ async function loadAuth(){let d=await(await fetch('/api/auth/status')).json();
  zeichneKopf();
  if(d.role=='admin'){document.getElementById('nSet').style.display='';
    try{let cs=await(await fetch('/api/settings')).json();if(!cs.onboarded)startWizard();}catch(e){}}
- cfgWarn();}
+ cfgWarn();zeichneFuss();}
+// --- Fußzeile (#208) ---
+// Die Version lag nur unter Einstellungen → Über: zwei Klicks tief und nur für Verwalter.
+// Damit war die Frage aus #129 — „läuft hier das, was im Repo steht?" — zwar beantwortbar,
+// aber nur auf Nachfrage. Hier steht sie, wo jeder Bildschirmauszug sie mitnimmt.
+//
+// ENTSCHIEDEN (die offene Frage im Issue): Der Repo-Link steht für alle, die **Version
+// nur für Angemeldete**. Eine Versionsnummer auf der Anmeldeseite sagt einem Fremden,
+// welche Lücken er nachschlagen kann — und der Preis dafür wäre kein Gewinn, weil ein
+// Ausgeloggter mit der Nummer ohnehin nichts anfangen kann.
+const REPO_URL='https://github.com/Sparxx947/romseerr';
+async function zeichneFuss(){
+ let f=document.getElementById('fuss');if(!f)return;
+ let teile=[`<span>🎮 Romseerr</span>`,`<a href="${REPO_URL}" target=_blank rel="noopener noreferrer">GitHub</a>`];
+ if(window.ROLE){
+  let ver={};try{ver=await(await fetch('/api/version')).json();}catch(e){}
+  let v=ver.version||window.VERSION||'';
+  if(v)teile.splice(1,0,`<a href="${REPO_URL}/releases/tag/v${encodeURIComponent(v)}" target=_blank rel="noopener noreferrer">${v}</a>`);
+  // Der Commit ist der Teil, der einen dev-Bau von dem Release unterscheidet, dessen
+  // Versionsnummer er trägt — beide melden dieselbe Nummer. (#129)
+  if(ver.commit)teile.push(`<span title="${(ver.built_at||'').replace(/"/g,'')}">${ver.commit.slice(0,7)}</span>`);
+  if(ver.provenance&&ver.provenance!=='build')teile.push(`<span class=warn title="${t('about_no_build')}">⚠</span>`);
+ }
+ f.innerHTML=teile.join('<span style="opacity:.4">·</span>');}
+
 // --- Konfigurationswarnungen (#197) ---
 // Nur für Verwalter, weil nur die es beheben können, und nur wenn etwas kaputt ist.
 // Der Meldungstext kommt SERVERSEITIG zweisprachig (DE/EN) — er nennt konkrete Pfade,

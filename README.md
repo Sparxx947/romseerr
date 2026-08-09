@@ -329,6 +329,17 @@ sagt Grün allein einem rot-grün-blinden Menschen nichts. **Nichts wird ausgebl
 Zu wissen, dass ein Titel schon da ist, ist nützlich; er soll nur nicht mehr gelesen
 werden müssen.
 
+### Fußzeile
+
+Unten am Fenster angeheftet und mittig: Name, **laufende Version** (verlinkt auf ihren
+Release), **GitHub** und der **kurze Commit**. Der Commit ist der Teil, der einen
+`dev`-Bau von dem Release unterscheidet, dessen Nummer er trägt — beide melden dieselbe
+Version. Wurde ein Abbild ohne Bau-Argumente erzeugt, steht dort zusätzlich ⚠.
+
+Damit trägt jeder Bildschirmauszug seinen Stand, ohne dass jemand danach fragen muss.
+**Ohne Anmeldung** erscheint nur der Repo-Link: eine Versionsnummer auf der Anmeldeseite
+sagt einem Fremden, welche Lücken er nachschlagen kann.
+
 ### Kopfleiste
 
 Oben rechts stehen **Sprache** und **Person**: die Sprache als Aufklappmenü (eingeklappt
