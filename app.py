@@ -2028,6 +2028,61 @@ def write_crawljob(jid, links, folder, name):
     with open(path,"w") as f: json.dump(data,f)
     log(f"crawljob geschrieben: {path}")
 
+def jd_probe(wartezeit=30):
+    """Misst, ob auf der ANDEREN Seite der Uebergabe ueberhaupt jemand zuhoert. (#218)
+
+    `jd_check` prueft drei Dinge, und alle drei liegen auf unserer Seite: Ordner da,
+    beschreibbar, Ziel da. Nach #197 meldete es `ok: True` — zutreffend und trotzdem
+    nutzlos als Antwort auf die einzige Frage, die zaehlt: *passiert etwas, wenn ich eine
+    Datei hineinlege?* Auf der gemessenen Anlage war die FolderWatch-Erweiterung
+    ueberhaupt nicht installiert; Romseerr schrieb korrekte Auftraege in ein korrekt
+    eingehaengtes Verzeichnis, und niemand las sie.
+
+    Die Sonde legt eine `.crawljob` ab, die **nichts tun darf** (`enabled`, `autoStart`,
+    `autoConfirm` alle `FALSE`) und wartet, ob sie abgeholt wird. JDownloader verschiebt
+    eingelesene Dateien nach `folderwatch/added/`; verschwindet sie, liest jemand mit.
+
+    WAS SIE NICHT BEWEIST: dass ein Auftrag auch *laeuft*. Ein modaler Dialog auf der
+    JD-Seite (`Default On Added Dupes Links Action` = `ASK`) verschluckt Auftraege,
+    nachdem die Datei eingelesen wurde — die Sonde saehe das als Erfolg. Sie beantwortet
+    „hoert jemand zu", nicht „geschieht etwas". Fuer Zweiteres braucht es die
+    My.JDownloader-API, die hier bewusst nicht vorausgesetzt wird.
+
+    PREIS: Es bleibt ein deaktivierter Eintrag in JDownloaders Linksammler zurueck.
+    Deshalb laeuft die Sonde nur auf ausdrueckliche Anforderung, nie im Statusabruf.
+    """
+    st = jd_check()
+    if not st["ok"]:
+        return st                                  # Ordnerproblem: das ist die Antwort
+    pfad = os.path.join(jd_watch_dir(), "romseerr_probe.crawljob")
+    daten = [{"text": "https://example.invalid/romseerr-probe.bin",
+              "packageName": "romseerr-probe", "enabled": "FALSE",
+              "autoStart": "FALSE", "autoConfirm": "FALSE"}]
+    try:
+        with open(pfad, "w") as f: json.dump(daten, f)
+    except OSError as e:
+        return {"ok": False, "reason": "watch_readonly", "info": err_kind(e),
+                "fix": f"{jd_watch_dir()} beschreibbar machen / make it writable"}
+
+    ende = time.time() + max(5, wartezeit)
+    while time.time() < ende:
+        if not os.path.exists(pfad):
+            return {"ok": True, "reason": "consumed",
+                    "info": f"Auftrag wurde binnen {int(wartezeit)} s abgeholt / "
+                            f"picked up within {int(wartezeit)} s"}
+        time.sleep(1)
+
+    # Liegen geblieben: aufraeumen, damit die Sonde keine Spur hinterlaesst, die spaeter
+    # als echter Auftrag missverstanden wird.
+    try: os.remove(pfad)
+    except OSError: pass
+    return {"ok": False, "reason": "not_consumed",
+            "info": f"Auftrag lag nach {int(wartezeit)} s unveraendert da / "
+                    f"still untouched after {int(wartezeit)} s",
+            "fix": "FolderWatch-Erweiterung in JDownloader installieren und aktivieren "
+                   "(Einstellungen → Extension Modules) / install and enable the "
+                   "FolderWatch extension in JDownloader"}
+
 def archive_file_urls(ident):
     r = requests.get(f"https://archive.org/metadata/{ident}", timeout=20); m = r.json()
     files = m.get("files",[]); urls=[]
@@ -4721,6 +4776,21 @@ def config_warnings():
 def api_config_warnings():
     return jsonify({"warnings": config_warnings()})
 
+@app.route("/api/jd/probe", methods=["POST"])
+@perm_required("manage_settings")
+def api_jd_probe():
+    """Die Uebergabe an JDownloader wirklich ausprobieren. (#218)
+
+    Bewusst POST und bewusst nicht Teil von `/api/services/status`: der Lauf dauert
+    Sekunden und hinterlaesst einen deaktivierten Eintrag im Linksammler.
+    """
+    d = request.get_json(silent=True) or {}
+    try:
+        wartezeit = min(120, max(5, int(d.get("wait") or 30)))
+    except (TypeError, ValueError):
+        wartezeit = 30
+    return jsonify(jd_probe(wartezeit))
+
 @app.route("/api/usenet/check")
 @perm_required("manage_settings")
 def api_usenet_check():
@@ -5175,6 +5245,10 @@ OPENAPI = {
         "/api/titlemeta/comment": {"post": _op("Kommentar zu einem Titel schreiben", "User",
             body={"type": "object", "properties": {"title": {"type": "string"}, "text": {"type": "string"}}},
             responses={**_R_AUTH, "200": {"description": "OK"}})},
+        "/api/jd/probe": {"post": _op("Die JDownloader-Uebergabe ausprobieren: eine wirkungslose "
+            "`.crawljob` ablegen und pruefen, ob sie abgeholt wird. Dauert Sekunden und "
+            "hinterlaesst einen deaktivierten Eintrag im Linksammler", "Admin",
+            responses={**_R_PERM, "200": {"description": "Ergebnis mit `reason` und `fix`"}})},
         "/api/usenet/check": {"get": _op("Den Usenet-Weg stufenweise durchmessen, ohne etwas zu laden "
                                         "(Suche, SAB-Kategorie, Warteschlange, Einsammelordner)", "Admin",
             responses={**_R_PERM, "200": {"description": "OK"}})},

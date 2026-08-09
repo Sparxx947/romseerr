@@ -335,7 +335,10 @@ Zwei Wege, die sich ergänzen — **die Weboberfläche hat Vorrang, `.env` ist d
 | `JD_WATCH` / `JD_OUT` | Romseerrs Sicht auf Übergabe- und Zielordner. `JD_OUT` leer = **aus `JD_DL_BASE` abgeleitet** |
 
 > **JDownloader braucht die FolderWatch-Erweiterung** (*Einstellungen → Extension Modules*).
-> Sie gehört nicht zur Grundinstallation; ohne sie wird der Übergabe-Ordner nie gelesen.
+> Sie gehört nicht zur Grundinstallation; ohne sie wird der Übergabe-Ordner nie gelesen —
+> und die Ordnerprüfung merkt davon nichts, weil sie nur die eigene Hälfte betrifft.
+> Nachprüfbar über *Einstellungen → Verbindungen → JDownloader → **Übergabe ausprobieren***:
+> legt einen wirkungslosen Auftrag ab und schaut, ob ihn jemand abholt.
 > Zum Format der `.crawljob` siehe `docs/ARCHITECTURE.md` — `autoStart`/`autoConfirm` sind
 > `BooleanStatus` (`TRUE`).
 >

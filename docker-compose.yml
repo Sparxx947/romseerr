@@ -82,6 +82,16 @@ services:
     networks: [romseerr]
 
   # ---- Filehoster-Downloader (Archive.org-Massen, 1fichier & Co.) ----
+  # NACH DEM ERSTEN START EINMALIG: In der Weboberflaeche (Port 5800) unter
+  # Einstellungen -> Extension Modules die Erweiterung **FolderWatch** installieren und
+  # aktivieren. Sie gehoert NICHT zur Grundinstallation, und ohne sie liest niemand den
+  # Watch-Ordner: Romseerr schreibt dann korrekte Auftraege in ein korrekt eingehaengtes
+  # Verzeichnis, und es passiert nichts. Nachpruefbar ueber
+  # Einstellungen -> Verbindungen -> JDownloader -> "Uebergabe ausprobieren". (#218)
+  #
+  # Ebenfalls noetig: JDownloader darf im Automatikbetrieb nichts fragen. "Default On
+  # Added Dupes Links Action" und die Offline-Variante duerfen nicht auf ASK stehen,
+  # sonst blockiert ein Dialog die gesamte Uebergabe, den im Container niemand sieht.
   jdownloader:
     image: jlesage/jdownloader-2:latest
     container_name: jdownloader

@@ -96,8 +96,24 @@ sichtbar nur als Warnung, deshalb steht sie seit #197 auch in der Oberfläche
 
 Auf JDownloader-Seite muss die **FolderWatch-Erweiterung installiert und aktiviert**
 sein (*Einstellungen → Extension Modules*). Sie ist nicht Teil der Grundinstallation;
-ohne sie wird der Ordner nie gelesen, und Romseerr kann das nicht erkennen — geprüft
-wird nur die eigene Hälfte der Übergabe.
+ohne sie wird der Ordner nie gelesen.
+
+`jd_check()` merkt davon nichts: seine drei Prüfungen liegen alle auf **unserer** Seite —
+Ordner da, beschreibbar, Ziel da — und melden zutreffend `ok`, während auf der anderen
+Seite niemand zuhört. Genau so gemessen: korrekte Aufträge in einem korrekt eingehängten
+Verzeichnis, 120 Sekunden unverändert, in JDownloader keine einzige
+`folderwatch`-Zeile. Deshalb gibt es `jd_probe()` (#218): eine wirkungslose `.crawljob`
+(`enabled`/`autoStart`/`autoConfirm` alle `FALSE`, Ziel `example.invalid`) wird abgelegt,
+und wenn sie binnen der Wartezeit verschwindet, liest jemand mit — `not_consumed` ist ein
+eigener Grund mit eigener Abhilfe.
+
+**Was die Sonde nicht beweist:** dass ein Auftrag danach auch *läuft*. Steht auf der
+JD-Seite ein modaler Dialog offen, wird die Datei eingelesen und der Auftrag bleibt
+trotzdem liegen — die Sonde sähe das als Erfolg. Sie beantwortet „hört jemand zu", nicht
+„geschieht etwas"; für Zweiteres bräuchte es die My.JDownloader-API, die hier bewusst
+nicht vorausgesetzt wird. Sie läuft nur auf Anforderung (*Einstellungen → Verbindungen →
+JDownloader*), weil sie Sekunden kostet und einen deaktivierten Eintrag im Linksammler
+hinterlässt.
 
 #### Das Format der `.crawljob` — Werte, die den Auftrag kosten (#219)
 

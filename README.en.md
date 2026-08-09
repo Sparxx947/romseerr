@@ -329,7 +329,10 @@ Two complementary ways — **the web UI takes precedence, `.env` is the fallback
 | `JD_WATCH` / `JD_OUT` | Romseerr's view of the hand-off and target folders. Empty `JD_OUT` = **derived from `JD_DL_BASE`** |
 
 > **JDownloader needs the FolderWatch extension** (*Settings → Extension Modules*). It is
-> not part of a stock install, and without it the hand-off folder is never read. For the
+> not part of a stock install, and without it the hand-off folder is never read — and the
+> directory check cannot tell, since it only covers our own half. Verify it under
+> *Settings → Connections → JDownloader → **Test the hand-off***: it drops an inert job and
+> watches whether anyone picks it up. For the
 > `.crawljob` format see `docs/ARCHITECTURE.md` — `autoStart`/`autoConfirm` are
 > `BooleanStatus` (`TRUE`).
 >
