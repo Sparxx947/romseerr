@@ -300,11 +300,21 @@ Every view has an address, and so does a title:
 | `#/discover` · `#/requests` · `#/settings` | discover · requests · settings |
 | `#/issues` · `#/messages` · `#/coverage` | issues · messages · coverage |
 | `#/title/<source>/<ref>?v=…&t=…&p=…` | detail dialog on top of view `v` |
+| `#/settings/<section>/<subpage>` | e.g. `#/settings/notif/telegram` |
 
 So the browser does the right thing on its own: **Back** returns to the previous view and
 closes an open detail dialog instead of leaving the application — on a phone, Back *is*
 the navigation. A **reload** lands where you were, and a **link** to a title can be sent
 to someone.
+
+### Settings
+
+The section menu sits **on top** so the forms get the full width — they carry URLs and
+keys. **Notifications** and **Connections** have a second row with *one page per method
+or service*: setting up Telegram no longer means scrolling past Discord. Each entry shows
+its state — filled dot *active*, hollow dot *configured but off*, no dot *not configured*.
+
+Saving only ever sends what is on the page; the other methods are left untouched.
 
 ---
 

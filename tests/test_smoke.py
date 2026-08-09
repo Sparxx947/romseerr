@@ -3164,3 +3164,67 @@ def test_the_modal_is_part_of_the_history():
     schliessen = schliessen[:schliessen.index("\n}") + 2]
     assert "history.back()" in schliessen, "Schließen bewegt den Verlauf nicht zurück"
     assert "if(ausRoute)return" in schliessen, "beim Wiederherstellen darf nicht zurückgesprungen werden"
+
+
+def test_settings_subpages_are_addressable(appmod):
+    """Eine Einstellungs-Unterseite muss verlinkbar sein und ein Neuladen überleben.
+
+    Vorher war der gewählte Bereich eine Modulvariable: beim ersten F5 weg, und ein Link
+    auf „Telegram einrichten" gab es nicht. Das ist dieselbe Lücke wie #194 — deshalb
+    liegt sie jetzt in derselben Route statt in einer zweiten Navigationslogik. (#202)"""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node nicht verfügbar")
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    prog = _route_funktionen(js) + """
+const faelle = [['notif','telegram'],['conn','jd'],['notif',''],['general','']];
+const raus = faelle.map(([sec,sub]) => {
+  const a = routeBauen('set', null, sec, sub);
+  const z = routeParse(a);
+  return [a, z.view, z.sec, z.sub];
+});
+raus.push(['#/settings', ...(x => [x.view, x.sec, x.sub])(routeParse('#/settings'))]);
+console.log(JSON.stringify(raus));
+"""
+    r = subprocess.run([node, "-e", prog], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr.strip()
+    d = json.loads(r.stdout)
+    assert d[0] == ["#/settings/notif/telegram", "set", "notif", "telegram"]
+    assert d[1] == ["#/settings/conn/jd", "set", "conn", "jd"]
+    assert d[2][:3] == ["#/settings/notif", "set", "notif"], "Bereich ohne Unterseite muss gehen"
+    assert d[4][1] == "set", "die nackte Einstellungsadresse muss weiter funktionieren"
+
+
+def test_saving_one_notification_method_leaves_the_others_alone(appmod, client):
+    """Beim Aufteilen in Unterseiten ist das die gefährliche Stelle: Wird beim Speichern
+    einer Seite der ganze `agents`-Block gesendet, sind alle anderen Verfahren
+    stillgelegt — mit leeren Feldern, die es auf dieser Seite gar nicht gibt.
+
+    Der Server führt pro Agent zusammen; dieser Test hält das fest, damit die Annahme,
+    auf der die Oberfläche aufbaut, nicht unbemerkt wegbricht. (#202)"""
+    appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "j"; sess["role"] = "admin"
+    client.post("/api/settings", json={"agents": {
+        "telegram": {"enabled": True, "chat": "123", "token": "geheim"},
+        "ntfy": {"enabled": True, "url": "https://ntfy.example", "topic": "romseerr"}}})
+
+    # Jetzt nur Telegram speichern, so wie es die Telegram-Unterseite tut
+    client.post("/api/settings", json={"agents": {"telegram": {"enabled": False, "chat": "456"}}})
+    ag = appmod.load_settings().get("agents", {})
+    assert ag["telegram"]["chat"] == "456" and ag["telegram"]["enabled"] is False
+    assert ag["telegram"]["token"] == "geheim", "das Token darf nicht verloren gehen"
+    assert ag.get("ntfy", {}).get("topic") == "romseerr", "ntfy wurde von einer fremden Seite gelöscht"
+    appmod.save_settings({}); appmod.save_users({})
+
+
+def test_the_notification_page_only_sends_what_it_shows():
+    """Die Gegenprobe in der Oberfläche: `saveAgents` darf Felder nur senden, wenn sie
+    im DOM stehen. Ein blindes `getElementById(...).checked` wäre auf jeder Unterseite
+    ein TypeError — und schlimmer, mit Sammelsendung ein stiller Datenverlust. (#202)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    fn = js[js.index("async function saveAgents(){"):]
+    fn = fn[:fn.index("\nasync function ", 1)]
+    for feld in ("agtgen", "agwhen", "aggoen", "agnten", "agpoen", "agem"):
+        assert f"if(w('{feld}'))" in fn, f"{feld} wird ungeprüft gelesen"
+    assert "if(!Object.keys(a).length)return true" in fn, "eine leere Sendung muss unterbleiben"

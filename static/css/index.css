@@ -107,10 +107,24 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid var(--border)
 .pcover .have2{position:absolute;top:6px;right:6px;background:#1e5e3a;color:#fff;border-radius:10px;padding:1px 7px;font-size:12px}
 .pt{font-size:12px;margin-top:6px;line-height:1.2;max-height:2.4em;overflow:hidden}
 #settings{display:none}
-.setwrap{display:flex;gap:20px;padding:18px}
-.setnav{flex:0 0 170px;display:flex;flex-direction:column;gap:4px}
-.snav{padding:9px 12px;border-radius:8px;color:var(--mut);cursor:pointer;font-size:14px}
+/* Einstellungen: Menü OBEN statt an der Seite (#202). Diese Seiten sind Formulare mit
+   URLs und Schlüsseln — sie brauchen die Breite, und 170px Seitenleiste nahmen sie weg.
+   Beide Leisten brechen um, damit das auf einem Telefon nicht auseinanderfällt. */
+.setwrap{display:flex;flex-direction:column;gap:12px;padding:18px}
+.setnav{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--border);padding-bottom:10px}
+.snav{padding:9px 12px;border-radius:8px;color:var(--mut);cursor:pointer;font-size:14px;white-space:nowrap}
 .snav.on{background:var(--acc);color:#fff}
+/* Zweite Ebene: eine Zeile je Verfahren bzw. Dienst. Bewusst flacher als die erste,
+   sonst konkurrieren zwei gleich laute Leisten um dieselbe Aufmerksamkeit. */
+.setsub{display:flex;flex-wrap:wrap;gap:4px;margin-top:-4px}
+.ssub{padding:6px 10px;border-radius:6px;color:var(--mut);cursor:pointer;font-size:13px;
+      border:1px solid var(--border);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.ssub.on{border-color:var(--acc);color:var(--txt);background:var(--card)}
+/* Zustand am Eintrag: gefüllt = aktiv, offen = eingerichtet aber aus, nichts = leer.
+   Ein Menü, das nur länger wird, hilft niemandem; eines, das den Stand zeigt, schon. */
+.ssub .dot{width:7px;height:7px;border-radius:50%;flex:0 0 7px}
+.ssub .dot.an{background:#3fb950}
+.ssub .dot.aus{border:1px solid var(--mut)}
 #setcontent{flex:1;max-width:620px}
 #setcontent h3{font-size:12px;text-transform:uppercase;color:var(--mut);letter-spacing:.05em;margin:0 0 10px}
 .frow{display:flex;gap:10px;align-items:center;margin:8px 0;justify-content:space-between}
@@ -118,4 +132,4 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid var(--border)
 .frow input,.frow select{background:#0b0d10;border:1px solid #2c323b;color:var(--txt);padding:8px;border-radius:6px;flex:1;min-width:60px}
 .frow input[type=checkbox]{flex:0 0 auto}
 #setcontent button{background:var(--acc);border:none;color:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:13px;margin-top:6px}
-@media(max-width:680px){.setwrap{flex-direction:column}.setnav{flex-direction:row;flex-wrap:wrap}}
+@media(max-width:680px){.setwrap{padding:12px}.snav{padding:8px 10px;font-size:13px}}

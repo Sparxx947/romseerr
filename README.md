@@ -306,11 +306,23 @@ Jede Ansicht hat eine Adresse, und ein Titel auch:
 | `#/discover` · `#/requests` · `#/settings` | Entdecken · Anfragen · Einstellungen |
 | `#/issues` · `#/messages` · `#/coverage` | Probleme · Nachrichten · Abdeckung |
 | `#/title/<quelle>/<ref>?v=…&t=…&p=…` | Detailfenster über der Ansicht `v` |
+| `#/settings/<bereich>/<unterseite>` | z. B. `#/settings/notif/telegram` |
 
 Damit tut der Browser von sich aus das Richtige: **Zurück** kehrt zur vorherigen Ansicht
 zurück und schließt ein offenes Detailfenster, statt die Anwendung zu verlassen — auf dem
 Telefon *ist* Zurück die Navigation. Ein **Neuladen** kommt dort heraus, wo man war, und
 ein **Link** auf einen Titel lässt sich verschicken.
+
+### Einstellungen
+
+Das Bereichsmenü liegt **oben**, damit die Formulare die volle Breite bekommen — sie
+enthalten URLs und Schlüssel. **Benachrichtigungen** und **Verbindungen** haben eine
+zweite Zeile mit *einer Seite je Verfahren bzw. Dienst*: Telegram einrichten heißt nicht
+mehr, an Discord vorbeizuscrollen. Jeder Eintrag zeigt seinen Stand — gefüllter Punkt
+*aktiv*, offener Punkt *eingerichtet, aber aus*, kein Punkt *nicht eingerichtet*.
+
+Gespeichert wird immer nur, was auf der Seite steht; die übrigen Verfahren bleiben
+unberührt.
 
 ---
 
