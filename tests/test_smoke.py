@@ -4046,3 +4046,75 @@ def test_reimport_refused_when_files_are_gone_or_state_wrong(appmod, client, tmp
     js = {j["id"]: j for j in client.get("/api/jobs").get_json()}
     assert js["56"].get("reimportable") is True, "mit Dateien muss der Knopf angeboten werden"
     appmod.JOBS[:] = []; appmod.save_users({})
+
+
+def test_delete_request_refuses_while_active(appmod, client):
+    """Eine laufende Anfrage darf nicht verschwinden. (#246)
+
+    Sonst löscht jemand den Auftrag, während im Hintergrund noch geladen wird — und der
+    fertige Download landet als herrenloser Ordner auf der Platte.
+    """
+    appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "j"; sess["role"] = "admin"
+    appmod.JOBS[:] = [{"id": "60", "title": "Laeuft", "state": "downloading"},
+                      {"id": "61", "title": "Fertig", "state": "done"},
+                      {"id": "62", "title": "Wartet", "state": "pending"}]
+    assert client.delete("/api/jobs/60").status_code == 400, "downloading darf nicht löschbar sein"
+    assert client.delete("/api/jobs/62").status_code == 400, "pending ist noch nicht entschieden"
+    assert client.delete("/api/jobs/99").status_code == 404
+    assert client.delete("/api/jobs/61").status_code == 200, "abgeschlossene müssen weg können"
+    assert [j["id"] for j in appmod.JOBS] == ["60", "62"]
+    appmod.JOBS[:] = []; appmod.save_users({})
+
+
+def test_delete_request_says_when_files_stay_behind(appmod, client, tmp_path, monkeypatch):
+    """Wer die Anfrage löscht, muss erfahren, dass Daten zurückbleiben. (#246, #240)
+
+    Der Auftrag ist das Einzige, was einen `romseerr_<jid>`-Ordner noch einem Titel
+    zuordnet. Verschwindet er stillschweigend, bleibt ein unidentifizierbarer Haufen übrig,
+    den die Verfallsfrist irgendwann wegräumt — Daten weg, ohne dass jemand entschieden hat.
+    """
+    appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "j"; sess["role"] = "admin"
+    monkeypatch.setattr(appmod, "SAB_DONE", str(tmp_path))
+    monkeypatch.setattr(appmod, "jd_out_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(appmod, "save_jobs", lambda: None)
+
+    ordner = tmp_path / "romseerr_70__X"; ordner.mkdir()
+    (ordner / "nutzlast.bin").write_text("wertvoll")
+    appmod.JOBS[:] = [{"id": "70", "title": "X", "state": "error"}]
+
+    # ohne files: Anfrage weg, Daten bleiben — und das wird ausdrücklich gemeldet
+    d = client.delete("/api/jobs/70", json={}).get_json()
+    assert d["files_left"] is True and d["files_deleted"] is False
+    assert ordner.exists(), "ohne ausdrückliche Ansage dürfen die Dateien nicht verschwinden"
+
+    # mit files: beides weg
+    appmod.JOBS[:] = [{"id": "70", "title": "X", "state": "error"}]
+    d = client.delete("/api/jobs/70", json={"files": True}).get_json()
+    assert d["files_deleted"] is True and d["files_left"] is False
+    assert not ordner.exists()
+    appmod.JOBS[:] = []; appmod.save_users({})
+
+
+def test_clear_finished_can_be_limited_to_one_state(appmod, client, monkeypatch):
+    """Nur die Fehlgeschlagenen wegräumen, ohne den Rest zu verlieren. (#246)"""
+    appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "j"; sess["role"] = "admin"
+    monkeypatch.setattr(appmod, "save_jobs", lambda: None)
+    monkeypatch.setattr(appmod, "SAB_DONE", "/nicht/vorhanden")
+    appmod.JOBS[:] = [{"id": "80", "state": "done"}, {"id": "81", "state": "error"},
+                      {"id": "82", "state": "denied"}, {"id": "83", "state": "downloading"}]
+
+    r = client.post("/api/jobs/clear-finished", json={"states": ["error"]}).get_json()
+    assert r["removed"] == 1
+    assert sorted(j["id"] for j in appmod.JOBS) == ["80", "82", "83"]
+
+    # Unbekannte Zustände dürfen nicht dazu führen, dass plötzlich alles gelöscht wird —
+    # aber ein laufender Auftrag bleibt in jedem Fall stehen.
+    client.post("/api/jobs/clear-finished", json={"states": ["quatsch"]})
+    assert [j["id"] for j in appmod.JOBS] == ["83"], "ohne gültige Angabe: alles Abgeschlossene"
+    appmod.JOBS[:] = []; appmod.save_users({})

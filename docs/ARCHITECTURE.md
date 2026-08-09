@@ -300,6 +300,24 @@ einer Frist von selbst verfallen. Die Frist muss lang genug sein, dass eine Korr
 ein erneutes Einlesen hineinpassen — sonst räumt die Automatik genau das weg, wofür die
 Daten aufgehoben wurden.
 
+**Anfragen entfernen** (#246): Der Zähler am Anfragen-Knopf zählt `jobOffen` — also
+*aktiv* **und** *fehler*. Jede fehlgeschlagene Anfrage erhöhte ihn dauerhaft, und die Zahl
+konnte nur steigen. `DELETE /api/jobs/{jid}` entfernt eine **abgeschlossene** Anfrage
+(`done`, `error`, `denied`); laufende werden mit 400 abgewiesen, damit nichts verschwindet,
+während im Hintergrund noch geladen wird.
+
+Der heikle Teil ist der liegengebliebene Download: der Auftrag ist das Einzige, was einen
+`romseerr_<jid>`-Ordner noch einem Titel zuordnet. Deshalb kennt der Endpunkt genau zwei
+Ausgänge — Dateien mitlöschen (`files: true`) oder im Ergebnis ausdrücklich melden, dass
+sie zurückbleiben (`files_left`). Stillschweigend verwaisen lassen ist der eine Ausgang,
+den es nicht geben darf, sonst räumt die Frist aus #244 später etwas weg, über das nie
+jemand entschieden hat.
+
+`POST /api/jobs/clear-finished` nimmt jetzt optional `states` und lässt sich damit auf eine
+Gruppe eingrenzen; in der Anfragenliste hängt der Knopf am aktiven Gruppenfilter. Vorher
+gab es ihn nur unter *Wartung* und nur alles-oder-nichts — beschriftet als „Fertige
+entfernen", obwohl er immer schon auch Fehler und Ablehnungen mitnahm.
+
 **Erneut einlesen statt neu laden** (#245): `POST /api/jobs/{jid}/reimport` lässt
 `import_folder()` noch einmal über den liegengebliebenen Ordner laufen. Das ist etwas
 anderes als `POST /api/jobs/{jid}/retry`, das den Auftrag zurück in die
@@ -327,7 +345,7 @@ previously both paths cleaned up identically and a 2 GB download was deleted alo
 the client's history entry (`del_files=1`), leaving nothing to diagnose. Leftover folders
 are listed under Settings → Logs & maintenance with size, age and owning request, can be
 removed individually or in bulk, and expire after `leftover_days` (default 14, 0 = off).
-`POST /api/jobs/{jid}/reimport` re-runs the import against the kept folder — as opposed to `/retry`, which re-downloads everything. Both end in `einsortieren()` so import and cleanup cannot drift apart, and the button only appears when the files are actually still there (`reimportable` per failed job). Two guards live in the code rather than the UI: folders belonging to a **running** job are
+`DELETE /api/jobs/{jid}` removes a finished request (`done`, `error`, `denied`; active ones are refused). Failed requests count toward the badge forever otherwise. If a kept download belongs to it, the call either deletes it too (`files: true`) or reports `files_left` — silently orphaning it is the one outcome not allowed, since the request is the only thing mapping that folder to a title. `clear-finished` accepts `states` to limit the sweep to one group. `POST /api/jobs/{jid}/reimport` re-runs the import against the kept folder — as opposed to `/retry`, which re-downloads everything. Both end in `einsortieren()` so import and cleanup cannot drift apart, and the button only appears when the files are actually still there (`reimportable` per failed job). Two guards live in the code rather than the UI: folders belonging to a **running** job are
 never listed, and removal only accepts paths that resolve inside a collect directory and
 carry the `romseerr_` prefix.*
 
