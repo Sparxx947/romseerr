@@ -177,8 +177,13 @@ that is the normal case and complete as it stands, not a fallback.
   Only **known ROM/disk extensions** are imported — non-ROM files (emulators, `.exe`/`.dll`,
   assets) are skipped; if an item contains no ROM, the request ends cleanly as an error instead of
   polluting the library.
+- If the download client appends a **second extension** (SABnzbd's *deobfuscate* turns
+  `game.nsp` into `game.nsp.hdf`), the second-to-last one counts — the file is imported and the
+  bogus suffix is dropped when copying.
 - In **SABnzbd/JDownloader** the download appears under the **ROM title**; after the import the
-  finished download is **removed** there automatically.
+  finished download is **removed** there automatically — but only after a **successful** import.
+  If Romseerr recognises nothing, the download stays put so nothing is lost and the cause can
+  still be inspected. Those folders are yours to clear.
 
 ### Administration
 - **Settings** with sub-sections: general, notifications, users, connections, blocklist, services,
