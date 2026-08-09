@@ -91,6 +91,31 @@ The full rule is in
   **series/collection** (click starts a search), versions/sources and file list.
 - From here: request, **add to wishlist** or **report an issue**.
 
+### Coverage
+
+The page is grouped by **manufacturer** (Nintendo, Sega, Sony, Microsoft, other) — the same
+grouping the platform filter uses, not a second list. A manufacturer card expands to its
+consoles, each with source and snapshot date as before.
+
+The figure on the manufacturer card is **sum owned ÷ sum known**, not the average of the
+percentages — otherwise the Virtual Boy (16 titles) would weigh as much as the SNES (2825).
+The method is shown as `Σ` on the card. And because **not every platform has a catalogue
+source**, the card also states "x of y consoles measurable": a figure covering only part of
+a group, without saying so, would mislead.
+
+### Logos — deliberately none in the repository
+
+Console and manufacturer logos are **trademarks**, so Romseerr ships **no image files at
+all**. Anyone who wants them supplies their own:
+
+```
+<config>/logos/snes.png        # filename = platform slug
+<config>/logos/nintendo.svg    # or manufacturer group, lower case
+```
+
+`png`, `svg`, `webp` and `jpg` are accepted. With no file present the **name** is shown —
+that is the normal case and complete as it stands, not a fallback.
+
 ### Requests & downloads
 - **Approval workflow**: users with auto-approve download immediately; otherwise an admin approves.
 - **Bulk request** ("Request all") requests every not-yet-owned hit at once.

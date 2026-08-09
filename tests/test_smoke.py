@@ -3326,8 +3326,10 @@ def test_the_card_names_the_platform_instead_of_printing_the_slug():
     assert "SLUGNAME[it.slug]=it.name" in lp, "die Namen werden nirgends gesammelt"
     karte = js[js.index("function renderCard("):]
     karte = karte[:karte.index("\nlet RAONLY", 1)]
-    assert "SLUGNAME[it.platform_slug]||it.platform_slug||'?'" in karte, \
-        "der Slug wird weiterhin ungefiltert gedruckt"
+    assert "plattformMarke(it.platform_slug)" in karte, "der Slug wird weiterhin ungefiltert gedruckt"
+    marke = js[js.index("function plattformMarke("):]
+    marke = marke[:marke.index("\n\n", 1)] if "\n\n" in marke[:400] else marke[:400]
+    assert "SLUGNAME[slug]||slug||'?'" in marke, "der Anzeigename fehlt als Grundlage"
 
 
 def test_the_footer_shows_the_version_only_to_signed_in_visitors():
@@ -3505,3 +3507,88 @@ def test_the_empty_requests_page_says_which_kind_of_empty():
         "der Unterschied hängt nicht am tatsächlichen Bestand"
     for key in ("flt_active", "flt_done", "flt_denied", "flt_failed", "flt_leer"):
         assert js.count(key + ":'") == 5, f"{key} fehlt in einer Sprache"
+
+
+def test_no_logo_files_are_shipped_and_the_name_still_shows(appmod, client, tmp_path, monkeypatch):
+    """Konsolen- und Herstellerlogos sind Marken. In einer privaten Instanz zu zeigen ist
+    eine Sache, die Dateien in ein **öffentliches** Repository zu legen eine andere — und
+    dieses Repo ist öffentlich.
+
+    Der Test hält beide Hälften der Entscheidung fest: im Repo liegt keine Bilddatei, und
+    ohne Datei bleibt die Oberfläche beim Namen — ein vollwertiger Zustand, kein
+    Notbehelf. (#211/#199)"""
+    # (a) nichts mitgeliefert
+    for wurzel, _, dateien in os.walk(os.path.join(REPO, "static")):
+        for f in dateien:
+            assert not f.lower().endswith((".png", ".jpg", ".jpeg", ".webp")), \
+                f"Bilddatei im Repo: {os.path.join(wurzel, f)}"
+    # (c) der Name trägt allein
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    marke = js[js.index("function plattformMarke("):]
+    marke = marke[:marke.index("function ", 20)]
+    assert "LOGOS.has" in marke and "return sicher" in marke, \
+        "ohne Logo fällt die Karte nicht auf den Namen zurück"
+
+    # Ein hinterlegtes Logo wird ausgeliefert, ein erfundener Name nicht.
+    # Angemeldet, weil die Logos unter derselben Anmeldung liegen wie der Rest — die
+    # Namensliste verrät, welche Plattformen hier eingerichtet sind.
+    appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "j"; sess["role"] = "admin"
+    d = tmp_path / "logos"; d.mkdir()
+    (d / "snes.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    monkeypatch.setattr(appmod, "LOGO_DIR", str(d))
+    assert client.get("/api/logos").get_json() == ["snes"]
+    assert client.get("/logo/snes").status_code == 200
+    assert client.get("/logo/gibtsnicht").status_code == 404
+    # Der Name kommt aus einer URL zurück — er darf kein Pfad sein.
+    assert client.get("/logo/..%2f..%2fsecret.key").status_code in (404, 308)
+    appmod.save_users({})
+
+
+def test_the_manufacturer_figure_is_summed_not_averaged():
+    """Die Zahl auf der Herstellerkarte darf **nicht** das Mittel der Prozente sein — das
+    gäbe dem Virtual Boy (16 Titel) dasselbe Gewicht wie der SNES (2825). Gerechnet wird
+    Summe besessen gegen Summe bekannt, und die Methode steht auf der Karte, weil eine
+    einzelne Zahl über dreizehn Konsolen sonst zum falschen Schluss einlädt. (#199)"""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node nicht verfügbar")
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    fn = js[js.index("function covGruppe(name,plats){"):]
+    fn = fn[:fn.index("\n\n", 1)] if "\n\n" in fn[:2000] else fn[:2000]
+    assert "reduce" in fn and "owned*100/known" in fn, "es wird nicht summiert"
+    assert "/ plats.length" not in fn and "pct||0)/" not in fn, "es wird gemittelt"
+
+    # Gegenrechnung: ein kleines und ein großes System, sehr verschiedene Quoten.
+    prog = """
+const plats = [{slug:'snes',name:'SNES',owned:900,known:1000,pct:90},
+               {slug:'vb',name:'Virtual Boy',owned:1,known:100,pct:1}];
+const messbar = plats.filter(p=>p.known!=null);
+const owned = messbar.reduce((a,p)=>a+(p.owned||0),0);
+const known = messbar.reduce((a,p)=>a+(p.known||0),0);
+console.log(JSON.stringify({summiert: Math.round(owned*100/known),
+                            gemittelt: Math.round((90+1)/2)}));
+"""
+    r = subprocess.run([node, "-e", prog], capture_output=True, text=True)
+    d = json.loads(r.stdout)
+    assert d["summiert"] == 82 and d["gemittelt"] == 46, \
+        "die beiden Methoden müssen sich unterscheiden, sonst prüft der Test nichts"
+
+
+def test_unmeasurable_platforms_are_counted_on_the_card():
+    """Nicht jede Plattform hat eine Katalogquelle. Eine Karte, die die unmessbaren
+    stillschweigend weglässt, meldet eine Vollständigkeit über einen Ausschnitt — deshalb
+    steht „x von y messbar" auf der Karte und nicht in einer Fußnote. Und keine Plattform
+    darf verschwinden, nur weil sie in keiner Gruppe steht. (#199)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    fn = js[js.index("function covGruppe(name,plats){"):]
+    fn = fn[:fn.index("\n\n", 1)] if "\n\n" in fn[:2000] else fn[:2000]
+    assert "cov_measurable" in fn, "die Karte sagt nicht, wie viel von ihr messbar ist"
+    assert "messbar.length" in fn and "plats.length" in fn
+    lade = js[js.index("async function loadCoverage(){"):]
+    lade = lade[:lade.index("\nfunction covZeile", 1)]
+    assert "genutzt" in lade and "rest.length" in lade, \
+        "Plattformen ohne Gruppe würden lautlos verschwinden"
+    assert "if(!GRUPPEN.length)await loadPlatforms()" in lade, \
+        "ohne geladene Gruppen bliebe die Seite leer"

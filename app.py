@@ -3132,6 +3132,58 @@ def api_stream_status():
                     "session": {k: ses[k] for k in ("user", "title", "platform", "started", "launched")}
                                if ses else None})
 
+# ---------- Logos: mitgebracht wird KEINES (#211/#199) ----------
+# ENTSCHIEDEN und hier festgehalten, damit es nicht beim naechsten Anlauf neu verhandelt
+# wird: Konsolen- und Herstellerlogos sind **Marken**. In einer privaten Instanz zu zeigen
+# ist eine Sache, die Dateien in ein OEFFENTLICHES Repository zu legen eine andere — und
+# dieses Repo ist oeffentlich. Deshalb:
+#
+#   * ausgeliefert wird ausschliesslich, was der BETREIBER selbst in `<config>/logos`
+#     ablegt. Im Repo liegt kein einziges Bild.
+#   * ohne Dateien bleibt es bei der Typografie („GameCube" statt `ngc`), die nachweislich
+#     funktioniert. Das Layout muss ohne Logo vollstaendig sein, nicht nur ertraeglich.
+#
+# Dateiname = Plattform-Slug (`snes.png`) oder Herstellergruppe kleingeschrieben
+# (`nintendo.svg`). Erlaubt sind png/svg/webp/jpg.
+LOGO_DIR = os.path.join(CONFIG_DIR, "logos")
+LOGO_EXT = {".png": "image/png", ".svg": "image/svg+xml",
+            ".webp": "image/webp", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
+_LOGO_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+def logo_dateien():
+    """{name: dateiname} der vorhandenen Logos. Nur brave Namen — der Ordner gehoert dem
+    Betreiber, aber der Name kommt gleich aus einer URL zurueck."""
+    out = {}
+    try:
+        for f in sorted(os.listdir(LOGO_DIR)):
+            stamm, ext = os.path.splitext(f)
+            if ext.lower() in LOGO_EXT and _LOGO_NAME.match(stamm.lower()):
+                out.setdefault(stamm.lower(), f)
+    except OSError:
+        pass
+    return out
+
+@app.route("/api/logos")
+def api_logos():
+    """Welche Logos liegen bereit? Die Oberflaeche fragt einmal und weiss dann, wo sie ein
+    Bild statt des Namens zeigen kann — statt je Karte einen 404 zu erzeugen."""
+    return jsonify(sorted(logo_dateien().keys()))
+
+@app.route("/logo/<name>")
+def logo(name):
+    """Ein Logo ausliefern. `name` wird NICHT als Pfad benutzt, sondern gegen die zuvor
+    eingelesene Liste geprueft — sonst waere `..%2f..%2fsecret.key` eine Datei."""
+    datei = logo_dateien().get(str(name).lower())
+    if not datei:
+        return Response("not found", status=404, mimetype="text/plain")
+    pfad = os.path.join(LOGO_DIR, datei)
+    try:
+        with open(pfad, "rb") as f: body = f.read()
+    except OSError:
+        return Response("not found", status=404, mimetype="text/plain")
+    mime = LOGO_EXT.get(os.path.splitext(datei)[1].lower(), "application/octet-stream")
+    return Response(body, mimetype=mime, headers={"Cache-Control": "public, max-age=3600"})
+
 @app.route("/api/cover")
 def api_cover():
     title = request.args.get("title", "")
@@ -4637,6 +4689,10 @@ OPENAPI = {
         "/api/favourites/remove": {"post": _op("Titel aus den Favoriten entfernen", "User",
             body={"type": "object", "properties": {"title": {"type": "string"}}},
             responses={**_R_AUTH, "200": {"description": "OK"}})},
+        "/api/logos": {"get": _op("Welche Logos der Betreiber hinterlegt hat (Dateinamen ohne Endung). "
+                                  "Im Repo liegt bewusst keines — Konsolenlogos sind Marken.", "System", _PUB)},
+        "/logo/{name}": {"get": _op("Ein hinterlegtes Logo ausliefern", "System", _PUB,
+            params=[{"name": "name", "in": "path", "required": True, "schema": {"type": "string"}}])},
         "/api/wishlist": {
             "get": _op("Eigene Wunschliste (vorgemerkte, noch nicht verfügbare Titel)", "Requests"),
             "post": _op("Titel auf die Wunschliste setzen (Auto-Download, sobald verfügbar)", "Requests",

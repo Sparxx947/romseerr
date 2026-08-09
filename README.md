@@ -93,6 +93,31 @@ Die vollständige Regel steht in
   und die **Spielreihe/Collection** (Klick startet die Suche), Versionen/Quellen und Dateiliste.
 - Direkt von hier: anfragen, **auf die Wunschliste setzen** oder ein **Problem melden**.
 
+### Abdeckung
+
+Die Seite ist nach **Hersteller** gruppiert (Nintendo, Sega, Sony, Microsoft, Sonstige) —
+dieselbe Einteilung wie der Plattformfilter, nicht eine zweite Liste. Eine Herstellerkarte
+klappt ihre Konsolen auf, jede mit Quelle und Stand wie bisher.
+
+Die Zahl auf der Herstellerkarte ist **Summe besessen ÷ Summe bekannt**, nicht das Mittel
+der Prozente — sonst zählte der Virtual Boy (16 Titel) so viel wie die SNES (2825). Die
+Methode steht als `Σ` auf der Karte. Und weil **nicht jede Plattform eine Katalogquelle
+hat**, steht dort auch „x von y Konsolen messbar": eine Zahl über einen Ausschnitt, ohne
+das dazuzusagen, wäre irreführend.
+
+### Logos — bewusst keine im Repo
+
+Konsolen- und Herstellerlogos sind **Marken**. Romseerr liefert deshalb **kein einziges
+Bild mit**. Wer welche zeigen will, legt sie selbst ab:
+
+```
+<config>/logos/snes.png        # Dateiname = Plattform-Slug
+<config>/logos/nintendo.svg    # oder Herstellergruppe, kleingeschrieben
+```
+
+Erlaubt sind `png`, `svg`, `webp`, `jpg`. Liegt keine Datei da, steht der **Name** dort —
+das ist der Normalfall und vollständig so, kein Notbehelf.
+
 ### Anfragen & Download
 - **Anfrage-Workflow**: Nutzer mit Auto-Freigabe laden sofort; sonst muss ein Admin freigeben.
 - **Sammel-Anfrage** („Alle anfragen") fordert alle noch nicht vorhandenen Treffer auf einmal an.
