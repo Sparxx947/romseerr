@@ -189,7 +189,9 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   Import: erkennt Romseerr nichts, bleibt der Download liegen, damit nichts verloren geht und
   die Ursache noch nachsehbar ist. Diese Ordner stehen unter *Einstellungen → Logs & Wartung*
   mit Größe und Alter, lassen sich einzeln oder gesammelt entfernen und verfallen nach einer
-  einstellbaren Frist (Standard 14 Tage, `0` schaltet das ab).
+  einstellbaren Frist (Standard 14 Tage, `0` schaltet das ab). Ist die Ursache behoben,
+  liest **Erneut einlesen** am fehlgeschlagenen Auftrag dieselben Dateien noch einmal ein —
+  ohne neuen Download. (*Erneut versuchen* holt dagegen alles neu.)
 
 ### Verwaltung
 - **Einstellungen** mit Unterbereichen: Allgemein, Benachrichtigungen, Benutzer, Verbindungen,

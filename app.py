@@ -2559,25 +2559,35 @@ def worker_collect():
                     p = find_output(jd_out_dir(), jid)
                     if p and any(os.scandir(p)): cand = p
                 if cand and folder_stable(cand):
-                    erfolg = import_folder(jid, cand)
-                    # Aufraeumen NUR nach einem geglueckten Import. Vorher lief beides
-                    # gleich: ein Import, der nichts erkannte, loeschte den Download
-                    # trotzdem — samt SAB-History mit `del_files=1`. Zwei Gigabyte weg,
-                    # und die Ursache war hinterher nur noch aus der NZB und dem Log des
-                    # Downloadprogramms zu rekonstruieren. Was hier liegen bleibt, kann
-                    # angesehen und nach einem Fix erneut eingelesen werden. (#240)
-                    if erfolg is False:
-                        log(f"Job {jid}: Import ohne Treffer — Download bleibt liegen: {cand}")
-                        continue
-                    # Erledigten Download aus SAB/JD und von der Platte entfernen. (#65)
-                    if job["source"] == "usenet": sab_cleanup(jid)
-                    try:
-                        if os.path.isdir(cand) and (cand.startswith(SAB_DONE) or cand.startswith(jd_out_dir())):
-                            subprocess.run(["rm", "-rf", cand])
-                    except Exception as e: log(f"Ausgabe-Cleanup {jid}: {e}")
+                    einsortieren(jid, job, cand)
         except Exception as e:
             log(f"collect-Fehler: {e}")
         time.sleep(20)
+
+def einsortieren(jid, job, cand):
+    """import_folder + Aufraeumen — eine Stelle fuer beide Aufrufer. (#240, #245)
+
+    worker_collect und das erneute Einlesen muessen sich identisch verhalten; laegen die
+    Regeln zweimal vor, wuerde eine davon frueher oder spaeter abweichen. Gibt zurueck,
+    ob etwas eingelesen wurde.
+    """
+    erfolg = import_folder(jid, cand)
+    # Aufraeumen NUR nach einem geglueckten Import. Vorher lief beides gleich: ein Import,
+    # der nichts erkannte, loeschte den Download trotzdem — samt SAB-History mit
+    # `del_files=1`. Zwei Gigabyte weg, und die Ursache war hinterher nur noch aus der NZB
+    # und dem Log des Downloadprogramms zu rekonstruieren. Was liegen bleibt, kann
+    # angesehen und nach einer Korrektur erneut eingelesen werden. (#240)
+    if erfolg is False:
+        log(f"Job {jid}: Import ohne Treffer — Download bleibt liegen: {cand}")
+        return False
+    # Erledigten Download aus SAB/JD und von der Platte entfernen. (#65)
+    if job.get("source") == "usenet": sab_cleanup(jid)
+    try:
+        if os.path.isdir(cand) and (cand.startswith(SAB_DONE) or cand.startswith(jd_out_dir())):
+            subprocess.run(["rm", "-rf", cand])
+    except Exception as e:
+        log(f"Ausgabe-Cleanup {jid}: {e}")
+    return True
 
 def folder_stable(path, wait=6):
     """True, wenn sich die Gesamtgröße des Ordners über `wait` Sekunden nicht ändert
@@ -3364,7 +3374,15 @@ def api_jobs():
     if not has_perm("manage_requests"):
         me = session.get("user", "")
         js = [j for j in js if j.get("user") == me]
-    return jsonify(js[:100])
+    js = js[:100]
+    # Nur fuer fehlgeschlagene Auftraege nachsehen, ob die Dateien noch liegen: sonst
+    # boete die Oberflaeche ein „erneut einlesen" an, das beim Druecken scheitert. Die
+    # Pruefung kostet ein isdir je Fehler-Auftrag, nicht je Auftrag. (#245)
+    for j in js:
+        if j.get("state") == "error":
+            j["reimportable"] = bool(find_output(SAB_DONE, j["id"]) or
+                                     find_output(jd_out_dir(), j["id"]))
+    return jsonify(js)
 
 @app.route("/api/wishlist", methods=["GET", "POST"])
 def api_wishlist():
@@ -4766,6 +4784,30 @@ def api_job_retry(jid):
     set_state(jid, state="queued", msg="erneut / retried"); Q.put(jid)
     return jsonify({"ok": True})
 
+@app.route("/api/jobs/<jid>/reimport", methods=["POST"])
+@perm_required("manage_requests")
+def api_job_reimport(jid):
+    """Den liegengebliebenen Download erneut einlesen — ohne ihn neu zu holen. (#245)
+
+    Abgrenzung zu `/retry`: das laedt die Ausgabe komplett neu. Hier liegen die Daten
+    bereits auf der Platte, und genau dafuer hebt #240 sie auf — 2 GB erneut zu ziehen,
+    weil eine Endung falsch erkannt wurde, waere das Gegenteil davon.
+
+    Laeuft im Hintergrund: das Einsortieren kopiert unter Umstaenden Gigabytes, und eine
+    HTTP-Anfrage, die dabei ins Timeout laeuft, sagt dem Aufrufer nichts ueber den Ausgang.
+    """
+    j = get_job(jid)
+    if not j: return jsonify({"ok": False, "msg": "unbekannt / unknown"}), 404
+    if j.get("state") != "error":
+        return jsonify({"ok": False, "msg": "nur fehlgeschlagene / only failed"}), 400
+    cand = find_output(SAB_DONE, jid) or find_output(jd_out_dir(), jid)
+    if not cand:
+        return jsonify({"ok": False, "msg": "keine Dateien mehr da / files are gone"}), 404
+    job = dict(j)
+    threading.Thread(target=lambda: einsortieren(jid, job, cand), daemon=True).start()
+    log(f"Job {jid}: erneutes Einlesen angestossen ({cand})")
+    return jsonify({"ok": True, "path": os.path.basename(cand)})
+
 @app.route("/api/users/<u>", methods=["DELETE"])
 @perm_required("manage_users")
 def api_users_del(u):
@@ -5004,6 +5046,12 @@ OPENAPI = {
             params=[_pp("jid", "Job-ID")], responses={**_R_PERM, "200": {"description": "OK"}})},
         "/api/jobs/{jid}/retry": {"post": _op("Fehlgeschlagene/abgelehnte Anfrage erneut versuchen", "Requests",
             params=[_pp("jid", "Job-ID")], responses={**_R_PERM, "200": {"description": "erneut eingereiht"}})},
+        "/api/jobs/{jid}/reimport": {"post": _op("Einen liegengebliebenen Download erneut "
+            "einlesen, ohne ihn neu zu holen (nur Zustand `error`)", "Requests",
+            params=[{"name": "jid", "in": "path", "required": True, "schema": {"type": "string"}}],
+            responses={**_R_PERM, "200": {"description": "angestossen"},
+                       "400": {"description": "falscher Zustand"},
+                       "404": {"description": "unbekannt oder Dateien weg"}})},
         "/api/leftovers": {"get": _op("Downloads auflisten, die ein fehlgeschlagener Import "
             "liegen gelassen hat (Ordner, Groesse, Alter, zugehoeriger Auftrag)", "Admin",
             responses={**_R_PERM, "200": {"description": "OK"}})},

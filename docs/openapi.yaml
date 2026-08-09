@@ -1036,6 +1036,26 @@ paths:
         schema:
           type: string
         description: Job-ID
+  /api/jobs/{jid}/reimport:
+    post:
+      summary: Einen liegengebliebenen Download erneut einlesen, ohne ihn neu zu holen (nur Zustand `error`)
+      tags:
+      - Requests
+      responses:
+        '403': *id004
+        '200':
+          description: angestossen
+        '400':
+          description: falscher Zustand
+        '404':
+          description: unbekannt oder Dateien weg
+      security: *id002
+      parameters:
+      - name: jid
+        in: path
+        required: true
+        schema:
+          type: string
   /api/leftovers:
     get:
       summary: Downloads auflisten, die ein fehlgeschlagener Import liegen gelassen hat (Ordner, Groesse,
