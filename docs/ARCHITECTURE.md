@@ -300,6 +300,25 @@ einer Frist von selbst verfallen. Die Frist muss lang genug sein, dass eine Korr
 ein erneutes Einlesen hineinpassen — sonst räumt die Automatik genau das weg, wofür die
 Daten aufgehoben wurden.
 
+**Erneut versuchen heißt nicht: dasselbe noch einmal** (#200). `retry` setzte bisher nur
+den Zustand zurück und stellte denselben Auftrag erneut ein — wer dreimal drückte, wartete
+dreimal auf dieselbe Meldung. Der Auftrag zählt jetzt seine Versuche (`tries`) und merkt
+sich die gescheiterten Quellen (`tried_sources`). **Ab dem dritten Versuch** wechselt
+`alternative_quelle()` auf eine andere Quelle: eine Quelle, die einen Titel nicht liefert,
+liefert ihn auch beim vierten Mal nicht — der Artikel ist unvollständig, der Indexer
+veraltet oder die Kategorie falsch, und nichts davon bessert sich durch Warten. Die
+übrigen Quellen scheitern unabhängig davon, ein Wechsel trägt also als Einziger neue
+Information.
+
+Der Titelvergleich beim Wechsel läuft über `norm()` — dieselbe Normalisierung wie die
+Dedup — und ist **streng**: ein Wechsel, der ein anderes Spiel holt, wäre schlimmer als der
+Fehlschlag, den er beheben soll. Findet sich kein passender Treffer, endet der Aufruf mit
+`409` und `exhausted`, und der Auftrag wird **nicht** erneut eingestellt; „alle Quellen
+versucht" liest sich sonst wie „eines ist kaputt". Ein geglückter Import setzt den Zähler
+zurück. In der Oberfläche steht der Versuch am Eintrag, und der Knopf heißt vor dem
+Wechsel *Erneut · andere Quelle* — ein plötzlich anderes Ergebnis wäre sonst nicht
+erklärbar.
+
 **Anfragen entfernen** (#246): Der Zähler am Anfragen-Knopf zählt `jobOffen` — also
 *aktiv* **und** *fehler*. Jede fehlgeschlagene Anfrage erhöhte ihn dauerhaft, und die Zahl
 konnte nur steigen. `DELETE /api/jobs/{jid}` entfernt eine **abgeschlossene** Anfrage
@@ -345,7 +364,7 @@ previously both paths cleaned up identically and a 2 GB download was deleted alo
 the client's history entry (`del_files=1`), leaving nothing to diagnose. Leftover folders
 are listed under Settings → Logs & maintenance with size, age and owning request, can be
 removed individually or in bulk, and expire after `leftover_days` (default 14, 0 = off).
-`DELETE /api/jobs/{jid}` removes a finished request (`done`, `error`, `denied`; active ones are refused). Failed requests count toward the badge forever otherwise. If a kept download belongs to it, the call either deletes it too (`files: true`) or reports `files_left` — silently orphaning it is the one outcome not allowed, since the request is the only thing mapping that folder to a title. `clear-finished` accepts `states` to limit the sweep to one group. `POST /api/jobs/{jid}/reimport` re-runs the import against the kept folder — as opposed to `/retry`, which re-downloads everything. Both end in `einsortieren()` so import and cleanup cannot drift apart, and the button only appears when the files are actually still there (`reimportable` per failed job). Two guards live in the code rather than the UI: folders belonging to a **running** job are
+`retry` counts attempts (`tries`) and remembers failed sources (`tried_sources`); from the third attempt it switches source via `alternative_quelle()`, matching titles through `norm()` strictly — switching to a different game would be worse than the failure it fixes. With no match left it returns `409 exhausted` and does **not** re-queue. A successful import resets the counter. `DELETE /api/jobs/{jid}` removes a finished request (`done`, `error`, `denied`; active ones are refused). Failed requests count toward the badge forever otherwise. If a kept download belongs to it, the call either deletes it too (`files: true`) or reports `files_left` — silently orphaning it is the one outcome not allowed, since the request is the only thing mapping that folder to a title. `clear-finished` accepts `states` to limit the sweep to one group. `POST /api/jobs/{jid}/reimport` re-runs the import against the kept folder — as opposed to `/retry`, which re-downloads everything. Both end in `einsortieren()` so import and cleanup cannot drift apart, and the button only appears when the files are actually still there (`reimportable` per failed job). Two guards live in the code rather than the UI: folders belonging to a **running** job are
 never listed, and removal only accepts paths that resolve inside a collect directory and
 carry the `romseerr_` prefix.*
 

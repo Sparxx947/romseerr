@@ -4118,3 +4118,90 @@ def test_clear_finished_can_be_limited_to_one_state(appmod, client, monkeypatch)
     client.post("/api/jobs/clear-finished", json={"states": ["quatsch"]})
     assert [j["id"] for j in appmod.JOBS] == ["83"], "ohne gültige Angabe: alles Abgeschlossene"
     appmod.JOBS[:] = []; appmod.save_users({})
+
+
+def test_retry_escalates_to_another_source_on_the_third_attempt(appmod, client, monkeypatch):
+    """Zweimal dieselbe Quelle, ab dem dritten Mal eine andere. (#200)
+
+    Eine Quelle, die einen Titel nicht liefert, liefert ihn auch beim vierten Mal nicht.
+    Der Wechsel ist der einzige Versuch, der neue Information trägt.
+    """
+    appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "j"; sess["role"] = "admin"
+    monkeypatch.setattr(appmod, "save_jobs", lambda: None)
+    monkeypatch.setattr(appmod.Q, "put", lambda x: None)
+    monkeypatch.setattr(appmod, "do_search", lambda q, p=None: [
+        {"source": "archive", "ref": "arch://x", "title": "Spiel (USA)",
+         "gkey": appmod.norm("Spiel (USA)"), "platform": "nes"}])
+
+    appmod.JOBS[:] = [{"id": "90", "title": "Spiel (USA)", "source": "usenet",
+                       "ref": "nzb://alt", "state": "error", "platform": "nes"}]
+
+    # 2. Versuch: gleiche Quelle, nur neu eingestellt
+    d = client.post("/api/jobs/90/retry").get_json()
+    assert d["tries"] == 2 and d["source"] == "usenet", "zu früh gewechselt"
+
+    # 3. Versuch: jetzt die andere Quelle — und die gescheiterte ist vermerkt
+    appmod.set_state("90", state="error")
+    d = client.post("/api/jobs/90/retry").get_json()
+    assert d["tries"] == 3 and d["source"] == "archive", "beim dritten Versuch muss gewechselt werden"
+    j = appmod.get_job("90")
+    assert j["ref"] == "arch://x" and "usenet" in j["tried_sources"]
+    assert "archive" in (j.get("msg") or ""), "die Meldung muss die neue Quelle nennen"
+    appmod.JOBS[:] = []; appmod.save_users({})
+
+
+def test_retry_never_switches_to_a_different_title(appmod, client, monkeypatch):
+    """Ein Quellenwechsel darf niemals ein anderes Spiel holen. (#200)
+
+    Das ist der Fall, der schlimmer wäre als der Fehlschlag selbst: die Suche liefert
+    ähnliche Treffer, und ein großzügiger Vergleich würde still das falsche Spiel
+    einsortieren. Lieber „alle Quellen versucht" melden.
+    """
+    appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "j"; sess["role"] = "admin"
+    monkeypatch.setattr(appmod, "save_jobs", lambda: None)
+    gestellt = []
+    monkeypatch.setattr(appmod.Q, "put", lambda x: gestellt.append(x))
+    # Andere Quelle, aber ein anderer Titel — sowie derselbe Titel in der SCHON
+    # gescheiterten Quelle. Beides darf nicht genommen werden.
+    monkeypatch.setattr(appmod, "do_search", lambda q, p=None: [
+        {"source": "archive", "ref": "arch://fremd", "title": "Spiel 2 (USA)",
+         "gkey": appmod.norm("Spiel 2 (USA)"), "platform": "nes"},
+        {"source": "usenet", "ref": "nzb://neu", "title": "Spiel (USA)",
+         "gkey": appmod.norm("Spiel (USA)"), "platform": "nes"}])
+
+    appmod.JOBS[:] = [{"id": "91", "title": "Spiel (USA)", "source": "usenet",
+                       "ref": "nzb://alt", "state": "error", "platform": "nes",
+                       "tries": 2, "tried_sources": ["usenet"]}]
+    r = client.post("/api/jobs/91/retry")
+    assert r.status_code == 409, "ohne passende Alternative darf nicht gewechselt werden"
+    d = r.get_json()
+    assert d["exhausted"] is True
+    j = appmod.get_job("91")
+    assert j["ref"] == "nzb://alt", "die Adresse darf sich nicht auf einen Fremdtitel ändern"
+    assert j["state"] == "error" and "alle Quellen" in j["msg"]
+    assert gestellt == [], "erschöpfte Quellen dürfen nicht wieder eingestellt werden"
+    appmod.JOBS[:] = []; appmod.save_users({})
+
+
+def test_successful_import_resets_the_attempt_counter(appmod, tmp_path, monkeypatch):
+    """Was einmal geklappt hat, fängt später nicht bei „3. Versuch" an. (#200)"""
+    monkeypatch.setattr(appmod, "save_jobs", lambda: None)
+    monkeypatch.setattr(appmod, "build_index", lambda: None)
+    monkeypatch.setattr(appmod, "romm_scan", lambda: None)
+    monkeypatch.setattr(appmod, "notify_available", lambda *a, **k: None)
+    monkeypatch.setattr(appmod, "send_push_to_user", lambda *a, **k: None)
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path / "roms"))
+    d = tmp_path / "job"; d.mkdir()
+    (d / "spiel.nes").write_text("x")
+    appmod.JOBS[:] = [{"id": "92", "title": "S", "source": "archive", "state": "downloading",
+                       "platform": "nes", "tries": 3, "tried_sources": ["usenet", "archive"]}]
+
+    assert appmod.import_folder("92", str(d)) is True
+    j = appmod.get_job("92")
+    assert j["state"] == "done"
+    assert j["tries"] == 0 and j["tried_sources"] == [], "Zähler muss zurückgesetzt werden"
+    appmod.JOBS[:] = []

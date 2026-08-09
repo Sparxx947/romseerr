@@ -1021,13 +1021,18 @@ paths:
         description: Job-ID
   /api/jobs/{jid}/retry:
     post:
-      summary: Fehlgeschlagene/abgelehnte Anfrage erneut versuchen
+      summary: Erneut versuchen; ab dem dritten Versuch ueber eine andere Quelle. 409 mit `exhausted`,
+        wenn keine Quelle mehr uebrig ist
       tags:
       - Requests
       responses:
         '403': *id004
         '200':
-          description: erneut eingereiht
+          description: eingestellt
+        '400':
+          description: falscher Zustand
+        '409':
+          description: alle Quellen versucht
       security: *id002
       parameters:
       - name: jid
@@ -1035,7 +1040,6 @@ paths:
         required: true
         schema:
           type: string
-        description: Job-ID
   /api/jobs/{jid}:
     delete:
       summary: 'Eine abgeschlossene Anfrage entfernen; mit `files: true` auch den liegengebliebenen Download.

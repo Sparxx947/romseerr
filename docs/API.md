@@ -81,7 +81,7 @@ are not listed at all. `POST /api/jobs/{jid}/reimport` re-reads a kept download 
 fetching it again (state `error` only) — unlike `/retry`, which downloads the whole
 release a second time. `DELETE /api/jobs/{jid}` removes a finished request (active ones are
 refused with 400); `{"files": true}` deletes a kept download along with it, otherwise the
-response reports `files_left`. `clear-finished` accepts `{"states": [...]}`.
+response reports `files_left`. `clear-finished` accepts `{"states": [...]}`. `POST /api/jobs/{jid}/retry` counts attempts and switches source from the third one; with none left it answers **409** with `exhausted: true` instead of re-queueing.
 
 Details (Parameter, Bodies, Antworten) → `/api/docs`.
 
@@ -161,6 +161,10 @@ verwechseln mit `POST /api/jobs/{jid}/retry`, das den kompletten Download wieder
 sonst meldet die Antwort `files_left: true` — der Auftrag ist das Einzige, was den Ordner
 noch einem Titel zuordnet. `POST /api/jobs/clear-finished` nimmt optional
 `{"states": ["error"]}`, um nur eine Gruppe zu räumen.
+
+`POST /api/jobs/{jid}/retry` zählt die Versuche mit und wechselt **ab dem dritten** die
+Quelle. Gibt es keine passende mehr, antwortet er mit **409** und `exhausted: true` und
+stellt den Auftrag *nicht* erneut ein. Ein geglückter Import setzt `tries` zurück.
 
 ### Diagnostics
 `GET /api/services/status`, `GET /api/config/warnings` and `GET /api/usenet/check` (all

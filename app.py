@@ -2211,7 +2211,10 @@ def import_folder(jid, folder):
         return False
     where = ", ".join(f"{v}×{k}" for k,v in by_plat.items()) or "nichts (schon vorhanden?)"
     tail = f" · {skipped} Nicht-ROM übersprungen" if skipped else ""
-    set_state(jid, state="done", msg=f"{moved} Datei(en) → {where}{tail}")
+    # Zaehler zuruecksetzen: was einmal geklappt hat, faengt bei einer spaeteren Anfrage
+    # nicht mit „3. Versuch" an. (#200)
+    set_state(jid, state="done", msg=f"{moved} Datei(en) → {where}{tail}",
+              tries=0, tried_sources=[])
     log(f"Job {jid} fertig: {moved} Dateien → {where}{tail}")
     # Genau EIN Ausgang je Import. Nichts kopiert, aber Kopierfehler aufgetreten -> Fehlschlag,
     # auch wenn der Job-Zustand (unverändert) „done" bleibt.
@@ -4820,15 +4823,70 @@ def api_job_deny(jid):
     set_state(jid, state="denied", msg="abgelehnt")
     return jsonify({"ok": True})
 
+ESKALATION_AB = 3      # ab diesem Versuch die Quelle wechseln, statt sie zu wiederholen
+
+def alternative_quelle(job):
+    """Einen Treffer fuer DENSELBEN Titel aus einer anderen Quelle. (#200)
+
+    Der Titelvergleich laeuft ueber `norm()` — dieselbe Normalisierung wie die Dedup.
+    Streng ist hier Absicht: ein Wechsel, der ein anderes Spiel holt, waere schlimmer als
+    der Fehlschlag, den er beheben soll. Lieber „alle Quellen versucht" melden, als etwas
+    Falsches einzusortieren.
+    """
+    ziel = norm(job.get("title", ""))
+    if not ziel: return None
+    versucht = set(job.get("tried_sources") or []) | {job.get("source")}
+    plat = job.get("platform")
+    try:
+        treffer = do_search(job.get("title", ""), [plat] if plat and plat != "Mixed" else None)
+    except Exception as e:
+        log(f"Quellenwechsel {job.get('id')}: Suche fehlgeschlagen — {err_kind(e)}")
+        return None
+    for r in treffer:
+        if r.get("source") in versucht: continue
+        if (r.get("gkey") or norm(r.get("title", ""))) != ziel: continue
+        return r
+    return None
+
 @app.route("/api/jobs/<jid>/retry", methods=["POST"])
 @perm_required("manage_requests")
 def api_job_retry(jid):
+    """Erneut versuchen — und ab dem dritten Mal ueber eine ANDERE Quelle. (#200)
+
+    Vorher setzte der Knopf nur den Zustand zurueck und stellte denselben Auftrag erneut
+    ein. Wer dreimal drueckt, wartet dreimal auf dieselbe Meldung: eine Quelle, die einen
+    Titel nicht liefert, liefert ihn auch beim vierten Mal nicht — der Artikel ist
+    unvollstaendig, der Indexer veraltet oder die Kategorie falsch, und nichts davon
+    bessert sich durch Warten. Die anderen Quellen scheitern unabhaengig davon, ein
+    Wechsel ist also der einzige Versuch, der neue Information traegt.
+    """
     j = get_job(jid)
     if not j: return jsonify({"ok": False}), 404
     if j.get("state") not in ("error", "denied"):
         return jsonify({"ok": False, "msg": "nur fehlgeschlagene/abgelehnte / only failed/denied"}), 400
-    set_state(jid, state="queued", msg="erneut / retried"); Q.put(jid)
-    return jsonify({"ok": True})
+
+    versuch = int(j.get("tries") or 1) + 1          # der urspruengliche Lauf war Versuch 1
+    versucht = [x for x in dict.fromkeys((j.get("tried_sources") or []) + [j.get("source")]) if x]
+    felder = {"tries": versuch, "tried_sources": versucht}
+
+    if versuch >= ESKALATION_AB:
+        alt = alternative_quelle(j)
+        if not alt:
+            # Nicht wieder einstellen: sonst dreht sich derselbe Fehlschlag im Kreis, und
+            # „nichts hat funktioniert" laese sich weiterhin wie „eines ist kaputt".
+            set_state(jid, state="error", msg=f"alle Quellen versucht / all sources tried "
+                                              f"({', '.join(versucht) or '—'})", **felder)
+            return jsonify({"ok": False, "exhausted": True,
+                            "msg": "alle Quellen versucht / all sources tried",
+                            "tried": versucht}), 409
+        felder.update(source=alt["source"], ref=alt["ref"])
+        meldung = f"{versuch}. Versuch über {alt['source']} / attempt via {alt['source']}"
+    else:
+        meldung = f"{versuch}. Versuch / attempt {versuch}"
+
+    set_state(jid, state="queued", msg=meldung, **felder)
+    Q.put(jid)
+    return jsonify({"ok": True, "tries": versuch, "source": (get_job(jid) or {}).get("source")})
 
 @app.route("/api/jobs/<jid>/reimport", methods=["POST"])
 @perm_required("manage_requests")
@@ -5092,6 +5150,12 @@ OPENAPI = {
             params=[_pp("jid", "Job-ID")], responses={**_R_PERM, "200": {"description": "OK"}})},
         "/api/jobs/{jid}/retry": {"post": _op("Fehlgeschlagene/abgelehnte Anfrage erneut versuchen", "Requests",
             params=[_pp("jid", "Job-ID")], responses={**_R_PERM, "200": {"description": "erneut eingereiht"}})},
+        "/api/jobs/{jid}/retry": {"post": _op("Erneut versuchen; ab dem dritten Versuch ueber "
+            "eine andere Quelle. 409 mit `exhausted`, wenn keine Quelle mehr uebrig ist", "Requests",
+            params=[{"name": "jid", "in": "path", "required": True, "schema": {"type": "string"}}],
+            responses={**_R_PERM, "200": {"description": "eingestellt"},
+                       "400": {"description": "falscher Zustand"},
+                       "409": {"description": "alle Quellen versucht"}})},
         "/api/jobs/{jid}": {"delete": _op("Eine abgeschlossene Anfrage entfernen; mit "
             "`files: true` auch den liegengebliebenen Download. Die Antwort meldet mit "
             "`files_left`, ob Daten zurueckbleiben", "Requests",

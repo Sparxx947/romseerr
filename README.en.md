@@ -118,6 +118,9 @@ that is the normal case and complete as it stands, not a fallback.
 
 ### Requests & downloads
 - **Approval workflow**: users with auto-approve download immediately; otherwise an admin approves.
+- **Retry switches source** — from the third attempt Romseerr uses a different source instead of
+  repeating the failing one. The entry shows the attempt, the button announces the switch, and
+  when no source is left it says so rather than trying again.
 - **Remove finished requests** — individually via 🗑 or by group ("clear shown", tied to the
   active filter). Active requests cannot be deleted. Failed ones otherwise keep counting toward
   the badge forever. If a download is still on disk, Romseerr asks whether to delete it too —
