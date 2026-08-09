@@ -61,6 +61,11 @@ ohne gültige Session/Key mit **401**.
 | Probleme | `GET/POST /api/issues`, `/api/issues/{id}/comment\|close` |
 | Profil | `GET/POST /api/profile`, `/api/profile/password` |
 | Push | `GET /api/push/pubkey`, `POST /api/push/subscribe` |
+Schreibende Benutzer-Endpunkte antworten mit **400**, wenn nach der Änderung kein Admin
+mit Passwort übrig bliebe — das gilt für `PATCH /api/users/{u}` (Rolle entziehen) ebenso
+wie für `DELETE /api/users/{u}`. Eine vollständig leere Benutzerliste ist erlaubt und
+führt zur Ersteinrichtung.
+
 | Admin | `/api/users`, `/api/settings`, `/api/blocklist`, `/api/logs`, `/api/apikey`, `/api/export`, `/api/import` |
 | Diagnose | `GET /api/services/status`, `GET /api/config/warnings`, `GET /api/usenet/check` |
 | Aufräumen | `GET /api/leftovers`, `POST /api/leftovers/remove`, `POST /api/jobs/{jid}/reimport` |
@@ -137,6 +142,10 @@ Two equivalent options for most endpoints:
 See the curl examples above.
 
 ### Permissions
+Write operations on users return **400** if the change would leave no admin with a password
+(`PATCH /api/users/{u}`, `DELETE /api/users/{u}`). An entirely empty user list is allowed and
+triggers first-run setup.
+
 Fine-grained permissions beyond login (admins implicitly have all): `request`, `autoapprove`,
 `manage_requests`, `manage_users`, `manage_issues`, `manage_settings`, `quota_exempt`. Missing a
 permission returns **403**; missing/invalid auth returns **401**.

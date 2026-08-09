@@ -119,6 +119,8 @@ Erlaubt sind `png`, `svg`, `webp`, `jpg`. Liegt keine Datei da, steht der **Name
 das ist der Normalfall und vollständig so, kein Notbehelf.
 
 ### Anfragen & Download
+- **Es bleibt immer ein Admin übrig**: Änderungen, die den letzten Zugang entfernen würden,
+  werden abgewiesen — beim Löschen wie beim Rollenwechsel.
 - **Anfrage-Workflow**: Nutzer mit Auto-Freigabe laden sofort; sonst muss ein Admin freigeben.
 - **Erneut versuchen wechselt die Quelle** — ab dem dritten Versuch nimmt Romseerr eine andere
   Quelle statt derselben. Der Eintrag zeigt den Versuch, der Knopf kündigt den Wechsel an, und

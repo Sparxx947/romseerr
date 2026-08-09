@@ -205,6 +205,24 @@ Aufruf ohne Benutzer erscheint die **Ersteinrichtung** (Admin anlegen). Rollen:
 Routen außer Login/Setup/Health sind geschützt; gelöschte Benutzer verlieren sofort
 den Zugriff.
 
+**Es muss immer ein Admin mit Passwort übrig bleiben** (#234). `save_users()` ist ein
+**Ersetzer**: es leert die Tabelle und schreibt das übergebene Dict als Gesamtbestand.
+Die Bedingung stand deshalb lange an genau einer Stelle richtig — im Import — und an
+keiner anderen; über Benutzerverwaltung, Rechteformular oder einen Wartungsaufruf war
+eine Instanz erreichbar, in die niemand mehr hineinkommt und die sich nicht mehr
+reparieren lässt. Die Prüfung sitzt jetzt in `save_users()` selbst und wirft
+`KeinAdminMehr`; HTTP-Handler machen daraus über `speichere_nutzer_http()` eine **400**,
+damit aus einer Sperre kein Serverfehler wird.
+
+Eine **leere** Liste bleibt erlaubt — dann greift die Ersteinrichtung, und das sperrt
+niemanden aus. Verboten ist der Zustand dazwischen: Konten vorhanden, aber keines mit
+Zugang.
+
+Zusätzlich protokolliert jede **Verkleinerung** der Benutzerliste ihre Zahlen. Die
+Invariante verhindert das Aussperren, nicht das versehentliche Überschreiben mit einem
+gültigen, aber falschen Bestand — genau so gingen hier schon einmal zwei echte Konten
+verloren, und ein solcher Vorfall soll wenigstens nachweisbar sein.
+
 **Freigabe-Workflow:** Jeder Benutzer hat ein Flag *Auto-Freigabe*. Anfragen von
 Nutzern ohne Auto-Freigabe landen als `pending` und müssen vom Admin unter „Anfragen"
 freigegeben (oder abgelehnt) werden; Admins und Auto-Freigabe-Nutzer laden sofort.
