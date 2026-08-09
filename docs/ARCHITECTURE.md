@@ -197,6 +197,26 @@ message instead of leaving it on `downloading` forever.*
 je einen API-Key erzeugen und Indexer/Server einrichten → Keys in `.env` →
 `docker compose up -d` erneut → Romseerr im Browser öffnen und Admin anlegen.
 
+### Wenn ein Titel auf mehreren Plattformen liegt (#175)
+
+`stream_info` raet nicht: denselben Titel gibt es fuer PS2 und Wii, und das PS2-Abbild zu
+starten, wenn die Wii-Fassung gemeint war, ist genau die stille Fehlentscheidung, die
+dieses Projekt vermeidet. Die Absage `ambiguous_platform` traegt jetzt aber die
+**Kandidatenliste** — der Resolver kennt sie ohnehin —, und die Oberflaeche macht daraus
+eine Auswahl statt einer Sackgasse. Das ist der einzige Absagegrund, den der Bedienende
+aufloesen kann; bei allen anderen (kein Emulator, keine Firmware, Platz belegt) ist die
+fehlende Information auf der Hostseite.
+
+Damit ein neuer Grund nicht wieder stumm im allgemeinen Satz verschwindet, gibt es in der
+Oberflaeche die Tabelle `STREAM_GRUND`, und ein Test vergleicht sie mit den Gruenden, die
+`stream_info` tatsaechlich erzeugt — samt der Frage, ob der zugehoerige Text in allen fuenf
+Sprachen existiert.
+
+*EN: `stream_info` still refuses to guess between platforms, but `ambiguous_platform` now
+carries the candidate list, so the panel offers a choice instead of a dead end — this is
+the one refusal the operator can resolve. A test keeps the reason codes the server emits
+and the UI's `STREAM_GRUND` table in step, in all five languages.*
+
 ## Benutzerverwaltung
 
 Session-basiert (signierte Cookies, Secret in `/config/secret.key`). Beim ersten

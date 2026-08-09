@@ -141,7 +141,9 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   Wii, Switch): der Emulator läuft auf einem Streaming-Host, der Browser bekommt Bild und Ton.
   Romseerr emuliert nichts und liefert weder Emulator noch Firmware aus — es löst einen Titel
   auf eine Datei auf und bittet den Host, sie zu starten. **Einzelplatz**: eine Sitzung
-  gleichzeitig, mit Namen des Belegers, Ablauf und ausdrücklichem Beenden. Der schlanke
+  gleichzeitig, mit Namen des Belegers, Ablauf und ausdrücklichem Beenden. Liegt derselbe
+  Titel auf **mehreren** Plattformen, rät Romseerr nicht, sondern fragt: die Kandidaten
+  stehen als Knöpfe da. Der schlanke
   komplette Streaming-Host liegt als **`contrib/streaming-host/`** bei (Compose,
   Init-Skripte, Start-Dienst, Doku) und ist ohne fremde Umgebung nachbaubar.
   **Ton und Gamepad brauchen dort HTTPS** — über HTTP verweigert der Browser die

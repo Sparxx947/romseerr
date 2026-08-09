@@ -136,7 +136,9 @@ that is the normal case and complete as it stands, not a fallback.
   is written: matched / ambiguous / not found. An **example file** in the expected format is
   offered in the dialog (also at `/api/wishlist/example.csv`).
 - 📺 **Stream** for the platforms the browser **cannot** emulate (PS2, GameCube, Wii, Switch):
-  the emulator runs on a streaming host and the browser receives video and audio. Romseerr
+  the emulator runs on a streaming host and the browser receives video and audio. If the same
+  title exists on **several** platforms, Romseerr does not guess — it offers the candidates as
+  buttons. Romseerr
   emulates nothing and ships neither emulator nor firmware — it resolves a title to a file and
   asks the host to launch it. **Single seat**: one session at a time, showing who holds it,
   with an expiry and an explicit stop. The thin launch service ships as

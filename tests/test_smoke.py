@@ -4277,3 +4277,63 @@ def test_shrinking_the_user_list_is_logged(appmod, tmp_path, monkeypatch):
     appmod.save_users({"chef": {"pw": "x", "role": "admin"}})
     assert any("verkleinert" in z and "3 -> 1" in z for z in zeilen), zeilen
     appmod.save_users({})
+
+
+def test_every_stream_reason_has_a_text(appmod):
+    """Jeder Grund aus stream_info hat einen Eintrag in der Oberfläche. (#175)
+
+    Die Lücke entstand, weil `ambiguous_platform` im Server eingeführt wurde und in der
+    Oberfläche niemand nachzog: der Code fiel stumm in den allgemeinen Satz. Nichts hat
+    das bemerkt, weil nichts die beiden Seiten vergleicht — genau das tut dieser Test.
+    """
+    import re
+    quelle = open("app.py", encoding="utf-8").read()
+    i = quelle.index("def stream_info(")
+    j = quelle.index("\ndef ", i + 10)
+    gruende = set(re.findall(r'"reason":\s*"([a-z_]+)"', quelle[i:j]))
+    gruende.discard("")
+
+    js = open("static/js/index.js", encoding="utf-8").read()
+    m = re.search(r"const STREAM_GRUND=\{(.*?)\};", js, re.S)
+    assert m, "STREAM_GRUND fehlt — ohne die Tabelle kann nichts geprüft werden"
+    bekannt = set(re.findall(r"([a-z_]+)\s*:", m.group(1))) | set(re.findall(r"'([a-z_]*)'\s*:", m.group(1)))
+
+    fehlend = gruende - bekannt
+    assert not fehlend, f"ohne Text in der Oberfläche: {sorted(fehlend)}"
+
+    # Und die referenzierten i18n-Schlüssel muss es in ALLEN Sprachen geben, sonst steht
+    # dort der nackte Schlüssel.
+    schluessel = set(re.findall(r":\s*'([a-z_]+)'", m.group(1)))
+    for sprache in ("de", "en", "fr", "es", "it"):
+        blockm = re.search(sprache + r":\{(.*?)\n\s*[a-z]{2}:\{", js, re.S) or \
+                 re.search(sprache + r":\{(.*)", js, re.S)
+        block = blockm.group(1)
+        for k in schluessel:
+            assert re.search(r"\b" + k + r":", block), f"{k} fehlt in {sprache}"
+
+
+def test_ambiguous_platform_offers_the_candidates(appmod, monkeypatch):
+    """Die Absage nennt die Plattformen, zwischen denen zu wählen ist. (#175)
+
+    Geraten wird weiterhin nicht — das PS2-Abbild zu starten, wenn die Wii-Fassung
+    gemeint war, bleibt die stille Fehlentscheidung, die es zu vermeiden gilt. Aber die
+    Frage zu stellen kostet nichts.
+    """
+    monkeypatch.setattr(appmod, "stream_cfg", lambda: {"url": "http://host", "launch": ""})
+    monkeypatch.setattr(appmod, "STREAMABLE", {"ps2", "wii"})
+    monkeypatch.setattr(appmod, "PLAYABLE", set())
+    monkeypatch.setattr(appmod, "resolve_slug", lambda x: x)
+    with appmod.LIB_LOCK:
+        appmod.LIB["per"] = {"ps2": {appmod.norm("Spiel")}, "wii": {appmod.norm("Spiel")}}
+
+    d = appmod.stream_info("Spiel", "Mixed")
+    assert d["reason"] == "ambiguous_platform"
+    assert d["candidates"] == ["ps2", "wii"], "beide Kandidaten müssen genannt werden"
+
+    # Eindeutig bleibt eindeutig — die Kandidatenliste darf den Normalfall nicht stören.
+    with appmod.LIB_LOCK:
+        appmod.LIB["per"] = {"ps2": {appmod.norm("Spiel")}}
+    assert appmod.plattform_aus_bibliothek("Spiel") == "ps2"
+    assert appmod.plattform_kandidaten("Spiel") == ["ps2"]
+    with appmod.LIB_LOCK:
+        appmod.LIB["per"] = {}
