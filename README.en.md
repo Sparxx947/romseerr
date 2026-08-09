@@ -118,6 +118,10 @@ that is the normal case and complete as it stands, not a fallback.
 
 ### Requests & downloads
 - **Approval workflow**: users with auto-approve download immediately; otherwise an admin approves.
+- **Remove finished requests** — individually via 🗑 or by group ("clear shown", tied to the
+  active filter). Active requests cannot be deleted. Failed ones otherwise keep counting toward
+  the badge forever. If a download is still on disk, Romseerr asks whether to delete it too —
+  and says so explicitly when files stay behind.
 - **Bulk request** ("Request all") requests every not-yet-owned hit at once.
 - **Request on behalf of another user** (for admins).
 - **Wishlist**: watch titles even when no source exists yet — a background worker re-searches

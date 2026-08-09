@@ -120,6 +120,10 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
 
 ### Anfragen & Download
 - **Anfrage-Workflow**: Nutzer mit Auto-Freigabe laden sofort; sonst muss ein Admin freigeben.
+- **Abgeschlossene Anfragen entfernen** — einzeln über 🗑 oder als Gruppe („Angezeigte
+  entfernen“ am aktiven Filter). Laufende Anfragen lassen sich nicht löschen. Fehlgeschlagene
+  zählen sonst dauerhaft im Zähler mit. Liegt noch ein Download dazu, fragt Romseerr, ob die
+  Dateien mit sollen — bleiben sie liegen, sagt es das ausdrücklich.
 - **Sammel-Anfrage** („Alle anfragen") fordert alle noch nicht vorhandenen Treffer auf einmal an.
 - **Anfrage im Namen eines anderen Nutzers** (für Admins).
 - **Wunschliste**: Titel vormerken, auch wenn es noch keine Quelle gibt — ein Hintergrund-Worker

@@ -3998,14 +3998,60 @@ def api_leftovers_remove():
     log(f"{weg} liegengebliebene Downloads entfernt ({bytes_weg/1073741824:.1f} GB, Admin)")
     return jsonify({"ok": not fehler, "removed": weg, "bytes": bytes_weg, "errors": fehler})
 
+def job_dateien_da(jid):
+    """Pfad des liegengebliebenen Downloads zu einem Auftrag — oder None. (#246)"""
+    return find_output(SAB_DONE, jid) or find_output(jd_out_dir(), jid)
+
+@app.route("/api/jobs/<jid>", methods=["DELETE"])
+@perm_required("manage_requests")
+def api_job_delete(jid):
+    """Eine abgeschlossene Anfrage entfernen. (#246)
+
+    Fehlgeschlagene Anfragen zaehlen dauerhaft im Zaehler mit (`jobOffen` = aktiv+fehler),
+    ohne einen Weg, sie einzeln loszuwerden — die Zahl konnte nur steigen.
+
+    Der heikle Teil ist der liegengebliebene Download: der Auftrag ist das Einzige, was
+    einen `romseerr_<jid>`-Ordner noch einem Titel zuordnet. Wird er geloescht, bleibt ein
+    unidentifizierbarer Haufen zurueck, den die Frist irgendwann wegraeumt. Deshalb
+    entweder mitloeschen (`files: true`) oder im Ergebnis ausdruecklich melden, dass Daten
+    zurueckbleiben — stillschweigend verwaisen lassen ist der eine Ausgang, den es nicht
+    geben darf.
+    """
+    global JOBS
+    j = get_job(jid)
+    if not j: return jsonify({"ok": False, "msg": "unbekannt / unknown"}), 404
+    if j.get("state") not in JOB_FINISHED:
+        return jsonify({"ok": False,
+                        "msg": "laufende Anfrage / request still active"}), 400
+    mit_dateien = bool((request.get_json(silent=True) or {}).get("files"))
+    pfad = job_dateien_da(jid)
+    dateien_weg = False
+    if pfad and mit_dateien:
+        dateien_weg, _ = leftover_remove(pfad)
+    with JOBS_LOCK:
+        JOBS = [x for x in JOBS if x.get("id") != jid]; save_jobs()
+    log(f"Anfrage {jid} entfernt (Admin)"
+        + (f", Dateien geloescht" if dateien_weg else
+           f", Dateien bleiben liegen: {pfad}" if pfad else ""))
+    return jsonify({"ok": True, "files_deleted": dateien_weg,
+                    "files_left": bool(pfad) and not dateien_weg})
+
 @app.route("/api/jobs/clear-finished", methods=["POST"])
 @perm_required("manage_requests")
 def api_jobs_clear_finished():
+    """Abgeschlossene Anfragen sammelweise entfernen — auf Wunsch nur bestimmte Zustaende.
+
+    Ohne Angabe alles Abgeschlossene (`done`, `error`, `denied`), wie bisher. Mit
+    `states` laesst sich das eingrenzen; „nur die Fehlgeschlagenen" ist der haeufige Fall,
+    und der ging vorher nur alles-oder-nichts. (#246)
+    """
     global JOBS
+    gewuenscht = (request.get_json(silent=True) or {}).get("states") or []
+    zustaende = {z for z in gewuenscht if z in JOB_FINISHED} or set(JOB_FINISHED)
     with JOBS_LOCK:
-        before = len(JOBS); JOBS = [j for j in JOBS if j.get("state") not in JOB_FINISHED]; save_jobs()
+        before = len(JOBS); JOBS = [j for j in JOBS if j.get("state") not in zustaende]; save_jobs()
         removed = before - len(JOBS)
-    log(f"{removed} abgeschlossene Anfragen entfernt (Admin)")
+    log(f"{removed} Anfragen entfernt ({', '.join(sorted(zustaende))}, Admin)")
     return jsonify({"ok": True, "removed": removed})
 
 # ---------- PWA + Web-Push ----------
@@ -5046,6 +5092,13 @@ OPENAPI = {
             params=[_pp("jid", "Job-ID")], responses={**_R_PERM, "200": {"description": "OK"}})},
         "/api/jobs/{jid}/retry": {"post": _op("Fehlgeschlagene/abgelehnte Anfrage erneut versuchen", "Requests",
             params=[_pp("jid", "Job-ID")], responses={**_R_PERM, "200": {"description": "erneut eingereiht"}})},
+        "/api/jobs/{jid}": {"delete": _op("Eine abgeschlossene Anfrage entfernen; mit "
+            "`files: true` auch den liegengebliebenen Download. Die Antwort meldet mit "
+            "`files_left`, ob Daten zurueckbleiben", "Requests",
+            params=[{"name": "jid", "in": "path", "required": True, "schema": {"type": "string"}}],
+            responses={**_R_PERM, "200": {"description": "entfernt"},
+                       "400": {"description": "Anfrage laeuft noch"},
+                       "404": {"description": "unbekannt"}})},
         "/api/jobs/{jid}/reimport": {"post": _op("Einen liegengebliebenen Download erneut "
             "einlesen, ohne ihn neu zu holen (nur Zustand `error`)", "Requests",
             params=[{"name": "jid", "in": "path", "required": True, "schema": {"type": "string"}}],
