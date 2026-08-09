@@ -3447,3 +3447,61 @@ def test_the_favourite_button_uses_the_same_normalisation_as_the_server(appmod):
     js_werte = json.loads(r.stdout)
     py_werte = [appmod.norm(x) for x in ["Micro Mages", "MICRO  mages!", "Micro-Mages"]]
     assert js_werte == py_werte, f"JS {js_werte} ≠ Python {py_werte}"
+
+
+def test_the_job_counter_counts_unfinished_not_existing():
+    """Ein Zähler, aus dem ein Fehlschlag herausfällt, bringt dem Benutzer bei, dass Null
+    „alles gut" heißt — dabei liegt dann etwas ungelöst herum. Deshalb zählen Fehler mit,
+    und die FARBE trennt sie vom Normalfall. `denied` zählt nicht: das war eine
+    Entscheidung, keine offene Sache. (#198/#201)"""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node nicht verfügbar")
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    teile = []
+    for anker in ("const JOBGRUPPEN=", "function jobGruppe(", "function jobOffen("):
+        i = js.index(anker); j = js.index("\n\n", i) if "\n\n" in js[i:i+600] else js.index("\n// ", i)
+        teile.append(js[i:js.index("}", i) + 1] if anker.startswith("function jobOffen") else js[i:j])
+    prog = "\n".join(teile) + """
+const zustaende = ['pending','queued','approved','downloading','importing','done','denied','error'];
+console.log(JSON.stringify(Object.fromEntries(
+  zustaende.map(s => [s, [jobGruppe(s), jobOffen({state:s})]]))));
+"""
+    r = subprocess.run([node, "-e", prog], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr.strip()
+    d = json.loads(r.stdout)
+    for s in ("pending", "queued", "approved", "downloading", "importing"):
+        assert d[s] == ["aktiv", True], f"{s} muss aktiv sein und zählen"
+    assert d["done"] == ["erledigt", False], "fertig darf nicht zählen"
+    # Abgelehnt bekam eine EIGENE Gruppe: unter „fehlgeschlagen" sucht man Defekte und
+    # fände Entscheidungen, unter „erledigt" ist es nicht mehr auffindbar — und genau das
+    # war die erste Rückmeldung aus der Benutzung.
+    assert d["denied"] == ["abgelehnt", False], "abgelehnt ist eine Entscheidung, keine offene Sache"
+    assert d["error"] == ["fehler", True], "ein Fehlschlag darf nicht aus dem Zähler fallen"
+
+
+def test_the_counter_is_absent_at_zero_and_red_on_failure():
+    """Null muss **kein** Abzeichen sein, keine `0` — und ein Fehler muss sich farblich
+    vom Normalfall unterscheiden, sonst sagt die Zahl allein zu wenig. (#198)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    fn = js[js.index("async function updateJobBadge(){"):]
+    fn = fn[:fn.index("\nasync function ", 1)]
+    assert "offen.length?' '+offen.length+' ':''" in fn, "eine 0 würde angezeigt"
+    assert "el.style.cssText=offen.length" in fn, "das Abzeichen verschwindet bei Null nicht"
+    assert "fehler?'#c0392b'" in fn, "ein Fehler sieht aus wie ein normaler Lauf"
+    assert "window.ME" in fn, "der Zähler zählt nicht die eigenen Aufträge"
+    assert "setInterval(updateJobBadge" in js, "der Zähler bewegt sich nicht von selbst"
+
+
+def test_the_empty_requests_page_says_which_kind_of_empty():
+    """„Es gibt keine Anfragen" und „in diesem Filter ist nichts" sind verschiedene
+    Aussagen. Vorher stand für beides derselbe Satz — mit Filtern wäre er schlicht
+    falsch. (#201)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    fn = js[js.index("async function loadJobs(){"):]
+    fn = fn[:fn.index("\nasync function ", 1)]
+    assert "t('flt_leer')" in fn and "t('no_requests')" in fn, "es gibt nur einen Leertext"
+    assert "alle.length&&(JOBGRP||window.jobFilter)" in fn, \
+        "der Unterschied hängt nicht am tatsächlichen Bestand"
+    for key in ("flt_active", "flt_done", "flt_denied", "flt_failed", "flt_leer"):
+        assert js.count(key + ":'") == 5, f"{key} fehlt in einer Sprache"

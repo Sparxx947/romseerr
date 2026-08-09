@@ -329,6 +329,23 @@ sagt Grün allein einem rot-grün-blinden Menschen nichts. **Nichts wird ausgebl
 Zu wissen, dass ein Titel schon da ist, ist nützlich; er soll nur nicht mehr gelesen
 werden müssen.
 
+### Anfragen
+
+Über der Liste stehen fünf Filter mit **Zahlen** — *Alle*, *aktiv*, *erledigt*,
+*abgelehnt*, *fehlgeschlagen* —, und bei mehreren Nutzern zusätzlich der Nutzerfilter;
+beide greifen zusammen. Die Seite sagt damit, was sie enthält, ohne dass man sie
+durchklickt.
+
+**Abgelehnt ist eine eigene Gruppe**, weder *erledigt* noch *fehlgeschlagen*: Unter
+*fehlgeschlagen* würde man nach Defekten suchen und Entscheidungen finden; unter
+*erledigt* wäre es zwar richtig einsortiert, aber nicht mehr auffindbar.
+
+In der Navigation trägt *Anfragen* einen **Zähler** der unerledigten Aufträge: laufende
+**und** fehlgeschlagene. Ein Fehlschlag fällt bewusst nicht heraus — sonst lernt man,
+dass Null „alles gut" heißt, während etwas ungelöst liegen bleibt. Die Farbe trennt beides
+(rot bei Fehlern). Bei Null verschwindet der Zähler ganz, und gezählt werden die
+**eigenen** Aufträge, auch für Verwalter — sonst stünde dort nie eine Null.
+
 ### Meine Listen
 
 Über das Benutzermenü oben rechts, Adresse `#/lists`. Zwei Listen, die man leicht
