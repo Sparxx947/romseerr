@@ -220,7 +220,8 @@ PLATFORMS = [
    ("gba","GB Advance"),("nds","DS"),("3ds","3DS"),("ngc","GameCube"),("wii","Wii"),
    ("wiiu","Wii U"),("switch","Switch"),("virtualboy","Virtual Boy")]),
  ("Sega", [("sms","Master System"),("genesis","Mega Drive"),("segacd","Mega-CD"),
-   ("sega32x","32X"),("gamegear","Game Gear"),("saturn","Saturn"),("dreamcast","Dreamcast")]),
+   ("sega32x","32X"),("gamegear","Game Gear"),("saturn","Saturn"),("dreamcast","Dreamcast"),
+   ("sg1000","SG-1000")]),
  ("Sony", [("psx","PS1"),("ps2","PS2"),("ps3","PS3"),("ps4","PS4"),("psp","PSP"),("psvita","Vita")]),
  ("Microsoft", [("xbox","Xbox"),("xbox360","Xbox 360"),("xboxone","Xbox One")]),
  ("Sonstige", [("turbografx16","PC Engine"),("neogeo","Neo Geo"),("neogeopocket","NGP"),
@@ -718,6 +719,15 @@ FOLDER_ALIASES = {
 IGNORE_FOLDERS = {
     "VVVVVV Data file for RPi",        # eine Spieldatendatei (data.zip)
     "Amiga-Fullset", "Amiga-Fullset.rar",
+    # Emulator- und Firmware-Ordner, keine Plattformen. NACHGESEHEN, nicht vermutet: der
+    # Unterschied ist „kein Spielinhalt" gegen „Inhalt ohne Kern", und nur Ersteres darf
+    # verschwinden. `RG350` (.opk-Pakete) und `LCD Handhelds` (.mgw-Dateien) stehen
+    # deshalb bewusst NICHT hier — das sind Spiele, denen im Player nur der Kern fehlt,
+    # und sie zu verstecken wuerde eine Luecke als Ordnung ausgeben. (#124)
+    # Emulator and firmware directories. Checked, not assumed: "no game content" is a
+    # different thing from "content without a core", and only the former may disappear.
+    "WinUAE1610",                      # Amiga-Emulator samt Konfiguration und Aufzeichnungen
+    "Dingoo",                          # enthaelt einen Firmware-Installer, keine Spiele
 }
 
 
@@ -2392,16 +2402,22 @@ PLAYABLE = {   # Slug -> EmulatorJS-Kern (nur zur Nachvollziehbarkeit dokumentie
     "c16": "vice_xplus4",              # C16 und Plus/4 teilen sich den Kern
     "vic20": "vice_xvic",
     "colecovision": "gearcoleco",
-    "intellivision": "freeintv",
     "atari5200": "a5200",
     "acpc": "cap32",                   # Amstrad CPC
     "zxs": "fuse",                     # ZX Spectrum
+    # Braucht KEINEN neuen Kern: `genesis_plus_gx` laeuft hier ohnehin (Genesis, Mega-CD,
+    # Game Gear) und spielt SG-1000 mit. 406 Dateien lagen deshalb ohne Grund still. (#124)
+    "sg1000": "genesis_plus_gx",
 }
 # NICHT eingetragen, weil der Player die Kerne nicht mitbringt — nachgesehen, nicht
-# vermutet: Vectrex (`vecx`, 352 Dateien), Atari 8-Bit (`atari800`, 252), Atari ST
-# (`hatari`, 120) und ScummVM (441). Das ist eine Grenze von RomMs EmulatorJS-Bau,
-# keine Entscheidung dieses Projekts; sobald die Kerne dort auftauchen, sind es vier
-# Zeilen. / Not entered because the player lacks those cores — a limit of the build.
+# vermutet. Gegen die eingesetzte Fassung geprueft (48 Kerne): Vectrex (`vecx`),
+# Atari 8-Bit (`atari800`), Atari ST (`hatari`), ScummVM (`scummvm`), Sharp X68000
+# (`px68k`) und **Intellivision** (`freeintv`). Letzteres stand hier eingetragen und
+# war ein Knopf, der nicht funktionieren konnte: der Kern antwortet mit 404. Genau
+# dagegen gibt es jetzt `GET /api/play/cores`. Das ist eine Grenze von RomMs
+# EmulatorJS-Bau, keine Entscheidung dieses Projekts.
+# Not entered because the player lacks those cores — checked against the deployed build,
+# not copied from libretro's catalogue. Intellivision was listed and could not work.
 # Plattformen, deren Kern ohne BIOS startet und dann scheitert — der Nutzer soll das
 # VORHER lesen, statt vor einer schwarzen Flaeche zu sitzen.
 NEEDS_BIOS = {"psx", "3do", "saturn", "amiga", "segacd"}
@@ -4871,6 +4887,39 @@ def api_jd_probe():
         wartezeit = 30
     return jsonify(jd_probe(wartezeit))
 
+@app.route("/api/play/cores")
+@perm_required("manage_settings")
+def api_play_cores():
+    """Prueft je spielbarer Plattform, ob der Player den Kern wirklich mitbringt. (#124)
+
+    PLAYABLE ordnet jedem Slug einen EmulatorJS-Kern zu, aber ob der im **eingesetzten**
+    RomM-Bau existiert, stand nirgends — und `intellivision` zeigte auf `freeintv`, das
+    dort mit 404 antwortet. Das war ein Play-Knopf, der nicht funktionieren konnte, und
+    von aussen sah er aus wie jeder andere.
+
+    Geprueft wird per HEAD auf die Kerndatei; 200 heisst vorhanden, 404 heisst fehlend.
+    Kein Download, kein Start.
+
+    EN: PLAYABLE maps slugs to EmulatorJS cores, but nothing checked whether the deployed
+    RomM build actually ships them. One entry pointed at a core answering 404.
+    """
+    basis = (cfg("romm_url") or "").rstrip("/")
+    if not basis:
+        return jsonify({"error": "RomM nicht konfiguriert / not configured"}), 400
+    aus, fehlend = [], 0
+    for slug, kern in sorted(PLAYABLE.items()):
+        da = False
+        for muster in (f"/assets/emulatorjs/data/cores/{kern}-wasm.data",
+                       f"/assets/emulatorjs/data/cores/{kern}-thread-wasm.data"):
+            try:
+                if requests.head(basis + muster, timeout=8).status_code == 200:
+                    da = True; break
+            except Exception:
+                pass
+        if not da: fehlend += 1
+        aus.append({"platform": slug, "core": kern, "available": da})
+    return jsonify({"cores": aus, "missing": fehlend, "ok": fehlend == 0})
+
 @app.route("/api/usenet/check")
 @perm_required("manage_settings")
 def api_usenet_check():
@@ -5325,6 +5374,10 @@ OPENAPI = {
         "/api/titlemeta/comment": {"post": _op("Kommentar zu einem Titel schreiben", "User",
             body={"type": "object", "properties": {"title": {"type": "string"}, "text": {"type": "string"}}},
             responses={**_R_AUTH, "200": {"description": "OK"}})},
+        "/api/play/cores": {"get": _op("Je spielbarer Plattform pruefen, ob der EmulatorJS-Kern "
+            "im eingesetzten RomM-Bau wirklich ausgeliefert wird (HEAD, kein Download)", "Admin",
+            responses={**_R_PERM, "200": {"description": "Liste mit `available` je Plattform"},
+                       "400": {"description": "RomM nicht konfiguriert"}})},
         "/api/jd/probe": {"post": _op("Die JDownloader-Uebergabe ausprobieren: eine wirkungslose "
             "`.crawljob` ablegen und pruefen, ob sie abgeholt wird. Dauert Sekunden und "
             "hinterlaesst einen deaktivierten Eintrag im Linksammler", "Admin",

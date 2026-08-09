@@ -119,6 +119,9 @@ Erlaubt sind `png`, `svg`, `webp`, `jpg`. Liegt keine Datei da, steht der **Name
 das ist der Normalfall und vollständig so, kein Notbehelf.
 
 ### Anfragen & Download
+- **Im Browser spielbar** ist eine Plattform nur, wenn RomMs Player den Kern wirklich
+  mitbringt. *Einstellungen → Dienste* prüft das je Plattform gegen die laufende
+  Installation, statt sich auf eine Liste zu verlassen.
 - **Es bleibt immer ein Admin übrig**: Änderungen, die den letzten Zugang entfernen würden,
   werden abgewiesen — beim Löschen wie beim Rollenwechsel.
 - **Anfrage-Workflow**: Nutzer mit Auto-Freigabe laden sofort; sonst muss ein Admin freigeben.

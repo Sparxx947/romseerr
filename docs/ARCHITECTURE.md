@@ -233,6 +233,27 @@ carries the candidate list, so the panel offers a choice instead of a dead end �
 the one refusal the operator can resolve. A test keeps the reason codes the server emits
 and the UI's `STREAM_GRUND` table in step, in all five languages.*
 
+### Welche Plattformen im Browser laufen (#124)
+
+`PLAYABLE` ordnet jedem Slug einen EmulatorJS-Kern zu. Entscheidend ist, woher der
+Kernname kommt: **aus dem eingesetzten RomM-Bau, nicht aus dem libretro-Katalog.** Der
+Unterschied ist keine Förmlichkeit — `freeintv` (Intellivision) steht im Katalog und
+fehlt im Player, der Eintrag war ein Play-Knopf, der nicht funktionieren konnte und von
+außen aussah wie jeder andere. `GET /api/play/cores` prüft das jetzt je Plattform per
+HEAD gegen den laufenden Player.
+
+Ordner, die keine Plattform sind, stehen in `IGNORE_FOLDERS` — aber nur, wenn sie
+**keinen Spielinhalt** haben. Das ist der feine Unterschied zu „Inhalt ohne Kern": ein
+Emulator-Verzeichnis darf verschwinden, `LCD Handhelds` (`.mgw`-Dateien) und `RG350`
+(`.opk`-Pakete) dürfen es nicht — dort fehlt nur der Kern, und sie zu verstecken hieße,
+eine Lücke als Ordnung auszugeben.
+
+*EN: `PLAYABLE` maps slugs to EmulatorJS cores, and the names must come from the deployed
+RomM build rather than libretro's catalogue — one entry pointed at a core the player does
+not ship, which cannot work and looks like any other button. `GET /api/play/cores` now
+checks each one. `IGNORE_FOLDERS` hides directories with no game content; content that
+merely lacks a core stays visible.*
+
 ## Benutzerverwaltung
 
 Session-basiert (signierte Cookies, Secret in `/config/secret.key`). Beim ersten

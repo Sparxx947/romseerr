@@ -854,6 +854,19 @@ paths:
                   type: string
                 text:
                   type: string
+  /api/play/cores:
+    get:
+      summary: Je spielbarer Plattform pruefen, ob der EmulatorJS-Kern im eingesetzten RomM-Bau wirklich
+        ausgeliefert wird (HEAD, kein Download)
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: Liste mit `available` je Plattform
+        '400':
+          description: RomM nicht konfiguriert
+      security: *id002
   /api/jd/probe:
     post:
       summary: 'Die JDownloader-Uebergabe ausprobieren: eine wirkungslose `.crawljob` ablegen und pruefen,
