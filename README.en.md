@@ -279,6 +279,12 @@ docker run -d --name romseerr -p 8770:8770 \
 
 The container runs **non-root** and ships a **healthcheck** on `/health`.
 
+`latest` only ever points at a stable version: the tag is applied when the version string
+carries no `-`, so a pre-release cannot claim it. Images are built by the `release-please`
+workflow itself, right after it creates the release — not by an `on: release` trigger,
+because a release created by a bot with the default `GITHUB_TOKEN` triggers no further
+workflows. That is why v1.1.0-beta.1 shipped without an image.
+
 > **`/config` must be owned by uid 1000** (or writable for it) — that is the uid the image
 > runs as. If it is not, Romseerr still starts, answers every request and reports
 > `healthy`, but **stores nothing**: no request, no job, no setting. You can see it as

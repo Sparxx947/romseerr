@@ -520,6 +520,13 @@ Jeder Release hinterlässt **drei** Dinge, die dasselbe bezeichnen und Verschied
 | Git-Tag `v1.1.0-beta.1` | ein Bau **aus dem Quelltext** | nein — Tags sind unveränderlich |
 | Zweig `release/v1.1.0-beta.1` | ein Bau aus dem Quelltext | **ja** — hierhin darf eine nachgezogene Korrektur |
 
+Alle drei entstehen im selben Lauf: `release-please` erzeugt Tag und Release, spult `main`
+vor, legt den Release-Zweig an und **baut das Abbild**. Letzteres hängt bewusst an diesem
+Workflow und nicht an einem `on: release`-Auslöser — ein Release, das ein Bot mit dem
+Standard-`GITHUB_TOKEN` anlegt, löst keine weiteren Workflows aus, und genau deshalb blieb
+v1.1.0-beta.1 ohne Abbild. `latest` bekommt nur eine Version ohne `-` im Namen, also nie
+eine Vorabversion.
+
 **Eine andere Version fahren** heißt für einen ziehenden Container: die Marke am Abbild
 ändern, mehr nicht.
 

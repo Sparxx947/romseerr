@@ -20,6 +20,9 @@
 # next release would contain; GitHub will not merge a draft, so releasing is a
 # deliberate act rather than a consequence of pushing.
 #
+# ABBILD: Der Bau haengt als Job `publish-image` an diesem Workflow, nicht an einem
+# `on: release`-Ausloeser im Publish-Workflow. Grund steht dort und bei dem Job.
+#
 # STOLPERSTELLE: Ein Workflow wird aus dem Baum des Zweigs gelesen, auf den gepusht
 # wird — nicht aus dem Standardzweig. Solange auf `main` noch eine aeltere Fassung
 # liegt, die auf `main` lauscht, feuert beim Vorspulen DEREN Lauf. Das legte sich von
@@ -85,6 +88,27 @@ jobs:
 
           echo "main $(git rev-parse --short origin/main) -> $SHA ($TAG)"
           git push origin "$SHA:refs/heads/main"
+
+  # Das Abbild bauen. HIER und nicht ueber `on: release` im Publish-Workflow: ein Release,
+  # das dieser Bot mit dem Standard-`GITHUB_TOKEN` anlegt, loest KEINE weiteren Workflows
+  # aus. Der Publish-Workflow lauschte darauf und lief deshalb nie — v1.1.0-beta.1 wurde
+  # veroeffentlicht und blieb ohne Abbild. Ein PAT haette das auch geloest, kostet aber ein
+  # dauerhaftes Geheimnis; ein direkter Aufruf kostet nichts. (#185)
+  #
+  # EN: built here rather than via `on: release`, because a release created with the
+  # default GITHUB_TOKEN triggers no further workflows — so the publish workflow never ran.
+  publish-image:
+    name: Abbild bauen und veroeffentlichen / build and publish the image
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/release-image.yml
+    with:
+      ref: ${{ needs.release-please.outputs.tag }}
 
   # Ein Zweig je Release. Der Tag allein genuegt nicht: er ist unveraenderlich, und
   # spaetestens wenn ein alter Stand EINE nachgezogene Korrektur braucht, muss es einen
