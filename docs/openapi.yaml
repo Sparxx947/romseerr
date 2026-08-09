@@ -854,6 +854,17 @@ paths:
                   type: string
                 text:
                   type: string
+  /api/jd/probe:
+    post:
+      summary: 'Die JDownloader-Uebergabe ausprobieren: eine wirkungslose `.crawljob` ablegen und pruefen,
+        ob sie abgeholt wird. Dauert Sekunden und hinterlaesst einen deaktivierten Eintrag im Linksammler'
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: Ergebnis mit `reason` und `fix`
+      security: *id002
   /api/usenet/check:
     get:
       summary: Den Usenet-Weg stufenweise durchmessen, ohne etwas zu laden (Suche, SAB-Kategorie, Warteschlange,

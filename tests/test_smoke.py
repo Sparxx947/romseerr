@@ -4337,3 +4337,80 @@ def test_ambiguous_platform_offers_the_candidates(appmod, monkeypatch):
     assert appmod.plattform_kandidaten("Spiel") == ["ps2"]
     with appmod.LIB_LOCK:
         appmod.LIB["per"] = {}
+
+
+def test_jd_probe_detects_that_nobody_is_listening(appmod, tmp_path, monkeypatch):
+    """Die Sonde erkennt, wenn niemand die Übergabe liest. (#218)
+
+    `jd_check` meldete auf der gemessenen Anlage `ok: True`, während die
+    FolderWatch-Erweiterung überhaupt nicht installiert war: Ordner da, beschreibbar,
+    Ziel da — und niemand hörte zu. Alle drei Prüfungen lagen auf unserer Seite.
+    """
+    monkeypatch.setattr(appmod, "jd_watch_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(appmod, "jd_check", lambda anlegen=False: {"ok": True, "reason": "ok"})
+    # Uhr stellen statt warten: die Wartezeit ist der Sinn der Sonde, aber sie in jedem
+    # CI-Lauf real abzusitzen wäre Verschwendung.
+    uhr = [1000.0]
+    monkeypatch.setattr(appmod.time, "time", lambda: uhr[0])
+    monkeypatch.setattr(appmod.time, "sleep", lambda n: uhr.__setitem__(0, uhr[0] + n))
+
+    d = appmod.jd_probe(wartezeit=5)
+    assert d["ok"] is False and d["reason"] == "not_consumed"
+    assert "FolderWatch" in d["fix"], "die Abhilfe muss die Erweiterung benennen"
+    # Keine Spur hinterlassen: eine liegengebliebene Sonde wäre später von einem echten
+    # Auftrag nicht zu unterscheiden.
+    assert not list(tmp_path.iterdir()), "die Sonde muss ihre Datei wieder entfernen"
+
+
+def test_jd_probe_reports_success_when_the_file_is_picked_up(appmod, tmp_path, monkeypatch):
+    """Wird die Datei abgeholt, ist die Gegenseite da. (#218)"""
+    monkeypatch.setattr(appmod, "jd_watch_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(appmod, "jd_check", lambda anlegen=False: {"ok": True, "reason": "ok"})
+
+    # Die Gegenseite nachstellen: beim ersten Warten verschwindet die Datei.
+    echt = appmod.time.sleep
+    def schlaf(n):
+        for f in tmp_path.iterdir(): f.unlink()
+        echt(0)
+    monkeypatch.setattr(appmod.time, "sleep", schlaf)
+
+    d = appmod.jd_probe(wartezeit=5)
+    assert d["ok"] is True and d["reason"] == "consumed"
+
+
+def test_jd_probe_writes_a_job_that_cannot_do_anything(appmod, tmp_path, monkeypatch):
+    """Die Sonde darf nichts herunterladen. (#218)
+
+    Sie landet in einer fremden Anwendung; ein Auftrag, der versehentlich startet, wäre
+    ein Nebeneffekt einer Diagnose — genau das, was eine Prüfung nicht tun darf.
+    """
+    monkeypatch.setattr(appmod, "jd_watch_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(appmod, "jd_check", lambda anlegen=False: {"ok": True, "reason": "ok"})
+    geschrieben = {}
+    def schlaf(n):
+        for f in tmp_path.iterdir():
+            geschrieben.update(json.loads(f.read_text())[0])
+            f.unlink()
+    monkeypatch.setattr(appmod.time, "sleep", schlaf)
+
+    appmod.jd_probe(wartezeit=5)
+    assert geschrieben, "es wurde gar keine Sonde geschrieben"
+    # BooleanStatus, nicht boolean — dieselbe Falle wie in #219.
+    assert geschrieben["enabled"] == "FALSE"
+    assert geschrieben["autoStart"] == "FALSE" and geschrieben["autoConfirm"] == "FALSE"
+    assert "example.invalid" in geschrieben["text"], "die Sonde darf auf nichts Echtes zeigen"
+
+
+def test_jd_probe_needs_permission_and_is_not_in_status(appmod, client):
+    """Auf Anforderung, nicht im Statusabruf — sie kostet Sekunden und hinterlässt eine Spur. (#218)"""
+    appmod.save_users({"g": {"pw": "x", "role": "user", "perms": ["request"]},
+                       "chef": {"pw": "x", "role": "admin", "perms": []}})
+    with client.session_transaction() as sess:
+        sess["user"] = "g"; sess["role"] = "user"
+    assert client.post("/api/jd/probe").status_code == 403
+    quelle = open("app.py", encoding="utf-8").read()
+    i = quelle.index("def api_services_status") if "def api_services_status" in quelle else 0
+    if i:
+        j = quelle.index("\ndef ", i + 10)
+        assert "jd_probe(" not in quelle[i:j], "die Sonde gehört nicht in den Statusabruf"
+    appmod.save_users({})
