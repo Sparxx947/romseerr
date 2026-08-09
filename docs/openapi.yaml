@@ -797,6 +797,63 @@ paths:
               properties:
                 title:
                   type: string
+  /api/titlemeta:
+    get:
+      summary: Eigene Bewertung, die der anderen und Kommentare zu einem Titel
+      tags:
+      - User
+      responses:
+        '401': *id003
+        '200':
+          description: OK
+      security: *id002
+      parameters:
+      - name: title
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Titel
+  /api/titlemeta/rating:
+    post:
+      summary: Eigene Bewertung setzen (1–5, 0 löscht)
+      tags:
+      - User
+      responses:
+        '401': *id003
+        '200':
+          description: OK
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                stars:
+                  type: integer
+  /api/titlemeta/comment:
+    post:
+      summary: Kommentar zu einem Titel schreiben
+      tags:
+      - User
+      responses:
+        '401': *id003
+        '200':
+          description: OK
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                text:
+                  type: string
   /api/logos:
     get:
       summary: Welche Logos der Betreiber hinterlegt hat (Dateinamen ohne Endung). Im Repo liegt bewusst
