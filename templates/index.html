@@ -30,6 +30,8 @@
     <button class=fbtn id=userbtn onclick="toggleMenu('usermenu',event)" aria-haspopup=true aria-expanded=false></button>
     <div class=menu id=usermenu>
      <a class=mitem data-i18n=profile onclick="closeMenus();openProfile()">👤 Profil</a>
+     <!-- Wunschliste und Favoriten gehören zur Person, nicht zu den Anfragen (#195/#207) -->
+     <a class=mitem data-i18n=nav_lists onclick="closeMenus();show('lists')">⭐ Meine Listen</a>
      <a class=mitem data-i18n=logout onclick="closeMenus();logout()">🚪 Abmelden</a>
     </div>
    </div>
@@ -42,6 +44,7 @@
  <div id=issues></div>
  <div id=messages></div>
  <div id=coverage></div>
+ <div id=lists></div>
  <!-- Fußzeile (#208): die Version stand nur unter Einstellungen → Über, also hinter zwei
       Klicks und nur für Verwalter. Damit trägt jetzt jeder Bildschirmauszug seinen Stand —
       genau das fehlte an dem Tag, an dem ein veralteter Bau einen Arbeitstag gekostet hat

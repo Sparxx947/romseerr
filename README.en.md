@@ -322,6 +322,25 @@ The symbol carries the meaning and the colour only reinforces it — on a dark c
 alone says nothing to a red-green colour blind reader. **Nothing is hidden:** knowing a
 title is already there is useful, it just should not have to be *read*.
 
+### My lists
+
+Reachable from the user menu in the top right, address `#/lists`. Two lists that are easy
+to confuse — which is why they stay apart:
+
+| | Wishlist | Favourites |
+|---|---|---|
+| about | titles you do **not** have | titles you **have** |
+| purpose | remember to obtain it | get back to it quickly |
+| ends | when the title arrives | never |
+
+They share **no** store: a wishlist entry leaving when the title arrives is the point — a
+favourite disappearing by itself would be a defect. A title may sit in both, in one, or in
+neither. Both are **per user**.
+
+The wishlist used to live under *Requests*, drawn into that same page. But a request is
+something the system owes an answer to — it has a state, it ends, and admins see
+everyone's. A wishlist is the opposite.
+
 ### Footer
 
 Pinned to the bottom of the window and centred: name, the **running version** (linking to
