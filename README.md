@@ -120,6 +120,9 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
 
 ### Anfragen & Download
 - **Anfrage-Workflow**: Nutzer mit Auto-Freigabe laden sofort; sonst muss ein Admin freigeben.
+- **Erneut versuchen wechselt die Quelle** — ab dem dritten Versuch nimmt Romseerr eine andere
+  Quelle statt derselben. Der Eintrag zeigt den Versuch, der Knopf kündigt den Wechsel an, und
+  wenn keine Quelle mehr übrig ist, sagt Romseerr das, statt es noch einmal zu probieren.
 - **Abgeschlossene Anfragen entfernen** — einzeln über 🗑 oder als Gruppe („Angezeigte
   entfernen“ am aktiven Filter). Laufende Anfragen lassen sich nicht löschen. Fehlgeschlagene
   zählen sonst dauerhaft im Zähler mit. Liegt noch ein Download dazu, fragt Romseerr, ob die
