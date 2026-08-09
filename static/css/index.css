@@ -104,6 +104,12 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid var(--border)
 /* Zurückhaltender Zweitknopf: „Details" und „angefragt" sind keine Handlungsaufforderung
    wie ein Download, sollen aber sichtbar bleiben. */
 .dl.zw{background:var(--card);border:1px solid var(--border);color:var(--txt)}
+/* Favorit (#207): im Detail ein Umschalter, auf der Karte nur ein kleines Zeichen am
+   Titel — der Platz auf dem Cover gehoert dem Zustand (vorhanden/angefragt). */
+.favbtn{margin-top:8px;margin-left:6px;background:#2a2f37;border:none;color:#e6e8ec;
+ padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px}
+.favbtn.on{background:#7a2540;color:#fff}
+.favmark{color:#ff6b8a}
 .dl.zw:disabled{opacity:.6;cursor:default}
 #jobs{padding:18px;display:none}
 .card .cover{cursor:pointer}

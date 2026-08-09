@@ -3382,3 +3382,68 @@ def test_closing_a_directly_opened_title_does_not_leave_the_application():
     zu = zu[:zu.index("\n}", 1) + 2]
     assert "EIGENE_SCHRITTE>0" in zu and "history.back()" in zu
     assert "routeSetzen(cur,null,true)" in zu, "ohne eigenen Eintrag muss die Adresse ersetzt werden"
+
+
+def test_favourites_and_wishlist_do_not_share_a_store(appmod):
+    """Die beiden Listen beantworten gegensätzliche Fragen: die Wunschliste sagt „habe ich
+    nicht" und **leert sich**, sobald der Titel eintrifft — das ist ihr Zweck. Ein Favorit
+    sagt „habe ich, will ich wiederfinden" und darf nie von selbst verschwinden.
+
+    Zusammengelegt wäre jedes Eintreffen entweder ein Datenverlust oder eine Karteileiche.
+    Der Test hält deshalb fest, dass ein Titel in beiden stehen kann und das Entfernen aus
+    der einen die andere nicht anfasst. (#207)"""
+    appmod.kv_put("wishlist", {}); appmod.kv_put("favourites", {})
+    appmod.wishlist_add("j", "Micro Mages", "nes")
+    appmod.fav_add("j", "Micro Mages", "nes")
+    assert appmod.is_fav("j", "Micro Mages") is True
+    assert len(appmod.load_wishlist().get("j", [])) == 1
+
+    # Der Titel trifft ein: die Wunschliste gibt ihn frei, der Favorit bleibt.
+    appmod.wishlist_remove("j", "Micro Mages")
+    assert appmod.load_wishlist().get("j", []) == []
+    assert appmod.is_fav("j", "Micro Mages") is True, "der Favorit ist mit verschwunden"
+
+    # Und je Benutzer getrennt — zwei Menschen haben nichts miteinander zu tun.
+    assert appmod.is_fav("m", "Micro Mages") is False
+    appmod.fav_add("j", "Micro Mages", "nes")          # doppelt anlegen ändert nichts
+    assert len(appmod.load_favs().get("j", [])) == 1
+    appmod.fav_remove("j", "Micro Mages")
+    assert appmod.load_favs().get("j", []) == []
+    appmod.kv_put("wishlist", {}); appmod.kv_put("favourites", {})
+
+
+def test_the_wishlist_left_the_requests_page(appmod):
+    """Die Wunschliste wurde IN die Anfragen-Seite gezeichnet — nicht aus einer
+    Entscheidung, sondern weil die Seite danebenlag. Eine Anfrage hat einen Zustand und
+    endet; eine Wunschliste ist persönlich und offen. Jetzt eine eigene Ansicht mit
+    eigener Adresse. (#195)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    jobs = js[js.index("async function loadJobs("):]
+    jobs = jobs[:jobs.index("\nasync function ", 1)]
+    assert "/api/wishlist" not in jobs, "die Wunschliste wird weiterhin in die Anfragen gezeichnet"
+    assert "async function loadLists()" in js, "es gibt keine eigene Ansicht"
+    listen = js[js.index("async function loadLists(){"):]
+    listen = listen[:listen.index("\n// ---", 1)]
+    assert "/api/wishlist" in listen and "/api/favourites" in listen, \
+        "die neue Ansicht führt nicht beide Listen"
+    assert "lists:'lists'" in js, "die Ansicht hat keine Adresse"
+    html = open(os.path.join(REPO, "templates/index.html"), encoding="utf-8").read()
+    kopf = html[html.index("<div id=topbar>"):html.index("</main>")]
+    assert "show('lists')" in kopf, "die Listen sind nicht vom Benutzermenü aus erreichbar"
+
+
+def test_the_favourite_button_uses_the_same_normalisation_as_the_server(appmod):
+    """Server und Oberfläche müssen denselben Titel für denselben halten, sonst zeigt die
+    Karte ein leeres Herz für einen Titel, der serverseitig längst Favorit ist. (#207)"""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node nicht verfügbar")
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    fn = js[js.index("function norm(x){"):]
+    fn = fn[:fn.index("\n", 1)]
+    prog = fn + "\nconsole.log(JSON.stringify(['Micro Mages','MICRO  mages!','Micro-Mages'].map(norm)));"
+    r = subprocess.run([node, "-e", prog], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr.strip()
+    js_werte = json.loads(r.stdout)
+    py_werte = [appmod.norm(x) for x in ["Micro Mages", "MICRO  mages!", "Micro-Mages"]]
+    assert js_werte == py_werte, f"JS {js_werte} ≠ Python {py_werte}"

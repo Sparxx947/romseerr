@@ -1605,6 +1605,33 @@ def wishlist_add(user, title, platform=""):
                for e in lst): return
         lst.append({"title": title, "platform": platform or "", "added": int(time.time())})
         save_wishlist(w)
+# --- Favoriten (#207) -------------------------------------------------------------
+# BEWUSST ein eigener Speicher, nicht ein Feld an der Wunschliste: die beiden Listen
+# beantworten gegensaetzliche Fragen. Die Wunschliste sagt „habe ich nicht, haette ich
+# gern" und LEERT sich, sobald der Titel eintrifft — genau das ist ihr Zweck. Ein Favorit
+# sagt „habe ich, will ich schnell wiederfinden" und darf nie von selbst verschwinden.
+# Zusammengelegt waere jedes Eintreffen ein Datenverlust auf der einen oder eine
+# Karteileiche auf der anderen Seite. Ein Titel darf in beiden stehen (kurz), in einer
+# oder in keiner.
+FAV_LOCK = threading.Lock()
+def load_favs(): return kv_get("favourites", {})
+def save_favs(f): kv_put("favourites", f)
+def fav_add(user, title, platform=""):
+    title = (title or "").strip()
+    if not (user and title): return
+    with FAV_LOCK:
+        f = load_favs(); lst = f.setdefault(user, [])
+        if any(norm(e.get("title","")) == norm(title) for e in lst): return
+        lst.append({"title": title, "platform": platform or "", "added": int(time.time())})
+        save_favs(f)
+def fav_remove(user, title):
+    with FAV_LOCK:
+        f = load_favs()
+        f[user] = [e for e in f.get(user, []) if norm(e.get("title","")) != norm(title)]
+        save_favs(f)
+def is_fav(user, title):
+    return any(norm(e.get("title","")) == norm(title) for e in load_favs().get(user, []))
+
 def wishlist_remove(user, title, platform=None):
     with WISH_LOCK:
         w = load_wishlist()
@@ -3238,6 +3265,29 @@ def api_wishlist_example():
     return Response(EXAMPLE_WISHLIST, mimetype="text/csv; charset=utf-8",
                     headers={"Content-Disposition": 'attachment; filename="romseerr-wishlist-example.csv"'})
 
+@app.route("/api/favourites", methods=["GET", "POST"])
+@login_required
+def api_favourites():
+    """Favoriten des angemeldeten Nutzers. Zwei Menschen haben nichts miteinander zu tun,
+    deshalb je Benutzer und nie gemeinsam. (#207)"""
+    user = session.get("user", "") or "api"
+    if request.method == "POST":
+        d = request.get_json(force=True) or {}
+        title = (d.get("title") or "").strip()
+        if not title:
+            return jsonify({"ok": False, "msg": "Titel fehlt / title missing"}), 400
+        fav_add(user, title, d.get("platform", ""))
+        return jsonify({"ok": True})
+    return jsonify(load_favs().get(user, []))
+
+@app.route("/api/favourites/remove", methods=["POST"])
+@login_required
+def api_favourites_remove():
+    user = session.get("user", "") or "api"
+    d = request.get_json(force=True) or {}
+    fav_remove(user, (d.get("title") or "").strip())
+    return jsonify({"ok": True})
+
 @app.route("/api/wishlist/remove", methods=["POST"])
 def api_wishlist_remove():
     user = session.get("user", "") or "api"
@@ -4579,6 +4629,14 @@ OPENAPI = {
             body={"type": "object", "description": "Trefferobjekt aus /api/search bzw. /api/detail"},
             responses={**_R_AUTH, "200": {"description": "Job angelegt"}})},
         "/api/jobs": {"get": _op("Eigene Anfragen (Admin: alle) mit Status", "Requests")},
+        "/api/favourites": {
+            "get": _op("Favoriten des angemeldeten Nutzers", "User", responses={**_R_AUTH, "200": {"description": "Liste"}}),
+            "post": _op("Titel zu den Favoriten hinzufügen", "User",
+                body={"type": "object", "properties": {"title": {"type": "string"}, "platform": {"type": "string"}}},
+                responses={**_R_AUTH, "200": {"description": "OK"}})},
+        "/api/favourites/remove": {"post": _op("Titel aus den Favoriten entfernen", "User",
+            body={"type": "object", "properties": {"title": {"type": "string"}}},
+            responses={**_R_AUTH, "200": {"description": "OK"}})},
         "/api/wishlist": {
             "get": _op("Eigene Wunschliste (vorgemerkte, noch nicht verfügbare Titel)", "Requests"),
             "post": _op("Titel auf die Wunschliste setzen (Auto-Download, sobald verfügbar)", "Requests",

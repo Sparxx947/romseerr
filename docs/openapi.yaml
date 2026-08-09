@@ -750,6 +750,53 @@ paths:
         '200':
           description: OK
       security: *id002
+  /api/favourites:
+    get:
+      summary: Favoriten des angemeldeten Nutzers
+      tags:
+      - User
+      responses:
+        '401': *id003
+        '200':
+          description: Liste
+      security: *id002
+    post:
+      summary: Titel zu den Favoriten hinzufügen
+      tags:
+      - User
+      responses:
+        '401': *id003
+        '200':
+          description: OK
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                platform:
+                  type: string
+  /api/favourites/remove:
+    post:
+      summary: Titel aus den Favoriten entfernen
+      tags:
+      - User
+      responses:
+        '401': *id003
+        '200':
+          description: OK
+      security: *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
   /api/wishlist:
     get:
       summary: Eigene Wunschliste (vorgemerkte, noch nicht verfügbare Titel)

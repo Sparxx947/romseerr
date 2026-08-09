@@ -329,6 +329,25 @@ sagt Grün allein einem rot-grün-blinden Menschen nichts. **Nichts wird ausgebl
 Zu wissen, dass ein Titel schon da ist, ist nützlich; er soll nur nicht mehr gelesen
 werden müssen.
 
+### Meine Listen
+
+Über das Benutzermenü oben rechts, Adresse `#/lists`. Zwei Listen, die man leicht
+verwechselt — und die deshalb getrennt bleiben:
+
+| | Wunschliste | Favoriten |
+|---|---|---|
+| handelt von | Titeln, die du **nicht** hast | Titeln, die du **hast** |
+| Zweck | daran denken, sie zu holen | schnell wiederfinden |
+| endet | wenn der Titel eintrifft | nie |
+
+Sie teilen sich **keinen** Speicher: Dass ein Eintrag die Wunschliste beim Eintreffen
+verlässt, ist ihr Zweck — ein Favorit, der von selbst verschwindet, wäre ein Fehler. Ein
+Titel darf in beiden stehen, in einer oder in keiner. Beides ist **je Benutzer**.
+
+Vorher stand die Wunschliste unter *Anfragen*, hineingezeichnet in dieselbe Seite. Eine
+Anfrage ist aber etwas, worauf das System eine Antwort schuldet — mit Zustand, mit Ende,
+und für Verwalter über alle Nutzer sichtbar. Eine Wunschliste ist das Gegenteil.
+
 ### Fußzeile
 
 Unten am Fenster angeheftet und mittig: Name, **laufende Version** (verlinkt auf ihren
