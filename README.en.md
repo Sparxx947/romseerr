@@ -117,6 +117,8 @@ all**. Anyone who wants them supplies their own:
 that is the normal case and complete as it stands, not a fallback.
 
 ### Requests & downloads
+- **An admin always remains**: changes that would remove the last way in are refused — on
+  deletion as well as on a role change.
 - **Approval workflow**: users with auto-approve download immediately; otherwise an admin approves.
 - **Retry switches source** — from the third attempt Romseerr uses a different source instead of
   repeating the failing one. The entry shows the attempt, the button announces the switch, and

@@ -17,6 +17,13 @@ import time
 import pytest
 
 
+# Jede Instanz braucht mindestens einen Admin mit Passwort — save_users weist alles andere
+# ab (#234). Die Fixtures hier bauten vorher Instanzen, die NUR aus einem Nutzerkonto
+# bestanden: real waere das genau der ausgesperrte Zustand, in den die App nicht geraten
+# darf. Der Admin gehoert also dazu, nicht als Zugestaendnis an die Pruefung, sondern weil
+# der Testaufbau sonst etwas Unmoegliches beschreibt.
+ADMIN_FIX = {"chef": {"pw": "x", "role": "admin", "perms": []}}
+
 def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200
@@ -619,7 +626,7 @@ def test_wishlist_import_size_cap_and_empty(appmod, client):
 
 def test_wishlist_import_requires_permission(appmod, client):
     """Ohne `request`-Recht kein Import — dieselbe Regel wie beim Einzel-Hinzufügen. (#80)"""
-    appmod.save_users({"nop": {"pw": "x", "role": "user", "perms": []}})
+    appmod.save_users({**ADMIN_FIX, "nop": {"pw": "x", "role": "user", "perms": []}})
     with client.session_transaction() as sess:
         sess["user"] = "nop"; sess["role"] = "user"
     assert client.post("/api/wishlist/import", json={"text": "Chrono Trigger"}).status_code == 403
@@ -762,7 +769,7 @@ def test_import_refuses_to_lock_everyone_out(appmod, client):
 
 def test_export_import_admin_only(appmod, client):
     """Beide Richtungen nur für Admins. (#75)"""
-    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": ["request"]}})
+    appmod.save_users({**ADMIN_FIX, "lena": {"pw": "x", "role": "user", "perms": ["request"]}})
     with client.session_transaction() as sess:
         sess["user"] = "lena"; sess["role"] = "user"
     assert client.get("/api/export").status_code == 403
@@ -835,7 +842,7 @@ def test_coverage_endpoint_and_missing_route(appmod, client):
 
 def test_coverage_refresh_needs_permission_and_source(appmod, client):
     """Katalogabruf nur mit manage_settings und nur mit konfigurierter Quelle. (#78)"""
-    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": ["request"]}})
+    appmod.save_users({**ADMIN_FIX, "lena": {"pw": "x", "role": "user", "perms": ["request"]}})
     with client.session_transaction() as sess:
         sess["user"] = "lena"; sess["role"] = "user"
     assert client.post("/api/coverage/refresh", json={}).status_code == 403
@@ -924,7 +931,7 @@ def test_ra_profile_account_roundtrip(appmod, client):
 def test_ra_refresh_requires_key_and_permission(appmod, client):
     """Ohne Key klare Absage, ohne manage_settings 403. (#79)"""
     appmod.save_settings({})
-    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": ["request"]}})
+    appmod.save_users({**ADMIN_FIX, "lena": {"pw": "x", "role": "user", "perms": ["request"]}})
     with client.session_transaction() as sess:
         sess["user"] = "lena"; sess["role"] = "user"
     assert client.post("/api/ra/refresh").status_code == 403
@@ -1007,7 +1014,7 @@ def test_variant_prefs_layering(appmod):
     assert appmod.variant_prefs()["regions"] == appmod.DEFAULT_VARIANT_PREFS["regions"]
     appmod.save_settings({"variant": {"regions": ["Japan"], "lang": "ja", "prerelease": False}})
     assert appmod.variant_prefs()["regions"] == ["Japan"]
-    appmod.save_users({"u": {"pw": "x", "role": "user",
+    appmod.save_users({**ADMIN_FIX, "u": {"pw": "x", "role": "user",
                              "variant": {"regions": ["USA"], "lang": "", "prerelease": True}}})
     p = appmod.variant_prefs("u")
     assert p["regions"] == ["USA"] and p["prerelease"] is True
@@ -1248,7 +1255,7 @@ def test_a_broken_handover_is_visible_in_the_interface(appmod, client, tmp_path)
 
 def test_config_warnings_are_for_admins_only(appmod, client):
     """Die Warnungen nennen Pfade der Anlage — das ist nichts für jeden Angemeldeten. (#197)"""
-    appmod.save_users({"n": {"pw": "x", "role": "user", "perms": []}})
+    appmod.save_users({**ADMIN_FIX, "n": {"pw": "x", "role": "user", "perms": []}})
     with client.session_transaction() as sess:
         sess["user"] = "n"; sess["role"] = "user"
     assert client.get("/api/config/warnings").status_code == 403
@@ -1409,11 +1416,11 @@ def test_play_url_points_at_romm_player(appmod, monkeypatch):
 
 def test_play_endpoint_needs_request_permission(appmod, client):
     """Der Knopf folgt denselben Rechten wie der Download. (#69)"""
-    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": []}})
+    appmod.save_users({**ADMIN_FIX, "lena": {"pw": "x", "role": "user", "perms": []}})
     with client.session_transaction() as sess:
         sess["user"] = "lena"; sess["role"] = "user"
     assert client.get("/api/play?title=X").status_code == 403
-    appmod.save_users({"max": {"pw": "x", "role": "user", "perms": ["request"]}})
+    appmod.save_users({**ADMIN_FIX, "max": {"pw": "x", "role": "user", "perms": ["request"]}})
     with client.session_transaction() as sess:
         sess["user"] = "max"; sess["role"] = "user"
     assert client.get("/api/play?title=X&platform=ps2").get_json()["reason"] in ("no_core", "no_romm")
@@ -1486,7 +1493,7 @@ def test_personal_webhook_test_blocks_internal_targets(appmod, client):
     """Der kritische Fall: ein GEWÖHNLICHER angemeldeter Nutzer darf den Server nicht
     auf interne Adressen schicken. (#89)"""
     appmod.save_settings({})
-    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": ["request"],
+    appmod.save_users({**ADMIN_FIX, "lena": {"pw": "x", "role": "user", "perms": ["request"],
                                 "webhook": "http://127.0.0.1:8080/intern"}})
     with client.session_transaction() as sess:
         sess["user"] = "lena"; sess["role"] = "user"
@@ -1555,7 +1562,7 @@ def test_stream_is_single_seat(appmod, client):
     nicht mit einem stillen Fehlschlag. (#71)"""
     _stream_ready(appmod)
     appmod.kv_put("stream_session", None)
-    appmod.save_users({"anna": {"pw": "x", "role": "user", "perms": ["request"]},
+    appmod.save_users({**ADMIN_FIX, "anna": {"pw": "x", "role": "user", "perms": ["request"]},
                        "bert": {"pw": "x", "role": "user", "perms": ["request"]}})
     with client.session_transaction() as sess:
         sess["user"] = "anna"; sess["role"] = "user"
@@ -1592,7 +1599,7 @@ def test_stream_session_expires(appmod):
 
 def test_stream_needs_permission(appmod, client):
     """Gleiche Rechte wie Download und Play. (#71)"""
-    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": []}})
+    appmod.save_users({**ADMIN_FIX, "lena": {"pw": "x", "role": "user", "perms": []}})
     with client.session_transaction() as sess:
         sess["user"] = "lena"; sess["role"] = "user"
     assert client.get("/api/stream?title=X").status_code == 403
@@ -1818,7 +1825,7 @@ def test_streamable_and_playable_stay_disjoint(appmod):
 
 def test_emulator_endpoints_need_manage_settings(appmod, client):
     """Emulatoren aktualisieren und zuruecksetzen ist Administration. (#102)"""
-    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": ["request"]}})
+    appmod.save_users({**ADMIN_FIX, "lena": {"pw": "x", "role": "user", "perms": ["request"]}})
     with client.session_transaction() as sess:
         sess["user"] = "lena"; sess["role"] = "user"
     assert client.get("/api/stream/emulators").status_code == 403
@@ -1892,7 +1899,7 @@ def test_content_policy_actually_catches_things(tmp_path):
 
 def test_emulator_catalog_endpoints_need_manage_settings(appmod, client):
     """Katalog und Installation sind Administration. (#106)"""
-    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": ["request"]}})
+    appmod.save_users({**ADMIN_FIX, "lena": {"pw": "x", "role": "user", "perms": ["request"]}})
     with client.session_transaction() as sess:
         sess["user"] = "lena"; sess["role"] = "user"
     assert client.get("/api/stream/emulators/catalog").status_code == 403
@@ -2036,7 +2043,7 @@ def test_published_image_carries_provenance():
 # ---------------------------------------------------------- Firmware/BIOS (#107)
 
 def test_firmware_routes_need_manage_settings(appmod, client):
-    appmod.save_users({"lena": {"pw": "x", "role": "user", "perms": ["request"]}})
+    appmod.save_users({**ADMIN_FIX, "lena": {"pw": "x", "role": "user", "perms": ["request"]}})
     with client.session_transaction() as sess:
         sess["user"] = "lena"; sess["role"] = "user"
     assert client.get("/api/stream/firmware").status_code == 403
@@ -3680,7 +3687,7 @@ def test_usenet_check_measures_every_stage(appmod, client, monkeypatch, tmp_path
 
 def test_usenet_check_needs_permission(appmod, client):
     """Die Prüfung nennt Kategorien und Ordnerpfade — das ist Admin-Sache. (#196)"""
-    appmod.save_users({"g": {"pw": "x", "role": "user", "perms": ["request"]}})
+    appmod.save_users({**ADMIN_FIX, "g": {"pw": "x", "role": "user", "perms": ["request"]}})
     with client.session_transaction() as sess:
         sess["user"] = "g"; sess["role"] = "user"
     assert client.get("/api/usenet/check").status_code == 403
@@ -3983,7 +3990,7 @@ def test_leftover_remove_refuses_paths_outside(appmod, tmp_path, monkeypatch):
 
 def test_leftovers_endpoint_needs_permission(appmod, client):
     """Die Liste nennt Pfade und Größen, das Entfernen löscht Daten. (#244)"""
-    appmod.save_users({"g": {"pw": "x", "role": "user", "perms": ["request"]}})
+    appmod.save_users({**ADMIN_FIX, "g": {"pw": "x", "role": "user", "perms": ["request"]}})
     with client.session_transaction() as sess:
         sess["user"] = "g"; sess["role"] = "user"
     assert client.get("/api/leftovers").status_code == 403
@@ -4205,3 +4212,68 @@ def test_successful_import_resets_the_attempt_counter(appmod, tmp_path, monkeypa
     assert j["state"] == "done"
     assert j["tries"] == 0 and j["tried_sources"] == [], "Zähler muss zurückgesetzt werden"
     appmod.JOBS[:] = []
+
+
+def test_save_users_refuses_to_lock_everyone_out(appmod):
+    """Kein Schreibvorgang darf eine Instanz ohne Zugang hinterlassen. (#234)
+
+    Die Bedingung stand vorher nur im Import-Pfad. `save_users` ist aber ein **Ersetzer**:
+    es leert die Tabelle und schreibt das übergebene Dict als Gesamtbestand — jeder andere
+    Weg (Benutzerverwaltung, Rechteformular, Wartungsaufruf) konnte die Instanz
+    unerreichbar machen.
+    """
+    appmod.save_users({"chef": {"pw": "geheim", "role": "admin"},
+                       "gast": {"pw": "x", "role": "user"}})
+
+    # Konten ohne einen einzigen Admin
+    with pytest.raises(appmod.KeinAdminMehr):
+        appmod.save_users({"gast": {"pw": "x", "role": "user"}})
+    # Admin ohne Passwort ist kein Zugang
+    with pytest.raises(appmod.KeinAdminMehr):
+        appmod.save_users({"chef": {"pw": "", "role": "admin"}})
+    with pytest.raises(appmod.KeinAdminMehr):
+        appmod.save_users({"chef": {"role": "admin"}})
+
+    # und der Bestand ist unangetastet — eine abgewiesene Änderung darf nichts halb tun
+    assert sorted(appmod.load_users()) == ["chef", "gast"]
+
+    # Die LEERE Liste ist erlaubt: dann greift die Ersteinrichtung, das sperrt niemanden aus.
+    appmod.save_users({})
+    assert appmod.load_users() == {}
+    appmod.save_users({})
+
+
+def test_last_admin_cannot_be_demoted_or_deleted_via_api(appmod, client):
+    """Auch über die Oberfläche nicht — und mit 400 statt Serverfehler. (#234)"""
+    appmod.save_users({"chef": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "chef"; sess["role"] = "admin"
+
+    r = client.patch("/api/users/chef", json={"role": "user"})
+    assert r.status_code == 400, "der letzte Admin darf die Rolle nicht verlieren"
+    assert appmod.load_users()["chef"]["role"] == "admin"
+
+    # Ein zweiter Admin macht den Weg frei — sonst wäre die Sperre keine Regel, sondern
+    # eine Blockade.
+    appmod.save_users({"chef": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)},
+                       "zwei": {"pw": "y", "role": "admin", "perms": list(appmod.PERMS)}})
+    r = client.patch("/api/users/zwei", json={"role": "user"})
+    assert r.status_code == 200 and appmod.load_users()["zwei"]["role"] == "user"
+    appmod.save_users({})
+
+
+def test_shrinking_the_user_list_is_logged(appmod, tmp_path, monkeypatch):
+    """Ein versehentliches Überschreiben soll wenigstens nachweisbar sein. (#234)
+
+    Die Invariante verhindert das Aussperren, nicht das Ersetzen durch einen gültigen,
+    aber falschen Bestand — genau so gingen hier schon einmal zwei echte Konten verloren.
+    """
+    zeilen = []
+    monkeypatch.setattr(appmod, "log", lambda m: zeilen.append(m))
+    appmod.save_users({"chef": {"pw": "x", "role": "admin"},
+                       "a": {"pw": "x", "role": "user"},
+                       "b": {"pw": "x", "role": "user"}})
+    zeilen.clear()
+    appmod.save_users({"chef": {"pw": "x", "role": "admin"}})
+    assert any("verkleinert" in z and "3 -> 1" in z for z in zeilen), zeilen
+    appmod.save_users({})

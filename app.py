@@ -2609,14 +2609,59 @@ def load_users():
             return {u: json.loads(d) for u, d in c.execute("SELECT username,data FROM users")}
     except Exception as e:
         log(f"users-Laden-Fehler: {e}"); return {}
+class KeinAdminMehr(RuntimeError):
+    """Der Schreibvorgang wuerde eine Instanz hinterlassen, in die niemand mehr hineinkommt."""
+
+def _hat_admin(u):
+    """Mindestens ein Konto mit Adminrolle UND gesetztem Passwort. (#234)"""
+    return any((v or {}).get("role") == "admin" and str((v or {}).get("pw") or "").strip()
+               for v in (u or {}).values())
+
 def save_users(u):
+    """Die Benutzerliste ERSETZEN — mit der Sperre, die bisher nur der Import kannte. (#234)
+
+    Diese Funktion ist ein Ersetzer, kein Ergaenzer: sie leert die Tabelle und schreibt das
+    uebergebene Dict als Gesamtbestand. Die Bedingung „mindestens ein Admin mit Passwort"
+    stand deshalb an genau einer Stelle richtig — im Import — und an keiner anderen. Ueber
+    die Benutzerverwaltung, ein Rechte-Formular oder einen Wartungsaufruf war eine Instanz
+    erreichbar, in der sich niemand mehr anmelden kann und die sich auch nicht mehr
+    reparieren laesst.
+
+    Eine **leere** Liste ist ausdruecklich erlaubt: dann greift `api_setup`, und der erste
+    Admin wird neu angelegt — das sperrt niemanden aus. Verboten ist der Zustand dazwischen:
+    Konten vorhanden, aber keines, das noch hineinkommt.
+    """
+    if u and not _hat_admin(u):
+        raise KeinAdminMehr("kein Admin mit Passwort / no admin with a password")
     try:
+        vorher = len(load_users())
         with DB_LOCK, closing(db_conn()) as c, c:
             c.execute("DELETE FROM users")
             c.executemany("INSERT INTO users(username,data) VALUES(?,?)",
                           [(k, json.dumps(v)) for k, v in u.items()])
+        # Jede Verkleinerung protokollieren. Die Invariante oben verhindert das Aussperren,
+        # nicht das versehentliche Ueberschreiben mit einem gueltigen, aber falschen Bestand
+        # — und ein solcher Vorfall soll wenigstens nachweisbar sein, statt lautlos zu
+        # passieren.
+        if vorher > len(u):
+            log(f"Benutzerliste verkleinert: {vorher} -> {len(u)} "
+                f"({', '.join(sorted(u)) or 'leer'})")
     except Exception as e:
         log(f"users-Speichern-Fehler: {e}")
+def speichere_nutzer_http(users):
+    """save_users fuer HTTP-Handler: die Invariante wird zur 400, nicht zum Serverfehler.
+
+    Gibt eine fertige Antwort zurueck, wenn der Schreibvorgang abgelehnt wurde, sonst None.
+    Ohne das waere aus einer sauberen Sperre ein 500er geworden — technisch sicher, aber
+    fuer den Bedienenden ununterscheidbar von einem Absturz. (#234)
+    """
+    try:
+        save_users(users); return None
+    except KeinAdminMehr:
+        return jsonify({"ok": False,
+                        "msg": "es muss ein Admin mit Passwort bleiben / "
+                               "one admin with a password must remain"}), 400
+
 def load_settings():
     return kv_get("settings", {})
 def save_settings(s):
@@ -4209,7 +4254,8 @@ def api_users_patch(u):
         if users[u].get("role")=="admin" and d["role"]!="admin" and len(admins)<=1:
             return jsonify({"ok":False,"msg":"letzter Admin"}), 400
         users[u]["role"] = d["role"]
-    save_users(users); return jsonify({"ok":True})
+    fehler = speichere_nutzer_http(users)
+    return fehler or jsonify({"ok":True})
 
 # ---- Einstellungen (Benachrichtigungen) ----
 @app.route("/api/settings", methods=["GET"])
@@ -4921,7 +4967,9 @@ def api_users_del(u):
     admins = [x for x,v in users.items() if v.get("role")=="admin"]
     if users[u].get("role")=="admin" and len(admins)<=1:
         return jsonify({"ok":False,"msg":"letzter Admin"}), 400
-    users.pop(u,None); save_users(users); return jsonify({"ok":True})
+    users.pop(u,None)
+    fehler = speichere_nutzer_http(users)
+    return fehler or jsonify({"ok":True})
 
 # ---------- OpenAPI / API-Dokumentation ----------
 # Einzige Quelle der Wahrheit. Ausgeliefert unter /api/openapi.json, gerendert unter /api/docs.
