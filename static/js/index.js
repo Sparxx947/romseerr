@@ -76,9 +76,35 @@ function applyDesign(dz){if(!DESIGNS.includes(dz))dz='seerr';document.documentEl
  document.querySelectorAll('.dpick').forEach(e=>e.classList.toggle('on',e.dataset.d==dz));}
 applyDesign(localStorage.getItem('design')||'seerr');
 function t(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.de[k]||k;}
+// Sprachen mit Flagge UND Name (#206). Eine Flagge allein ist ein Land, keine Sprache —
+// Englisch unter 🇬🇧 liest sich für Amerikaner falsch, Spanisch unter 🇪🇸 für Lateinamerika.
+// Im Aufklappmenü ist Platz für beides; eingeklappt genügt die Flagge.
+const SPRACHEN=[['de','🇩🇪','Deutsch'],['en','🇬🇧','English'],['fr','🇫🇷','Français'],
+                ['es','🇪🇸','Español'],['it','🇮🇹','Italiano']];
 function setLang(l){LANG=l;localStorage.setItem('lang',l);applyI18n();
- document.querySelectorAll('#langsw b').forEach(e=>e.classList.toggle('on',e.dataset.l==l));
+ zeichneKopf();
  if(cur=='s'&&!document.getElementById('q').value.trim())loadDiscover();if(cur=='j')loadJobs();}
+// --- Kopfleiste rechts: Sprache und Person (#206) ---
+function toggleMenu(id,ev){
+ if(ev)ev.stopPropagation();
+ let m=document.getElementById(id);if(!m)return;
+ let box=m.parentElement,auf=box.classList.contains('auf');
+ closeMenus();
+ if(!auf){box.classList.add('auf');let b=box.querySelector('button');if(b)b.setAttribute('aria-expanded','true');}}
+function closeMenus(){document.querySelectorAll('.aufklapp.auf').forEach(b=>{
+ b.classList.remove('auf');let x=b.querySelector('button');if(x)x.setAttribute('aria-expanded','false');});}
+// Ein Menue, das nur der erneute Klick auf denselben Knopf schliesst, aergert taeglich.
+document.addEventListener('click',e=>{if(!e.target.closest('.aufklapp'))closeMenus();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMenus();});
+function zeichneKopf(){
+ let lb=document.getElementById('langbtn'),lm=document.getElementById('langmenu');
+ if(lb&&lm){
+  let akt=SPRACHEN.find(x=>x[0]===LANG)||SPRACHEN[0];
+  lb.innerHTML=akt[1]+' <span style="opacity:.7">▾</span>';
+  lb.title=akt[2];
+  lm.innerHTML=SPRACHEN.map(x=>`<a class="mitem${x[0]===LANG?' on':''}" onclick="closeMenus();setLang('${x[0]}')">${x[1]} ${x[2]}</a>`).join('');}
+ let ub=document.getElementById('userbtn');
+ if(ub&&window._who)ub.innerHTML=window._who;}
 function applyI18n(){
  document.querySelectorAll('[data-i18n]').forEach(e=>e.textContent=t(e.dataset.i18n));
  document.querySelectorAll('[data-i18n-ph]').forEach(e=>e.placeholder=t(e.dataset.i18nPh));
@@ -609,10 +635,14 @@ async function loadAuth(){let d=await(await fetch('/api/auth/status')).json();
  let lang=d.user_lang||localStorage.getItem('lang')||d.default_lang||'de';
  if(lang!=LANG){LANG=lang;localStorage.setItem('lang',lang);setLang(lang);}
  applyDesign(d.user_design||localStorage.getItem('design')||d.default_design||'seerr');
- let who=document.getElementById('who');
+ // Name und Bild wandern in den Knopf oben rechts (#206). `_who` merkt sich das
+ // Markup, damit ein Sprachwechsel die Kopfleiste neu zeichnen kann, ohne /api/auth/status
+ // erneut zu fragen.
  if(d.user){let nm=(d.display_name||d.user);
-   who.innerHTML=`<img src="${d.avatar||defAvatar(nm)}">`+nm.replace(/</g,'&lt;');}
- else who.textContent='';
+   window._who=`<img src="${d.avatar||defAvatar(nm)}">`+nm.replace(/</g,'&lt;')+' <span style="opacity:.7">▾</span>';}
+ else window._who='';
+ let ubox=document.getElementById('userbox');if(ubox)ubox.style.display=d.user?'':'none';
+ zeichneKopf();
  if(d.role=='admin'){document.getElementById('nSet').style.display='';
    try{let cs=await(await fetch('/api/settings')).json();if(!cs.onboarded)startWizard();}catch(e){}}
  cfgWarn();}
@@ -1200,8 +1230,7 @@ async function addUser(){let u=document.getElementById('nu').value.trim(),p=docu
    body:JSON.stringify({username:u,password:p,role:r})})).json();
  if(d.ok)setSection('users');else document.getElementById('uerr').textContent=d.msg||'Fehler';}
 async function logout(){await fetch('/api/logout',{method:'POST'});location.href='/login';}
-document.querySelectorAll('#langsw b').forEach(e=>e.classList.toggle('on',e.dataset.l==LANG));
-applyI18n();loadAuth();loadPlatforms();loadDiscover();updateMsgBadge();
+applyI18n();zeichneKopf();loadAuth();loadPlatforms();loadDiscover();updateMsgBadge();
 // Adresse zuerst auswerten: sonst landet ein Neuladen immer auf Entdecken, egal was in
 // der Adresszeile steht. replaceState, damit vor der Startansicht kein leerer Eintrag
 // im Verlauf liegt. (#194)

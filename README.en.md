@@ -307,6 +307,13 @@ closes an open detail dialog instead of leaving the application — on a phone, 
 the navigation. A **reload** lands where you were, and a **link** to a title can be sent
 to someone.
 
+### Header
+
+**Language** and **user** live in the top right: language as a dropdown (collapsed to the
+flag, flag **and** the language's own name in the list — a flag is a country, not a
+language), next to it the name and avatar with a menu for *profile* and *sign out*. Both
+menus close on click-outside and on Escape. The sidebar now carries navigation only.
+
 ### Settings
 
 The section menu sits **on top** so the forms get the full width — they carry URLs and

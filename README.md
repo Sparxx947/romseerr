@@ -313,6 +313,13 @@ zurück und schließt ein offenes Detailfenster, statt die Anwendung zu verlasse
 Telefon *ist* Zurück die Navigation. Ein **Neuladen** kommt dort heraus, wo man war, und
 ein **Link** auf einen Titel lässt sich verschicken.
 
+### Kopfleiste
+
+Oben rechts stehen **Sprache** und **Person**: die Sprache als Aufklappmenü (eingeklappt
+die Flagge, in der Liste Flagge **und** Eigenname — eine Flagge allein ist ein Land, keine
+Sprache), daneben Name und Bild mit einem Menü für *Profil* und *Abmelden*. Beide Menüs
+schließen per Klick daneben und mit Escape. Die Seitenleiste trägt nur noch die Navigation.
+
 ### Einstellungen
 
 Das Bereichsmenü liegt **oben**, damit die Formulare die volle Breite bekommen — sie
