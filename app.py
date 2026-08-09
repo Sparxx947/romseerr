@@ -2625,6 +2625,7 @@ def stream_start(user, title, slug):
         conf = stream_cfg()
         launched = False
         fehler = ""
+        fehlergrund = ""          # maschinenlesbar, damit die Oberflaeche unterscheiden kann (#177)
         if conf["launch"]:
             try:
                 # RELATIV zur Bibliothekswurzel schicken. Ein absoluter Pfad bedeutet
@@ -2650,7 +2651,16 @@ def stream_start(user, title, slug):
                 if not r.ok:
                     try: fehler = str((r.json() or {}).get("msg") or "")[:300]
                     except Exception: fehler = f"HTTP {r.status_code}"
-                    log(f"Stream-Start abgelehnt: HTTP {r.status_code} {fehler}")
+                    # Ein nicht passendes Geheimnis ist ein ANDERER Fehler als ein toter
+                    # Host, und beide sahen gleich aus: „Start fehlgeschlagen". Der
+                    # Betreiber sucht dann am falschen Ende — der Dienst laeuft ja. 401
+                    # ist die einzige Antwort, die der Start-Dienst auf ein falsches
+                    # Token gibt, also ist sie hier eindeutig. (#177)
+                    if r.status_code == 401:
+                        fehlergrund = "bad_token"
+                        log("Stream-Start abgelehnt: Token stimmt nicht ueberein (401)")
+                    else:
+                        log(f"Stream-Start abgelehnt: HTTP {r.status_code} {fehler}")
             except Exception as e:
                 fehler = err_kind(e)
                 log(f"Stream-Start-Fehler: {e}")
@@ -2658,7 +2668,7 @@ def stream_start(user, title, slug):
                                   "started": int(time.time()),
                                   "expires": time.time() + STREAM_TTL, "launched": launched})
     return {"streamable": True, "url": conf["url"], "launched": launched,
-            "launch_error": fehler,
+            "launch_error": fehler, "launch_reason": fehlergrund,
             "platform": info["platform"], "expires_in": STREAM_TTL}, 200
 
 def worker_collect():

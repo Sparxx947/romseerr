@@ -285,6 +285,36 @@ startet Prozesse — entsprechend ist er gebaut:
 
 Er gehört **nicht ins offene Netz**.
 
+### Das Token wechseln
+
+Das Token ist das Einzige zwischen einer Anfrage und einem gestarteten Prozess auf dem
+Host. Es steht an **zwei** Stellen, und ändert man nur eine, weist der Start-Dienst
+Romseerr ab — der Stream-Knopf meldet dann, dass das Token nicht übereinstimmt.
+
+Ein neues erzeugen (nichts erfinden, das ist der häufigste Fehler):
+
+```bash
+openssl rand -hex 32
+```
+
+Dann **in dieser Reihenfolge**, damit das Fenster ohne funktionierenden Stream so kurz
+wie möglich bleibt:
+
+1. **Romseerr zuerst**: *Einstellungen → Verbindungen → Streaming-Host* → im Feld
+   *Start-Dienst* das `token=…` in der URL auf den neuen Wert setzen, speichern.
+   Ab hier scheitert der Start — der Host kennt den neuen Wert noch nicht.
+2. **Host**: `STREAM_AGENT_TOKEN` in der `.env` ersetzen, dann
+   `docker compose up -d stream-agent` (nur dieser Dienst, der Rest läuft weiter).
+3. **Prüfen**: einen Titel starten. Kommt „das Token stimmt nicht überein", steht auf
+   einer der beiden Seiten noch der alte Wert.
+
+Umgekehrt geht es auch, dauert aber länger: der Neustart des Dienstes ist der langsamere
+Schritt, und in dieser Reihenfolge liegt er im Fenster.
+
+**Beide Werte sind Geheimnisse.** Ein Token, das durch ein Terminalprotokoll, einen
+Bildschirmabzug oder eine eingefügte Logzeile gelaufen ist, gilt als bekannt — dann ist
+dieses Verfahren der Anlass, nicht die Ausnahme.
+
 ---
 
 ## Zertifikat erneuert sich selbst
@@ -382,6 +412,35 @@ silent.
 `stream-agent.py` starts processes, so: it refuses to run without a shared token,
 never uses a shell, and resolves the path with `realpath`, rejecting anything
 outside the ROM library. Do not expose it to the open internet.
+
+### Rotating the token
+
+The token is the only thing between a request and a process starting on the host. It lives
+in **two** places, and changing one alone makes the launch service reject Romseerr — the
+stream button then says the token does not match, rather than showing a generic failure.
+
+Generate one (do not invent it — that is the common mistake):
+
+```bash
+openssl rand -hex 32
+```
+
+Then, **in this order**, so the window without a working stream stays as short as possible:
+
+1. **Romseerr first**: *Settings → Connections → streaming host* → set `token=…` in the
+   *launch service* URL to the new value and save. Launches fail from here on: the host
+   does not know the new value yet.
+2. **Host**: replace `STREAM_AGENT_TOKEN` in `.env`, then
+   `docker compose up -d stream-agent` (that service only; the rest keeps running).
+3. **Check**: start a title. "The token does not match" means one side still holds the old
+   value.
+
+The reverse order works too but takes longer: restarting the service is the slower step,
+and this way it falls inside the window.
+
+**Both values are secrets.** A token that has passed through a terminal scrollback, a
+screenshot or a pasted log line counts as known — and then this procedure is the occasion,
+not the exception.
 
 ## Installing emulators
 
