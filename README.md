@@ -239,6 +239,13 @@ docker run -d --name romseerr -p 8770:8770 \
 
 Der Container läuft **non-root** und bringt einen **Healthcheck** auf `/health` mit.
 
+> **`/config` muss der uid 1000 gehören** (oder für sie beschreibbar sein) — das ist die
+> Kennung, unter der das Abbild läuft. Passt sie nicht, startet Romseerr trotzdem,
+> beantwortet jede Anfrage und meldet `healthy`, **speichert aber nichts**: keine Anfrage,
+> keinen Job, keine Einstellung. Sichtbar wird das an `"storage": "ro"` in `/health`, einer
+> Startwarnung und einem Hinweis in der Oberfläche. Prüfen: `docker exec romseerr id`,
+> setzen: `chown -R 1000 ./config`.
+
 ---
 
 ## Ersteinrichtung
