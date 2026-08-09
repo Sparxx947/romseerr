@@ -273,6 +273,50 @@ Für dauerhaftes Bleiben auf einer bestimmten Fassung: die vollständige URL des
 gewünschten Release-Assets in `<NAME>_URL` eintragen (z. B. `PCSX2_URL`). Sie
 schlägt die Release-Abfrage, auch bei eingeschaltetem Auto-Update.
 
+## DRI3: eine Zeile, kein X-Server-Umbau
+
+Der X-Dienst des Abbilds kann DRI3, sucht dafür aber **fest nach `/dev/dri/renderD128`**.
+Hängt die Karte an einem anderen Knoten, greift die Erkennung nie — Xvfb läuft ohne
+GPU-Knoten, DRI3 fehlt, und Vulkan kann gar nicht präsentieren. Genau deshalb war
+VirtualGL überhaupt nötig.
+
+Die Abhilfe ist `DRINODE` in der Compose-Datei. Gemessen mit und ohne:
+
+| | ohne `DRINODE` | mit |
+|---|---|---|
+| `xdpyinfo` | Composite, DAMAGE, GLX | **+ DRI3** |
+| `vulkaninfo` | *No DRI3 support detected* | präsentierfähige Oberfläche auf der GPU |
+| Dolphins Video-Thread | sättigt einen Kern | **14 %** |
+| VirtualGL im Prozess | ja | **nein** |
+
+Ein echter Xorg auf der GPU wurde probiert und funktioniert auch (headless, `modesetting`
++ glamor, als unprivilegierter Nutzer) — er wird schlicht nicht gebraucht.
+
+## Gamepads erreichen die Emulatoren nicht (offen)
+
+Selkies reicht Gamepads über einen **`LD_PRELOAD`-Interposer** weiter. Die Emulatoren hier
+sind AppImages, deren Runtime **statisch gelinkt** ist (`AppRun` ist `static-pie`) — und auf
+statische Binärdateien wirkt `LD_PRELOAD` nicht. Nachgemessen: Im laufenden Emulator ist
+kein Interposer geladen, er öffnet kein einziges Eingabegerät, und sein SDL findet null
+Pads. Selkies selbst arbeitet korrekt: Mit Interposer findet ein System-SDL **vier** Pads,
+ohne **null**.
+
+Ausprobiert und verworfen: den Interposer neu bauen (geht, ändert nichts), das apt-Paket
+statt des AppImage (öffnet kein Fenster), die mitgelieferte `libudev` beiseitelegen
+(wirkungslos).
+
+Der Weg, der funktioniert, ist `selkies-uinput-bridge.py`: Sie spricht dasselbe
+Socket-Protokoll wie der Interposer und legt daraus **echte Kernel-Geräte** an, die kein
+Preloading brauchen. Der Prototyp erzeugt sie nachweislich. Offen ist, Selkies' eigene
+Interposer-Geräte abzuschalten, damit die echten deren Plätze einnehmen, und die Brücke als
+Dienst zu verankern. Voraussetzung ist das **uinput-Modul auf dem Host** und
+`/dev/uinput` im Container.
+
+*EN: gamepads never reach the emulators because `LD_PRELOAD` cannot apply to a statically
+linked AppImage runtime. `selkies-uinput-bridge.py` speaks the same socket protocol and
+creates real kernel devices instead; the prototype works, wiring it up as a service is
+still open.*
+
 ## Der Start-Dienst
 
 `stream-agent.py` nimmt von Romseerr entgegen, welche Datei zu starten ist. Er
