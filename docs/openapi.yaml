@@ -797,6 +797,31 @@ paths:
               properties:
                 title:
                   type: string
+  /api/logos:
+    get:
+      summary: Welche Logos der Betreiber hinterlegt hat (Dateinamen ohne Endung). Im Repo liegt bewusst
+        keines — Konsolenlogos sind Marken.
+      tags:
+      - System
+      responses:
+        '200':
+          description: OK
+      security: *id001
+  /logo/{name}:
+    get:
+      summary: Ein hinterlegtes Logo ausliefern
+      tags:
+      - System
+      responses:
+        '200':
+          description: OK
+      security: *id001
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
   /api/wishlist:
     get:
       summary: Eigene Wunschliste (vorgemerkte, noch nicht verfügbare Titel)
