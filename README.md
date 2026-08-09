@@ -187,7 +187,9 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
 - In **SABnzbd/JDownloader** erscheint der Download unter dem **ROM-Titel**; nach dem Import
   wird der erledigte Download dort **automatisch entfernt**. Nur nach einem **geglückten**
   Import: erkennt Romseerr nichts, bleibt der Download liegen, damit nichts verloren geht und
-  die Ursache noch nachsehbar ist. Solche Ordner räumst du selbst weg.
+  die Ursache noch nachsehbar ist. Diese Ordner stehen unter *Einstellungen → Logs & Wartung*
+  mit Größe und Alter, lassen sich einzeln oder gesammelt entfernen und verfallen nach einer
+  einstellbaren Frist (Standard 14 Tage, `0` schaltet das ab).
 
 ### Verwaltung
 - **Einstellungen** mit Unterbereichen: Allgemein, Benachrichtigungen, Benutzer, Verbindungen,

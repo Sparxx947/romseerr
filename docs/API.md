@@ -63,6 +63,7 @@ ohne gültige Session/Key mit **401**.
 | Push | `GET /api/push/pubkey`, `POST /api/push/subscribe` |
 | Admin | `/api/users`, `/api/settings`, `/api/blocklist`, `/api/logs`, `/api/apikey`, `/api/export`, `/api/import` |
 | Diagnose | `GET /api/services/status`, `GET /api/config/warnings`, `GET /api/usenet/check` |
+| Aufräumen | `GET /api/leftovers`, `POST /api/leftovers/remove` |
 
 `GET /api/usenet/check` misst den Usenet-Weg stufenweise durch (Suche, SAB-Kategorie,
 Warteschlange, Einsammelordner) und lädt dabei **nichts** herunter. Die letzte Stufe
@@ -71,6 +72,12 @@ nebeneinander — laufen sie auseinander, läuft der Download durch und wird nie
 eingesammelt. Eine weitere Stufe je Indexer (`step: "indexer:<Name>"`) holt **eine**
 Datei ab und meldet, ob wirklich eine NZB kommt; das zählt beim Indexer als Abruf gegen
 sein Stundenlimit. Antwort: `{"ok": bool, "steps": [{"step", "ok", "info"}]}`.
+
+`GET /api/leftovers` lists downloads a failed import left behind;
+`POST /api/leftovers/remove` clears one (`{"jid": "…"}`) or all (`{"all": true}`).
+Only paths resolving inside a collect directory and carrying the `romseerr_` prefix are
+ever deleted — a path from the request is never used, and folders owned by a running job
+are not listed at all.
 
 Details (Parameter, Bodies, Antworten) → `/api/docs`.
 
@@ -134,6 +141,12 @@ permission returns **403**; missing/invalid auth returns **401**.
 - JSON request bodies (`Content-Type: application/json`).
 - Success is usually `{"ok": true, …}`; errors are `{"error": "…"}` with an appropriate HTTP
   status. `/api/forgot` responds generically (does not reveal whether an account exists).
+
+`GET /api/leftovers` listet Downloads, die ein fehlgeschlagener Import liegen gelassen
+hat; `POST /api/leftovers/remove` entfernt einen (`{"jid": "…"}`) oder alle
+(`{"all": true}`). Gelöscht wird nur, was unterhalb eines Sammelordners liegt und das
+`romseerr_`-Präfix trägt — ein Pfad aus dem Request wird nie verwendet. Ordner laufender
+Aufträge erscheinen gar nicht erst.
 
 ### Diagnostics
 `GET /api/services/status`, `GET /api/config/warnings` and `GET /api/usenet/check` (all

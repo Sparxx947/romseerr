@@ -1036,6 +1036,29 @@ paths:
         schema:
           type: string
         description: Job-ID
+  /api/leftovers:
+    get:
+      summary: Downloads auflisten, die ein fehlgeschlagener Import liegen gelassen hat (Ordner, Groesse,
+        Alter, zugehoeriger Auftrag)
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
+  /api/leftovers/remove:
+    post:
+      summary: 'Liegengebliebene Downloads entfernen — einzeln per `jid` oder alle per `all: true`'
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+        '404':
+          description: nicht gefunden
+      security: *id002
   /api/jobs/clear-finished:
     post:
       summary: Abgeschlossene Anfragen entfernen
