@@ -118,9 +118,10 @@ BUILD_DATE   = os.environ.get("ROMSEERR_BUILT_AT", "").strip() or None
 CONFIG_DIR = os.environ.get("ROMSEERR_CONFIG", "/config")
 ROMS       = os.environ.get("ROMSEERR_ROMS", "/roms")
 SAB_DONE   = "/sab-complete"
-JD_WATCH   = "/jd-watch"
-JD_OUT     = "/jd-output/romseerr"           # Sicht von Romseerr auf JDownloaders Ausgabe
-JD_DL_BASE = os.environ.get("JD_DL_BASE","/output/romseerr")  # Sicht des JD-Containers
+JD_WATCH     = "/jd-watch"
+JD_OUT_ROOT  = "/jd-output"                  # Mountpunkt, unter dem Romseerr JDownloaders Ausgabe sieht
+JD_OUT       = JD_OUT_ROOT + "/romseerr"     # Rückfall, wenn sich aus JD_DL_BASE nichts ableiten lässt
+JD_DL_BASE   = os.environ.get("JD_DL_BASE","/output/romseerr")  # Sicht des JD-Containers
 STAGING    = os.path.join(CONFIG_DIR, "staging")
 JOBDB      = os.path.join(CONFIG_DIR, "jobs.json")
 LOGFILE    = os.path.join(CONFIG_DIR, "romseerr.log")
@@ -146,8 +147,12 @@ _ENV_CONN = {"sab_url": SAB_URL, "sab_apikey": SAB_APIKEY, "sab_cat": SAB_CAT,
              "romm_url": ROMM_URL, "romm_user": ROMM_USER, "romm_pass": ROMM_PASS,
              # JDownloader: drei verschiedene SICHTEN auf dieselbe Uebergabe —
              # jd_watch/jd_out sieht Romseerr, jd_dl_base sieht JDownloader. (#83)
+             # jd_out hat BEWUSST keinen festen Default mehr: leer heisst „aus jd_dl_base
+             # ableiten". Ein fester Default stand sonst still gegen ein geaendertes
+             # jd_dl_base und Romseerr wartete auf einen Ordner, den JDownloader nie
+             # befuellt — genau der Fall aus #197.
              "jd_watch": os.environ.get("JD_WATCH", JD_WATCH),
-             "jd_out": os.environ.get("JD_OUT", JD_OUT),
+             "jd_out": os.environ.get("JD_OUT", ""),
              "jd_dl_base": JD_DL_BASE,
              # Scraper / Cover-Quellen
              "sgdb_key": os.environ.get("STEAMGRIDDB_KEY", ""),
@@ -1800,27 +1805,79 @@ def sab_queue():
     return out
 
 def jd_watch_dir(): return cfg("jd_watch") or JD_WATCH
-def jd_out_dir():   return cfg("jd_out") or JD_OUT
 
-def jd_check():
+def jd_out_from_base(base):
+    """Romseerrs Sicht auf JDownloaders Zielordner AUS der JD-Sicht ableiten.
+
+    Beide zeigen auf denselben Ordner auf der Platte, nur der Mountpunkt heisst anders:
+    JDownloader sieht ihn unter `/output`, Romseerr unter `/jd-output`. Ersetzt wird
+    deshalb genau das erste Pfadsegment, der Rest bleibt — `/output/rom-suche` wird zu
+    `/jd-output/rom-suche`. (#197)"""
+    teile = [p for p in (base or "").strip().split("/") if p]
+    if not teile: return JD_OUT
+    return "/".join([JD_OUT_ROOT] + teile[1:])
+
+def jd_out_dir():
+    """Ausdrueckliche Einstellung schlaegt alles, sonst wird aus `jd_dl_base` abgeleitet.
+
+    Vorher hatten beide Sichten je einen eigenen Default. Wer in der Oberfläche
+    `jd_dl_base` aenderte (hier: auf `/output/rom-suche`), liess `jd_out` still auf
+    `/jd-output/romseerr` stehen — ein Ordner, den JDownloader nie anlegt. Die Uebergabe
+    meldete daraufhin „Ausgabe-Ordner fehlt", obwohl nichts fehlte ausser der
+    Uebereinstimmung. (#197)"""
+    gesetzt = (cfg("jd_out") or "").strip().rstrip("/")
+    return gesetzt or jd_out_from_base(cfg("jd_dl_base"))
+
+def jd_ensure_out():
+    """Ausgabe-Ordner anlegen, wenn er fehlt. Gibt (ok, Hinweis) zurueck.
+
+    Ein fehlender Zielordner ist kein Zustand, den ein Mensch beheben muss — JDownloader
+    legt ihn beim ersten Download selbst an, Romseerr braucht ihn aber schon vorher zum
+    Einsammeln. Achtmal dieselbe Startwarnung zu schreiben und nichts zu tun war die
+    schlechtere Haelfte davon. (#197)"""
+    out = jd_out_dir()
+    if os.path.isdir(out): return True, out
+    try:
+        os.makedirs(out, exist_ok=True)
+        log(f"JDownloader-Ausgabeordner angelegt / created: {out}")
+        return True, out
+    except Exception as e:
+        return False, f"{out} ({e.__class__.__name__})"
+
+def jd_check(anlegen=False):
     """Zustand der Ordner-Uebergabe an JDownloader. Es gibt keinen Handschlag — ein
     Ordner-Handoff bestaetigt nichts —, also ist die Pruefung der Verzeichnisse die
     EINZIGE Moeglichkeit, dem Betreiber ueberhaupt ein Signal zu geben. (#83)
 
     „fehlt" und „nicht beschreibbar" werden getrennt gemeldet: der eine Fall wird durch
-    einen Mount geloest, der andere durch Besitzrechte."""
+    einen Mount geloest, der andere durch Besitzrechte.
+
+    `anlegen=True` versucht den Ausgabe-Ordner zu erzeugen. Nur wer die Uebergabe
+    tatsaechlich benutzt (Start, Schreiben einer .crawljob) heilt; eine Anzeige bleibt
+    eine Anzeige und veraendert nichts. (#197)"""
     watch, out = jd_watch_dir(), jd_out_dir()
     if not os.path.isdir(watch):
         return {"ok": False, "reason": "watch_missing",
-                "info": f"Watch-Ordner fehlt / watch dir not found: {watch}"}
+                "info": f"Watch-Ordner fehlt / watch dir not found: {watch}",
+                "fix": "Bind-Mount auf JDownloaders folderwatch prüfen / "
+                       "check the bind-mount to JDownloader's folderwatch"}
     if not os.access(watch, os.W_OK):
         return {"ok": False, "reason": "watch_readonly",
                 "info": f"Watch-Ordner nicht beschreibbar (uid {os.getuid()}) / "
-                        f"not writable by uid {os.getuid()}: {watch}"}
+                        f"not writable by uid {os.getuid()}: {watch}",
+                # Die Abhilfe gehoert in die Meldung: uid und Pfad allein sagen dem
+                # Betreiber nicht, WAS er aendern soll. (#204)
+                "fix": f"{watch} für uid {os.getuid()} beschreibbar machen — gemeinsame "
+                       f"Gruppe oder 0775; JDownloader muss die Datei weiterhin löschen "
+                       f"können / make it writable for both containers"}
+    if anlegen and not os.path.isdir(out):
+        jd_ensure_out()
     if not os.path.isdir(out):
         return {"ok": False, "reason": "out_missing",
-                "info": f"Ausgabe-Ordner fehlt / output dir not found: {out}"}
-    return {"ok": True, "reason": "", "info": f"{watch} → {out}"}
+                "info": f"Ausgabe-Ordner fehlt / output dir not found: {out}",
+                "fix": f"{out} anlegen oder JD_DL_BASE/JD_OUT angleichen / "
+                       f"create it, or align JD_DL_BASE and JD_OUT"}
+    return {"ok": True, "reason": "", "info": f"{watch} → {out}", "fix": ""}
 
 def write_crawljob(jid, links, folder, name):
     """`.crawljob` in den Watch-Ordner legen. folder = JD-Container-Sicht
@@ -1828,7 +1885,7 @@ def write_crawljob(jid, links, folder, name):
 
     Schlaegt das Schreiben fehl, MUSS die Ausnahme durch: frueher wurde nur geloggt und
     der Job blieb fuer immer auf `downloading` stehen — der Ausfall war unsichtbar. (#83)"""
-    st = jd_check()
+    st = jd_check(anlegen=True)
     if not st["ok"]:
         raise RuntimeError(f"JDownloader-Uebergabe nicht moeglich / handover not possible: {st['info']}")
     data = [{"text":"\n".join(links) if isinstance(links,list) else links,
@@ -4138,6 +4195,34 @@ def api_tls_remove():
     save_settings(s)
     return jsonify({"ok": True})
 
+# Beim Start gesammelte Erreichbarkeitswarnungen (siehe check_config). Bewusst NICHT
+# live geprüft: dafür müsste jeder Aufruf der Oberfläche fremde Dienste anfragen.
+START_WARN = []
+
+def config_warnings():
+    """Konfigurationsprobleme, die einen ganzen Weg lahmlegen — für die Oberfläche.
+
+    Zwei Herkünfte mit Absicht: Dateisystemprüfungen (JDownloader-Übergabe) laufen LIVE,
+    weil sie nichts kosten und sich zwischendurch ändern können; Erreichbarkeit stammt aus
+    dem Startlauf, weil sie fremde Dienste anfragt.
+
+    Anlass: die Übergabe an JDownloader war unbenutzbar, die Warnung stand achtmal im
+    Logfile — und in der Oberfläche sagte nichts, dass Downloads gar nicht erst starten
+    können. Ein Fehler, den nur das Log kennt, ist für Benutzer kein Fehler, sondern
+    unerklärliches Verhalten. (#197)"""
+    w = [dict(x) for x in START_WARN]
+    jd = jd_check()
+    if not jd["ok"]:
+        w.append({"key": "jd", "reason": jd["reason"],
+                  "text": f"JDownloader-Übergabe / hand-off — {jd['info']}",
+                  "fix": jd.get("fix", "")})
+    return w
+
+@app.route("/api/config/warnings")
+@perm_required("manage_settings")
+def api_config_warnings():
+    return jsonify({"warnings": config_warnings()})
+
 @app.route("/api/services/status")
 @admin_required
 def api_services_status():
@@ -4164,8 +4249,12 @@ def api_services_status():
     if cfg("ss_user"):
         out.append({"name":"ScreenScraper","ok":True,"info":"Zugang hinterlegt / configured"})
     # JDownloader hat keine API in diesem Aufbau — geprueft wird die Ordner-Uebergabe. (#83)
+    # Und genau so heisst die Zeile auch: „JDownloader ❌" liest sich als „das Programm
+    # laeuft nicht" und schickte die Fehlersuche zweimal an den falschen Ort — der
+    # Downloader lief die ganze Zeit, unbenutzbar war der Uebergabe-Ordner. (#204)
     jd = jd_check()
-    out.append({"name":"JDownloader","ok":jd["ok"],"info":jd["info"]})
+    out.append({"name":"JDownloader-Übergabe / hand-off","ok":jd["ok"],
+                "info":jd["info"] + (f" — {jd['fix']}" if jd.get("fix") else "")})
     out.append({"name":"Archive.org","ok":True,"info":"public API"})
     return jsonify(out)
 
@@ -4535,6 +4624,9 @@ OPENAPI = {
                 responses={**_R_PERM, "200": {"description": "OK"}})},
         "/api/services/status": {"get": _op("Status angebundener Dienste (SAB, Prowlarr, RomM …)", "Admin",
             responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/config/warnings": {"get": _op("Konfigurationsprobleme, die einen ganzen Weg lahmlegen "
+                                            "(JDownloader-Übergabe live, Erreichbarkeit aus dem Startlauf)", "Admin",
+            responses={**_R_PERM, "200": {"description": "OK"}})},
         "/api/maillog": {"get": _op("Mail-Versand-Protokoll", "Admin",
             responses={**_R_PERM, "200": {"description": "OK"}})},
         "/api/logs": {"get": _op("Anwendungs-Log (letzte Zeilen)", "Admin",
@@ -4570,23 +4662,31 @@ def periodic_index():
 def check_config():
     """Beim Start einmal prüfen und WARNEN (nicht fatal), wenn optionale Dienste fehlen oder
     nicht erreichbar sind — spart Rätselraten, warum z. B. keine Cover oder kein Usenet da sind.
-    Läuft im Hintergrund, damit die Erreichbarkeitsprüfung den Start nicht verzögert."""
+    Läuft im Hintergrund, damit die Erreichbarkeitsprüfung den Start nicht verzögert.
+
+    Die Erreichbarkeitsbefunde landen zusätzlich in `START_WARN`, weil sie sonst nur im
+    Logfile stehen — und dorthin sieht niemand, dem gerade ein Download nicht ankommt. (#197)"""
     def reach(url):
         try: requests.get(url, timeout=4); return True
         except Exception: return False
+    START_WARN.clear()
+    def warn(key, text):
+        log(f"Konfig-WARNUNG: {text}")
+        START_WARN.append({"key": key, "text": text})
     if not (cfg("igdb_id") and cfg("igdb_secret")):
         log("Konfig: IGDB nicht gesetzt — keine Cover/Discover.")
     if not (cfg("sab_url") and cfg("sab_apikey")):
         log("Konfig: SABnzbd nicht gesetzt — Usenet-Download aus.")
     elif not reach(cfg("sab_url")):
-        log(f"Konfig-WARNUNG: SABnzbd ({cfg("sab_url")}) nicht erreichbar.")
-    jd = jd_check()
+        warn("sab", f"SABnzbd ({cfg("sab_url")}) nicht erreichbar / not reachable.")
+    # Erst heilen, dann melden: ein fehlender Ausgabeordner ist behebbar, ohne jemanden zu fragen.
+    jd = jd_check(anlegen=True)
     if not jd["ok"]:
         log(f"Konfig-WARNUNG: JDownloader-Uebergabe — {jd['info']}")
     if not (cfg("prow_url") and cfg("prow_apikey")):
         log("Konfig: Prowlarr nicht gesetzt — Usenet-Suche aus.")
     elif not reach(cfg("prow_url")):
-        log(f"Konfig-WARNUNG: Prowlarr ({cfg("prow_url")}) nicht erreichbar.")
+        warn("prow", f"Prowlarr ({cfg("prow_url")}) nicht erreichbar / not reachable.")
 
 if __name__ == "__main__":
     os.makedirs(STAGING, exist_ok=True)

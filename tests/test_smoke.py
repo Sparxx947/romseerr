@@ -1131,16 +1131,128 @@ def test_jd_paths_are_configurable(appmod):
 
 def test_jdownloader_appears_in_service_status(appmod, client, tmp_path):
     """JDownloader hat jetzt eine Zeile in der Dienstübersicht — vorher war er der einzige
-    eingebundene Dienst ohne. (#83)"""
+    eingebundene Dienst ohne. (#83)
+
+    Die Zeile heißt ausdrücklich nach der ÜBERGABE, nicht nach dem Programm: geprüft wird
+    ein Ordnerpaar, nicht ob JDownloader läuft. „JDownloader ❌" hat die Fehlersuche
+    zweimal an den falschen Ort geschickt. (#204)"""
     appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
     with client.session_transaction() as sess:
         sess["user"] = "j"; sess["role"] = "admin"
     appmod.save_settings({"connections": {"jd_watch": str(tmp_path / "nix"), "jd_out": str(tmp_path)}})
     rows = client.get("/api/services/status").get_json()
-    jd = next((r for r in rows if r["name"] == "JDownloader"), None)
+    jd = next((r for r in rows if r["name"].startswith("JDownloader")), None)
     assert jd is not None, "keine JDownloader-Zeile"
+    assert jd["name"] != "JDownloader", "die Zeile darf nicht nach dem Programm heißen (#204)"
+    assert "hand-off" in jd["name"] and "bergabe" in jd["name"]   # zweisprachig beschriftet
     assert jd["ok"] is False and "nix" in jd["info"]
+    assert "Bind-Mount" in jd["info"], "die Zeile muss sagen, was zu tun ist (#204)"
     appmod.save_settings({}); appmod.save_users({})
+
+
+def test_the_handover_check_says_what_to_change(appmod, tmp_path):
+    """Jeder der drei Fälle nennt seine eigene Abhilfe. Pfad und uid allein sagen dem
+    Betreiber nicht, WAS er ändern soll — und eine korrekte Prüfung, der niemand glaubt,
+    ist schlimmer als eine falsche. (#204)"""
+    import os as _os
+    if _os.getuid() == 0:
+        pytest.skip("als root ist jedes Verzeichnis beschreibbar")
+    watch = tmp_path / "wf"; watch.mkdir()
+    appmod.save_settings({"connections": {"jd_watch": str(watch), "jd_out": str(tmp_path)}})
+    _os.chmod(watch, 0o555)
+    try:
+        st = appmod.jd_check()
+        assert st["reason"] == "watch_readonly"
+        assert str(_os.getuid()) in st["fix"] and "0775" in st["fix"]
+        assert str(watch) in st["fix"]
+    finally:
+        _os.chmod(watch, 0o755)
+    appmod.save_settings({})
+
+
+def test_the_output_view_follows_the_downloader_view(appmod):
+    """Romseerrs Sicht auf den Zielordner wird aus der JD-Sicht ABGELEITET.
+
+    Der Fehler, den das abstellt: zwei unabhängige Defaults. `jd_dl_base` wurde in der
+    Oberfläche auf `/output/rom-suche` gesetzt, `jd_out` blieb still auf
+    `/jd-output/romseerr` — Romseerr sammelte in einem Ordner ein, den JDownloader nie
+    befüllt, und meldete „Ausgabe-Ordner fehlt". (#197)"""
+    appmod.save_settings({"connections": {"jd_dl_base": "/output/rom-suche"}})
+    assert appmod.jd_out_dir() == "/jd-output/rom-suche"
+
+    # Mehrstufige Pfade behalten ihren Rest, nur der Mountpunkt wird ersetzt.
+    appmod.save_settings({"connections": {"jd_dl_base": "/output/roms/neu"}})
+    assert appmod.jd_out_dir() == "/jd-output/roms/neu"
+
+    # Eine ausdrückliche Einstellung schlägt die Ableitung — sonst wäre ein abweichender
+    # Aufbau nicht mehr konfigurierbar.
+    appmod.save_settings({"connections": {"jd_dl_base": "/output/a", "jd_out": "/anderswo/out"}})
+    assert appmod.jd_out_dir() == "/anderswo/out"
+
+    # Ohne alles bleibt der bisherige Default.
+    appmod.save_settings({"connections": {"jd_dl_base": ""}})
+    assert appmod.jd_out_dir() == appmod.JD_OUT
+    appmod.save_settings({})
+
+
+def test_a_missing_output_folder_is_created_where_it_is_used(appmod, tmp_path):
+    """Der Ausgabe-Ordner wird angelegt, wo die Übergabe BENUTZT wird — und nur dort.
+
+    Achtmal dieselbe Startwarnung zu schreiben und nichts zu tun war der eigentliche
+    Fehler. Eine Anzeige bleibt aber eine Anzeige: `jd_check()` ohne `anlegen` verändert
+    nichts, sonst erzeugte jeder Blick in die Einstellungen Verzeichnisse. (#197)"""
+    watch = tmp_path / "w"; watch.mkdir(); out = tmp_path / "raus"
+    appmod.save_settings({"connections": {"jd_watch": str(watch), "jd_out": str(out)}})
+
+    st = appmod.jd_check()
+    assert st["reason"] == "out_missing" and not out.exists(), "die reine Prüfung darf nichts anlegen"
+
+    st = appmod.jd_check(anlegen=True)
+    assert st["ok"] is True and out.is_dir()
+    appmod.save_settings({})
+
+
+def test_writing_a_crawljob_heals_the_missing_output_folder(appmod, tmp_path):
+    """Ein fehlender Zielordner darf einen Download nicht verhindern — JDownloader legt
+    ihn selbst an, Romseerr braucht ihn nur zum Einsammeln. (#197)"""
+    watch = tmp_path / "w2"; watch.mkdir(); out = tmp_path / "raus2"
+    appmod.save_settings({"connections": {"jd_watch": str(watch), "jd_out": str(out)}})
+    appmod.write_crawljob("42", ["http://example.invalid/a"], "/output/romseerr/x", "x")
+    assert (watch / "romseerr_42.crawljob").exists()
+    assert out.is_dir(), "der Zielordner hätte angelegt werden müssen"
+    appmod.save_settings({})
+
+
+def test_a_broken_handover_is_visible_in_the_interface(appmod, client, tmp_path):
+    """Ein Weg, der gar nicht erst starten kann, gehört in die Oberfläche.
+
+    Vorher stand die Warnung ausschließlich im Logfile — achtmal. Wer einen Download
+    vermisste, sah nichts, was den Zusammenhang erklärt hätte. (#197)"""
+    appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "j"; sess["role"] = "admin"
+
+    appmod.save_settings({"connections": {"jd_watch": str(tmp_path / "fehlt"), "jd_out": str(tmp_path)}})
+    w = client.get("/api/config/warnings").get_json()["warnings"]
+    jd = next((x for x in w if x.get("key") == "jd"), None)
+    assert jd is not None and jd["reason"] == "watch_missing"
+    assert "fehlt" in jd["text"]
+
+    # Und es schweigt, sobald die Übergabe steht — sonst gewöhnt man sich das Banner ab.
+    watch = tmp_path / "ok"; watch.mkdir()
+    appmod.save_settings({"connections": {"jd_watch": str(watch), "jd_out": str(tmp_path)}})
+    assert not [x for x in client.get("/api/config/warnings").get_json()["warnings"]
+                if x.get("key") == "jd"]
+    appmod.save_settings({}); appmod.save_users({})
+
+
+def test_config_warnings_are_for_admins_only(appmod, client):
+    """Die Warnungen nennen Pfade der Anlage — das ist nichts für jeden Angemeldeten. (#197)"""
+    appmod.save_users({"n": {"pw": "x", "role": "user", "perms": []}})
+    with client.session_transaction() as sess:
+        sess["user"] = "n"; sess["role"] = "user"
+    assert client.get("/api/config/warnings").status_code == 403
+    appmod.save_users({})
 
 
 HYDRA_SAMPLE = {

@@ -26,7 +26,15 @@ services:
     volumes:
       - ${ROMS_LIB:?bitte in .env setzen}:/roms          # RomM/RetroNAS-Bibliothek (Ziel + Dedup)
       - ${SAB_COMPLETE:-./data/usenet/complete/roms}:/sab-complete
+      # Der Watch-Ordner muss für BEIDE Container beschreibbar sein: Romseerr legt die
+      # .crawljob hinein, JDownloader löscht sie nach dem Einlesen wieder. Gehört er
+      # einem fremden Benutzer und ist nur 0755, scheitert das Ablegen still und es
+      # startet nie ein Download. Gemeinsame Gruppe oder 0775 setzen. (#197)
+      # Writable by BOTH containers — Romseerr writes the .crawljob, JDownloader removes
+      # it. A foreign owner with 0755 disables the whole hand-off silently.
       - ${JD_WATCH:-./data/jdownloader/folderwatch}:/jd-watch
+      # Ausgabe: derselbe Ordner wie /output bei JDownloader, nur anders eingehängt.
+      # JD_DL_BASE ist die JD-Sicht darauf; Romseerrs Sicht wird daraus abgeleitet.
       - ${JD_OUTPUT:-./data/jd-output}:/jd-output
       - ./config:/config                                  # Jobs, Nutzer, Log, (künftig) SQLite
     depends_on: [sabnzbd, prowlarr, romm]

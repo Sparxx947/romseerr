@@ -74,6 +74,29 @@ die URLs auf die Dienstnamen, **standalone** auf deine Hosts:
 | `ROMM_URL` | `http://romm:8080` | `http://192.168.1.10:8998` |
 | `JD_DL_BASE` | `/output/romseerr` (Sicht des JD-Containers) | dito |
 
+### JDownloader-Übergabe: drei Sichten, ein Ordner (#197)
+
+Es gibt keine API — die Übergabe läuft über zwei Verzeichnisse, und beide Container
+sehen sie unter verschiedenen Namen:
+
+| Sicht | Romseerr | JDownloader |
+|---|---|---|
+| Auftrag (`.crawljob`) | `/jd-watch` (`JD_WATCH`) | `/config/folderwatch` |
+| Ergebnis | `/jd-output/…` (`JD_OUT`) | `/output/…` (`JD_DL_BASE`) |
+
+`JD_OUT` wird **abgeleitet**, wenn es leer ist: das erste Pfadsegment von `JD_DL_BASE`
+wird durch `/jd-output` ersetzt. Zwei unabhängige Defaults hatten hier eine stille
+Fehlerquelle — wer `JD_DL_BASE` in der Oberfläche änderte, ließ die andere Sicht
+zurück, und Romseerr sammelte in einem Ordner ein, den JDownloader nie befüllte.
+
+Der Watch-Ordner braucht Schreibrecht für **beide** Seiten: Romseerr legt die Datei ab,
+JDownloader löscht sie nach dem Einlesen. Fehlt es, startet nie ein Download —
+sichtbar nur als Warnung, deshalb steht sie seit #197 auch in der Oberfläche
+(`/api/config/warnings`).
+
+*EN: three views of the same two directories. `JD_OUT` is derived from `JD_DL_BASE`
+unless set; the watch folder must be writable by both containers.*
+
 **Erststart-Reihenfolge** (Full-Stack): Stack hochfahren → in SABnzbd & Prowlarr
 je einen API-Key erzeugen und Indexer/Server einrichten → Keys in `.env` →
 `docker compose up -d` erneut → Romseerr im Browser öffnen und Admin anlegen.

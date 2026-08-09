@@ -17,6 +17,9 @@
   <a class=nav data-i18n=logout onclick="logout()">🚪 Abmelden</a></div>
 </div>
 <main>
+ <!-- Konfigurationswarnungen: nur für Verwalter, nur wenn etwas kaputt ist. Ein Weg,
+      der gar nicht erst starten kann, gehört hierhin und nicht ausschließlich ins Log. (#197) -->
+ <div id=cfgwarn style="display:none"></div>
  <div id=topbar>
   <input id=q data-i18n-ph=search_ph placeholder="Spiel suchen … (Enter)" autofocus>
   <button class=fbtn id=tF onclick="toggleFilter()">🎛 Plattformen: Alle</button>

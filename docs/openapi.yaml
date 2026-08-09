@@ -1488,6 +1488,17 @@ paths:
         '200':
           description: OK
       security: *id002
+  /api/config/warnings:
+    get:
+      summary: Konfigurationsprobleme, die einen ganzen Weg lahmlegen (JDownloader-Übergabe live, Erreichbarkeit
+        aus dem Startlauf)
+      tags:
+      - Admin
+      responses:
+        '403': *id004
+        '200':
+          description: OK
+      security: *id002
   /api/maillog:
     get:
       summary: Mail-Versand-Protokoll
