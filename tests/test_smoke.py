@@ -3273,3 +3273,58 @@ def test_the_sidebar_no_longer_carries_the_person():
     kopf = html[html.index("<div id=topbar>"):html.index("</main>")]
     assert "usermenu" in kopf and "langmenu" in kopf, "die Kopfleiste trägt die Menüs nicht"
     assert "logout()" in kopf and "openProfile()" in kopf
+
+
+def test_a_requested_title_is_marked_differently_from_an_owned_one(appmod, client, monkeypatch):
+    """„Vorhanden" und „angefragt" sind verschiedene Zustände, und beide interessieren
+    VOR dem Klick — sonst trägt die Karte einen Download-Knopf für etwas, das längst
+    unterwegs ist. Vorhandenes schlägt angefragt, sonst stünde beides da. (#205)"""
+    appmod.JOBS.clear()
+    appmod.JOBS.append({"id": "1", "title": "Micro Mages", "state": "downloading"})
+    appmod.JOBS.append({"id": "2", "title": "Twin Dragons", "state": "done"})
+    appmod.JOBS.append({"id": "3", "title": "Lala The Magical", "state": "error"})
+    offen = appmod.angefragte_titel()
+    assert appmod.norm("Micro Mages") in offen, "ein laufender Job zählt als angefragt"
+    assert appmod.norm("Twin Dragons") not in offen, "fertig heißt in der Bibliothek, nicht angefragt"
+    assert appmod.norm("Lala The Magical") not in offen, "ein Fehlschlag muss wieder anforderbar sein"
+
+    # Ein Titel, der beides wäre, ist „vorhanden" — nicht beides.
+    monkeypatch.setattr(appmod, "in_library", lambda t, p=None: True)
+    r = {"title": "Micro Mages", "platform": None, "size": 0, "source": "archive"}
+    r["in_library"] = appmod.in_library(r["title"], r["platform"])
+    r["gkey"] = appmod.norm(r["title"])
+    r["requested"] = (not r["in_library"]) and r["gkey"] in offen
+    assert r["requested"] is False
+    appmod.JOBS.clear()
+
+
+def test_the_card_shows_state_by_symbol_not_by_colour_alone():
+    """Ein grünes Abzeichen auf dunklem Cover sagt einem rot-grün-blinden Menschen nichts.
+    Das Symbol trägt die Bedeutung, die Farbe verstärkt sie nur — und der Text steht
+    zusätzlich im `title`, damit auch ein Screenreader ihn findet. (#205)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    fn = js[js.index("function kartenZustand("):]
+    fn = fn[:fn.index("\nfunction ", 1)]
+    assert "'✓'" in fn and "'⏳'" in fn, "die Zustände unterscheiden sich nicht im Symbol"
+    assert "in_library" in fn and "requested" in fn
+    karte = js[js.index("function renderCard("):]
+    karte = karte[:karte.index("\nlet RAONLY", 1)]
+    assert 'title="${z.text}"' in karte, "der Zustand steht nirgends als Text"
+    assert "class=have>" not in karte, "die alte 12px-Zeile im Aktionsfeld ist noch da"
+    css = open(os.path.join(REPO, "static/css/index.css"), encoding="utf-8").read()
+    assert ".cover .zust" in css and ".zust.da" in css and ".zust.req" in css
+
+
+def test_the_card_names_the_platform_instead_of_printing_the_slug():
+    """Die Karte druckte den internen Slug (`ngc`, `psvita`) statt des Anzeigenamens, den
+    es längst gibt. Die Namen kommen aus derselben Quelle wie die Filterleiste, damit
+    nicht zwei Bestände auseinanderlaufen. `?` bleibt ein echter Fall. (#211)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    assert "let SLUGNAME={}" in js
+    lp = js[js.index("async function loadPlatforms(){"):]
+    lp = lp[:lp.index("\nfunction ", 1)]
+    assert "SLUGNAME[it.slug]=it.name" in lp, "die Namen werden nirgends gesammelt"
+    karte = js[js.index("function renderCard("):]
+    karte = karte[:karte.index("\nlet RAONLY", 1)]
+    assert "SLUGNAME[it.platform_slug]||it.platform_slug||'?'" in karte, \
+        "der Slug wird weiterhin ungefiltert gedruckt"
