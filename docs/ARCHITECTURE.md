@@ -300,6 +300,16 @@ einer Frist von selbst verfallen. Die Frist muss lang genug sein, dass eine Korr
 ein erneutes Einlesen hineinpassen — sonst räumt die Automatik genau das weg, wofür die
 Daten aufgehoben wurden.
 
+**Erneut einlesen statt neu laden** (#245): `POST /api/jobs/{jid}/reimport` lässt
+`import_folder()` noch einmal über den liegengebliebenen Ordner laufen. Das ist etwas
+anderes als `POST /api/jobs/{jid}/retry`, das den Auftrag zurück in die
+Download-Warteschlange legt und **alles neu holt** — 2 GB erneut zu ziehen, weil eine
+Endung falsch erkannt wurde, wäre genau das Gegenteil dessen, wofür #240 die Daten
+aufhebt. Beide Wege enden in `einsortieren()`, damit Import und Aufräumen nicht an zwei
+Stellen auseinanderlaufen. Angeboten wird der Knopf nur, wenn die Dateien wirklich noch
+da sind: `/api/jobs` meldet das je fehlgeschlagenem Auftrag als `reimportable`, denn ein
+Knopf, der beim Drücken scheitert, ist schlechter als keiner.
+
 Zwei Sperren sitzen bewusst tief im Code, nicht in der Oberfläche: `leftover_dirs()` zeigt
 Ordner **laufender** Aufträge gar nicht erst an (Alter allein wäre untauglich — ein großer
 Download kann Stunden brauchen und sieht dabei alt aus), und `leftover_remove()` löscht
@@ -317,7 +327,7 @@ previously both paths cleaned up identically and a 2 GB download was deleted alo
 the client's history entry (`del_files=1`), leaving nothing to diagnose. Leftover folders
 are listed under Settings → Logs & maintenance with size, age and owning request, can be
 removed individually or in bulk, and expire after `leftover_days` (default 14, 0 = off).
-Two guards live in the code rather than the UI: folders belonging to a **running** job are
+`POST /api/jobs/{jid}/reimport` re-runs the import against the kept folder — as opposed to `/retry`, which re-downloads everything. Both end in `einsortieren()` so import and cleanup cannot drift apart, and the button only appears when the files are actually still there (`reimportable` per failed job). Two guards live in the code rather than the UI: folders belonging to a **running** job are
 never listed, and removal only accepts paths that resolve inside a collect directory and
 carry the `romseerr_` prefix.*
 

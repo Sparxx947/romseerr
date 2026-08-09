@@ -185,7 +185,9 @@ that is the normal case and complete as it stands, not a fallback.
   If Romseerr recognises nothing, the download stays put so nothing is lost and the cause can
   still be inspected. Those folders are listed under *Settings → Logs & maintenance* with size
   and age, can be removed individually or in bulk, and expire after a configurable window
-  (default 14 days, `0` disables it).
+  (default 14 days, `0` disables it). Once the cause is fixed, **Re-import** on the failed
+  request reads those same files again — no new download. (*Retry*, by contrast, fetches the
+  whole release a second time.)
 
 ### Administration
 - **Settings** with sub-sections: general, notifications, users, connections, blocklist, services,

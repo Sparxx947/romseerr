@@ -63,7 +63,7 @@ ohne gültige Session/Key mit **401**.
 | Push | `GET /api/push/pubkey`, `POST /api/push/subscribe` |
 | Admin | `/api/users`, `/api/settings`, `/api/blocklist`, `/api/logs`, `/api/apikey`, `/api/export`, `/api/import` |
 | Diagnose | `GET /api/services/status`, `GET /api/config/warnings`, `GET /api/usenet/check` |
-| Aufräumen | `GET /api/leftovers`, `POST /api/leftovers/remove` |
+| Aufräumen | `GET /api/leftovers`, `POST /api/leftovers/remove`, `POST /api/jobs/{jid}/reimport` |
 
 `GET /api/usenet/check` misst den Usenet-Weg stufenweise durch (Suche, SAB-Kategorie,
 Warteschlange, Einsammelordner) und lädt dabei **nichts** herunter. Die letzte Stufe
@@ -77,7 +77,9 @@ sein Stundenlimit. Antwort: `{"ok": bool, "steps": [{"step", "ok", "info"}]}`.
 `POST /api/leftovers/remove` clears one (`{"jid": "…"}`) or all (`{"all": true}`).
 Only paths resolving inside a collect directory and carrying the `romseerr_` prefix are
 ever deleted — a path from the request is never used, and folders owned by a running job
-are not listed at all.
+are not listed at all. `POST /api/jobs/{jid}/reimport` re-reads a kept download without
+fetching it again (state `error` only) — unlike `/retry`, which downloads the whole
+release a second time.
 
 Details (Parameter, Bodies, Antworten) → `/api/docs`.
 
@@ -147,6 +149,10 @@ hat; `POST /api/leftovers/remove` entfernt einen (`{"jid": "…"}`) oder alle
 (`{"all": true}`). Gelöscht wird nur, was unterhalb eines Sammelordners liegt und das
 `romseerr_`-Präfix trägt — ein Pfad aus dem Request wird nie verwendet. Ordner laufender
 Aufträge erscheinen gar nicht erst.
+
+`POST /api/jobs/{jid}/reimport` liest einen liegengebliebenen Download **erneut ein**,
+ohne ihn neu zu holen (nur im Zustand `error`, nur solange die Dateien da sind). Nicht zu
+verwechseln mit `POST /api/jobs/{jid}/retry`, das den kompletten Download wiederholt.
 
 ### Diagnostics
 `GET /api/services/status`, `GET /api/config/warnings` and `GET /api/usenet/check` (all

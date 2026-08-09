@@ -3989,3 +3989,60 @@ def test_leftovers_endpoint_needs_permission(appmod, client):
     assert client.get("/api/leftovers").status_code == 403
     assert client.post("/api/leftovers/remove", json={"all": True}).status_code == 403
     appmod.save_users({})
+
+
+def test_reimport_uses_files_on_disk_instead_of_downloading_again(appmod, client, tmp_path, monkeypatch):
+    """Erneut einlesen heißt: die vorhandenen Dateien, kein neuer Download. (#245)
+
+    Abgrenzung zu `/retry`, das den Auftrag zurück in die Download-Warteschlange legt.
+    Genau dafür hebt #240 die Daten auf — 2 GB erneut zu ziehen, weil eine Endung falsch
+    erkannt wurde, wäre das Gegenteil davon.
+    """
+    appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "j"; sess["role"] = "admin"
+    cand = tmp_path / "romseerr_55__X"; cand.mkdir()
+    (cand / "spiel.nes").write_text("x")
+    appmod.JOBS[:] = [{"id": "55", "title": "X", "source": "usenet", "state": "error",
+                       "platform": "nes", "msg": "keine ROM-Dateien"}]
+    monkeypatch.setattr(appmod, "save_jobs", lambda: None)
+    monkeypatch.setattr(appmod, "SAB_DONE", str(tmp_path))
+    monkeypatch.setattr(appmod, "jd_out_dir", lambda: str(tmp_path))
+    gerufen = []
+    monkeypatch.setattr(appmod, "einsortieren", lambda jid, job, c: gerufen.append((jid, c)))
+    # Ein erneutes Einlesen darf NICHT in der Download-Warteschlange landen.
+    in_queue = []
+    monkeypatch.setattr(appmod.Q, "put", lambda x: in_queue.append(x))
+
+    r = client.post("/api/jobs/55/reimport")
+    assert r.status_code == 200 and r.get_json()["ok"] is True
+    for _ in range(50):
+        if gerufen: break
+        time.sleep(0.02)
+    assert gerufen and gerufen[0][0] == "55", "einsortieren muss mit dem Auftrag laufen"
+    assert in_queue == [], "erneut einlesen darf keinen neuen Download anstoßen"
+    appmod.JOBS[:] = []; appmod.save_users({})
+
+
+def test_reimport_refused_when_files_are_gone_or_state_wrong(appmod, client, tmp_path, monkeypatch):
+    """Kein Angebot, das beim Drücken scheitert. (#245)"""
+    appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "j"; sess["role"] = "admin"
+    monkeypatch.setattr(appmod, "save_jobs", lambda: None)
+    monkeypatch.setattr(appmod, "SAB_DONE", str(tmp_path))
+    monkeypatch.setattr(appmod, "jd_out_dir", lambda: str(tmp_path))
+    appmod.JOBS[:] = [{"id": "56", "title": "Weg", "source": "usenet", "state": "error"},
+                      {"id": "57", "title": "Laeuft", "source": "usenet", "state": "downloading"}]
+
+    assert client.post("/api/jobs/56/reimport").status_code == 404, "ohne Dateien: 404"
+    assert client.post("/api/jobs/57/reimport").status_code == 400, "laufender Auftrag: 400"
+    assert client.post("/api/jobs/99/reimport").status_code == 404, "unbekannt: 404"
+
+    # Und die Oberfläche darf den Knopf nur zeigen, wenn wirklich Dateien da sind.
+    js = {j["id"]: j for j in client.get("/api/jobs").get_json()}
+    assert js["56"].get("reimportable") is False
+    (tmp_path / "romseerr_56__Weg").mkdir()
+    js = {j["id"]: j for j in client.get("/api/jobs").get_json()}
+    assert js["56"].get("reimportable") is True, "mit Dateien muss der Knopf angeboten werden"
+    appmod.JOBS[:] = []; appmod.save_users({})
