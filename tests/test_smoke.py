@@ -4620,3 +4620,51 @@ def test_unused_key_is_tightened_at_startup(appmod, tmp_path, monkeypatch):
     assert vapid.read_text() == '{"priv_pem": "x"}', "der Inhalt darf sich nicht ändern"
     # Eine fehlende Datei ist kein Fehler — TLS ist optional.
     appmod.geheimnisse_absichern()
+
+
+def test_wrong_launch_token_is_reported_as_such(appmod, monkeypatch, tmp_path):
+    """Ein nicht passendes Token ist ein anderer Fehler als ein toter Host. (#177)
+
+    Beide sahen gleich aus („Start fehlgeschlagen"), und der Betreiber suchte am falschen
+    Ende — der Dienst läuft ja, er weist nur ab. 401 ist die einzige Antwort, die der
+    Start-Dienst auf ein falsches Token gibt.
+    """
+    monkeypatch.setattr(appmod, "stream_cfg",
+                        lambda: {"url": "http://host:8902/", "launch": "http://host:8901/launch?token=x"})
+    monkeypatch.setattr(appmod, "STREAMABLE", {"ps2"})
+    monkeypatch.setattr(appmod, "PLAYABLE", set())
+    monkeypatch.setattr(appmod, "resolve_slug", lambda x: x)
+    monkeypatch.setattr(appmod, "stream_find_file", lambda t, s: str(tmp_path / "spiel.iso"))
+    monkeypatch.setattr(appmod, "stream_session", lambda: None)
+    monkeypatch.setattr(appmod, "kv_put", lambda *a, **k: None)
+
+    class Antwort:
+        def __init__(self, code): self.ok = False; self.status_code = code
+        def json(self): return {"ok": False, "msg": "unauthorised"}
+    monkeypatch.setattr(appmod, "safe_post", lambda *a, **k: Antwort(401))
+    info, code = appmod.stream_start("j", "Spiel", "ps2")
+    assert info["launch_reason"] == "bad_token", "401 muss als Token-Fehler erkennbar sein"
+
+    # Gegenprobe: ein anderer Fehler darf NICHT als Token-Problem erscheinen, sonst
+    # schickt die Meldung den Betreiber genauso in die Irre wie vorher.
+    monkeypatch.setattr(appmod, "safe_post", lambda *a, **k: Antwort(500))
+    info, code = appmod.stream_start("j", "Spiel", "ps2")
+    assert info["launch_reason"] == "", "500 ist kein Token-Fehler"
+    assert info["launch_error"], "aber eine Begründung muss trotzdem dastehen"
+
+
+def test_token_rotation_is_documented_in_both_languages(appmod):
+    """Das Wechseln des Tokens steht in der Anleitung — zweisprachig. (#177)
+
+    Ohne beschriebenes Verfahren wird aus einem Alltagsvorgang ein Ausfall: der Wert steht
+    an zwei Stellen, und wer nur eine ändert, hat einen Stream, der ohne Erklärung abweist.
+    """
+    text = open("contrib/streaming-host/README.md", encoding="utf-8").read()
+    for marke in ("Das Token wechseln", "Rotating the token"):
+        assert marke in text, f"Abschnitt fehlt: {marke}"
+    # Die Reihenfolge ist der Kern — ohne sie ist es nur eine Liste von Orten.
+    for stelle in ("STREAM_AGENT_TOKEN", "openssl rand", "stream-agent"):
+        assert stelle in text, f"{stelle} fehlt in der Anleitung"
+    de = text.index("Das Token wechseln"); en = text.index("Rotating the token")
+    assert "Reihenfolge" in text[de:de+1800] and "in this order" in text[en:en+1800], \
+        "die Reihenfolge muss in beiden Sprachen dastehen, nicht nur in einer"

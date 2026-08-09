@@ -325,7 +325,7 @@ Zwei Wege, die sich ergänzen — **die Weboberfläche hat Vorrang, `.env` ist d
 | `CATALOG_URLS` | Katalog-JSON-Quellen für den Filehoster-Weg (leer = inaktiv, s. u.) |
 | `ROMSEERR_CATALOG_TTL` | Auffrischintervall der Kataloge in Sekunden (Default 21600) |
 | `ROMSEERR_PLAY_MAX_MB` | Größengrenze für „Im Browser spielen" in MB (Default 2048) |
-| `STREAM_URL` / `STREAM_LAUNCH` | Streaming-Host: Browser-URL und optionaler Start-Dienst |
+| `STREAM_URL` / `STREAM_LAUNCH` | Streaming-Host: Browser-URL und optionaler Start-Dienst. Das Token in `STREAM_LAUNCH` muss dem `STREAM_AGENT_TOKEN` des Hosts entsprechen — **Wechsel siehe `contrib/streaming-host/README.md`**, die Reihenfolge entscheidet |
 | `ROMSEERR_STREAM_TTL` | Ablauf einer Streaming-Sitzung in Sekunden (Default 7200) |
 | `SAB_URL` / `SAB_APIKEY` / `SAB_CAT` | SABnzbd-Anbindung |
 | `PROW_URL` / `PROW_APIKEY` / `PROW_CATS` | Prowlarr-Anbindung |

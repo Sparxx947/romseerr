@@ -319,7 +319,7 @@ Two complementary ways — **the web UI takes precedence, `.env` is the fallback
 | `CATALOG_URLS` | catalogue JSON sources for the filehoster path (empty = inactive, see below) |
 | `ROMSEERR_CATALOG_TTL` | catalogue refresh interval in seconds (default 21600) |
 | `ROMSEERR_PLAY_MAX_MB` | size limit for "play in browser" in MB (default 2048) |
-| `STREAM_URL` / `STREAM_LAUNCH` | streaming host: browser URL and optional launch service |
+| `STREAM_URL` / `STREAM_LAUNCH` | streaming host: browser URL and optional launch service. The token in `STREAM_LAUNCH` must match the host's `STREAM_AGENT_TOKEN` — **rotation is documented in `contrib/streaming-host/README.md`**, and the order matters |
 | `ROMSEERR_STREAM_TTL` | streaming session expiry in seconds (default 7200) |
 | `SAB_URL` / `SAB_APIKEY` / `SAB_CAT` | SABnzbd |
 | `PROW_URL` / `PROW_APIKEY` / `PROW_CATS` | Prowlarr |
