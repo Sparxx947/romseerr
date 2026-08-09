@@ -150,6 +150,7 @@ reißen kann — und von außen sah jede Ursache gleich aus („Usenet geht nich
 | Kategorie | die in `sab_cat` gesetzte Kategorie existiert in SABnzbd | NZB landet in keiner oder der falschen |
 | Warteschlange | SABnzbd ist nicht pausiert | NZB wird angenommen und passiert nichts |
 | Einsammelordner | Romseerrs `SAB_DONE` ist da und lesbar | Download läuft durch, wird aber nie gefunden |
+| Indexer | jeder Indexer liefert auf seine Download-Adresse wirklich eine NZB | Treffer da, aber nichts davon ladbar (#236) |
 
 Die letzte Stufe ist wieder eine Frage zweier **Sichten auf denselben Ordner**:
 
@@ -162,12 +163,35 @@ verschiedenen Containern. *Einstellungen → Verbindungen → SABnzbd → **Usen
 prüfen*** (`GET /api/usenet/check`) stellt sie deshalb nebeneinander und beantwortet die
 anderen drei Stufen einzeln. Es wird dabei **nichts heruntergeladen**.
 
+Die Indexer-Stufe ist die, die von innen am schwersten zu sehen ist: ein Indexer kann
+Treffer im Überfluss liefern und auf jede Download-Adresse mit seiner eigenen HTML-Seite
+antworten. Gemessen wurde genau das — ein Indexer stellte **217 von 231 Treffern** und
+keine einzige NZB, während Prowlarr keinerlei Fehler meldete und seine Suche einwandfrei
+lief. Unterschieden wird es an einem Header: `application/x-nzb` gegen `text/html`. Weil
+so ein Abruf beim Indexer als *grab* gegen ein Stundenlimit zählt, holt die Prüfung
+höchstens **eine** Datei je Indexer und nur auf ausdrücklichen Aufruf.
+
+#### Wenn SABnzbd den Download verwirft (#235)
+
+Ein NZB, das SAB nicht laden kann, verlässt die Warteschlange, **ohne** je einen Ordner
+anzulegen. `worker_collect` kannte nur zwei Fragen — *ist der Ordner da?* und *steckt es
+noch in der Warteschlange?* —, und der Fehlschlag fiel zwischen ihnen hindurch: der
+Auftrag blieb unbegrenzt auf `downloading`. SABs History ist die einzige Stelle, die den
+Fehlschlag festhält, und sie wurde bis dahin nur nach einem *erfolgreichen* Import
+gelesen. `sab_failed()` schaut jetzt auch auf dem Fehlerweg nach und übernimmt SABs
+`fail_message` als Begründung an den Auftrag. Der History-Eintrag bleibt liegen — er ist
+der Beleg für den Betreiber.
+
 *EN: the usenet path breaks in four distinct places that all look identical from the
 outside. `GET /api/usenet/check` (Settings → Connections → SABnzbd) answers each stage
 separately without downloading anything. The last stage prints Romseerr's `SAB_DONE` and
 SABnzbd's `complete_dir` + category folder side by side: no automation can compare those
 two namespaces, but a human can — and if they diverge, downloads complete and are never
-picked up.*
+picked up. A fifth stage fetches one file per indexer and reports whether it is really an
+NZB — an indexer can serve plenty of results and answer every download URL with HTML.
+Separately, a download SABnzbd gives up on leaves the queue without ever creating a
+folder; `sab_failed()` now reads that from SAB's history and fails the job with SAB's own
+message instead of leaving it on `downloading` forever.*
 
 **Erststart-Reihenfolge** (Full-Stack): Stack hochfahren → in SABnzbd & Prowlarr
 je einen API-Key erzeugen und Indexer/Server einrichten → Keys in `.env` →

@@ -277,7 +277,9 @@ The container runs **non-root** and ships a **healthcheck** on `/health`.
 4. **Check the usenet path** — *Settings → Connections → SABnzbd* measures search, category,
    queue and collect folder one by one without downloading anything. The last line shows
    Romseerr's and SABnzbd's view of the same folder: if they diverge, downloads finish and
-   are never picked up.
+   are never picked up. A further stage per indexer fetches **one** file and reports whether
+   an actual NZB comes back — an indexer can serve plenty of results and answer every
+   download URL with an HTML page.
 
 ---
 
