@@ -65,6 +65,7 @@ WICHTIGE FALLSTRICKE / IMPORTANT GOTCHAS
     KEIN neues Image.
 """
 import os, re, json, time, threading, queue, subprocess, urllib.parse, html, secrets, smtplib, base64, sqlite3
+from collections import Counter
 from datetime import datetime
 from functools import wraps
 from contextlib import closing
@@ -2123,6 +2124,31 @@ def extract_archives(folder):
                 try: os.remove(fp)
                 except Exception: pass
 
+def rom_endung(fn):
+    """(Endung, Zielname) fuer eine Datei — oder (None, None), wenn es keine ROM ist. (#241)
+
+    Normalfall ist die letzte Endung. Downloadprogramme benennen fertige Dateien aber
+    nach geratenem Inhalt um: SABnzbds *deobfuscate final filenames* haengt eine zweite
+    Endung an, wenn es den Inhalt zu erkennen glaubt — aus `spiel.nsp` wird `spiel.nsp.hdf`.
+    ROM-Formate kennt so ein Rater nicht, deshalb trifft es genau die Dateien, um die es
+    hier geht (im Log der laufenden Anlage: .hdf, .sndr, .sfv …).
+
+    Steht vor einem unbekannten Suffix eine bekannte ROM-Endung, gilt die — und der
+    angehaengte Suffix faellt beim Kopieren weg, sonst liegt in der Bibliothek ein Name,
+    den kein Emulator oeffnet. Nur EINE Ebene tief und nur, wenn die innere Endung
+    wirklich in ROM_EXT steht: `spiel.nsp.hdf` ja, `spiel.foo.bar` nein.
+    """
+    teile = fn.split(".")
+    if len(teile) < 2: return None, None
+    letzte = teile[-1].lower()
+    if letzte in ROM_EXT:
+        return letzte, fn
+    if len(teile) >= 3:
+        vorletzte = teile[-2].lower()
+        if vorletzte in ROM_EXT:
+            return vorletzte, ".".join(teile[:-1])
+    return None, None
+
 def import_folder(jid, folder):
     """Kern der Einsortierung: Archive entpacken, jede Datei einer Plattform zuordnen
     (eindeutige Endung via EXT2PLAT schlägt den Job-Hinweis), **Dedup** gegen die
@@ -2136,22 +2162,26 @@ def import_folder(jid, folder):
     job_slug = job.get("platform")
     moved, skipped, by_plat = 0, 0, {}
     copy_errors = 0
+    uebergangen = []          # Namen der übersprungenen Dateien, für eine brauchbare Meldung (#242)
     for root,_,files in os.walk(folder):
         for fn in files:
             if SKIP_FILES.search(fn) or fn == ".urls": continue
             src = os.path.join(root,fn)
-            ext = fn.rsplit(".",1)[-1].lower() if "." in fn else ""
             # NUR bekannte ROM-/Disk-Endungen importieren. Alles andere (entpackte
             # Fangames, .exe/.dll/.ogg, Emulatoren …) übersprin­gen, statt die
-            # Bibliothek zu vermüllen. (#61)
-            if ext not in ROM_EXT:
-                skipped += 1; continue
+            # Bibliothek zu vermüllen. (#61) — `ziel` kann sich von `fn` unterscheiden,
+            # wenn ein Downloadprogramm eine zweite Endung angehängt hat. (#241)
+            ext, ziel = rom_endung(fn)
+            if not ext:
+                skipped += 1
+                uebergangen.append(fn)
+                continue
             # Plattform pro Datei: eindeutige Endung schlägt den Job-Hinweis
             slug = resolve_slug(EXT2PLAT.get(ext) or job_slug)
-            if in_library(fn, slug):
+            if in_library(ziel, slug):
                 continue  # schon vorhanden -> nicht doppeln
             target = os.path.join(ROMS, slug); os.makedirs(target, exist_ok=True)
-            dst = os.path.join(target, fn)
+            dst = os.path.join(target, ziel)
             if os.path.exists(dst): continue
             try:
                 subprocess.run(["cp","-a",src,dst], check=True); moved += 1
@@ -2167,10 +2197,18 @@ def import_folder(jid, folder):
     # Nichts importiert UND nichts war schon vorhanden, aber es lagen Nicht-ROM-Dateien vor
     # -> als Fehler melden (mislabeltes Item ohne echte ROM), statt „done" vorzutäuschen. (#61)
     if moved == 0 and not by_plat and skipped:
-        set_state(jid, state="error", msg=f"keine ROM-Dateien gefunden / no ROM files ({skipped} übersprungen)")
-        log(f"Job {jid}: keine ROM-Dateien, {skipped} Nicht-ROM übersprungen")
+        # Die blosse Zahl half niemandem: „1 übersprungen" hat eine ganze Diagnoserunde
+        # gekostet, weil weder Datei noch Endung dabeistanden — und der Ordner war zu dem
+        # Zeitpunkt schon geloescht. Endungen und ein Beispiel, gedeckelt. (#242)
+        endungen = Counter((n.rsplit(".",1)[-1].lower() if "." in n else "—") for n in uebergangen)
+        top = ", ".join(f".{e}" for e, _ in endungen.most_common(3))
+        beispiel = f" ({uebergangen[0][:60]})" if uebergangen else ""
+        detail = f"{skipped} übersprungen: {top}{beispiel}" if top else f"{skipped} übersprungen"
+        set_state(jid, state="error",
+                  msg=f"keine ROM-Dateien gefunden / no ROM files — {detail}")
+        log(f"Job {jid}: keine ROM-Dateien, {detail}")
         count_import("failure", "no_rom_files")
-        return
+        return False
     where = ", ".join(f"{v}×{k}" for k,v in by_plat.items()) or "nichts (schon vorhanden?)"
     tail = f" · {skipped} Nicht-ROM übersprungen" if skipped else ""
     set_state(jid, state="done", msg=f"{moved} Datei(en) → {where}{tail}")
@@ -2191,6 +2229,7 @@ def import_folder(jid, folder):
             em = load_users().get(job.get("user",""), {}).get("email","")
             if em: send_mail(em, "Romseerr — verfügbar / available",
                              f"{job.get('title','')} ({where}) ist jetzt verfügbar / is now available.")
+    return True
 
 # ---------- Worker: fertige SAB/JD-Downloads einsortieren ----------
 def romm_scan():
@@ -2520,7 +2559,16 @@ def worker_collect():
                     p = find_output(jd_out_dir(), jid)
                     if p and any(os.scandir(p)): cand = p
                 if cand and folder_stable(cand):
-                    import_folder(jid, cand)
+                    erfolg = import_folder(jid, cand)
+                    # Aufraeumen NUR nach einem geglueckten Import. Vorher lief beides
+                    # gleich: ein Import, der nichts erkannte, loeschte den Download
+                    # trotzdem — samt SAB-History mit `del_files=1`. Zwei Gigabyte weg,
+                    # und die Ursache war hinterher nur noch aus der NZB und dem Log des
+                    # Downloadprogramms zu rekonstruieren. Was hier liegen bleibt, kann
+                    # angesehen und nach einem Fix erneut eingelesen werden. (#240)
+                    if erfolg is False:
+                        log(f"Job {jid}: Import ohne Treffer — Download bleibt liegen: {cand}")
+                        continue
                     # Erledigten Download aus SAB/JD und von der Platte entfernen. (#65)
                     if job["source"] == "usenet": sab_cleanup(jid)
                     try:

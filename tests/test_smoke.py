@@ -3816,3 +3816,105 @@ def test_search_usenet_field_names_are_pinned(appmod, monkeypatch):
     assert "indexer" not in it and "downloadUrl" not in it, \
         "Prowlarrs Rohnamen dürfen hier nicht überleben — sonst greifen Aufrufer daneben"
     appmod.save_settings({})
+
+
+def test_rom_endung_survives_appended_extension(appmod):
+    """Eine ROM bleibt eine ROM, auch wenn ein Downloadprogramm etwas anhängt. (#241)
+
+    SABnzbds *deobfuscate final filenames* rät den Typ aus dem Inhalt und hängt eine
+    zweite Endung an — aus `spiel.nsp` wird `spiel.nsp.hdf`. ROM-Formate kennt so ein
+    Rater nicht, also trifft es genau die Dateien, um die es hier geht.
+    """
+    # Normalfall bleibt unberührt
+    assert appmod.rom_endung("spiel.nsp") == ("nsp", "spiel.nsp")
+    # Angehängter Fremdsuffix: Endung zählt die innere, der Name wird bereinigt —
+    # sonst liegt in der Bibliothek ein Name, den kein Emulator öffnet.
+    assert appmod.rom_endung("sxs-hollow_knight_v262144.nsp.hdf") == \
+        ("nsp", "sxs-hollow_knight_v262144.nsp")
+    assert appmod.rom_endung("game.iso.sndr") == ("iso", "game.iso")
+    # Grenzen: nur EINE Ebene, und nur wenn die innere Endung wirklich eine ROM ist
+    assert appmod.rom_endung("irgendwas.foo.bar") == (None, None)
+    assert appmod.rom_endung("readme.txt") == (None, None)
+    assert appmod.rom_endung("ohnepunkt") == (None, None)
+    assert appmod.rom_endung("spiel.nsp.hdf.zip") == (None, None), \
+        "zwei angehängte Ebenen sind kein Fall, den wir raten"
+
+
+def test_import_names_what_it_skipped(appmod, tmp_path, monkeypatch):
+    """Die Fehlermeldung nennt Endung und Beispieldatei, nicht nur eine Zahl. (#242)"""
+    appmod.JOBS[:] = [{"id": "77", "title": "X", "source": "usenet",
+                       "state": "downloading", "platform": "nes"}]
+    monkeypatch.setattr(appmod, "save_jobs", lambda: None)
+    monkeypatch.setattr(appmod, "build_index", lambda: None)
+    monkeypatch.setattr(appmod, "romm_scan", lambda: None)
+    d = tmp_path / "job"; d.mkdir()
+    (d / "spielstand.sav.wasd").write_text("x")     # unbekannt in BEIDEN Ebenen
+    (d / "beipack.exe").write_text("x")
+
+    assert appmod.import_folder("77", str(d)) is False
+    msg = appmod.JOBS[0]["msg"]
+    assert ".wasd" in msg or ".exe" in msg, f"Endung fehlt in der Meldung: {msg}"
+    assert "spielstand" in msg or "beipack" in msg, f"Beispieldatei fehlt: {msg}"
+    appmod.JOBS[:] = []
+
+
+def test_failed_import_keeps_the_download(appmod, tmp_path, monkeypatch):
+    """Ein Import ohne Treffer darf den Download NICHT wegwerfen. (#240)
+
+    Vorher räumten Erfolgs- und Fehlerweg identisch auf: knapp zwei Gigabyte wurden
+    gelöscht, samt SAB-History mit `del_files=1`, und die Ursache war hinterher nur noch
+    aus der NZB und dem Log des Downloadprogramms zu rekonstruieren.
+    """
+    cand = tmp_path / "romseerr_88"; cand.mkdir()
+    (cand / "nutzlast.hdf").write_text("wertvoll")
+    appmod.JOBS[:] = [{"id": "88", "title": "Y", "source": "usenet",
+                       "state": "downloading", "platform": "nes"}]
+    monkeypatch.setattr(appmod, "save_jobs", lambda: None)
+    monkeypatch.setattr(appmod, "SAB_DONE", str(tmp_path))
+    monkeypatch.setattr(appmod, "find_output", lambda *a, **k: str(cand))
+    monkeypatch.setattr(appmod, "folder_stable", lambda *a, **k: True)
+    monkeypatch.setattr(appmod, "import_folder", lambda jid, f: False)   # nichts erkannt
+    aufgeraeumt = []
+    monkeypatch.setattr(appmod, "sab_cleanup", lambda jid: aufgeraeumt.append(jid))
+
+    class Fertig(Exception): pass
+    monkeypatch.setattr(appmod.time, "sleep", lambda _: (_ for _ in ()).throw(Fertig()))
+    try:
+        appmod.worker_collect()
+    except Fertig:
+        pass
+
+    assert cand.is_dir() and (cand / "nutzlast.hdf").exists(), \
+        "der Download muss liegen bleiben, wenn der Import nichts erkannt hat"
+    assert aufgeraeumt == [], "auch die History darf nicht gelöscht werden — del_files=1"
+    appmod.JOBS[:] = []
+
+
+def test_successful_import_still_cleans_up(appmod, tmp_path, monkeypatch):
+    """Die Gegenprobe: nach einem geglückten Import wird weiterhin aufgeräumt. (#240)
+
+    Ohne diesen Test wäre „nie aufräumen" eine bestandene Lösung — und die Platte liefe
+    voll.
+    """
+    cand = tmp_path / "romseerr_99"; cand.mkdir()
+    (cand / "spiel.nes").write_text("x")
+    appmod.JOBS[:] = [{"id": "99", "title": "Z", "source": "usenet",
+                       "state": "downloading", "platform": "nes"}]
+    monkeypatch.setattr(appmod, "save_jobs", lambda: None)
+    monkeypatch.setattr(appmod, "SAB_DONE", str(tmp_path))
+    monkeypatch.setattr(appmod, "find_output", lambda *a, **k: str(cand))
+    monkeypatch.setattr(appmod, "folder_stable", lambda *a, **k: True)
+    monkeypatch.setattr(appmod, "import_folder", lambda jid, f: True)
+    aufgeraeumt = []
+    monkeypatch.setattr(appmod, "sab_cleanup", lambda jid: aufgeraeumt.append(jid))
+
+    class Fertig(Exception): pass
+    monkeypatch.setattr(appmod.time, "sleep", lambda _: (_ for _ in ()).throw(Fertig()))
+    try:
+        appmod.worker_collect()
+    except Fertig:
+        pass
+
+    assert aufgeraeumt == ["99"], "nach Erfolg muss die History aufgeräumt werden"
+    assert not cand.exists(), "nach Erfolg muss der Ordner verschwinden"
+    appmod.JOBS[:] = []

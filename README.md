@@ -181,8 +181,13 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   **RomM-Scan**. Es werden **nur bekannte ROM-/Disk-Endungen** importiert — Nicht-ROM-Dateien
   (Emulatoren, `.exe`/`.dll`, Assets) werden übersprungen; enthält ein Item keine ROM, endet die
   Anfrage sauber als Fehler statt die Bibliothek zu vermüllen.
+- Hängt das Downloadprogramm eine **zweite Endung** an (SABnzbds *deobfuscate* macht aus
+  `spiel.nsp` ein `spiel.nsp.hdf`), zählt die vorletzte — die Datei wird importiert und der
+  angehängte Suffix beim Kopieren entfernt.
 - In **SABnzbd/JDownloader** erscheint der Download unter dem **ROM-Titel**; nach dem Import
-  wird der erledigte Download dort **automatisch entfernt**.
+  wird der erledigte Download dort **automatisch entfernt**. Nur nach einem **geglückten**
+  Import: erkennt Romseerr nichts, bleibt der Download liegen, damit nichts verloren geht und
+  die Ursache noch nachsehbar ist. Solche Ordner räumst du selbst weg.
 
 ### Verwaltung
 - **Einstellungen** mit Unterbereichen: Allgemein, Benachrichtigungen, Benutzer, Verbindungen,

@@ -265,6 +265,43 @@ static/icon.svg   App-Icon (PWA)
 3. `worker_download` startet den Download (SAB/aria2/JDownloader).
 4. `worker_collect` erkennt den fertigen Ordner → `import_folder` entpackt, dedupliziert und
    sortiert nach `ROMS/<slug>/` ein, baut den Index neu und **benachrichtigt** (Job → `done`).
+   Erkennt der Import **nichts**, gibt er `False` zurück, der Job geht auf `error` und der
+   Download **bleibt liegen** (#240).
+
+### Der Import muss zwei Dinge aushalten (#240, #241, #242)
+
+**Downloadprogramme benennen fertige Dateien um.** SABnzbds *deobfuscate final filenames*
+rät den Typ aus dem Inhalt und hängt eine zweite Endung an: aus `spiel.nsp` wird
+`spiel.nsp.hdf`. ROM-Formate kennt so ein Rater nicht, deshalb trifft es genau die Dateien,
+um die es hier geht — im Log einer laufenden Anlage entstanden so `.hdf`, `.sndr`, `.sfv`.
+`rom_endung()` nimmt deshalb die vorletzte Endung, wenn die letzte unbekannt und die
+vorletzte eine bekannte ROM-Endung ist, und **kürzt den Namen beim Kopieren** — sonst
+liegt in der Bibliothek ein Name, den kein Emulator öffnet. Nur eine Ebene tief:
+`spiel.nsp.hdf` ja, `spiel.foo.bar` nein.
+
+**Ein fehlgeschlagener Import darf nichts wegwerfen.** Vorher räumten Erfolgs- und
+Fehlerweg identisch auf: `import_folder` kehrte auch bei „nichts erkannt" normal zurück,
+und `worker_collect` löschte anschließend den Ordner *und* — über `sab_cleanup` mit
+`del_files=1` — den History-Eintrag des Downloadprogramms. Knapp zwei Gigabyte waren weg,
+und was in dem Paket lag, ließ sich hinterher nur noch aus der NZB und dem Log von SABnzbd
+rekonstruieren. Jetzt entscheidet der Rückgabewert: nur nach einem geglückten Import wird
+aufgeräumt. Was liegen bleibt, kann angesehen und nach einer Korrektur erneut eingelesen
+werden — dafür muss der Ordner **von Hand** entfernt werden, wenn er nicht mehr gebraucht
+wird.
+
+Dazu nennt die Fehlermeldung jetzt **Endungen und eine Beispieldatei** statt nur einer
+Zahl (#242). „1 übersprungen" hat eine vollständige Diagnoserunde gekostet, weil der
+Ordner zu dem Zeitpunkt schon gelöscht war.
+
+*EN: the import has to survive two things. Download clients rename finished files —
+SABnzbd's deobfuscation appends a second extension it guessed from content, turning
+`game.nsp` into `game.nsp.hdf`, and ROM formats are exactly what such a guesser does not
+know. `rom_endung()` falls back to the second-to-last extension when the last one is
+unknown, and trims the bogus suffix when copying. And a failed import must not destroy the
+payload: cleanup now happens only when the import actually took something, because
+previously both paths cleaned up identically and a 2 GB download was deleted along with
+the client's history entry (`del_files=1`), leaving nothing to diagnose. Leftover folders
+are the operator's to remove.*
 
 ### Etwas an der Oberfläche ändern
 Datei unter `static/` oder `templates/` bearbeiten, App neu starten (der Hash und damit die
