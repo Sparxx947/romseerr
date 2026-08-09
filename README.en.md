@@ -117,6 +117,9 @@ all**. Anyone who wants them supplies their own:
 that is the normal case and complete as it stands, not a fallback.
 
 ### Requests & downloads
+- **Playable in the browser** only counts when RomM's player actually ships the core.
+  *Settings → Services* checks that per platform against the running installation rather
+  than trusting a list.
 - **An admin always remains**: changes that would remove the last way in are refused — on
   deletion as well as on a role change.
 - **Approval workflow**: users with auto-approve download immediately; otherwise an admin approves.

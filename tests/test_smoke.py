@@ -2464,7 +2464,9 @@ def test_unknown_folders_pass_through_unchanged(appmod):
     """Eine unbekannte Plattform ist kein Fehler, sondern eine, die dieses Projekt noch
     nicht kennt. Sie umzubenennen oder kleinzuschreiben wuerde bestehende Bibliotheken
     umsortieren. (#124)"""
-    for name in ("GP32", "Dingoo", "wasm-4", "meine-eigene-plattform"):
+    # „Dingoo" stand hier und ist inzwischen ein Firmware-Ordner in IGNORE_FOLDERS (#124) —
+    # als Beispiel für „unbekannt" taugt es damit nicht mehr.
+    for name in ("GP32", "RG350", "wasm-4", "meine-eigene-plattform"):
         assert appmod.folder_slug(name) == name
 
 
@@ -4711,3 +4713,44 @@ def test_latest_tag_cannot_land_on_a_prerelease(appmod):
         "die Bedingung darf nicht am Auslöser hängen — bei einem Handlauf war sie wahr"
     assert "contains(" in zeile and "'-'" in zeile, \
         "SemVer kennzeichnet Vorabversionen mit '-'; daran muss die Bedingung hängen"
+
+
+def test_play_cores_flags_a_core_the_player_does_not_ship(appmod, client, monkeypatch):
+    """Ein Play-Knopf, dessen Kern fehlt, muss auffallen. (#124)
+
+    `intellivision` zeigte auf `freeintv`; im eingesetzten RomM-Bau antwortet dieser Kern
+    mit 404. Der Knopf konnte nicht funktionieren und sah aus wie jeder andere — die
+    Kernnamen stammten aus dem libretro-Katalog, nicht aus der laufenden Installation.
+    """
+    appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "j"; sess["role"] = "admin"
+    monkeypatch.setattr(appmod, "cfg", lambda k, d="": "http://romm" if k == "romm_url" else d)
+    monkeypatch.setattr(appmod, "PLAYABLE", {"nes": "fceumm", "kaputt": "gibtsnicht"})
+
+    class R:
+        def __init__(self, c): self.status_code = c
+    monkeypatch.setattr(appmod.requests, "head",
+                        lambda url, **k: R(200 if "fceumm" in url else 404))
+
+    d = client.get("/api/play/cores").get_json()
+    zustand = {x["platform"]: x["available"] for x in d["cores"]}
+    assert zustand["nes"] is True
+    assert zustand["kaputt"] is False, "ein fehlender Kern muss als fehlend gemeldet werden"
+    assert d["missing"] == 1 and d["ok"] is False
+    appmod.save_users({})
+
+
+def test_every_playable_core_entry_is_documented_as_checked(appmod):
+    """Kernnamen kommen aus der eingesetzten Fassung, nicht aus einem Katalog. (#124)
+
+    Der Unterschied ist keine Förmlichkeit: `freeintv` steht im libretro-Katalog und
+    fehlt im Player. Wer die nächste Zeile ergänzt, soll lesen, woher der Name kommen muss.
+    """
+    quelle = open("app.py", encoding="utf-8").read()
+    block = quelle[quelle.index("PLAYABLE = {"):]
+    block = block[:block.index("\nNEEDS_BIOS")]
+    assert "nachgesehen" in block.lower() or "read out of the deployed" in block.lower(), \
+        "der Hinweis auf die Messung fehlt"
+    # Intellivision darf nicht zurückkehren, solange der Kern fehlt.
+    assert '"intellivision":' not in block, "freeintv wird vom Player nicht ausgeliefert (#124)"
