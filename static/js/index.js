@@ -84,7 +84,56 @@ function applyI18n(){
  document.querySelectorAll('[data-i18n-ph]').forEach(e=>e.placeholder=t(e.dataset.i18nPh));
  updateFLabel();}
 let cur='s';
-function show(v){cur=v;
+// --- Verlauf und Adressen (#194) ---
+// Die App hatte KEINE Vorstellung von Navigation: kein pushState, kein popstate, kein
+// Hash. Browser-Zurück verliess damit die Anwendung (auf dem Telefon IST Zurück die
+// Navigation), ein Neuladen landete immer auf Entdecken, und nichts war verlinkbar.
+// Statt eines Zurück-Knopfes, der das nur überdeckt, bekommen die Ansichten eine
+// Adresse — dann macht der Browser von sich aus das Richtige.
+const ROUTEN={s:'discover',j:'requests',set:'settings',issues:'issues',msg:'messages',cov:'coverage'};
+const ROUTEN_UM=Object.fromEntries(Object.entries(ROUTEN).map(([k,v])=>[v,k]));
+// Reine Funktion, absichtlich ohne DOM: so ist sie prüfbar, ohne die halbe Oberfläche
+// nachzubauen. Gibt {view, detail} zurück; detail ist null oder das Nötigste, um
+// openDetail() nach einem Neuladen erneut aufzurufen.
+function routeParse(hash){
+ let h=String(hash||'').replace(/^#\/?/,'');
+ if(!h)return{view:'s',detail:null};
+ let [pfad,frage]=h.split('?');
+ let teile=pfad.split('/').filter(Boolean);
+ if(teile[0]==='title'&&teile.length>=3){
+  let p=new URLSearchParams(frage||'');
+  return{view:p.get('v')&&ROUTEN_UM[p.get('v')]||'s',
+         detail:{source:decodeURIComponent(teile[1]),ref:decodeURIComponent(teile.slice(2).join('/')),
+                 title:p.get('t')||'',platform_slug:p.get('p')||''}};
+ }
+ return{view:ROUTEN_UM[teile[0]]||'s',detail:null};
+}
+function routeBauen(v,detail){
+ if(detail)return`#/title/${encodeURIComponent(detail.source||'')}/${encodeURIComponent(detail.ref||'')}`+
+   `?v=${ROUTEN[v]||'discover'}&t=${encodeURIComponent(detail.title||'')}&p=${encodeURIComponent(detail.platform_slug||detail.platform||'')}`;
+ return'#/'+(ROUTEN[v]||'discover');
+}
+// Setzt die Adresse, ohne die Ansicht erneut zu zeichnen. `ersetzen` für den ersten
+// Aufruf beim Start — sonst läge ein leerer Eintrag vor der Startseite im Verlauf.
+let ROUTE_STUMM=false;
+function routeSetzen(v,detail,ersetzen){
+ let neu=routeBauen(v,detail);
+ if(location.hash===neu)return;
+ ROUTE_STUMM=true;
+ try{ersetzen?history.replaceState({v,detail},'',neu):history.pushState({v,detail},'',neu);}
+ finally{setTimeout(()=>{ROUTE_STUMM=false;},0);}
+}
+function routeAnwenden(){
+ let {view,detail}=routeParse(location.hash);
+ zeige(view);
+ if(detail&&detail.ref)openDetail(detail,true);
+ else closeModal(true);
+}
+window.addEventListener('popstate',()=>{if(!ROUTE_STUMM)routeAnwenden();});
+window.addEventListener('hashchange',()=>{if(!ROUTE_STUMM)routeAnwenden();});
+
+function show(v){zeige(v);routeSetzen(v,null);}
+function zeige(v){cur=v;
  document.getElementById('discview').style.display=v=='s'?'':'none';
  document.getElementById('jobs').style.display=v=='j'?'block':'none';
  document.getElementById('settings').style.display=v=='set'?'block':'none';
@@ -249,7 +298,11 @@ async function dl(btn,it){btn.disabled=true;btn.textContent='…';
  let r=await fetch('/api/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
  let d=await r.json();btn.textContent=d.ok?t('requested'):(d.msg||t('st_error'));}
 // --- Detail-Ansicht (Seerr-Detailseite) ---
-async function openDetail(it){let m=document.getElementById('modal');m.style.display='block';window._detit=it;window.reqFor='';
+// `ausRoute` unterscheidet den Klick vom Wiederherstellen: beim Klick kommt ein neuer
+// Verlaufseintrag dazu (damit Zurück das Fenster schliesst), beim Wiederherstellen aus
+// der Adresse nicht — sonst entstünde bei jedem Zurück ein neuer Eintrag. (#194)
+async function openDetail(it,ausRoute){let m=document.getElementById('modal');m.style.display='block';window._detit=it;window.reqFor='';
+ if(!ausRoute)routeSetzen(cur,it);
  let vars=(window.LASTRES||[]).filter(x=>x.gkey&&x.gkey===it.gkey);
  m.innerHTML=`<div class=box><button class=x onclick="closeModal()">×</button>
   <div class=top><div class=mc style="${it.cover?`background-image:url('${it.cover}')`:''}"></div>
@@ -404,7 +457,14 @@ async function startStream(btn,title,plat){btn.disabled=true;btn.textContent='�
   s.textContent=d.launch_error;btn.parentNode.appendChild(s);}
  window.open(d.url,'_blank','noopener');}
 async function stopStream(){await fetch('/api/stream/stop',{method:'POST'});closeModal();}
-function closeModal(){document.getElementById('modal').style.display='none';}
+// Ohne Argument ist Schliessen eine Navigation: zurueck zur Ansicht, aus der das Fenster
+// geoeffnet wurde. `ausRoute` schliesst nur die Anzeige — dann hat der Verlauf sich
+// bereits bewegt und ein weiterer history.back() wuerde aus der App hinausfuehren. (#194)
+function closeModal(ausRoute){
+ document.getElementById('modal').style.display='none';
+ if(ausRoute)return;
+ if(routeParse(location.hash).detail)history.back();
+}
 // --- Wunschlisten-Import: Vorschau ZUERST, geschrieben wird erst nach Bestaetigung (#80) ---
 const WLST={matched:['#3fb950','wl_s_matched'],ambiguous:['#d29922','wl_s_ambiguous'],
  not_found:['#f85149','wl_s_notfound'],duplicate:['#8b929e','wl_s_duplicate'],
@@ -1054,6 +1114,11 @@ async function addUser(){let u=document.getElementById('nu').value.trim(),p=docu
 async function logout(){await fetch('/api/logout',{method:'POST'});location.href='/login';}
 document.querySelectorAll('#langsw b').forEach(e=>e.classList.toggle('on',e.dataset.l==LANG));
 applyI18n();loadAuth();loadPlatforms();loadDiscover();updateMsgBadge();
+// Adresse zuerst auswerten: sonst landet ein Neuladen immer auf Entdecken, egal was in
+// der Adresszeile steht. replaceState, damit vor der Startansicht kein leerer Eintrag
+// im Verlauf liegt. (#194)
+routeSetzen(routeParse(location.hash).view,routeParse(location.hash).detail,true);
+routeAnwenden();
 if('serviceWorker'in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key=='Enter')search();});
 setInterval(()=>{if(cur=='j')loadJobs();},4000);
