@@ -291,6 +291,23 @@ Full list and defaults: **`.env.example`**.
 
 ---
 
+## Addresses and history
+
+Every view has an address, and so does a title:
+
+| Address | View |
+|---|---|
+| `#/discover` · `#/requests` · `#/settings` | discover · requests · settings |
+| `#/issues` · `#/messages` · `#/coverage` | issues · messages · coverage |
+| `#/title/<source>/<ref>?v=…&t=…&p=…` | detail dialog on top of view `v` |
+
+So the browser does the right thing on its own: **Back** returns to the previous view and
+closes an open detail dialog instead of leaving the application — on a phone, Back *is*
+the navigation. A **reload** lands where you were, and a **link** to a title can be sent
+to someone.
+
+---
+
 ## Users, roles & permissions
 
 - **Roles:** `admin` (everything) and `user`. Plus **granular permissions**:

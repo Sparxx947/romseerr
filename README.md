@@ -297,6 +297,23 @@ Vollständige Liste und Standardwerte: **`.env.example`**.
 
 ---
 
+## Adressen und Verlauf
+
+Jede Ansicht hat eine Adresse, und ein Titel auch:
+
+| Adresse | Ansicht |
+|---|---|
+| `#/discover` · `#/requests` · `#/settings` | Entdecken · Anfragen · Einstellungen |
+| `#/issues` · `#/messages` · `#/coverage` | Probleme · Nachrichten · Abdeckung |
+| `#/title/<quelle>/<ref>?v=…&t=…&p=…` | Detailfenster über der Ansicht `v` |
+
+Damit tut der Browser von sich aus das Richtige: **Zurück** kehrt zur vorherigen Ansicht
+zurück und schließt ein offenes Detailfenster, statt die Anwendung zu verlassen — auf dem
+Telefon *ist* Zurück die Navigation. Ein **Neuladen** kommt dort heraus, wo man war, und
+ein **Link** auf einen Titel lässt sich verschicken.
+
+---
+
 ## Benutzer, Rollen & Rechte
 
 - **Rollen:** `admin` (alles) und `user`. Zusätzlich **granulare Rechte**:

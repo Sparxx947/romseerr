@@ -3073,3 +3073,94 @@ def test_the_crawljob_uses_the_types_jdownloader_actually_parses(appmod, tmp_pat
     assert set(job) == {"text", "downloadFolder", "packageName", "autoStart", "autoConfirm"}
     assert "overwritePackagizerRules" not in job, "dieses Feld gibt es in JDownloader nicht"
     appmod.save_settings({})
+
+
+def _route_funktionen(js):
+    """Schneidet die reinen Routing-Funktionen aus index.js — sie kommen bewusst ohne DOM
+    aus, damit sie prüfbar sind, ohne die halbe Oberfläche nachzubauen."""
+    stuecke = []
+    for name in ("const ROUTEN=", "const ROUTEN_UM=", "function routeParse(", "function routeBauen("):
+        i = js.index(name)
+        # bis zur nächsten Zeile, die am Zeilenanfang mit einem neuen Statement beginnt
+        j = js.index("\n", i)
+        tiefe = js.count("{", i, j) - js.count("}", i, j)
+        while tiefe > 0:
+            j = js.index("\n", j + 1)
+            tiefe = js.count("{", i, j) - js.count("}", i, j)
+        stuecke.append(js[i:j])
+    return "\n".join(stuecke)
+
+
+def test_every_view_has_an_address_and_survives_a_reload():
+    """Ohne Adresse gibt es keinen Weg zurück: Browser-Zurück verließ die App, ein
+    Neuladen landete immer auf Entdecken, und nichts war verlinkbar.
+
+    Geprüft wird die Umkehrbarkeit — Ansicht → Adresse → Ansicht — für jede der sechs
+    Ansichten, weil genau das ein Neuladen tut. (#194)"""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node nicht verfügbar")
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    prog = _route_funktionen(js) + """
+const raus = {};
+for (const v of Object.keys(ROUTEN)) {
+  const adresse = routeBauen(v, null);
+  raus[v] = [adresse, routeParse(adresse).view];
+}
+raus['_leer'] = ['', routeParse('').view];
+raus['_unbekannt'] = ['#/gibtsnicht', routeParse('#/gibtsnicht').view];
+console.log(JSON.stringify(raus));
+"""
+    r = subprocess.run([node, "-e", prog], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr.strip()
+    d = json.loads(r.stdout)
+    for v, (adresse, zurueck) in d.items():
+        if v.startswith("_"):
+            continue
+        assert adresse.startswith("#/"), f"{v} hat keine Adresse"
+        assert zurueck == v, f"{v} → {adresse} → {zurueck}: Ansicht überlebt den Reload nicht"
+    assert d["_leer"][1] == "s", "ohne Adresse muss Entdecken kommen"
+    assert d["_unbekannt"][1] == "s", "eine unbekannte Adresse darf nicht ins Leere führen"
+
+
+def test_a_title_can_be_linked_and_restored():
+    """Ein Titel braucht eine Adresse, sonst lässt er sich nicht verschicken und ein
+    Neuladen wirft den Benutzer aus dem geöffneten Fenster.
+
+    Der Test schickt genau die Felder durch, die `openDetail` zum Wiederherstellen
+    braucht — inklusive eines Titels mit Sonderzeichen, weil daran das Kodieren
+    scheitert und nicht an `abc`. (#194)"""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node nicht verfügbar")
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    prog = _route_funktionen(js) + """
+const it = {source:'archive', ref:'twin-dragons/nes', title:'Lala & Co? [NES] #1', platform_slug:'nes'};
+const adresse = routeBauen('j', it);
+console.log(JSON.stringify({adresse, zurueck: routeParse(adresse)}));
+"""
+    r = subprocess.run([node, "-e", prog], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr.strip()
+    d = json.loads(r.stdout)
+    assert d["adresse"].startswith("#/title/archive/")
+    z = d["zurueck"]
+    assert z["view"] == "j", "die Ansicht hinter dem Fenster muss erhalten bleiben"
+    assert z["detail"]["ref"] == "twin-dragons/nes", "ein Schrägstrich im ref darf nicht zerfallen"
+    assert z["detail"]["title"] == "Lala & Co? [NES] #1"
+    assert z["detail"]["platform_slug"] == "nes"
+
+
+def test_the_modal_is_part_of_the_history():
+    """Zurück muss das Detailfenster schließen, statt die App zu verlassen — und das
+    Wiederherstellen aus der Adresse darf KEINEN neuen Verlaufseintrag erzeugen, sonst
+    kommt man mit Zurück nie heraus. (#194)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    assert "window.addEventListener('popstate'" in js, "popstate wird nicht behandelt"
+    assert "history.pushState" in js and "history.replaceState" in js
+    öffnen = js[js.index("async function openDetail("):]
+    öffnen = öffnen[:öffnen.index("\nasync function ", 1)]
+    assert "if(!ausRoute)routeSetzen" in öffnen, "der Klick legt keinen Verlaufseintrag an"
+    schliessen = js[js.index("function closeModal("):]
+    schliessen = schliessen[:schliessen.index("\n}") + 2]
+    assert "history.back()" in schliessen, "Schließen bewegt den Verlauf nicht zurück"
+    assert "if(ausRoute)return" in schliessen, "beim Wiederherstellen darf nicht zurückgesprungen werden"
