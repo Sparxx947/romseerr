@@ -5,7 +5,9 @@
 <div id=side>
  <div class=logo>🎮 Romseerr</div>
  <a class="nav on" id=nS data-i18n=nav_discover onclick="show('s')">🔍 Entdecken</a>
- <a class=nav id=nJ data-i18n=nav_requests onclick="show('j')">📥 Anfragen</a>
+ <!-- Kein Symbol davor: `nav_requests` bringt sein eigenes mit ("📥 Anfragen"). Sonst
+      steht es zweimal da — derselbe Fallstrick wie beim Zustandsabzeichen in #205. -->
+ <a class=nav id=nJ onclick="show('j')"><span data-i18n=nav_requests>📥 Anfragen</span><span id=jobbadge></span></a>
  <a class=nav id=nI data-i18n=nav_issues onclick="show('issues')">🐞 Probleme</a>
  <a class=nav id=nC data-i18n=nav_coverage onclick="show('cov')">📊 Abdeckung</a>
  <a class=nav id=nM onclick="show('msg')">✉ <span data-i18n=nav_messages>Nachrichten</span><span id=msgbadge></span></a>

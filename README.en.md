@@ -322,6 +322,22 @@ The symbol carries the meaning and the colour only reinforces it — on a dark c
 alone says nothing to a red-green colour blind reader. **Nothing is hidden:** knowing a
 title is already there is useful, it just should not have to be *read*.
 
+### Requests
+
+Above the list are four filters with **counts** — *all*, *active*, *done*, *failed* — plus
+the user filter when there is more than one account; the two combine. The page therefore
+states what it holds without being clicked through.
+
+**Where `denied` belongs:** with *done*, not with *failed*. Denied means somebody decided —
+the request is over and nothing needs repairing. Under *failed* you would go looking for
+defects and find decisions instead.
+
+In the navigation, *Requests* carries a **count** of unfinished jobs: running **and**
+failed ones. A failure deliberately does not drop out — otherwise you learn that zero means
+fine while something sits unresolved. Colour separates the two (red when a failure is
+included). At zero the badge disappears entirely, and it counts **your own** jobs, admins
+included — otherwise it would never be zero and would stop meaning anything.
+
 ### My lists
 
 Reachable from the user menu in the top right, address `#/lists`. Two lists that are easy
