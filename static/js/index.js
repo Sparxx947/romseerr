@@ -280,7 +280,12 @@ async function openDetail(it){let m=document.getElementById('modal');m.style.dis
    mv.appendChild(h);
    groups[k].forEach(v=>mv.appendChild(varRow(v)));});
  }else{vars.forEach(v=>mv.appendChild(varRow(v)));}
- if(canDo('manage_requests')){try{let us=await(await fetch('/api/users')).json();let names=Object.keys(us||{});
+ // `/api/users` liefert eine LISTE von Objekten, keinen Namen-Dictionary. Object.keys()
+ // gab darauf die Indizes zurück — die Auswahl bot „0" und „1" an. Der interne Speicher
+ // ist ein Dictionary, der Endpunkt macht daraus eine Liste; diese Aufrufstelle war gegen
+ // den internen Aufbau geschrieben. (#209)
+ if(canDo('manage_requests')){try{let us=await(await fetch('/api/users')).json();
+   let names=(Array.isArray(us)?us:[]).map(u=>u&&u.username).filter(Boolean).sort();
    if(names.length){let bar=document.getElementById('reqforbar');
     bar.innerHTML=`<div class=frow style="margin-bottom:8px"><label style="min-width:auto;color:#8b929e;font-size:12px">${t('req_for')}</label><select id=reqforsel onchange="window.reqFor=this.value"><option value="">${t('req_self')}</option>${names.map(u=>`<option value="${u}">${u.replace(/</g,'&lt;')}</option>`).join('')}</select></div>`;}}catch(e){}}
  let r=await fetch('/api/detail?source='+encodeURIComponent(it.source)+'&ref='+encodeURIComponent(it.ref||'')+'&title='+encodeURIComponent(it.title)+'&platform='+encodeURIComponent(it.platform_slug||''));

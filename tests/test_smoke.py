@@ -2956,3 +2956,33 @@ def test_the_release_pull_request_cannot_be_merged_by_accident():
     wf = open(os.path.join(REPO, ".github/workflows/release-please.yml"),
               encoding="utf-8").read()
     assert "KEIN RELEASE OHNE ENTSCHEIDUNG" in wf
+
+
+def test_the_request_for_dropdown_reads_the_real_users_response(appmod, client):
+    """Die Auswahl „Anfragen für" bot `0` und `1` statt Namen an.
+
+    Der interne Speicher IST ein Dictionary nach Benutzernamen, der Endpunkt macht daraus
+    eine Liste von Objekten — und diese Aufrufstelle war gegen den internen Aufbau
+    geschrieben. `Object.keys()` auf einer Liste gibt die Indizes zurück.
+
+    Der Test koppelt deshalb beide Seiten: die ECHTE Antwort von `/api/users` wird durch
+    den Ausdruck geschickt, der im ausgelieferten JavaScript steht. Eine Textsuche hätte
+    genau das nicht bemerkt. (#209)"""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node nicht verfügbar")
+    appmod.save_users({"admin": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)},
+                       "miriam": {"pw": "x", "role": "user", "perms": []}})
+    with client.session_transaction() as sess:
+        sess["user"] = "admin"; sess["role"] = "admin"
+    antwort = client.get("/api/users").get_json()
+
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    m = re.search(r"let names=(.*?);\n", js)
+    assert m, "die Zeile, die die Namensliste bildet, ist nicht mehr auffindbar"
+
+    prog = f"const us={json.dumps(antwort)};const names={m.group(1)};console.log(JSON.stringify(names));"
+    r = subprocess.run([node, "-e", prog], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr.strip()
+    assert json.loads(r.stdout) == ["admin", "miriam"]
+    appmod.save_users({})
