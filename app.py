@@ -2426,6 +2426,20 @@ def stream_find_file(title, slug):
         return None
     return None
 
+def plattform_kandidaten(title):
+    """Alle STREAMBAREN Plattformen, die diesen Titel halten. (#175)
+
+    Dieselbe Abfrage, die `plattform_aus_bibliothek` zu einer Entscheidung verdichtet —
+    hier aber vollstaendig, damit eine Absage die Auswahl nennen kann, statt nur
+    „mehrdeutig" zu sagen. Bei genau diesem Grund hat der Bedienende die fehlende
+    Information, und ihn nicht danach zu fragen ist die eigentliche Luecke.
+    """
+    n = norm(title)
+    if not n:
+        return []
+    with LIB_LOCK:
+        return sorted(s for s in STREAMABLE if n in (LIB["per"].get(s) or set()))
+
 def plattform_aus_bibliothek(title):
     """Welche STREAMBARE Plattform haelt diesen Titel? -> Slug, '' oder '?' (mehrdeutig).
 
@@ -2438,11 +2452,7 @@ def plattform_aus_bibliothek(title):
     The platform on a search hit is not the platform of the copy in the library.
     The index already knows where the file is; use that instead of giving up.
     """
-    n = norm(title)
-    if not n:
-        return ""
-    with LIB_LOCK:
-        treffer = sorted(s for s in STREAMABLE if n in (LIB["per"].get(s) or set()))
+    treffer = plattform_kandidaten(title)
     if len(treffer) == 1:
         return treffer[0]
     # MEHRDEUTIG WIRD NICHT GERATEN. Denselben Titel gibt es fuer PS2 und Wii; das
@@ -2465,7 +2475,10 @@ def stream_info(title, slug, user=""):
         # Titel vielleicht trotzdem in einer? (#154)
         ersatz = plattform_aus_bibliothek(title)
         if ersatz == "?":
-            return {"streamable": False, "reason": "ambiguous_platform", "platform": slug}
+            # Die Kandidaten gehoeren in die Antwort: der Resolver kennt sie ohnehin, und
+            # ohne sie ist die Absage eine Sackgasse statt einer Frage. (#175)
+            return {"streamable": False, "reason": "ambiguous_platform", "platform": slug,
+                    "candidates": plattform_kandidaten(title)}
         if not ersatz:
             return {"streamable": False, "reason": "not_supported", "platform": slug}
         slug = ersatz
