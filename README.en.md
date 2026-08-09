@@ -560,6 +560,12 @@ but no source that yields `source=filehoster` hits is wired up yet
 
 ---
 
+## Contributing
+
+Documentation is mandatory and bilingual; two **ratchets** in the test suite hold the level
+reached instead of relying on memory. Details, and what deliberately **cannot** be checked:
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 ## License
 
 [MIT](LICENSE). Romseerr is a private, self-built project and is not affiliated with Overseerr,

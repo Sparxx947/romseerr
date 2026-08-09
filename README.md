@@ -660,6 +660,12 @@ Code existiert, aber es ist noch keine Quelle verdrahtet, die `source=filehoster
 
 ---
 
+## Mitarbeiten
+
+Dokumentation ist Pflicht und zweisprachig; zwei **Ratschen** in der Testsuite halten den
+erreichten Stand fest, statt sich auf Erinnerung zu verlassen. Einzelheiten und was sich
+bewusst **nicht** prüfen lässt: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 ## Lizenz
 
 [MIT](LICENSE). Romseerr ist ein privates, selbstgebautes Projekt und steht in keiner Verbindung
