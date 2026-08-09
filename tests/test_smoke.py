@@ -3651,3 +3651,37 @@ def test_the_blocklist_describes_what_it_actually_does():
     sec = js[js.index("async function secBlocklist("):]
     sec = sec[:sec.index("\nfunction ", 1)]
     assert "t('bl_hint')" in sec, "die Beschreibung steht nicht im Bereich"
+
+def test_usenet_check_measures_every_stage(appmod, client, monkeypatch, tmp_path):
+    """Der Usenet-Weg ist stufenweise nachmessbar, ohne etwas herunterzuladen. (#196)
+
+    Das Issue meldete drei Symptome — leere Suche, abgelehnter NZB, nicht eingesammelter
+    Download. Nachgemessen funktionierten alle drei; der eigentliche Defekt war, dass die
+    Kette keine Messpunkte hatte und von aussen jede Ursache gleich aussah.
+
+    Der Alarmpfad wird hier erzwungen: mit einem Einsammelordner, den es nicht gibt, MUSS
+    die letzte Stufe rot sein. Ein Test, der nur den Gutfall sieht, wuerde auch dann
+    bestehen, wenn die Pruefung stumpf `True` zurueckgibt.
+    """
+    appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "j"; sess["role"] = "admin"
+    monkeypatch.setattr(appmod, "SAB_DONE", str(tmp_path / "gibtsnicht"))
+    d = client.get("/api/usenet/check").get_json()
+    stufen = {s["step"]: s for s in d["steps"]}
+    assert set(stufen) == {"search", "category", "queue", "collect"}
+    assert stufen["collect"]["ok"] is False, "fehlender Einsammelordner muss anschlagen"
+    # Beide Sichten nebeneinander — das ist die Lehre aus #197: derselbe Ordner heisst in
+    # beiden Containern anders, und nur ein Mensch kann die Namensraeume vergleichen.
+    assert "gibtsnicht" in stufen["collect"]["info"] and "SABnzbd" in stufen["collect"]["info"]
+    assert d["ok"] is False
+    appmod.save_users({})
+
+
+def test_usenet_check_needs_permission(appmod, client):
+    """Die Prüfung nennt Kategorien und Ordnerpfade — das ist Admin-Sache. (#196)"""
+    appmod.save_users({"g": {"pw": "x", "role": "user", "perms": ["request"]}})
+    with client.session_transaction() as sess:
+        sess["user"] = "g"; sess["role"] = "user"
+    assert client.get("/api/usenet/check").status_code == 403
+    appmod.save_users({})

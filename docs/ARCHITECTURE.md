@@ -139,6 +139,36 @@ hand-off, invisibly, and every later job queues up behind it.*
 *EN: three views of the same two directories. `JD_OUT` is derived from `JD_DL_BASE`
 unless set; the watch folder must be writable by both containers.*
 
+### Der Usenet-Weg: vier Stufen, einzeln messbar (#196)
+
+Derselbe Fehlertyp wie oben, nur mit SABnzbd. Der Weg hat vier Stellen, an denen er
+reißen kann — und von außen sah jede Ursache gleich aus („Usenet geht nicht"):
+
+| Stufe | Was geprüft wird | Wenn sie reißt |
+|---|---|---|
+| Suche | Prowlarr liefert Usenet-Treffer für die Kategorien aus `prow_cats` | Suche bleibt leer |
+| Kategorie | die in `sab_cat` gesetzte Kategorie existiert in SABnzbd | NZB landet in keiner oder der falschen |
+| Warteschlange | SABnzbd ist nicht pausiert | NZB wird angenommen und passiert nichts |
+| Einsammelordner | Romseerrs `SAB_DONE` ist da und lesbar | Download läuft durch, wird aber nie gefunden |
+
+Die letzte Stufe ist wieder eine Frage zweier **Sichten auf denselben Ordner**:
+
+| Sicht | Romseerr | SABnzbd |
+|---|---|---|
+| Fertige Downloads | `/sab-complete` (`SAB_DONE`) | `complete_dir` + Unterordner der Kategorie |
+
+Ein Automat kann die beiden Namensräume nicht vergleichen — sie stammen aus
+verschiedenen Containern. *Einstellungen → Verbindungen → SABnzbd → **Usenet-Weg
+prüfen*** (`GET /api/usenet/check`) stellt sie deshalb nebeneinander und beantwortet die
+anderen drei Stufen einzeln. Es wird dabei **nichts heruntergeladen**.
+
+*EN: the usenet path breaks in four distinct places that all look identical from the
+outside. `GET /api/usenet/check` (Settings → Connections → SABnzbd) answers each stage
+separately without downloading anything. The last stage prints Romseerr's `SAB_DONE` and
+SABnzbd's `complete_dir` + category folder side by side: no automation can compare those
+two namespaces, but a human can — and if they diverge, downloads complete and are never
+picked up.*
+
 **Erststart-Reihenfolge** (Full-Stack): Stack hochfahren → in SABnzbd & Prowlarr
 je einen API-Key erzeugen und Indexer/Server einrichten → Keys in `.env` →
 `docker compose up -d` erneut → Romseerr im Browser öffnen und Admin anlegen.

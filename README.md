@@ -280,6 +280,10 @@ Der Container läuft **non-root** und bringt einen **Healthcheck** auf `/health`
 2. **Assistent** — führt durch die Dienste (SABnzbd, Prowlarr, IGDB, RomM); jeder Schritt lässt
    sich testen oder überspringen. Später jederzeit erneut über *Einstellungen → Über* aufrufbar.
 3. **Verbindungen prüfen** — unter *Einstellungen → Verbindungen*; *Dienste* zeigt die Erreichbarkeit.
+4. **Usenet-Weg prüfen** — *Einstellungen → Verbindungen → SABnzbd* misst Suche, Kategorie,
+   Warteschlange und Einsammelordner einzeln durch, ohne etwas herunterzuladen. Die letzte
+   Zeile zeigt Romseerrs und SABnzbds Sicht auf denselben Ordner: laufen sie auseinander,
+   läuft der Download durch und wird nie eingesammelt.
 
 ---
 

@@ -274,6 +274,10 @@ The container runs **non-root** and ships a **healthcheck** on `/health`.
 2. **Wizard** — walks through the services (SABnzbd, Prowlarr, IGDB, RomM); each step can be tested
    or skipped. Reopen it any time under *Settings → About*.
 3. **Check connections** under *Settings → Connections*; *Services* shows reachability.
+4. **Check the usenet path** — *Settings → Connections → SABnzbd* measures search, category,
+   queue and collect folder one by one without downloading anything. The last line shows
+   Romseerr's and SABnzbd's view of the same folder: if they diverge, downloads finish and
+   are never picked up.
 
 ---
 
