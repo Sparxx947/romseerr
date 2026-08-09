@@ -4668,3 +4668,46 @@ def test_token_rotation_is_documented_in_both_languages(appmod):
     de = text.index("Das Token wechseln"); en = text.index("Rotating the token")
     assert "Reihenfolge" in text[de:de+1800] and "in this order" in text[en:en+1800], \
         "die Reihenfolge muss in beiden Sprachen dastehen, nicht nur in einer"
+
+
+def test_release_image_is_not_wired_to_an_event_that_cannot_fire(appmod):
+    """Das Abbild haengt nicht an `on: release`, das nie feuern kann. (#185)
+
+    Ein Release, das release-please mit dem Standard-`GITHUB_TOKEN` anlegt, loest keine
+    weiteren Workflows aus — GitHubs Sperre gegen sich selbst ausloesende Workflows.
+    `on: release: [published]` konnte fuer einen solchen Release also nie feuern, und
+    v1.1.0-beta.1 wurde ohne Abbild veroeffentlicht, waehrend der Kopf der Datei das
+    Gegenteil behauptete.
+    """
+    pub = yaml.safe_load(open(".github/workflows/release-image.yml", encoding="utf-8"))
+    # `on` wird von YAML 1.1 als bool True gelesen — beide Schreibweisen abfangen.
+    ausloeser = pub.get("on", pub.get(True)) or {}
+    assert "release" not in ausloeser, \
+        "on: release kann für ein vom Bot erzeugtes Release nicht feuern (#185)"
+    assert "workflow_call" in ausloeser, "der Bau muss aufrufbar sein"
+
+    rp = yaml.safe_load(open(".github/workflows/release-please.yml", encoding="utf-8"))
+    job = rp["jobs"].get("publish-image")
+    assert job, "release-please muss den Bau selbst anstoßen"
+    assert job.get("uses", "").endswith("release-image.yml"), "und zwar über denselben Workflow"
+    # Dieselbe Bedingung wie bei `promote` und `release-branch` — ein Bau ohne Release
+    # waere ein Abbild ohne Tag.
+    assert "outputs.released" in str(job.get("if", "")), \
+        "nur bauen, wenn wirklich ein Release entstanden ist"
+
+
+def test_latest_tag_cannot_land_on_a_prerelease(appmod):
+    """`latest` haengt am Versionsnamen, nicht am Ausloeser. (#185)
+
+    Vorher stand dort `github.event_name != 'release' || …`: bei einem Lauf von Hand war
+    die erste Haelfte wahr, und `latest` landete auf einer Beta — genau das, was der
+    Kommentar darueber ausschloss. Der manuelle Notnagel tauschte damit ein fehlendes
+    Abbild gegen ein irrefuehrendes.
+    """
+    text = open(".github/workflows/release-image.yml", encoding="utf-8").read()
+    zeile = next((z for z in text.split("\n") if "value=latest" in z), "")
+    assert zeile, "kein latest-Tag gefunden"
+    assert "event_name" not in zeile, \
+        "die Bedingung darf nicht am Auslöser hängen — bei einem Handlauf war sie wahr"
+    assert "contains(" in zeile and "'-'" in zeile, \
+        "SemVer kennzeichnet Vorabversionen mit '-'; daran muss die Bedingung hängen"

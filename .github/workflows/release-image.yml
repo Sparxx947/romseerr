@@ -1,12 +1,36 @@
-# Baut bei jedem veröffentlichten Release ein Multi-Arch-Image (amd64 + arm64) und pusht es
-# nach GHCR. / Builds a multi-arch image (amd64 + arm64) and pushes it to GHCR on each release.
-# release-please erzeugt das Release (Tag vX.Y.Z), was diesen Workflow auslöst.
+# Baut ein Multi-Arch-Image (amd64 + arm64) und pusht es nach GHCR.
+# Builds a multi-arch image (amd64 + arm64) and pushes it to GHCR.
+#
+# WARUM KEIN `on: release` MEHR: Ein Release, das release-please mit dem Standard-
+# `GITHUB_TOKEN` anlegt, loest KEINE weiteren Workflows aus — GitHubs Sperre dagegen,
+# dass Workflows sich selbst ausloesen. `on: release: [published]` konnte fuer einen
+# solchen Release also nie feuern; der Kopf dieser Datei behauptete das Gegenteil, und
+# v1.1.0-beta.1 erschien folgerichtig ohne Abbild. (#185)
+#
+# Gewaehlt wurde Weg 2 aus dem Issue: `release-please.yml` ruft diesen Workflow direkt
+# auf (`workflow_call`), sobald es ein Release erzeugt hat. Ein PAT oder eine GitHub App
+# (Weg 1) haette dieselbe Wirkung, kostet aber ein dauerhaftes Geheimnis mehr — in einem
+# Projekt, das Schluesselmaterial sonst konsequent klein haelt, ist das der teurere
+# Handel. Weg 3 (nur den manuellen Weg reparieren) laesst „jemand muss daran denken"
+# stehen, und genau daran ist es schon einmal gescheitert.
+#
+# EN: a release created with the default GITHUB_TOKEN does not trigger further workflows,
+# so `on: release` could never fire here. release-please now calls this workflow directly.
 name: Publish image
 
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit oder Tag, aus dem gebaut wird / commit or tag to build from
+        required: true
+        type: string
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag oder Commit (leer = aktueller Zweig) / tag or commit (empty = current branch)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -24,6 +48,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up QEMU (arm64 emulation)
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
@@ -44,11 +70,20 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            # `latest` nur für stabile Releases setzen — ein Pre-Release (Beta) darf
-            # es nicht verschieben. (metadata-action überspringt major.minor bei Pre-Releases automatisch.)
-            type=raw,value=latest,enable=${{ github.event_name != 'release' || !github.event.release.prerelease }}
+            type=semver,pattern={{version}},value=${{ inputs.ref || github.ref_name }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.ref || github.ref_name }}
+            # `latest` nur für stabile Releases — ein Pre-Release darf es nicht verschieben.
+            #
+            # Die Bedingung haengt jetzt am VERSIONSNAMEN statt am Ausloeser. Vorher stand
+            # dort `github.event_name != 'release' || …`: bei einem Lauf von Hand war die
+            # erste Haelfte wahr, und `latest` landete auf einer Beta — genau das, was der
+            # Kommentar darueber ausschloss. Der Notnagel tauschte damit ein fehlendes
+            # Abbild gegen ein irrefuehrendes. SemVer kennzeichnet Vorabversionen mit
+            # einem `-`, das ist unabhaengig davon, wer den Lauf angestossen hat. (#185)
+            #
+            # EN: the guard now keys on the version string, not the trigger. On a manual
+            # run the old condition was true and `latest` moved to a pre-release.
+            type=raw,value=latest,enable=${{ !contains(inputs.ref || github.ref_name, '-') }}
 
       - name: Build timestamp
         id: build
