@@ -103,6 +103,52 @@ document.addEventListener('keydown',e=>{
  if(document.querySelector('.aufklapp.auf')){closeMenus();return;}
  let m=document.getElementById('modal');
  if(m&&m.style.display==='block')closeModal();});
+
+// --- Fokus im Dialog halten (#258) ---
+// Der Dialog liegt als `fixed`-Overlay über dem Kopf und schluckt Mausklicks dorthin — der
+// FOKUS ging aber weiterhin hin. Mit Tab ließ sich hinter die modale Fläche greifen und ein
+// Menü bedienen, das Mausnutzer nicht einmal anklicken können. In #228 im Browser gemessen:
+// `elementFromPoint` auf dem Menüknopf lieferte bei offenem Dialog `#modal`, `focus()` auf
+// denselben Knopf gelang trotzdem.
+//
+// EN: the dialog covers the header and swallows clicks, but focus still reached it, so
+// keyboard users could operate controls mouse users cannot even click.
+const FOKUSSIERBAR='a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+let _fokusVorDialog=null;
+function modalOffen(){let m=document.getElementById('modal');return !!(m&&m.style.display==='block');}
+function modalFokusListe(){
+ let m=document.getElementById('modal');if(!m)return [];
+ return [...m.querySelectorAll(FOKUSSIERBAR)].filter(el=>el.offsetParent!==null);}
+// Tab sauber im Kreis führen — sonst käme Shift+Tab am ersten Element wieder beim ersten an.
+document.addEventListener('keydown',e=>{
+ if(e.key!=='Tab'||!modalOffen())return;
+ let liste=modalFokusListe();if(!liste.length)return;
+ let erst=liste[0],letzt=liste[liste.length-1];
+ if(e.shiftKey&&(document.activeElement===erst||!document.getElementById('modal').contains(document.activeElement))){
+  e.preventDefault();letzt.focus();
+ }else if(!e.shiftKey&&document.activeElement===letzt){
+  e.preventDefault();erst.focus();}});
+// Netz für alles andere (Klick, programmatischer Fokus): landet der Fokus draußen, kommt er zurück.
+document.addEventListener('focusin',e=>{
+ if(!modalOffen())return;
+ let m=document.getElementById('modal');
+ if(m.contains(e.target))return;
+ let liste=modalFokusListe();if(liste.length)liste[0].focus();});
+// Wer den Dialog geöffnet hat, wird beim Öffnen gemerkt — dorthin geht der Fokus zurück.
+// Über einen Beobachter statt in jedem der vier Öffner: eine Stelle, die nicht vergessen
+// werden kann, wenn ein fünfter dazukommt.
+function fokusWaechterStarten(){
+ let m=document.getElementById('modal');if(!m)return;
+ let warOffen=modalOffen();
+ new MutationObserver(()=>{
+  let jetzt=modalOffen();
+  if(jetzt&&!warOffen){
+   _fokusVorDialog=document.activeElement;
+   let liste=modalFokusListe();if(liste.length)liste[0].focus();}
+  warOffen=jetzt;
+ }).observe(m,{attributes:true,attributeFilter:['style']});}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fokusWaechterStarten);
+else fokusWaechterStarten();
 function zeichneKopf(){
  let lb=document.getElementById('langbtn'),lm=document.getElementById('langmenu');
  if(lb&&lm){
@@ -611,6 +657,11 @@ async function stopStream(){await fetch('/api/stream/stop',{method:'POST'});clos
 // bereits bewegt und ein weiterer history.back() wuerde aus der App hinausfuehren. (#194)
 function closeModal(ausRoute){
  document.getElementById('modal').style.display='none';
+ // Fokus dorthin zurück, wo er herkam. Das ist der Teil eines Focus-Traps, der am
+ // häufigsten fehlt — ohne ihn landet ein Tastaturnutzer nach jedem Schließen am
+ // Seitenanfang und muss sich erneut durch die Seite hangeln. (#258)
+ if(_fokusVorDialog&&document.contains(_fokusVorDialog)){try{_fokusVorDialog.focus();}catch(e){}}
+ _fokusVorDialog=null;
  if(ausRoute)return;
  if(!routeParse(location.hash).detail)return;
  // Zurueck nur, wenn wir den Eintrag selbst angelegt haben. Wurde der Titel direkt ueber
