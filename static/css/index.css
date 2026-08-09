@@ -77,6 +77,18 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid var(--border)
 .dl{margin-top:auto;padding:8px;border:none;border-radius:8px;background:var(--acc);color:#fff;font-weight:600;cursor:pointer}
 .dl:disabled{background:#2a2f37;color:var(--mut);cursor:default}
 .have{color:var(--ok);font-size:12px;text-align:center;padding:8px}
+/* Zustand auf dem Cover (#205): unten rechts, damit es weder den Plattformnamen (oben
+   links) noch die Quelle (oben rechts) verdeckt. Deckender Grund, weil das Abzeichen auf
+   beliebiger Bildkunst liegt — halbtransparent verschwindet es auf hellen Covern. */
+.cover .zust{position:absolute;left:6px;bottom:6px;right:6px;border-radius:8px;padding:3px 7px;
+ font-size:11px;font-weight:600;color:#fff;display:flex;align-items:center;gap:5px;
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cover .zust.da{background:#1e5e3a;border:1px solid #2ecc71}
+.cover .zust.req{background:#5a4410;border:1px solid #d29922}
+/* Zurückhaltender Zweitknopf: „Details" und „angefragt" sind keine Handlungsaufforderung
+   wie ein Download, sollen aber sichtbar bleiben. */
+.dl.zw{background:var(--card);border:1px solid var(--border);color:var(--txt)}
+.dl.zw:disabled{opacity:.6;cursor:default}
 #jobs{padding:18px;display:none}
 .card .cover{cursor:pointer}
 .job{background:var(--card);border:1px solid #262b33;border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;gap:10px}

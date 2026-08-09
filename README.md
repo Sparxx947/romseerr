@@ -313,6 +313,22 @@ zurück und schließt ein offenes Detailfenster, statt die Anwendung zu verlasse
 Telefon *ist* Zurück die Navigation. Ein **Neuladen** kommt dort heraus, wo man war, und
 ein **Link** auf einen Titel lässt sich verschicken.
 
+### Karten auf Entdecken und in der Suche
+
+Jede Karte trägt oben links den **Plattformnamen** (»GameCube«, nicht `ngc`) und, wenn
+zutreffend, unten ein Zustandsabzeichen:
+
+| Abzeichen | Bedeutung | Aktionsfeld |
+|---|---|---|
+| ✓ grün | schon in der Bibliothek | *Details* — dort liegen Spielen und Streamen |
+| ⏳ gelb | schon angefragt, noch nicht da | abgeschaltet, damit niemand doppelt anfragt |
+| keins | weder noch | *Download* |
+
+Das Symbol trägt die Bedeutung, die Farbe verstärkt sie nur — auf einem dunklen Cover
+sagt Grün allein einem rot-grün-blinden Menschen nichts. **Nichts wird ausgeblendet:**
+Zu wissen, dass ein Titel schon da ist, ist nützlich; er soll nur nicht mehr gelesen
+werden müssen.
+
 ### Kopfleiste
 
 Oben rechts stehen **Sprache** und **Person**: die Sprache als Aufklappmenü (eingeklappt

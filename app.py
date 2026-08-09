@@ -1164,9 +1164,12 @@ def discover_rows():
         DISCOVER_CACHE["rows"], DISCOVER_CACHE["ts"] = rows, time.time()
     # Bibliotheks-Markierung je Spiel frisch (nicht cachen)
     bl = [str(p).strip().lower() for p in load_settings().get("blocklist", []) if str(p).strip()]
+    offen = angefragte_titel()
+    def markiere(g, slug):
+        da = in_library(g["title"], slug or None)
+        return {**g, "in_library": da, "requested": (not da) and norm(g["title"]) in offen}
     return [{"slug": r["slug"], "key": r.get("key", r["console"]), "console": r["console"],
-             "games": [{**g, "in_library": in_library(g["title"], r["slug"] or None)}
-                       for g in r["games"] if not is_blocked(g["title"], bl)]}
+             "games": [markiere(g, r["slug"]) for g in r["games"] if not is_blocked(g["title"], bl)]}
             for r in rows]
 
 # ---------- Ausgehende Anfragen an selbst gesetzte URLs (#89) ----------
@@ -1489,6 +1492,7 @@ def do_search(q, platforms=None):
     bl = [str(p).strip().lower() for p in load_settings().get("blocklist", []) if str(p).strip()]
     ar = search_archive(q); us = search_usenet(q, usenet_cats)
     fh = search_filehoster(q) if catalog_urls() else []
+    offen = angefragte_titel()   # einmal, nicht je Treffer
     for idx, r in enumerate(ar+us+fh):
         if is_blocked(r["title"], bl): continue        # Sperrliste
         if platforms:
@@ -1500,6 +1504,10 @@ def do_search(q, platforms=None):
         r["in_library"] = in_library(r["title"], r["platform"])
         r["is_set"] = is_set(r["title"], r["size"])
         r["gkey"] = norm(r["title"])          # zum Gruppieren gleicher Titel (Versionen)
+        # „angefragt" ist ein ANDERER Zustand als „vorhanden", und beide interessieren VOR
+        # dem Klick. Ohne das trägt die Karte einen Download-Knopf für etwas, das längst
+        # unterwegs ist. Vorhandenes schlägt angefragt — sonst stünde beides da. (#205)
+        r["requested"] = (not r["in_library"]) and r["gkey"] in offen
         # Fassung aus dem Release-Namen lesen (Region/Revision/Sprache/Dump-Status). (#77)
         r["variant"] = parse_release(r["title"])
         r["variant_label"] = variant_label(r["variant"])
@@ -1559,6 +1567,19 @@ def new_job(item, user="", approved=True):
     with JOBS_LOCK: JOBS.append(job); save_jobs()
     if approved: Q.put(jid)
     return job
+
+# Zustaende, in denen ein Titel BEREITS ANGEFRAGT ist, aber noch nicht in der Bibliothek
+# liegt. `done` gehoert nicht dazu — dann greift `in_library`, und beides zugleich zu
+# melden waere doppelt gemoppelt. `error`/`denied` auch nicht: da ist nichts unterwegs,
+# und der Titel soll wieder anforderbar aussehen. (#205)
+OFFENE_ZUSTAENDE = ("pending", "queued", "approved", "downloading", "importing")
+
+def angefragte_titel():
+    """Menge normalisierter Titel, die gerade in Arbeit sind. Normalisiert, weil ein
+    Suchtreffer anders geschrieben ist als der Job-Titel (Release-Namen, Klammern)."""
+    with JOBS_LOCK:
+        return {norm(j.get("title", "")) for j in JOBS
+                if j.get("state") in OFFENE_ZUSTAENDE and j.get("title")}
 
 def get_job(jid):
     with JOBS_LOCK:

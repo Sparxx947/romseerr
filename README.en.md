@@ -307,6 +307,21 @@ closes an open detail dialog instead of leaving the application — on a phone, 
 the navigation. A **reload** lands where you were, and a **link** to a title can be sent
 to someone.
 
+### Cards on discover and in search
+
+Every card carries the **platform name** in the top left ("GameCube", not `ngc`) and,
+where it applies, a state badge at the bottom:
+
+| Badge | Meaning | Action area |
+|---|---|---|
+| ✓ green | already in the library | *Details* — play and stream live there |
+| ⏳ amber | already requested, not here yet | disabled, so nobody requests twice |
+| none | neither | *Download* |
+
+The symbol carries the meaning and the colour only reinforces it — on a dark cover, green
+alone says nothing to a red-green colour blind reader. **Nothing is hidden:** knowing a
+title is already there is useful, it just should not have to be *read*.
+
 ### Header
 
 **Language** and **user** live in the top right: language as a dropdown (collapsed to the
