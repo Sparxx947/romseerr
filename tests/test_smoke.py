@@ -3755,10 +3755,12 @@ def test_usenet_check_flags_indexer_serving_html(appmod, client, monkeypatch):
     with client.session_transaction() as sess:
         sess["user"] = "j"; sess["role"] = "admin"
 
+    # Feldnamen wie search_usenet sie liefert (extra/ref) — NICHT wie Prowlarr sie nennt.
+    # Genau diese Verwechslung liess die Stufe in der Praxis leerlaufen. (#238)
     monkeypatch.setattr(appmod, "search_usenet", lambda *a, **k: [
-        {"indexer": "Gut", "downloadUrl": "http://i/gut"},
-        {"indexer": "Html", "downloadUrl": "http://i/html"},
-        {"indexer": "Html", "downloadUrl": "http://i/html2"},
+        {"extra": "Gut", "ref": "http://i/gut"},
+        {"extra": "Html", "ref": "http://i/html"},
+        {"extra": "Html", "ref": "http://i/html2"},
     ])
 
     class R:
@@ -3781,3 +3783,36 @@ def test_usenet_check_flags_indexer_serving_html(appmod, client, monkeypatch):
     assert "2/3" in st["indexer:Html"]["info"]
     assert d["ok"] is False
     appmod.save_users({})
+
+
+def test_search_usenet_field_names_are_pinned(appmod, monkeypatch):
+    """Nagelt die Naht zwischen search_usenet und seinen Aufrufern fest. (#238)
+
+    search_usenet bildet Prowlarrs Antwort auf Romseerrs eigene Form ab: aus `indexer`
+    wird `extra`, aus `downloadUrl` wird `ref`. Wer die Prowlarr-Namen weiterverwendet,
+    bekommt stillschweigend None — kein Fehler, nur eine Funktion, die nichts findet.
+
+    Deshalb geht hier eine realistische Prowlarr-Nutzlast durch die echte Funktion,
+    statt das Ergebnis von Hand zu erfinden. Ein Test, der beide Seiten der Naht mockt,
+    beweist nur, dass sie zueinander passen — nicht, dass sie zur Wirklichkeit passen.
+    """
+    appmod.save_settings({"connections": {"prow_url": "http://prow", "prow_apikey": "k",
+                                          "prow_cats": "1000"}})
+
+    class R:
+        def json(self):
+            return [{"protocol": "usenet", "title": "Spiel (Europe)", "size": 4711,
+                     "indexer": "MeinIndexer", "downloadUrl": "http://prow/1/download?x=1",
+                     "categories": [{"id": 1000}]},
+                    {"protocol": "torrent", "title": "Ignoriert", "size": 1,
+                     "indexer": "T", "downloadUrl": "http://t", "categories": []}]
+    monkeypatch.setattr(appmod.requests, "get", lambda *a, **k: R())
+
+    out = appmod.search_usenet("egal", "1000")
+    assert len(out) == 1, "Torrents gehören nicht in den Usenet-Zweig"
+    it = out[0]
+    assert it["extra"] == "MeinIndexer", "der Indexername muss in `extra` landen"
+    assert it["ref"] == "http://prow/1/download?x=1", "die Adresse muss in `ref` landen"
+    assert "indexer" not in it and "downloadUrl" not in it, \
+        "Prowlarrs Rohnamen dürfen hier nicht überleben — sonst greifen Aufrufer daneben"
+    appmod.save_settings({})
