@@ -4583,11 +4583,15 @@ def api_usenet_check():
     # Ein Abruf zaehlt bei den meisten Indexern als „grab" gegen ein Stundenlimit, deshalb
     # hoechstens einer je Indexer und nur auf ausdruecklichen Aufruf — nie im Hintergrund.
     if treffer:
+        # Feldnamen von search_usenet: der Indexer steht in `extra`, die Adresse in `ref`.
+        # Prowlarrs Rohnamen (`indexer`/`downloadUrl`) gibt es hier nicht mehr — genau die
+        # standen hier zuerst, und beide Seiten der Naht waren im Test so gemockt, dass sie
+        # sich gegenseitig bestaetigten. (#238)
         proben = {}
         for t in treffer:
-            proben.setdefault(t.get("indexer") or "?", []).append(t)
+            proben.setdefault(t.get("extra") or "?", []).append(t)
         for name, ts in proben.items():
-            url = (ts[0].get("downloadUrl") or "").strip()
+            url = (ts[0].get("ref") or "").strip()
             anteil = f"{len(ts)}/{len(treffer)} Treffer"
             if not url:
                 schritt(f"indexer:{name}", False, f"{anteil} · keine Download-Adresse")
