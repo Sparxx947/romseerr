@@ -1078,9 +1078,10 @@ def igdb_similar_games(title, limit=20):
     key = "simg:" + norm(title)
     if key in IGDB["cache"]: return IGDB["cache"][key]
     d = igdb_query("games", f'search "{title[:60]}"; '
-        f'fields name,similar_games.name,similar_games.cover.image_id; limit 1;')
+        f'fields name,similar_games.name,similar_games.cover.image_id,similar_games.total_rating; limit 1;')
     g = d[0] if isinstance(d, list) and d else {}
-    out = [{"title": s.get("name",""), "cover": _cover_url(s)}
+    out = [{"title": s.get("name",""), "cover": _cover_url(s),
+            "ext_rating": round(s["total_rating"]) if s.get("total_rating") else None}
            for s in (g.get("similar_games", []) or []) if s.get("name") and s.get("cover")][:limit]
     IGDB["cache"][key] = out
     return out
@@ -1115,19 +1116,23 @@ def clean_query(t):
     return re.sub(r'\s+', ' ', t).strip()
 
 def igdb_popular(limit=40):
-    d = igdb_query("games", f'fields name,cover.image_id; '
+    # `total_rating` kostet nichts extra — es kommt aus derselben Abfrage und macht aus
+    # einer Wand von Covern eine, die sich auf einen Blick ordnen lässt. (#210)
+    d = igdb_query("games", f'fields name,cover.image_id,total_rating; '
         f'where cover != null & total_rating_count > 80; '
         f'sort total_rating_count desc; limit {limit};')
     if not isinstance(d, list): return []
-    return [{"title": g.get("name",""), "cover": _cover_url(g)}
+    return [{"title": g.get("name",""), "cover": _cover_url(g),
+             "ext_rating": round(g["total_rating"]) if g.get("total_rating") else None}
             for g in d if isinstance(g, dict) and g.get("cover")]
 
 def igdb_popular_platform(pid, limit=20):
-    d = igdb_query("games", f'fields name,cover.image_id; '
+    d = igdb_query("games", f'fields name,cover.image_id,total_rating; '
         f'where platforms=({pid}) & cover != null & total_rating_count > 12; '
         f'sort total_rating_count desc; limit {limit};')
     if not isinstance(d, list): return []
-    return [{"title": g.get("name",""), "cover": _cover_url(g)}
+    return [{"title": g.get("name",""), "cover": _cover_url(g),
+             "ext_rating": round(g["total_rating"]) if g.get("total_rating") else None}
             for g in d if isinstance(g, dict) and g.get("cover")]
 
 # IGDB-Genre-ID -> Anzeigename (für Genre-Reihen im Discover)
@@ -1136,11 +1141,12 @@ IGDB_GENRES = [("rpg",12,"Rollenspiele / RPG"), ("platform",8,"Jump 'n' Run"),
                ("racing",10,"Rennspiele / Racing"), ("adventure",31,"Adventure"),
                ("puzzle",9,"Puzzle"), ("sport",14,"Sport"), ("strategy",15,"Strategie / Strategy")]
 def igdb_popular_genre(gid, limit=20):
-    d = igdb_query("games", f'fields name,cover.image_id; '
+    d = igdb_query("games", f'fields name,cover.image_id,total_rating; '
         f'where genres=({gid}) & cover != null & total_rating_count > 30; '
         f'sort total_rating_count desc; limit {limit};')
     if not isinstance(d, list): return []
-    return [{"title": g.get("name",""), "cover": _cover_url(g)}
+    return [{"title": g.get("name",""), "cover": _cover_url(g),
+             "ext_rating": round(g["total_rating"]) if g.get("total_rating") else None}
             for g in d if isinstance(g, dict) and g.get("cover")]
 
 DISCOVER_CACHE = {"ts": 0, "rows": []}
@@ -1605,6 +1611,37 @@ def wishlist_add(user, title, platform=""):
                for e in lst): return
         lst.append({"title": title, "platform": platform or "", "added": int(time.time())})
         save_wishlist(w)
+# --- Eigene Bewertungen und Kommentare (#210) --------------------------------------
+# ENTSCHIEDEN, bevor die Tabelle stand (das verlangte das Issue ausdruecklich):
+#
+#   * Bewertet wird der TITEL, nicht die Fassung. Die Bibliothek haelt mehrere Fassungen
+#     desselben Spiels; eine Meinung gilt dem Spiel. Schluessel ist `norm(title)` — dieselbe
+#     Normalisierung wie bei Favoriten und `in_library`.
+#   * JE NUTZER, nicht gemittelt. Zwei Menschen sind der interessante Fall, und der
+#     Mittelwert aus zwei Meinungen sagt weniger als beide nebeneinander. „Deine Bewertung"
+#     steht vorn, die der anderen daneben.
+#   * Gespeichert in SQLite ueber `kv`, keine neue JSON-Datei (#192).
+RATE_LOCK = threading.Lock()
+def load_ratings(): return kv_get("ratings", {})
+def load_comments(): return kv_get("comments", {})
+def rating_set(user, title, stars):
+    """stars 1..5, 0 loescht die eigene Bewertung wieder."""
+    k = norm(title)
+    if not (user and k): return
+    with RATE_LOCK:
+        r = load_ratings(); je = r.setdefault(k, {})
+        if stars: je[user] = {"stars": int(stars), "ts": int(time.time())}
+        else: je.pop(user, None)
+        if not je: r.pop(k, None)
+        kv_put("ratings", r)
+def comment_add(user, title, text):
+    k, text = norm(title), (text or "").strip()[:2000]
+    if not (user and k and text): return
+    with RATE_LOCK:
+        c = load_comments()
+        c.setdefault(k, []).append({"user": user, "text": text, "ts": int(time.time())})
+        kv_put("comments", c)
+
 # --- Favoriten (#207) -------------------------------------------------------------
 # BEWUSST ein eigener Speicher, nicht ein Feld an der Wunschliste: die beiden Listen
 # beantworten gegensaetzliche Fragen. Die Wunschliste sagt „habe ich nicht, haette ich
@@ -3317,6 +3354,34 @@ def api_wishlist_example():
     return Response(EXAMPLE_WISHLIST, mimetype="text/csv; charset=utf-8",
                     headers={"Content-Disposition": 'attachment; filename="romseerr-wishlist-example.csv"'})
 
+@app.route("/api/titlemeta")
+@login_required
+def api_titlemeta():
+    """Eigene Bewertung, die der anderen und die Kommentare zu einem Titel."""
+    title = request.args.get("title", "")
+    k = norm(title); me = session.get("user", "") or "api"
+    je = load_ratings().get(k, {})
+    return jsonify({
+        "mine": (je.get(me) or {}).get("stars"),
+        "others": [{"user": u, "stars": v.get("stars")} for u, v in je.items() if u != me],
+        "comments": load_comments().get(k, [])[-50:]})
+
+@app.route("/api/titlemeta/rating", methods=["POST"])
+@login_required
+def api_titlemeta_rating():
+    d = request.get_json(force=True) or {}
+    try: stars = max(0, min(5, int(d.get("stars") or 0)))
+    except (TypeError, ValueError): stars = 0
+    rating_set(session.get("user", "") or "api", d.get("title", ""), stars)
+    return jsonify({"ok": True})
+
+@app.route("/api/titlemeta/comment", methods=["POST"])
+@login_required
+def api_titlemeta_comment():
+    d = request.get_json(force=True) or {}
+    comment_add(session.get("user", "") or "api", d.get("title", ""), d.get("text", ""))
+    return jsonify({"ok": True})
+
 @app.route("/api/favourites", methods=["GET", "POST"])
 @login_required
 def api_favourites():
@@ -4688,6 +4753,14 @@ OPENAPI = {
                 responses={**_R_AUTH, "200": {"description": "OK"}})},
         "/api/favourites/remove": {"post": _op("Titel aus den Favoriten entfernen", "User",
             body={"type": "object", "properties": {"title": {"type": "string"}}},
+            responses={**_R_AUTH, "200": {"description": "OK"}})},
+        "/api/titlemeta": {"get": _op("Eigene Bewertung, die der anderen und Kommentare zu einem Titel", "User",
+            params=[_qp("title", "Titel")], responses={**_R_AUTH, "200": {"description": "OK"}})},
+        "/api/titlemeta/rating": {"post": _op("Eigene Bewertung setzen (1–5, 0 löscht)", "User",
+            body={"type": "object", "properties": {"title": {"type": "string"}, "stars": {"type": "integer"}}},
+            responses={**_R_AUTH, "200": {"description": "OK"}})},
+        "/api/titlemeta/comment": {"post": _op("Kommentar zu einem Titel schreiben", "User",
+            body={"type": "object", "properties": {"title": {"type": "string"}, "text": {"type": "string"}}},
             responses={**_R_AUTH, "200": {"description": "OK"}})},
         "/api/logos": {"get": _op("Welche Logos der Betreiber hinterlegt hat (Dateinamen ohne Endung). "
                                   "Im Repo liegt bewusst keines — Konsolenlogos sind Marken.", "System", _PUB)},

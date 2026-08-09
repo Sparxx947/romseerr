@@ -363,6 +363,16 @@ fine while something sits unresolved. Colour separates the two (red when a failu
 included). At zero the badge disappears entirely, and it counts **your own** jobs, admins
 included — otherwise it would never be zero and would stop meaning anything.
 
+### Ratings and comments
+
+Cards on *Discover* carry the **IGDB rating**, labelled with its source — an unlabelled
+number reads as your own. With no value, nothing is shown.
+
+The detail view adds **your own** rating (1–5 stars, clearable) and a comment section.
+The **title** is rated, not the individual release: the library holds several versions of
+one game and an opinion belongs to the game. Ratings are **per person** — yours first, the
+others beside it. An average of two opinions says less than both side by side.
+
 ### My lists
 
 Reachable from the user menu in the top right, address `#/lists`. Two lists that are easy

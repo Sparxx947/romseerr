@@ -371,6 +371,17 @@ dass Null „alles gut" heißt, während etwas ungelöst liegen bleibt. Die Farb
 (rot bei Fehlern). Bei Null verschwindet der Zähler ganz, und gezählt werden die
 **eigenen** Aufträge, auch für Verwalter — sonst stünde dort nie eine Null.
 
+### Bewertungen und Kommentare
+
+Die Karten auf *Entdecken* tragen die **IGDB-Bewertung** — mit Quelle beschriftet, weil
+eine nackte Zahl sonst als die eigene gelesen wird. Ohne Wert steht dort nichts.
+
+In der Detailansicht kommt die **eigene** Bewertung dazu (1–5 Sterne, zurücknehmbar) und
+ein Kommentarbereich. Bewertet wird der **Titel**, nicht die einzelne Fassung — die
+Bibliothek hält mehrere Fassungen desselben Spiels, die Meinung gilt dem Spiel. Und sie
+steht **je Person**: „deine Bewertung" vorn, die der anderen daneben. Ein Mittelwert aus
+zwei Meinungen sagt weniger als beide nebeneinander.
+
 ### Meine Listen
 
 Über das Benutzermenü oben rechts, Adresse `#/lists`. Zwei Listen, die man leicht

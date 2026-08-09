@@ -3592,3 +3592,62 @@ def test_unmeasurable_platforms_are_counted_on_the_card():
         "Plattformen ohne Gruppe würden lautlos verschwinden"
     assert "if(!GRUPPEN.length)await loadPlatforms()" in lade, \
         "ohne geladene Gruppen bliebe die Seite leer"
+
+
+def test_own_ratings_are_per_user_and_per_title_not_averaged(appmod):
+    """Vor der Tabelle entschieden, wie das Issue es verlangt: bewertet wird der **Titel**
+    (die Bibliothek hält mehrere Fassungen desselben Spiels, die Meinung gilt dem Spiel),
+    und **je Nutzer** statt gemittelt — zwei Menschen sind der interessante Fall, und der
+    Mittelwert aus zwei Meinungen sagt weniger als beide nebeneinander. (#210)"""
+    appmod.kv_put("ratings", {}); appmod.kv_put("comments", {})
+    appmod.rating_set("j", "Micro Mages", 5)
+    appmod.rating_set("m", "Micro Mages (USA)", 3)   # andere Fassung, selbes Spiel
+    je = appmod.load_ratings()[appmod.norm("Micro Mages")]
+    assert je["j"]["stars"] == 5 and je["m"]["stars"] == 3, "die Fassungen liefen auseinander"
+    assert "avg" not in je and len(je) == 2, "es wird gemittelt statt je Person zu speichern"
+
+    appmod.rating_set("j", "Micro Mages", 0)          # zurücknehmen
+    assert "j" not in appmod.load_ratings().get(appmod.norm("Micro Mages"), {})
+    appmod.rating_set("m", "Micro Mages", 0)
+    assert appmod.norm("Micro Mages") not in appmod.load_ratings(), "leere Einträge bleiben liegen"
+
+    appmod.comment_add("j", "Micro Mages", "  schön schwer  ")
+    k = appmod.load_comments()[appmod.norm("Micro Mages")]
+    assert k[0]["text"] == "schön schwer" and k[0]["user"] == "j"
+    appmod.comment_add("j", "Micro Mages", "   ")     # leer wird nicht gespeichert
+    assert len(appmod.load_comments()[appmod.norm("Micro Mages")]) == 1
+    appmod.kv_put("ratings", {}); appmod.kv_put("comments", {})
+
+
+def test_the_external_rating_says_whose_it_is():
+    """Eine Zahl ohne Quelle liest sich als die **eigene** — und das wird aktiv falsch,
+    sobald eigene Bewertungen daneben stehen. Deshalb trägt die Karte die Quelle, und
+    ohne Wert steht dort nichts statt einer erfundenen Null. (#210)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    i = js.index("let ext=it.ext_rating?")
+    zeile = js[i:js.index("\n", i)]
+    assert 'title="IGDB"' in zeile, "die fremde Bewertung nennt ihre Quelle nicht"
+    assert "it.ext_rating?" in zeile and "''" in zeile, "ohne Wert würde etwas erfunden"
+    py = open(os.path.join(REPO, "app.py"), encoding="utf-8").read()
+    assert py.count('"ext_rating"') >= 1 and "total_rating" in py, "die Quelle liefert nichts"
+
+
+def test_the_blocklist_describes_what_it_actually_does():
+    """Die Sperrliste erklärte sich nur durch einen Platzhalter, und die entscheidenden
+    Fragen blieben offen. Der Text muss der Implementierung entsprechen, sonst ist er
+    schlimmer als keiner — deshalb prüft der Test beide Seiten gegeneinander. (#203)"""
+    py = open(os.path.join(REPO, "app.py"), encoding="utf-8").read()
+    fn = py[py.index("def is_blocked("):]
+    fn = fn[:fn.index("\ndef ", 1)]
+    assert "in t" in fn and "lower()" in fn, "die Prüfung ist kein Teilstringvergleich mehr"
+    assert "re.search" not in fn and "re.match" not in fn, "es ist doch eine Regex geworden"
+
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    i = js.index("bl_hint:'")
+    text = js[i:js.index("',", i)]
+    for begriff in ("Teilstring", "Regex", "Titel", "laufenden", "alle Nutzer"):
+        assert begriff in text, f"die Beschreibung sagt nichts zu: {begriff}"
+    assert js.count("bl_hint:'") == 5, "die Beschreibung fehlt in einer Sprache"
+    sec = js[js.index("async function secBlocklist("):]
+    sec = sec[:sec.index("\nfunction ", 1)]
+    assert "t('bl_hint')" in sec, "die Beschreibung steht nicht im Bereich"
