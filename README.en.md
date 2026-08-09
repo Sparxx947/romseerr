@@ -234,6 +234,12 @@ docker run -d --name romseerr -p 8770:8770 \
 
 The container runs **non-root** and ships a **healthcheck** on `/health`.
 
+> **`/config` must be owned by uid 1000** (or writable for it) — that is the uid the image
+> runs as. If it is not, Romseerr still starts, answers every request and reports
+> `healthy`, but **stores nothing**: no request, no job, no setting. You can see it as
+> `"storage": "ro"` in `/health`, a startup warning and a notice in the interface. Check
+> with `docker exec romseerr id`, fix with `chown -R 1000 ./config`.
+
 ---
 
 ## First run

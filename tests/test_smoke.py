@@ -2986,3 +2986,61 @@ def test_the_request_for_dropdown_reads_the_real_users_response(appmod, client):
     assert r.returncode == 0, r.stderr.strip()
     assert json.loads(r.stdout) == ["admin", "miriam"]
     appmod.save_users({})
+
+
+def test_a_read_only_config_is_reported_not_hidden(appmod, client, tmp_path, monkeypatch):
+    """Ein schreibgeschütztes `/config` muss auffallen — sofort und an einer Stelle, die
+    jemand ansieht.
+
+    Es ist der teuerste stille Ausfall dieses Projekts gewesen: 18 Stunden lang wurde jede
+    Anfrage beantwortet, die ganze Oberfläche geliefert und `healthy` gemeldet, während
+    nichts gespeichert wurde. Lesen ging — und alles, was jemand *ansieht*, ist Lesen.
+
+    Der Test prüft deshalb den Zustand, den `/health` und die Warnung gemeinsam ergeben,
+    nicht nur die Existenz eines Feldes. (#216)"""
+    import os as _os
+    if _os.getuid() == 0:
+        pytest.skip("als root ist jedes Verzeichnis beschreibbar")
+    assert appmod.storage_state()["ok"] is True          # Ausgangslage: schreibbar
+    assert client.get("/health").get_json()["storage"] == "rw"
+
+    ro = tmp_path / "nur-lesen"; ro.mkdir(); _os.chmod(ro, 0o555)
+    monkeypatch.setattr(appmod, "CONFIG_DIR", str(ro))
+    try:
+        st = appmod.storage_state()
+        assert st["ok"] is False and st["dir"] is False
+        assert "nur-lesen" in st["reason"]
+
+        appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+        with client.session_transaction() as sess:
+            sess["user"] = "j"; sess["role"] = "admin"
+        w = client.get("/api/config/warnings").get_json()["warnings"]
+        s = next((x for x in w if x.get("key") == "storage"), None)
+        assert s is not None, "der Ausfall taucht in der Oberfläche nicht auf"
+        assert str(_os.getuid()) in s["fix"]
+
+        # Und die App bleibt erreichbar: ein sichtbarer Fehler nützt mehr als ein Dienst,
+        # der nicht hochkommt und dessen Grund niemand sieht.
+        h = client.get("/health")
+        assert h.status_code == 200 and h.get_json()["storage"] == "ro"
+    finally:
+        _os.chmod(ro, 0o755)
+        appmod.save_users({})
+
+
+def test_the_write_probe_actually_writes(appmod):
+    """Geprüft wird mit einem echten Schreibversuch, nicht mit `os.access`.
+
+    `os.access` beantwortet die Frage auf eingehängten Dateisystemen und bei ACLs nicht —
+    und `PRAGMA quick_check` läuft auf einer schreibgeschützten Datenbank glatt durch.
+    Beides sind beruhigende Zahlen am falschen Ort. (#216)"""
+    quelle = open(os.path.join(REPO, "app.py"), encoding="utf-8").read()
+    fn = re.search(r"def storage_state\(\):.*?\n(?=def )", quelle, re.S).group(0)
+    # Docstring und Kommentare raus — dort STEHEN os.access und quick_check, mit der
+    # Begründung, warum sie hier nichts taugen.
+    rumpf = re.sub(r'""".*?"""', "", fn, flags=re.S)
+    rumpf = "\n".join(z for z in rumpf.splitlines() if not z.strip().startswith("#"))
+    assert "os.access" not in rumpf, "os.access beweist hier nichts"
+    assert "quick_check" not in rumpf, "quick_check liest nur"
+    assert "CREATE TABLE" in rumpf and "commit" in rumpf, "es fehlt die echte Transaktion"
+    assert ".schreibprobe" in rumpf, "es fehlt der echte Schreibversuch im Verzeichnis"

@@ -36,7 +36,11 @@ services:
       # Ausgabe: derselbe Ordner wie /output bei JDownloader, nur anders eingehängt.
       # JD_DL_BASE ist die JD-Sicht darauf; Romseerrs Sicht wird daraus abgeleitet.
       - ${JD_OUTPUT:-./data/jd-output}:/jd-output
-      - ./config:/config                                  # Jobs, Nutzer, Log, (künftig) SQLite
+      # ACHTUNG: muss der uid 1000 gehören (das Abbild läuft non-root als 1000) oder für
+      # sie beschreibbar sein. Sonst läuft Romseerr, antwortet, meldet `healthy` — und
+      # speichert NICHTS. `docker compose exec romseerr id` zeigt die uid. (#216)
+      # Must be owned by (or writable for) uid 1000 — otherwise nothing is ever stored.
+      - ./config:/config                                  # Jobs, Nutzer, Log, SQLite
     depends_on: [sabnzbd, prowlarr, romm]
     networks: [romseerr]
 

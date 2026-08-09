@@ -3204,7 +3204,17 @@ def api_wishlist_remove():
     return jsonify({"ok": True})
 
 @app.route("/health")
-def health(): return jsonify({"ok":True,"lib_titles":len(LIB['all']),"jobs":len(JOBS)})
+def health():
+    """Liveness — plus der Speicherzustand.
+
+    Bewusst weiterhin HTTP 200, auch wenn nicht geschrieben werden kann: den Container
+    deswegen auf `unhealthy` zu setzen, übergäbe ihn der Restart-Policy, und eine
+    Neustartschleife verdeckt die Ursache, statt sie zu zeigen. Sichtbar wird es über das
+    Feld, die Startwarnung und das Banner. Bisher bestand `/health` aus zwei Lesezahlen —
+    eine schreibgeschützte Datenbank besteht die mühelos. (#216)"""
+    st = storage_state()
+    return jsonify({"ok":True,"lib_titles":len(LIB['all']),"jobs":len(JOBS),
+                    "storage":"rw" if st["ok"] else "ro"})
 
 # ---------- Betriebsmetriken (Prometheus) ----------
 # /health beantwortet nur „läuft der Prozess". Die interessanten Ausfälle hier sind leise:
@@ -4199,6 +4209,38 @@ def api_tls_remove():
 # live geprüft: dafür müsste jeder Aufruf der Oberfläche fremde Dienste anfragen.
 START_WARN = []
 
+def storage_state():
+    """Kann Romseerr schreiben, wo es schreiben MUSS? Prüft mit einem echten Schreibversuch.
+
+    `os.access` beantwortet die Frage nicht: auf eingehängten Dateisystemen und bei ACLs
+    liefert es die Auskunft des Verzeichnisbits, nicht das Ergebnis. Und die Frage stellt
+    sich hier scharf — das Abbild läuft als uid 1000, der eingehängte Ordner kommt vom
+    Betreiber und gehört im Zweifel jemand anderem.
+
+    Vorgeschichte: 18 Stunden lang beantwortete Romseerr jede Anfrage, lieferte die ganze
+    Oberfläche und meldete `healthy`, während **nichts** gespeichert wurde — die Datenbank
+    war schreibgeschützt. Lesen ging, und alles, was jemand ansieht, ist Lesen. (#216)"""
+    zustand = {"dir": True, "db": True, "reason": ""}
+    probe = os.path.join(CONFIG_DIR, ".schreibprobe")
+    try:
+        with open(probe, "w") as f: f.write("x")
+        os.remove(probe)
+    except Exception as e:
+        zustand["dir"] = False; zustand["reason"] = f"{CONFIG_DIR}: {e.__class__.__name__}"
+    try:
+        with closing(db_conn()) as c:
+            # Eine echte Transaktion. `PRAGMA quick_check` liest nur und ginge auch
+            # schreibgeschützt glatt durch — genau die beruhigende Zahl, die hier täuscht.
+            c.execute("CREATE TABLE IF NOT EXISTS _rw_probe(x INTEGER)")
+            c.execute("DROP TABLE _rw_probe")
+            c.commit()
+    except Exception as e:
+        zustand["db"] = False
+        zustand["reason"] = (zustand["reason"] + "; " if zustand["reason"] else "") + \
+                            f"{DB_FILE}: {e.__class__.__name__}"
+    zustand["ok"] = zustand["dir"] and zustand["db"]
+    return zustand
+
 def config_warnings():
     """Konfigurationsprobleme, die einen ganzen Weg lahmlegen — für die Oberfläche.
 
@@ -4211,6 +4253,14 @@ def config_warnings():
     können. Ein Fehler, den nur das Log kennt, ist für Benutzer kein Fehler, sondern
     unerklärliches Verhalten. (#197)"""
     w = [dict(x) for x in START_WARN]
+    # Zuerst, weil alles andere davon abhängt: was nicht gespeichert werden kann, ist
+    # verloren, egal wie gut der Rest läuft. (#216)
+    st = storage_state()
+    if not st["ok"]:
+        w.append({"key": "storage", "reason": "readonly",
+                  "text": f"Es kann nichts gespeichert werden / nothing can be stored — {st['reason']}",
+                  "fix": f"{CONFIG_DIR} muss der uid {os.getuid()} gehören oder für sie "
+                         f"beschreibbar sein / must be writable by uid {os.getuid()}"})
     jd = jd_check()
     if not jd["ok"]:
         w.append({"key": "jd", "reason": jd["reason"],
@@ -4363,7 +4413,8 @@ OPENAPI = {
     },
     "paths": {
         # --- System ---
-        "/health": {"get": _op("Liveness-Probe (Titelzahl, Jobs)", "System", _PUB)},
+        "/health": {"get": _op("Liveness-Probe (Titelzahl, Jobs) samt Speicherzustand "
+                               "(storage: rw/ro — ro heißt: es wird nichts gespeichert)", "System", _PUB)},
         "/api/version": {"get": _op("Laufende Version, Commit und Bauzeitpunkt (optional Update-Abgleich)", "System", _PUB,
             params=[_qp("check", "1 = zusätzlich gegen den Release-Feed prüfen (latest, update_available)")])},
         "/metrics": {"get": _op("Betriebsmetriken im Prometheus-Textformat (Auth wie API)", "System",
@@ -4673,6 +4724,13 @@ def check_config():
     def warn(key, text):
         log(f"Konfig-WARNUNG: {text}")
         START_WARN.append({"key": key, "text": text})
+    # Die erste Frage beim Start, weil sie alle anderen entwertet: kann ich schreiben?
+    # Nicht als Abbruch — ein sichtbarer Fehler nützt mehr als ein Dienst, der gar nicht
+    # erst hochkommt und dessen Grund niemand sieht. (#216)
+    st = storage_state()
+    if not st["ok"]:
+        log(f"Konfig-WARNUNG: SPEICHERN NICHT MÖGLICH / cannot store anything — {st['reason']}. "
+            f"{CONFIG_DIR} muss für uid {os.getuid()} beschreibbar sein.")
     if not (cfg("igdb_id") and cfg("igdb_secret")):
         log("Konfig: IGDB nicht gesetzt — keine Cover/Discover.")
     if not (cfg("sab_url") and cfg("sab_apikey")):
