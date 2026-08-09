@@ -3950,6 +3950,36 @@ def api_admin_reindex():
     log("Bibliotheks-Reindex angestoßen (Admin)")
     return jsonify({"ok": True})
 
+@app.route("/api/leftovers")
+@perm_required("manage_settings")
+def api_leftovers():
+    """Was von fehlgeschlagenen Importen liegen geblieben ist. (#244)"""
+    e = leftover_dirs()
+    return jsonify({"items": e, "total": sum(x["size"] for x in e),
+                    "days": load_settings().get("leftover_days", 14)})
+
+@app.route("/api/leftovers/remove", methods=["POST"])
+@perm_required("manage_settings")
+def api_leftovers_remove():
+    """Liegengebliebene Ordner entfernen — einzeln (`jid`) oder alle (`all: true`).
+
+    Geloescht wird ueber `leftover_remove`, nie ueber einen Pfad aus dem Request: sonst
+    entschiede der Aufrufer, was `rm -rf` trifft.
+    """
+    d = request.get_json(silent=True) or {}
+    ziel = leftover_dirs()
+    if not d.get("all"):
+        jid = str(d.get("jid") or "")
+        ziel = [x for x in ziel if x["jid"] == jid]
+        if not ziel: return jsonify({"error": "nicht gefunden / not found"}), 404
+    weg, bytes_weg, fehler = 0, 0, []
+    for x in ziel:
+        ok, grund = leftover_remove(x["path"])
+        if ok: weg += 1; bytes_weg += x["size"]
+        else: fehler.append(f"{x['name']}: {grund}")
+    log(f"{weg} liegengebliebene Downloads entfernt ({bytes_weg/1073741824:.1f} GB, Admin)")
+    return jsonify({"ok": not fehler, "removed": weg, "bytes": bytes_weg, "errors": fehler})
+
 @app.route("/api/jobs/clear-finished", methods=["POST"])
 @perm_required("manage_requests")
 def api_jobs_clear_finished():
@@ -4974,6 +5004,13 @@ OPENAPI = {
             params=[_pp("jid", "Job-ID")], responses={**_R_PERM, "200": {"description": "OK"}})},
         "/api/jobs/{jid}/retry": {"post": _op("Fehlgeschlagene/abgelehnte Anfrage erneut versuchen", "Requests",
             params=[_pp("jid", "Job-ID")], responses={**_R_PERM, "200": {"description": "erneut eingereiht"}})},
+        "/api/leftovers": {"get": _op("Downloads auflisten, die ein fehlgeschlagener Import "
+            "liegen gelassen hat (Ordner, Groesse, Alter, zugehoeriger Auftrag)", "Admin",
+            responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/leftovers/remove": {"post": _op("Liegengebliebene Downloads entfernen — "
+            "einzeln per `jid` oder alle per `all: true`", "Admin",
+            responses={**_R_PERM, "200": {"description": "OK"},
+                       "404": {"description": "nicht gefunden"}})},
         "/api/jobs/clear-finished": {"post": _op("Abgeschlossene Anfragen entfernen", "Requests",
             responses={**_R_PERM, "200": {"description": "entfernt"}})},
         # --- Issues ---
@@ -5114,6 +5151,100 @@ def api_openapi(): return jsonify(OPENAPI)
 def api_docs(): return Response(render_page("redoc.html"), mimetype="text/html")
 
 # ---------- Start ----------
+# ---------- Liegengebliebene Downloads (#244) ----------
+# Seit #240 bleibt ein Download liegen, den der Import nicht verwerten konnte. Das ist
+# Absicht — aber niemand raeumt sie je weg, und niemand SIEHT sie ueberhaupt. Ein Ordner,
+# von dem keiner weiss, ist nicht aufgehoben, sondern verloren.
+
+def leftover_dirs():
+    """Alle `romseerr_<jid>`-Ordner in den Sammelverzeichnissen, die zu KEINEM laufenden
+    Auftrag mehr gehoeren — mit jid, Groesse, Alter und dem zugehoerigen Auftrag.
+
+    Der Schutz sitzt hier und nicht beim Loeschen: ein Ordner, dessen Auftrag noch laeuft,
+    taucht gar nicht erst in der Liste auf. Alter allein ist als Kriterium untauglich —
+    ein grosser Download kann Stunden brauchen und sieht dabei alt aus.
+    """
+    aus = []
+    laufend = {j["id"] for j in JOBS if j.get("state") in OFFENE_ZUSTAENDE}
+    jobs = {j["id"]: j for j in JOBS}
+    for basis in (SAB_DONE, jd_out_dir()):
+        if not basis or not os.path.isdir(basis): continue
+        try:
+            eintraege = list(os.scandir(basis))
+        except OSError:
+            continue
+        for e in eintraege:
+            if not e.is_dir() or not e.name.startswith("romseerr_"): continue
+            rest = e.name[len("romseerr_"):]
+            jid = rest.split("__")[0].split("_")[0]
+            if jid in laufend: continue          # gehoert einem laufenden Auftrag
+            job = jobs.get(jid) or {}
+            groesse, alter = 0, 0.0
+            try:
+                for wurzel, _, dateien in os.walk(e.path):
+                    for d in dateien:
+                        try: groesse += os.path.getsize(os.path.join(wurzel, d))
+                        except OSError: pass
+                alter = (time.time() - os.path.getmtime(e.path)) / 86400
+            except OSError:
+                pass
+            aus.append({"jid": jid, "path": e.path, "name": e.name,
+                        "size": groesse, "age_days": round(alter, 1),
+                        "title": job.get("title", ""), "state": job.get("state", "")})
+    return sorted(aus, key=lambda x: -x["age_days"])
+
+def leftover_remove(pfad):
+    """Einen liegengebliebenen Ordner loeschen — mit Sperre gegen alles ausserhalb.
+
+    `rm -rf` auf einem Pfad, der aus einer Einstellung stammt, ist die eine Stelle, an der
+    ein Denkfehler nicht rueckgaengig zu machen ist. Deshalb dreifach: aufgeloester Pfad
+    (kein Symlink-Ausbruch), muss UNTERHALB eines Sammelordners liegen, und der Name muss
+    das `romseerr_`-Praefix tragen.
+    """
+    if not pfad: return False, "kein Pfad"
+    echt = os.path.realpath(pfad)
+    if os.path.basename(echt).startswith("romseerr_") is False:
+        return False, "kein Romseerr-Ordner"
+    erlaubt = False
+    for basis in (SAB_DONE, jd_out_dir()):
+        if not basis: continue
+        b = os.path.realpath(basis)
+        if echt != b and echt.startswith(b.rstrip("/") + "/"):
+            erlaubt = True; break
+    if not erlaubt:
+        return False, "ausserhalb der Sammelordner"
+    if not os.path.isdir(echt):
+        return False, "nicht vorhanden"
+    try:
+        subprocess.run(["rm", "-rf", echt], check=True)
+        return True, ""
+    except Exception as e:
+        return False, err_kind(e)
+
+def worker_leftovers():
+    """Taeglich: liegengebliebene Ordner verfallen lassen, die aelter sind als die Frist.
+
+    Die Frist muss lang genug sein, dass eine Korrektur und ein erneutes Einlesen
+    hineinpassen — sonst raeumt die Automatik genau das weg, wofuer #240 die Daten
+    aufgehoben hat. 0 schaltet sie ab.
+    """
+    while True:
+        time.sleep(6 * 3600)
+        beat("leftovers")
+        try:
+            tage = int(load_settings().get("leftover_days", 14) or 0)
+        except (TypeError, ValueError):
+            tage = 14
+        if tage <= 0: continue
+        weg, bytes_weg = 0, 0
+        for e in leftover_dirs():
+            if e["age_days"] < tage: continue
+            ok, _ = leftover_remove(e["path"])
+            if ok: weg += 1; bytes_weg += e["size"]
+        if weg:
+            log(f"{weg} liegengebliebene Downloads entfernt "
+                f"({bytes_weg/1073741824:.1f} GB, aelter als {tage} Tage)")
+
 def periodic_index():
     while True:
         time.sleep(600); beat("index"); build_index()
@@ -5168,6 +5299,7 @@ if __name__ == "__main__":
     threading.Thread(target=check_config, daemon=True).start()
     threading.Thread(target=worker_wishlist, daemon=True).start()
     threading.Thread(target=worker_catalog, daemon=True).start()
+    threading.Thread(target=worker_leftovers, daemon=True).start()
     # Optionaler HTTPS-Listener (eigener Port), wenn ein Zertifikat hinterlegt & aktiviert ist.
     def _start_https():
         info = tls_info()

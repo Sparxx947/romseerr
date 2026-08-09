@@ -293,6 +293,20 @@ Dazu nennt die Fehlermeldung jetzt **Endungen und eine Beispieldatei** statt nur
 Zahl (#242). „1 übersprungen" hat eine vollständige Diagnoserunde gekostet, weil der
 Ordner zu dem Zeitpunkt schon gelöscht war.
 
+**Was liegen bleibt, muss sichtbar sein** (#244). Die Ordner stehen unter
+*Einstellungen → Logs & Wartung* mit Titel, Größe, Alter und Zustand des Auftrags; einzeln
+oder gesammelt entfernbar, und `leftover_days` (Standard 14, `0` = aus) lässt sie nach
+einer Frist von selbst verfallen. Die Frist muss lang genug sein, dass eine Korrektur und
+ein erneutes Einlesen hineinpassen — sonst räumt die Automatik genau das weg, wofür die
+Daten aufgehoben wurden.
+
+Zwei Sperren sitzen bewusst tief im Code, nicht in der Oberfläche: `leftover_dirs()` zeigt
+Ordner **laufender** Aufträge gar nicht erst an (Alter allein wäre untauglich — ein großer
+Download kann Stunden brauchen und sieht dabei alt aus), und `leftover_remove()` löscht
+nur, was nach Auflösung aller Symlinks unterhalb eines Sammelordners liegt **und** das
+`romseerr_`-Präfix trägt. `rm -rf` auf einem Pfad aus einer Einstellung ist die eine Stelle
+hier, an der ein Denkfehler nicht rückgängig zu machen ist.
+
 *EN: the import has to survive two things. Download clients rename finished files —
 SABnzbd's deobfuscation appends a second extension it guessed from content, turning
 `game.nsp` into `game.nsp.hdf`, and ROM formats are exactly what such a guesser does not
@@ -301,7 +315,11 @@ unknown, and trims the bogus suffix when copying. And a failed import must not d
 payload: cleanup now happens only when the import actually took something, because
 previously both paths cleaned up identically and a 2 GB download was deleted along with
 the client's history entry (`del_files=1`), leaving nothing to diagnose. Leftover folders
-are the operator's to remove.*
+are listed under Settings → Logs & maintenance with size, age and owning request, can be
+removed individually or in bulk, and expire after `leftover_days` (default 14, 0 = off).
+Two guards live in the code rather than the UI: folders belonging to a **running** job are
+never listed, and removal only accepts paths that resolve inside a collect directory and
+carry the `romseerr_` prefix.*
 
 ### Etwas an der Oberfläche ändern
 Datei unter `static/` oder `templates/` bearbeiten, App neu starten (der Hash und damit die

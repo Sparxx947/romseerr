@@ -3918,3 +3918,74 @@ def test_successful_import_still_cleans_up(appmod, tmp_path, monkeypatch):
     assert aufgeraeumt == ["99"], "nach Erfolg muss die History aufgeräumt werden"
     assert not cand.exists(), "nach Erfolg muss der Ordner verschwinden"
     appmod.JOBS[:] = []
+
+
+def test_leftovers_never_touch_a_running_job(appmod, tmp_path, monkeypatch):
+    """Ein Ordner, dessen Auftrag noch läuft, taucht gar nicht erst auf. (#244)
+
+    Der Schutz sitzt bewusst in der Auflistung und nicht erst beim Löschen: sonst hinge
+    er daran, dass jeder Aufrufer daran denkt. Alter allein wäre als Kriterium untauglich
+    — ein großer Download kann Stunden brauchen und sieht dabei alt aus.
+    """
+    monkeypatch.setattr(appmod, "SAB_DONE", str(tmp_path))
+    monkeypatch.setattr(appmod, "jd_out_dir", lambda: str(tmp_path))
+    (tmp_path / "romseerr_111__Laeuft").mkdir()
+    (tmp_path / "romseerr_222__Fertig").mkdir()
+    (tmp_path / "fremder_ordner").mkdir()          # nicht unserer
+    appmod.JOBS[:] = [{"id": "111", "state": "downloading", "title": "Läuft"},
+                      {"id": "222", "state": "error", "title": "Fertig"}]
+
+    gefunden = {x["jid"] for x in appmod.leftover_dirs()}
+    assert "222" in gefunden, "ein gescheiterter Auftrag gehört auf die Liste"
+    assert "111" not in gefunden, "ein LAUFENDER Auftrag darf nie zum Aufräumen angeboten werden"
+    assert all(x["name"].startswith("romseerr_") for x in appmod.leftover_dirs())
+    appmod.JOBS[:] = []
+
+
+def test_leftover_remove_refuses_paths_outside(appmod, tmp_path, monkeypatch):
+    """`rm -rf` darf nur innerhalb der Sammelordner zuschlagen. (#244)
+
+    Das ist die eine Stelle hier, an der ein Denkfehler nicht rückgängig zu machen ist.
+    Geprüft wird deshalb auch der Symlink-Weg: ein Verweis, der aus dem Sammelordner
+    hinauszeigt, umginge eine reine Präfix-Prüfung auf dem unaufgelösten Pfad.
+    """
+    sammel = tmp_path / "collect"; sammel.mkdir()
+    fremd = tmp_path / "wichtig"; fremd.mkdir()
+    (fremd / "daten.txt").write_text("nicht anfassen")
+    monkeypatch.setattr(appmod, "SAB_DONE", str(sammel))
+    monkeypatch.setattr(appmod, "jd_out_dir", lambda: str(sammel))
+
+    # außerhalb
+    ok, grund = appmod.leftover_remove(str(fremd))
+    assert ok is False and (fremd / "daten.txt").exists(), f"fremder Pfad wurde gelöscht ({grund})"
+
+    # innerhalb, aber ohne unser Präfix
+    ohne = sammel / "irgendwas"; ohne.mkdir()
+    ok, _ = appmod.leftover_remove(str(ohne))
+    assert ok is False and ohne.exists(), "nur romseerr_-Ordner dürfen weg"
+
+    # Symlink aus dem Sammelordner heraus: der aufgelöste Pfad zählt, nicht der Name
+    link = sammel / "romseerr_999"
+    try:
+        link.symlink_to(fremd, target_is_directory=True)
+    except OSError:
+        pass
+    else:
+        ok, _ = appmod.leftover_remove(str(link))
+        assert (fremd / "daten.txt").exists(), "Symlink-Ausbruch muss abgewiesen werden"
+
+    # der Gutfall muss trotzdem funktionieren, sonst ist die Sperre nur ein Verbot
+    echt = sammel / "romseerr_888__X"; echt.mkdir()
+    (echt / "f.bin").write_text("x")
+    ok, grund = appmod.leftover_remove(str(echt))
+    assert ok is True and not echt.exists(), f"gültiger Ordner ließ sich nicht entfernen ({grund})"
+
+
+def test_leftovers_endpoint_needs_permission(appmod, client):
+    """Die Liste nennt Pfade und Größen, das Entfernen löscht Daten. (#244)"""
+    appmod.save_users({"g": {"pw": "x", "role": "user", "perms": ["request"]}})
+    with client.session_transaction() as sess:
+        sess["user"] = "g"; sess["role"] = "user"
+    assert client.get("/api/leftovers").status_code == 403
+    assert client.post("/api/leftovers/remove", json={"all": True}).status_code == 403
+    appmod.save_users({})
