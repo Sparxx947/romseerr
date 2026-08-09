@@ -268,7 +268,8 @@ Two complementary ways — **the web UI takes precedence, `.env` is the fallback
 | `PROW_URL` / `PROW_APIKEY` / `PROW_CATS` | Prowlarr |
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | IGDB (covers, metadata, recommendations) |
 | `ROMM_URL` / `ROMM_USER` / `ROMM_PASS` | RomM scan after import |
-| `JD_DL_BASE` | base target folder for JDownloader (filehoster) |
+| `JD_DL_BASE` | base target folder for JDownloader (filehoster), **as the JD container sees it** |
+| `JD_WATCH` / `JD_OUT` | Romseerr's view of the hand-off and target folders. Empty `JD_OUT` = **derived from `JD_DL_BASE`** |
 
 Full list and defaults: **`.env.example`**.
 

@@ -273,7 +273,8 @@ Zwei Wege, die sich ergänzen — **die Weboberfläche hat Vorrang, `.env` ist d
 | `PROW_URL` / `PROW_APIKEY` / `PROW_CATS` | Prowlarr-Anbindung |
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | IGDB (Cover, Metadaten, Empfehlungen) |
 | `ROMM_URL` / `ROMM_USER` / `ROMM_PASS` | RomM-Scan nach dem Import |
-| `JD_DL_BASE` | Basis-Zielordner für JDownloader (Filehoster) |
+| `JD_DL_BASE` | Basis-Zielordner für JDownloader (Filehoster), **aus Sicht des JD-Containers** |
+| `JD_WATCH` / `JD_OUT` | Romseerrs Sicht auf Übergabe- und Zielordner. `JD_OUT` leer = **aus `JD_DL_BASE` abgeleitet** |
 
 Vollständige Liste und Standardwerte: **`.env.example`**.
 
