@@ -31,6 +31,21 @@
 #side .ubox{border-top:1px solid var(--border);padding-top:10px}
 #side .ubox #who{padding:4px 12px 8px;font-size:12px;color:var(--mut)}
 main{margin-left:210px}
+/* Fußzeile (#208): unten am Fenster angeheftet und mittig. Sie bleibt damit immer
+   sichtbar — der Preis ist eine dauerhaft belegte Zeile, deshalb ist sie schmal und der
+   Inhalt bekommt unten genau so viel Luft, dass nichts darunter verschwindet. */
+#fuss{position:fixed;left:210px;right:0;bottom:0;z-index:4;
+ padding:8px 18px;border-top:1px solid var(--border);background:#0f1114;
+ color:var(--mut);font-size:12px;
+ display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;justify-content:center}
+/* Deckend je Design: `--topbar` ist im Glas-Design durchscheinend, und eine angeheftete
+   Zeile mit Kacheln dahinter ist unlesbar. Gleiche Entscheidung wie bei den Menüs. */
+[data-design=glass] #fuss{background:#121626}
+[data-design=clean] #fuss{background:#0c0e11}
+main{padding-bottom:52px}
+#fuss a{color:#5b8cff;text-decoration:none}
+#fuss a:hover{text-decoration:underline}
+#fuss .warn{color:#d29922}
 #topbar{position:sticky;top:0;background:var(--topbar);padding:14px 18px;display:flex;gap:12px;align-items:center;border-bottom:1px solid var(--border);z-index:5}
 input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid var(--border);background:var(--input);color:var(--txt);font-size:15px}
 .fbtn{background:var(--card);border:1px solid var(--border);color:var(--txt);font-size:13px;cursor:pointer;padding:10px 12px;border-radius:10px;white-space:nowrap}
@@ -65,7 +80,8 @@ input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid var(--border)
  /* Die Kopfleiste wird auf dem Telefon schnell eng: Suche, Filter, Sprache, Person.
     Deshalb umbrechen statt quetschen, und die Suche behält eine brauchbare Breite. */
  #topbar{flex-wrap:wrap;padding:10px 12px;gap:8px}#topbar input{min-width:60%}
- .kopfrechts{margin-left:auto}}
+ .kopfrechts{margin-left:auto}
+ #fuss{left:0}}
 #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;padding:18px}
 .card{background:var(--card);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;border:1px solid var(--border);box-shadow:var(--shadow)}
 .cover{aspect-ratio:3/4;background:#0b0d10 center/cover no-repeat;position:relative}
