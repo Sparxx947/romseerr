@@ -3473,7 +3473,10 @@ console.log(JSON.stringify(Object.fromEntries(
     for s in ("pending", "queued", "approved", "downloading", "importing"):
         assert d[s] == ["aktiv", True], f"{s} muss aktiv sein und zählen"
     assert d["done"] == ["erledigt", False], "fertig darf nicht zählen"
-    assert d["denied"] == ["erledigt", False], "abgelehnt ist eine Entscheidung, keine offene Sache"
+    # Abgelehnt bekam eine EIGENE Gruppe: unter „fehlgeschlagen" sucht man Defekte und
+    # fände Entscheidungen, unter „erledigt" ist es nicht mehr auffindbar — und genau das
+    # war die erste Rückmeldung aus der Benutzung.
+    assert d["denied"] == ["abgelehnt", False], "abgelehnt ist eine Entscheidung, keine offene Sache"
     assert d["error"] == ["fehler", True], "ein Fehlschlag darf nicht aus dem Zähler fallen"
 
 
@@ -3500,5 +3503,5 @@ def test_the_empty_requests_page_says_which_kind_of_empty():
     assert "t('flt_leer')" in fn and "t('no_requests')" in fn, "es gibt nur einen Leertext"
     assert "alle.length&&(JOBGRP||window.jobFilter)" in fn, \
         "der Unterschied hängt nicht am tatsächlichen Bestand"
-    for key in ("flt_active", "flt_done", "flt_failed", "flt_leer"):
+    for key in ("flt_active", "flt_done", "flt_denied", "flt_failed", "flt_leer"):
         assert js.count(key + ":'") == 5, f"{key} fehlt in einer Sprache"

@@ -324,13 +324,13 @@ title is already there is useful, it just should not have to be *read*.
 
 ### Requests
 
-Above the list are four filters with **counts** — *all*, *active*, *done*, *failed* — plus
-the user filter when there is more than one account; the two combine. The page therefore
-states what it holds without being clicked through.
+Above the list are five filters with **counts** — *all*, *active*, *done*, *denied*,
+*failed* — plus the user filter when there is more than one account; the two combine. The
+page therefore states what it holds without being clicked through.
 
-**Where `denied` belongs:** with *done*, not with *failed*. Denied means somebody decided —
-the request is over and nothing needs repairing. Under *failed* you would go looking for
-defects and find decisions instead.
+**Denied is its own group**, neither *done* nor *failed*: under *failed* you would go
+looking for defects and find decisions, and under *done* it would be filed correctly but
+no longer findable.
 
 In the navigation, *Requests* carries a **count** of unfinished jobs: running **and**
 failed ones. A failure deliberately does not drop out — otherwise you learn that zero means

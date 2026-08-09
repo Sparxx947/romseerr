@@ -331,13 +331,14 @@ werden müssen.
 
 ### Anfragen
 
-Über der Liste stehen vier Filter mit **Zahlen** — *Alle*, *aktiv*, *erledigt*,
-*fehlgeschlagen* —, und bei mehreren Nutzern zusätzlich der Nutzerfilter; beide greifen
-zusammen. Die Seite sagt damit, was sie enthält, ohne dass man sie durchklickt.
+Über der Liste stehen fünf Filter mit **Zahlen** — *Alle*, *aktiv*, *erledigt*,
+*abgelehnt*, *fehlgeschlagen* —, und bei mehreren Nutzern zusätzlich der Nutzerfilter;
+beide greifen zusammen. Die Seite sagt damit, was sie enthält, ohne dass man sie
+durchklickt.
 
-**Wohin `denied` gehört:** zu *erledigt*, nicht zu *fehlgeschlagen*. Abgelehnt heißt,
-jemand hat entschieden — der Vorgang ist beendet und nichts ist zu reparieren. Unter
-*fehlgeschlagen* würde man nach Defekten suchen und Entscheidungen finden.
+**Abgelehnt ist eine eigene Gruppe**, weder *erledigt* noch *fehlgeschlagen*: Unter
+*fehlgeschlagen* würde man nach Defekten suchen und Entscheidungen finden; unter
+*erledigt* wäre es zwar richtig einsortiert, aber nicht mehr auffindbar.
 
 In der Navigation trägt *Anfragen* einen **Zähler** der unerledigten Aufträge: laufende
 **und** fehlgeschlagene. Ein Fehlschlag fällt bewusst nicht heraus — sonst lernt man,
