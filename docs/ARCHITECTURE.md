@@ -107,25 +107,34 @@ wird nur die eigene Hälfte der Übergabe.
 ```
 
 `autoStart` und `autoConfirm` sind vom Typ **`BooleanStatus`** (`TRUE` / `FALSE` /
-`UNSET`), **nicht** boolean. Am laufenden JDownloader nachgemessen:
+`UNSET`), **nicht** boolean — so beschreibt es die Erweiterung selbst auf ihrer
+Einstellungsseite. In dieser Form ist der ganze Weg nachgemessen: Übergabe, Download und
+Entpacken durch JDownloader, in 30 Sekunden.
 
-| Geschrieben | Ergebnis |
-|---|---|
-| `"TRUE"` | Download läuft durch ✅ |
-| `"true"` | Auftrag **verschwindet spurlos** ❌ |
-| JSON `true` | Auftrag **verschwindet spurlos** ❌ |
-| zusätzlich `enabled` (jede Schreibweise) | Auftrag verschwindet ❌ |
-| zusätzlich `overwritePackagizerEnabled` | Auftrag verschwindet ❌ |
+`overwritePackagizerRules` stand hier früher und **existiert nicht** — der Setter heißt
+`setOverwritePackagizerEnabled`. Das Feld war immer wirkungslos.
 
-„Verschwindet" heißt: Datei wird eingelesen und nach `folderwatch/added/` verschoben,
-der Link-Collector protokolliert `Added CrawlerJob … Origin:EXTENSION` — und danach gibt
-es weder Eintrag noch Download noch Fehlermeldung. **Ein unpassender Wert kostet nicht
-das Feld, sondern den ganzen Auftrag.** Deshalb schreibt Romseerr nur diese fünf
-Schlüssel; jedes weitere gehört vorher am laufenden JDownloader geprüft.
+#### JDownloader darf nichts fragen
+
+Der teuerste Fund dabei: Ein **modaler Dialog** blockiert die gesamte Übergabe, und im
+Container sieht ihn niemand. Ausgelöst wird er von Standardeinstellungen:
+
+| Einstellung | Standard | Nötig |
+|---|---|---|
+| `Default On Added Dupes Links Action` | `ASK` | eine Aktion, z. B. `INCLUDE` |
+| dieselbe Einstellung für Offline-Links | `ASK` | z. B. `EXCLUDE` |
+
+Steht dort `ASK`, wartet JDownloader beim ersten wiederholten oder toten Link auf eine
+Antwort — und **alle** folgenden Aufträge stauen sich dahinter. Von außen sieht das aus,
+als verschwänden die Aufträge: die `.crawljob` wird ordnungsgemäß eingelesen und nach
+`folderwatch/added/` verschoben, der Link-Collector protokolliert
+`Added CrawlerJob … Origin:EXTENSION` — und dann passiert nie wieder etwas. Genau diese
+Signatur hat hier eine ganze Messreihe verfälscht.
 
 *EN: `autoStart`/`autoConfirm` are `BooleanStatus` (`TRUE`/`FALSE`/`UNSET`), not boolean.
-A lowercase `"true"`, a JSON `true`, or the extra fields above make JDownloader discard
-the entire job silently. The FolderWatch extension must be installed and enabled.*
+`overwritePackagizerRules` never existed. And JDownloader must not ask anything in
+unattended operation — a modal dialog on duplicate or offline links blocks the whole
+hand-off, invisibly, and every later job queues up behind it.*
 
 *EN: three views of the same two directories. `JD_OUT` is derived from `JD_DL_BASE`
 unless set; the watch folder must be writable by both containers.*

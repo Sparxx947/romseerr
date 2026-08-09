@@ -1886,19 +1886,26 @@ def write_crawljob(jid, links, folder, name):
     Schlaegt das Schreiben fehl, MUSS die Ausnahme durch: frueher wurde nur geloggt und
     der Job blieb fuer immer auf `downloading` stehen — der Ausfall war unsichtbar. (#83)
 
-    FELDER: nur diese vier, und `autoStart`/`autoConfirm` genau so geschrieben. Beide sind
-    in JDownloader vom Typ **BooleanStatus** (`TRUE`/`FALSE`/`UNSET`), nicht boolean —
-    `"true"` laesst sich nicht darauf abbilden, und die Extension verwirft daraufhin den
-    **ganzen Auftrag**, ohne Fehler, ohne Eintrag, ohne Log. Am Bestand nachgemessen:
-    `"TRUE"` laedt herunter, `"true"` und JSON `true` verschwinden spurlos. (#219)
+    FELDER: `autoStart`/`autoConfirm` sind in JDownloader vom Typ **BooleanStatus**
+    (`TRUE`/`FALSE`/`UNSET`), nicht boolean — so steht es in der Beschreibung der
+    FolderWatch-Erweiterung. Deshalb `"TRUE"` und nicht `"true"`. In dieser Form ist der
+    ganze Weg nachgemessen: Uebergabe, Download und Entpacken durch JDownloader. (#219)
 
-    Ebenfalls nachgemessen und deshalb NICHT mehr dabei: `enabled` (in jeder Schreibweise)
-    und `overwritePackagizerEnabled` lassen den Auftrag genauso verschwinden. Das frueher
-    hier stehende `overwritePackagizerRules` gibt es ueberhaupt nicht — der Setter heisst
-    `setOverwritePackagizerEnabled`. Es war also immer wirkungslos.
+    `overwritePackagizerRules` stand hier frueher und gibt es **nicht** — der Setter heisst
+    `setOverwritePackagizerEnabled` (aus `FolderWatch.jar` ausgelesen). Das Feld war immer
+    wirkungslos und ist raus.
 
-    Jedes zusaetzliche Feld gehoert vorher am laufenden JDownloader geprueft: ein
-    unpassender Wert kostet hier nicht das Feld, sondern den Auftrag."""
+    EHRLICH ZUR MESSUNG: Ob `"true"` den Auftrag *verliert*, ist NICHT sauber belegt. Die
+    erste Messreihe lief gegen einen JDownloader, in dem ein **modaler Dialog** offen stand
+    ("links already in the downloadlist") und alles blockierte — Auftraege sahen deshalb
+    verschwunden aus, lagen aber nur fest. Belegt ist: die dokumentierte Schreibweise
+    funktioniert. Wer hier etwas aendert, misst gegen einen JDownloader OHNE offene
+    Dialoge, sonst misst er den Dialog.
+
+    BETRIEBSVORAUSSETZUNG (Doku): JDownloader darf im Automatikbetrieb nichts fragen.
+    `Default On Added Dupes Links Action` und die Offline-Variante muessen auf eine
+    Aktion stehen, nicht auf `ASK` — sonst wartet ein Dialog, den im Container niemand
+    sieht, und die Uebergabe steht still."""
     st = jd_check(anlegen=True)
     if not st["ok"]:
         raise RuntimeError(f"JDownloader-Uebergabe nicht moeglich / handover not possible: {st['info']}")

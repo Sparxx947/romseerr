@@ -280,8 +280,12 @@ Two complementary ways — **the web UI takes precedence, `.env` is the fallback
 > **JDownloader needs the FolderWatch extension** (*Settings → Extension Modules*). It is
 > not part of a stock install, and without it the hand-off folder is never read. For the
 > `.crawljob` format see `docs/ARCHITECTURE.md` — `autoStart`/`autoConfirm` are
-> `BooleanStatus` (`TRUE`), and a wrong value makes JDownloader discard the **entire job**
-> silently.
+> `BooleanStatus` (`TRUE`).
+>
+> **JDownloader must not ask anything in unattended operation.** With *Default On Added
+> Dupes Links Action* (or its offline counterpart) left at `ASK`, the first duplicate or
+> dead link opens a **modal dialog** nobody sees inside the container — and every later
+> job queues up behind it.
 
 Full list and defaults: **`.env.example`**.
 

@@ -286,8 +286,12 @@ Zwei Wege, die sich ergänzen — **die Weboberfläche hat Vorrang, `.env` ist d
 > **JDownloader braucht die FolderWatch-Erweiterung** (*Einstellungen → Extension Modules*).
 > Sie gehört nicht zur Grundinstallation; ohne sie wird der Übergabe-Ordner nie gelesen.
 > Zum Format der `.crawljob` siehe `docs/ARCHITECTURE.md` — `autoStart`/`autoConfirm` sind
-> `BooleanStatus` (`TRUE`), und ein falscher Wert lässt JDownloader den **ganzen Auftrag**
-> stillschweigend verwerfen.
+> `BooleanStatus` (`TRUE`).
+>
+> **JDownloader darf im Automatikbetrieb nichts fragen.** Steht *Default On Added Dupes
+> Links Action* (oder die Offline-Variante) auf `ASK`, wartet beim ersten wiederholten
+> oder toten Link ein **modaler Dialog**, den im Container niemand sieht — und alle
+> folgenden Aufträge stauen sich dahinter.
 
 Vollständige Liste und Standardwerte: **`.env.example`**.
 

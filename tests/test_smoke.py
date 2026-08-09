@@ -3048,16 +3048,17 @@ def test_the_write_probe_actually_writes(appmod):
 
 def test_the_crawljob_uses_the_types_jdownloader_actually_parses(appmod, tmp_path):
     """`autoStart`/`autoConfirm` sind in JDownloader **BooleanStatus** (`TRUE`/`FALSE`/
-    `UNSET`), nicht boolean.
+    `UNSET`), nicht boolean — so beschreibt es die FolderWatch-Erweiterung selbst.
 
-    Am laufenden JDownloader durchgemessen: mit `"TRUE"` läuft der Download durch, mit
-    `"true"` oder JSON `true` wird der **ganze Auftrag** verworfen — keine Datei, kein
-    Eintrag im Linkgrabber, keine Meldung, nichts im Log. Ein Tippfehler im Wert kostet
-    hier nicht das Feld, sondern den Auftrag, und zwar lautlos.
+    In dieser Form ist der ganze Weg am laufenden JDownloader nachgemessen: Übergabe,
+    Download und Entpacken. Ob die frühere Schreibweise `"true"` den Auftrag *verliert*,
+    ist dagegen NICHT belegt — die erste Messreihe lief gegen einen JDownloader mit einem
+    offenen modalen Dialog, der alles blockierte. Gemessen wurde dort der Dialog, nicht
+    das Feld.
 
-    Ebenso verworfen: `enabled` (jede Schreibweise) und `overwritePackagizerEnabled`.
-    Das früher geschriebene `overwritePackagizerRules` existiert gar nicht — der Setter
-    heißt `setOverwritePackagizerEnabled`; das Feld war immer wirkungslos. (#219)"""
+    `overwritePackagizerRules` existiert nicht — der Setter heißt
+    `setOverwritePackagizerEnabled` (aus `FolderWatch.jar` ausgelesen); das Feld war
+    immer wirkungslos und ist raus. (#219)"""
     watch = tmp_path / "w"; watch.mkdir(); out = tmp_path / "o"; out.mkdir()
     appmod.save_settings({"connections": {"jd_watch": str(watch), "jd_out": str(out)}})
     appmod.write_crawljob("9", ["http://example.invalid/a"], "/output/romseerr/x", "x")
