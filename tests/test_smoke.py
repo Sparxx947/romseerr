@@ -3044,3 +3044,31 @@ def test_the_write_probe_actually_writes(appmod):
     assert "quick_check" not in rumpf, "quick_check liest nur"
     assert "CREATE TABLE" in rumpf and "commit" in rumpf, "es fehlt die echte Transaktion"
     assert ".schreibprobe" in rumpf, "es fehlt der echte Schreibversuch im Verzeichnis"
+
+
+def test_the_crawljob_uses_the_types_jdownloader_actually_parses(appmod, tmp_path):
+    """`autoStart`/`autoConfirm` sind in JDownloader **BooleanStatus** (`TRUE`/`FALSE`/
+    `UNSET`), nicht boolean.
+
+    Am laufenden JDownloader durchgemessen: mit `"TRUE"` läuft der Download durch, mit
+    `"true"` oder JSON `true` wird der **ganze Auftrag** verworfen — keine Datei, kein
+    Eintrag im Linkgrabber, keine Meldung, nichts im Log. Ein Tippfehler im Wert kostet
+    hier nicht das Feld, sondern den Auftrag, und zwar lautlos.
+
+    Ebenso verworfen: `enabled` (jede Schreibweise) und `overwritePackagizerEnabled`.
+    Das früher geschriebene `overwritePackagizerRules` existiert gar nicht — der Setter
+    heißt `setOverwritePackagizerEnabled`; das Feld war immer wirkungslos. (#219)"""
+    watch = tmp_path / "w"; watch.mkdir(); out = tmp_path / "o"; out.mkdir()
+    appmod.save_settings({"connections": {"jd_watch": str(watch), "jd_out": str(out)}})
+    appmod.write_crawljob("9", ["http://example.invalid/a"], "/output/romseerr/x", "x")
+    job = json.loads((watch / "romseerr_9.crawljob").read_text())[0]
+
+    assert job["autoStart"] == "TRUE" and job["autoConfirm"] == "TRUE"
+    for k in ("autoStart", "autoConfirm"):
+        assert job[k] is not True, f"{k}: JSON-Boolean wird verworfen"
+        assert job[k] != "true", f"{k}: Kleinschreibung wird verworfen"
+
+    # Nur die vier belegten Felder. Alles andere hat den Auftrag verschwinden lassen.
+    assert set(job) == {"text", "downloadFolder", "packageName", "autoStart", "autoConfirm"}
+    assert "overwritePackagizerRules" not in job, "dieses Feld gibt es in JDownloader nicht"
+    appmod.save_settings({})
