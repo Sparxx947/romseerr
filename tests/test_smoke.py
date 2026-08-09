@@ -4414,3 +4414,107 @@ def test_jd_probe_needs_permission_and_is_not_in_status(appmod, client):
         j = quelle.index("\ndef ", i + 10)
         assert "jd_probe(" not in quelle[i:j], "die Sonde gehört nicht in den Statusabruf"
     appmod.save_users({})
+
+
+# ---------- Die Dokumentationsregel mechanisch halten (#212) ----------
+# Doku ist hier Pflicht, auf Deutsch UND Englisch. Bisher hielt das, weil jemand daran
+# denkt — die schwächste Garantie, die es gibt. Was schon mechanisch ist (OpenAPI-Abdeckung,
+# Spec-Gleichstand), ist nie verrutscht; die Kommentarqualität schwankt. Der Unterschied
+# ist nicht Sorgfalt, sondern dass eines davon einen Build rot macht.
+#
+# BEIDE Prüfungen sind RATSCHEN, keine Zielwerte: sie halten den heutigen Stand fest.
+# Neuer Code darf ihn nicht verschlechtern, jede nachgebesserte Stelle hebt den Boden.
+# Ein fester Zielwert wäre heute unerreichbar oder später bedeutungslos.
+
+DOC_EN_BODEN = 21.0      # gemessener Anteil zweisprachiger Blöcke: 35 von 166 = 21,08 %
+DOC_ROUTEN_OHNE = 73     # Route-Handler ohne Docstring, Stand der Messung
+
+_EN_WORTE = (r"\b(the|is|are|was|were|not|that|which|does|do|with|from|only|never|always|"
+             r"because|what|when|where|would|should|could|this|these|those|and|but|for|"
+             r"into|about|after|before|instead|rather|still|there|they|them|it|its)\b")
+_DE_WORTE = (r"\b(der|die|das|und|nicht|ist|sind|war|ein|eine|einen|dass|wird|werden|sich|"
+             r"nur|schon|noch|aber|weil|wenn|dann|dort|hier|man|kann|muss|soll|beim|"
+             r"vom|zum|zur|auf|aus|mit|ohne|fuer|für|durch|gegen|jede|jeder|jedes)\b")
+
+
+def _doc_bloecke(text):
+    """Kommentar- und Docstring-Blöcke ab drei Zeilen."""
+    import re
+    aus = [m.group(1) for m in re.finditer(r'"""(.*?)"""', text, re.S) if m.group(1).count("\n") >= 2]
+    lauf = []
+    for zeile in text.split("\n"):
+        s = zeile.strip()
+        if s.startswith("#"):
+            lauf.append(s.lstrip("#").strip())
+        else:
+            if len(lauf) >= 3:
+                aus.append("\n".join(lauf))
+            lauf = []
+    if len(lauf) >= 3:
+        aus.append("\n".join(lauf))
+    return aus
+
+
+def _hat_englisch(block):
+    """Trägt der Block einen englischen Teil?
+
+    Zeilenweise, weil die Blöcke hier gemischt sind: deutscher Text mit einem englischen
+    Absatz. Eine Zeile zählt als englisch bei mindestens drei englischen Funktionswörtern
+    und keinem deutschen.
+
+    GEGENGEPRÜFT vor der Einführung, gegen 166 Blöcke und mit einer unabhängig gebauten
+    Kontrollregel (`EN:`, `the X is`, `instead of`, …): **0 falsch negative**. Die 27
+    zunächst verdächtigen Fälle waren beim Nachlesen durchweg echtes Englisch — die
+    Kontrollregel war zu eng, nicht die Heuristik. Das war die Bedingung aus #212: eine
+    Erkennung, die falsch anschlägt, wird binnen einer Woche abgeschaltet, und dann steht
+    die Regel schlechter da als ganz ohne Test.
+    """
+    import re
+    for zeile in block.split("\n"):
+        z = zeile.strip().lower()
+        if len(z) >= 25 and len(set(re.findall(_EN_WORTE, z))) >= 3 and not re.search(_DE_WORTE, z):
+            return True
+    return False
+
+
+def _doc_dateien():
+    dateien = ["app.py"]
+    for wurzel, _, namen in os.walk("contrib"):
+        dateien += [os.path.join(wurzel, n) for n in namen if n.endswith((".py", ".sh"))]
+    return dateien
+
+
+def test_bilingual_comment_share_does_not_drop(appmod):
+    """Der zweisprachige Anteil der Kommentare darf nicht sinken. (#212)"""
+    bloecke = []
+    for datei in _doc_dateien():
+        try:
+            bloecke += _doc_bloecke(open(datei, encoding="utf-8").read())
+        except OSError:
+            pass
+    assert len(bloecke) > 50, "Blockerkennung liefert zu wenig — die Messung wäre wertlos"
+    mit = sum(1 for b in bloecke if _hat_englisch(b))
+    anteil = 100.0 * mit / len(bloecke)
+    assert anteil >= DOC_EN_BODEN, (
+        f"zweisprachiger Anteil auf {anteil:.1f} % gefallen (Boden {DOC_EN_BODEN} %): "
+        f"{mit} von {len(bloecke)} Blöcken. Neue Kommentarblöcke ab drei Zeilen brauchen "
+        f"einen englischen Teil — oder hebe den Boden, wenn du bestehende nachgebessert hast.")
+
+
+def test_new_routes_carry_a_docstring(appmod):
+    """Die Zahl der Route-Handler ohne Docstring darf nicht steigen. (#212)
+
+    Ein Ratschet, kein Zielwert: 73 von 110 haben heute keinen. Das ist kein Auftrag für
+    einen großen Durchgang, sondern Schuld, die beim nächsten Anfassen der Stelle beglichen
+    wird — neue Routen aber brauchen von Anfang an einen.
+    """
+    baum = ast.parse(open("app.py", encoding="utf-8").read())
+    ohne = [n.name for n in ast.walk(baum)
+            if isinstance(n, ast.FunctionDef)
+            and any(isinstance(d, ast.Call) and getattr(d.func, "attr", "") == "route"
+                    for d in n.decorator_list)
+            and not ast.get_docstring(n)]
+    assert len(ohne) <= DOC_ROUTEN_OHNE, (
+        f"{len(ohne)} Route-Handler ohne Docstring (erlaubt: {DOC_ROUTEN_OHNE}). "
+        f"Deine neue Route braucht einen: was tut sie, und warum so? "
+        f"(Welche es ist, zeigt `git diff` — die Namen hier zu raten wäre irreführend.)")
