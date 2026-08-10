@@ -5169,3 +5169,68 @@ def test_a_permission_error_is_reported_not_thrown(tmp_path):
     assert msg.startswith("KEIN ZUGRIFF"), msg
     for teil in ("gehoert", "wir sind", "chown"):
         assert teil in msg, f"Meldung nennt '{teil}' nicht: {msg}"
+
+
+def test_a_switch_update_is_never_picked_over_the_base_game(appmod, tmp_path):
+    """Update und Basisspiel sind nach der Normalisierung ununterscheidbar.
+
+    `A Tale For Anna [..A800][v131072].nsp` (40 MB) und
+    `A Tale for Anna [..A000][v0].nsp` (1,1 GB) werden beide zu "a tale for anna".
+    Wer das Update erwischt, bekommt im Emulator `Error while loading ROM! (0007-003C)`
+    und ein Fenster mit der bloßen Oberfläche — was aussieht, als könne der Emulator
+    die Plattform gar nicht. Genau so lag es als Fehler vor. (#174)
+
+    Die letzten drei Stellen der Titel-ID entscheiden: 000 = Basisspiel, 800 = Update,
+    alles andere = DLC.
+    """
+    d = os.path.join(appmod.ROMS, "switch")
+    os.makedirs(d, exist_ok=True)
+    update = os.path.join(d, "A Tale For Anna [010032A01AACA800][v131072][US].nsp")
+    basis = os.path.join(d, "A Tale for Anna [010032A01AACA000][v0][US].nsp")
+    # ABSICHTLICH ANDERSHERUM: das Update ist hier GRÖSSER als das Basisspiel. Sonst
+    # würde schon die Größensortierung das Richtige treffen und der Test bewiese nichts
+    # über die Erkennung — genau das war beim ersten Wurf der Fall (Alarmpfad geprüft,
+    # er schlug nicht an). Nur die Titel-ID kann diesen Fall entscheiden.
+    with open(update, "wb") as f:
+        f.write(b"x" * 40960)
+    with open(basis, "wb") as f:
+        f.write(b"x" * 4096)
+    appmod.build_index()
+    try:
+        gewaehlt = appmod.stream_find_file("A Tale for Anna", "switch")
+        assert gewaehlt == basis, f"Update statt Basisspiel gewählt: {gewaehlt}"
+        # Auch wenn nur das Update da ist, darf die Auswahl nicht leer ausgehen —
+        # ein Fehlstart mit Meldung ist besser als "nicht in der Bibliothek".
+        os.remove(basis)
+        appmod.build_index()
+        assert appmod.stream_find_file("A Tale for Anna", "switch") == update
+    finally:
+        for p in (update, basis):
+            if os.path.exists(p):
+                os.remove(p)
+        appmod.build_index()
+
+
+def test_the_largest_file_wins_when_nothing_marks_an_update(appmod, tmp_path):
+    """Ohne Titel-ID im Namen bleibt nur die Größe — ein .xci neben einer kleinen .nsp.
+
+    Bei Resident Evil 4 liegen genau diese zwei: die 15,9-GB-.xci (das Spiel) und eine
+    14,8-MB-.nsp, die nur das Update ist. Ties brechen nach Namen, damit die Wahl nicht
+    von der Reihenfolge im Dateisystem abhängt. (#174)
+    """
+    d = os.path.join(appmod.ROMS, "switch")
+    os.makedirs(d, exist_ok=True)
+    klein = os.path.join(d, "Zzz Testtitel.nsp")
+    gross = os.path.join(d, "Zzz Testtitel.xci")
+    with open(klein, "wb") as f:
+        f.write(b"x" * 1024)
+    with open(gross, "wb") as f:
+        f.write(b"x" * 65536)
+    appmod.build_index()
+    try:
+        assert appmod.stream_find_file("Zzz Testtitel", "switch") == gross
+    finally:
+        for p in (klein, gross):
+            if os.path.exists(p):
+                os.remove(p)
+        appmod.build_index()

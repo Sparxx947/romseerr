@@ -2619,6 +2619,58 @@ def stream_freier_platz(user):
             return str(seat["id"])
     return None
 
+# Titel-ID einer Switch-Datei, z. B. [010032A01AACA000]. Die letzten drei Stellen sagen,
+# WAS die Datei ist: 000 = Basisspiel, 800 = Update, alles andere = DLC.
+_TITEL_ID = re.compile(r"\[0[0-9a-fA-F]{15}\]")
+# Fassungsnummer, z. B. [v0] oder [v131072]. v0 ist die Erstfassung.
+_FASSUNG = re.compile(r"\[v(\d+)\]")
+
+
+def ist_zusatz(name):
+    """-> True, wenn die Datei ein Update oder DLC ist und NICHT allein startet.
+
+    WARUM DAS NOETIG IST: Update und Basisspiel tragen denselben Titel und sind nach der
+    Normalisierung ununterscheidbar — `A Tale For Anna [..A800][v131072].nsp` (40 MB) und
+    `A Tale for Anna [..A000][v0].nsp` (1,1 GB) werden beide zu "a tale for anna". Wer
+    das Update erwischt, bekommt im Emulator:
+
+        Error while loading ROM! (0007-003C)
+
+    und ein Fenster, das nur die Oberflaeche zeigt. Von aussen sieht das aus, als koenne
+    der Emulator die Plattform nicht — genau als solches lag es als Fehler vor (#174).
+
+    EN: update and base game normalise to the same title, so picking the update yields
+    "Error while loading ROM" and a window showing only the emulator UI — which reads
+    like the emulator cannot run the platform at all.
+    """
+    m = _TITEL_ID.search(name)
+    if m and not m.group(0).lower().endswith("000]"):
+        return True                      # 800 = Update, sonst DLC
+    v = _FASSUNG.search(name)
+    return bool(v and v.group(1) != "0")  # [v131072] ist eine Aktualisierung
+
+
+def beste_datei(pfade):
+    """-> die Datei, die wirklich startet.
+
+    Zuerst alles aussortieren, was erkennbar Update oder DLC ist. Bleibt danach mehr als
+    eines uebrig (etwa eine .xci neben einer .nsp), gewinnt die GROESSTE — das Basisspiel
+    ist praktisch immer die groesste Datei seines Titels, und raten muss man hier ohnehin.
+    Sortiert wird zusaetzlich nach Namen, damit die Wahl bei gleicher Groesse stabil
+    bleibt und nicht von der Reihenfolge im Dateisystem abhaengt.
+    EN: drop updates and DLC first, then take the largest remaining file; ties break by
+    name so the choice does not depend on directory order.
+    """
+    echte = [p for p in pfade if not ist_zusatz(os.path.basename(p))] or list(pfade)
+
+    def groesse(p):
+        try:
+            return os.path.getsize(p)
+        except OSError:
+            return 0
+    return sorted(echte, key=lambda p: (-groesse(p), p))[0]
+
+
 def stream_find_file(title, slug):
     """Titel -> Datei in der Bibliothek. Ohne Datei kein Stream (dieselbe Regel wie bei Play).
 
@@ -2647,13 +2699,16 @@ def stream_find_file(title, slug):
                 voll = os.path.join(base, eintrag)
                 if os.path.isdir(voll) and norm(eintrag) == want:
                     return voll
+            treffer = []
             for root, _dirs, files in os.walk(base):
                 for fn in files:
                     ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else ""
                     if ext in ROM_EXT and norm(fn) == want:
-                        return os.path.join(root, fn)
-            if root != base and os.path.relpath(root, base).count(os.sep) >= 1:
-                break
+                        treffer.append(os.path.join(root, fn))
+                if root != base and os.path.relpath(root, base).count(os.sep) >= 1:
+                    break
+            if treffer:
+                return beste_datei(treffer)
     except OSError:
         return None
     return None
