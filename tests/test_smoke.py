@@ -4865,8 +4865,8 @@ def test_duckstation_reuses_the_pcsx2_binding_names(tmp_path):
     # Es darf genau EINE Bindungstabelle geben.
     assert quelle.count("\"Cross\":") == 1, "zweite Tabelle mit denselben Namen angelegt"
     assert m.PROFILE["duckstation"]["controller"] is m.duckstation_apply
-    assert m.PROFILE["duckstation"]["geprueft"] is False, \
-        "geprueft erst, wenn ein Mensch im Spiel gespielt hat"
+    assert m.PROFILE["duckstation"]["geprueft"] is True, \
+        "am 2026-08-10 im Spiel bestätigt — Controller inklusive Tasten"
 
 
 def test_duckstation_resets_the_wizard_flag_when_it_flips_back(tmp_path):
