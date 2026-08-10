@@ -151,6 +151,13 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   Init-Skripte, Start-Dienst, Doku) und ist ohne fremde Umgebung nachbaubar.
   **Ton und Gamepad brauchen dort HTTPS** — über HTTP verweigert der Browser die
   WebCodecs-API, und beides bleibt still, ohne dass ein Fehler erscheint.
+  Liegen zu einem Titel **mehrere Dateien** vor — Basisspiel, Update, DLC —, wählt
+  Romseerr das Basisspiel: **die Titel-ID entscheidet**, bei Switch die letzten drei
+  Stellen (`000` Basis, `800` Update, sonst DLC). Erst wenn keine Titel-ID im Namen
+  steht, zählt die Größe. Wichtig ist die Reihenfolge: eine Basis mit eingespieltem
+  Update trägt eine Fassungsnummer > 0 und sähe sonst wie ein Update aus. Startet man
+  ein Update allein, meldet der Emulator nur `Error while loading ROM!` — von außen
+  ununterscheidbar davon, dass er die Plattform nicht beherrscht.
 - ▶ **Play im Browser**: liegt der Titel in RomM und gibt es für die Plattform einen
   EmulatorJS-Kern, führt ein Knopf auf der Detailseite direkt in RomMs eingebauten Spieler.
   Romseerr emuliert selbst nichts. **PS2, GameCube, Wii, Dreamcast und Switch zeigen den Knopf

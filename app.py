@@ -2621,7 +2621,10 @@ def stream_freier_platz(user):
 
 # Titel-ID einer Switch-Datei, z. B. [010032A01AACA000]. Die letzten drei Stellen sagen,
 # WAS die Datei ist: 000 = Basisspiel, 800 = Update, alles andere = DLC.
-_TITEL_ID = re.compile(r"\[0[0-9a-fA-F]{15}\]")
+# Leerzeichen innerhalb der Klammern sind erlaubt: `[ 0100643002136800]` kommt in
+# echten Sammlungen vor und waere sonst gar keine Titel-ID — die Datei fiele auf die
+# schwaechere Fassungsregel zurueck.
+_TITEL_ID = re.compile(r"\[\s*0[0-9a-fA-F]{15}\s*\]")
 # Fassungsnummer, z. B. [v0] oder [v131072]. v0 ist die Erstfassung.
 _FASSUNG = re.compile(r"\[v(\d+)\]")
 
@@ -2644,10 +2647,17 @@ def ist_zusatz(name):
     like the emulator cannot run the platform at all.
     """
     m = _TITEL_ID.search(name)
-    if m and not m.group(0).lower().endswith("000]"):
-        return True                      # 800 = Update, sonst DLC
+    if m:
+        # Die Titel-ID entscheidet ALLEIN. Frueher fiel eine Basis-ID (`000`) hier
+        # durch zur Fassungsregel unten — und eine Basis mit eingespieltem Update
+        # traegt eine Fassung > 0, wurde also als Update verworfen. In der Bibliothek
+        # nachgemessen: 5 von 484 Dateien, darunter `Crime O'Clock [..DE000][v65536]`.
+        # Die ID sagt, WAS die Datei ist; die Fassung sagt nur, wie alt sie ist.
+        # EN: the title ID decides on its own — a base ID carrying an applied update has
+        # a version > 0 and used to be discarded as an update.
+        return not m.group(0).lower().rstrip().rstrip("]").endswith("000")
     v = _FASSUNG.search(name)
-    return bool(v and v.group(1) != "0")  # [v131072] ist eine Aktualisierung
+    return bool(v and v.group(1) != "0")  # ohne Titel-ID bleibt nur die Fassung
 
 
 def beste_datei(pfade):

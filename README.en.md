@@ -149,6 +149,13 @@ that is the normal case and complete as it stands, not a fallback.
   and is reproducible without anyone's particular environment. **Audio and gamepad
   require HTTPS** there — over HTTP the browser gates the WebCodecs API and both
   stay silent with no error shown.
+  Where a title has **several files** — base game, update, DLC — Romseerr picks the base
+  game: **the title ID decides**, on Switch its last three digits (`000` base, `800`
+  update, anything else DLC). Only when the name carries no title ID does size break the
+  tie. The order matters: a base game with an applied update carries a version > 0 and
+  would otherwise look like an update. Launching an update on its own gets you nothing
+  but `Error while loading ROM!` — indistinguishable from the outside from an emulator
+  that cannot run the platform at all.
 - ▶ **Play in the browser**: if the title exists in RomM and the platform has an EmulatorJS
   core, a button on the detail view opens RomM's built-in player. Romseerr emulates nothing
   itself. **PS2, GameCube, Wii, Dreamcast and Switch never show the button** — no core exists
