@@ -270,9 +270,18 @@ Fällen einwandfrei, nur das Spiel nicht:
   Format anders: ein Cartridge-Dump zeigt den Dialog `App Encrypted`, ein eShop-Titel
   schreibt `Failed to determine system mode (Error 8)` ins Emulator-Log und öffnet gar
   kein Fenster, und ein `.cia` meldet `CIA must be installed before usage` — CIAs muss
-  man erst installieren, sie starten nicht direkt. Der Schlüsselsatz (`aes_keys.txt`,
-  `boot9.bin`) war dabei vollständig; es liegt an den Dateien, nicht an der Firmware.
-  Abhilfe gibt es nur außerhalb dieses Projekts: entschlüsselte Dumps verwenden.
+  man erst installieren, sie starten nicht direkt.
+
+  **Azahar entschlüsselt nicht selbst**, auch nicht mit vollständigem `aes_keys.txt` und
+  `boot9.bin` — der Wunsch wurde upstream als *closed as not planned* abgelehnt
+  (azahar-emu/azahar#2207). Es braucht **vorab entschlüsselte Dumps**.
+
+  Ob eine Datei brauchbar ist, steht in ihrem Kopf und lässt sich ohne Emulator prüfen:
+  Ein `.3ds`/`.cci` trägt bei `0x100` die Kennung `NCSD`, die erste Partition beginnt bei
+  `0x4000` mit `NCCH` bei `0x4100`, und ab `0x188` liegen acht Flag-Bytes — **Bit 2 von
+  Flag 7 (`0x04`, `NoCrypto`)** bedeutet unverschlüsselt. Der Streaming-Host prüft das
+  **vor dem Start** und weist verschlüsselte Titel mit einer Begründung ab, statt einen
+  leeren Stream zu öffnen (#299).
 - **Wii: NKit-komprimierte ISOs.** Dolphin öffnet einen `NKit Warning`-Dialog statt des
   Spiels. Dieselbe Bibliothek in `.wbfs` startet ohne Zutun.
 
@@ -1016,9 +1025,18 @@ cases, the game does not:
   format: a cartridge dump shows an `App Encrypted` dialog, an eShop title writes
   `Failed to determine system mode (Error 8)` to the emulator log and opens no window at
   all, and a `.cia` reports `CIA must be installed before usage` — CIAs have to be
-  installed first, they do not boot directly. The key set (`aes_keys.txt`, `boot9.bin`)
-  was complete throughout, so this is the files, not the firmware. The only fix lies
-  outside this project: use decrypted dumps.
+  installed first, they do not boot directly.
+
+  **Azahar does not decrypt**, not even with a complete `aes_keys.txt` and `boot9.bin` —
+  that request was closed upstream as *not planned* (azahar-emu/azahar#2207). Dumps must
+  be decrypted beforehand.
+
+  Whether a file is usable is written in its header and can be checked without the
+  emulator: a `.3ds`/`.cci` carries `NCSD` at `0x100`, its first partition starts at
+  `0x4000` with `NCCH` at `0x4100`, and eight flag bytes follow at `0x188` — **bit 2 of
+  flag 7 (`0x04`, `NoCrypto`)** means unencrypted. The streaming host checks this
+  **before launching** and rejects encrypted titles with a reason instead of opening an
+  empty stream (#299).
 - **Wii: NKit-compressed ISOs.** Dolphin opens an `NKit Warning` dialog instead of the
   game. The same library in `.wbfs` starts without further ado.
 
