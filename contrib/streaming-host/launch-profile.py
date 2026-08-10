@@ -676,6 +676,9 @@ PROFILE = {
                   "geprueft": True},
     "flycast":   {"system": "Dreamcast",     "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
+    # Fenster und Ton am laufenden Host bestaetigt (2026-08-10, #300) — es brauchte
+    # KEINE Konfigurationsdatei, nur libusb, den Pulse-Pfad und das Festplattenabbild
+    # (init/22-xemu-vorbereiten). Der Controller ist NICHT geprueft.
     "xemu":      {"system": "Xbox",          "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
     "cemu":      {"system": "Wii U",         "controller": None, "bios": None, "vollbild": None,

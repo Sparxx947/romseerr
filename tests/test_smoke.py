@@ -5582,3 +5582,38 @@ def test_library_titles_endpoint_answers(appmod, client):
         shutil.rmtree(d, ignore_errors=True)
         appmod.build_index()
         appmod.save_users({})
+
+
+# ------------------------------------------- xemu: Erstkonfiguration (#300)
+
+def test_xemu_gets_extra_library_paths_at_launch():
+    """xemu braucht zwei Bibliothekspfade, die sonst niemand braucht. (#300)
+
+    Ohne `/config/lib` scheitert der Start an fehlender `libusb-1.0.so.0` — xemus
+    AppImage bringt sie als einziges nicht mit. Ohne den Pulse-Unterordner bleibt der
+    Ton stumm, weil ALSA sein Pulse-Modul nicht laden kann.
+
+    Geprueft wird am Quelltext des Agenten, weil hier kein Emulator laeuft.
+    """
+    quelle = open(os.path.join(REPO, "contrib/streaming-host/stream-agent.py"),
+                  encoding="utf-8").read()
+    assert '"xbox": ["/config/lib"' in quelle, "xemu bekommt keinen libusb-Pfad"
+    assert "pulseaudio" in quelle, "Pulse-Unterordner fehlt — der Ton bliebe stumm"
+    # Die vorhandene Umgebung darf nicht verlorengehen.
+    assert "vorher = umg.get(\"LD_LIBRARY_PATH\", \"\")" in quelle
+    # Und der Start muss die Umgebung auch benutzen.
+    assert "env=umgebung" in quelle, "Popen bekommt die Umgebung nicht"
+
+
+def test_xemu_init_script_is_wired_and_defensive():
+    """`init/22-xemu-vorbereiten` holt libusb und das Festplattenabbild. (#300)"""
+    pfad = os.path.join(REPO, "contrib/streaming-host/init/22-xemu-vorbereiten")
+    assert os.access(pfad, os.X_OK), "Init-Skript ist nicht ausfuehrbar"
+    text = open(pfad, encoding="utf-8").read()
+    assert "libusb-1.0.so.0" in text and "xbox_hdd.qcow2" in text
+    # Nach /config, nicht nach /usr: nur /config ueberlebt eine Abbild-Aktualisierung.
+    assert "/config/lib" in text and "/usr/lib" not in text.split("HDD_URL")[0]
+    # Fehlendes Netz darf den Containerstart nicht abbrechen.
+    assert "exit 0" in text.splitlines()[-1]
+    # Nur taetig werden, wenn xemu ueberhaupt da ist.
+    assert "/config/emulators/xemu/AppRun" in text

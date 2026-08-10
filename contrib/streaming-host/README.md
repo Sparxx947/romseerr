@@ -120,6 +120,34 @@ will, prüft vorher mit `ps aux | grep vglrun`, ob wirklich nichts mehr darüber
 
 ---
 
+### xemu (Xbox) braucht zwei Dinge extra
+
+Am laufenden Host nachgemessen (#300). Beides erledigt `init/22-xemu-vorbereiten`:
+
+1. **`libusb-1.0.so.0`.** Jedes andere Emulator-AppImage bringt seine Bibliotheken mit,
+   xemus tut es für libusb **nicht** — und der Container hat keine. Ohne sie endet der
+   Start sofort mit `error while loading shared libraries`, der Stream geht auf und
+   bleibt leer. Das Skript leiht sie aus einem Emulator, der sie mitbringt, und legt
+   eine **Kopie** nach `/config/lib` — nach `/usr` zu schreiben wäre die Falle, die hier
+   schon ein per `apt` installiertes Dolphin lautlos verschwinden ließ.
+2. **`xbox_hdd.qcow2`.** Die Xbox startet ohne Festplatte nicht. Das Abbild ist leer,
+   formatiert und kommt vom xemu-Projekt selbst; das Skript holt es einmalig.
+
+Dazu kommt der **Ton**: ALSA lädt sein Pulse-Modul über `libpulse.so.0`, das wiederum
+`libpulsecommon-<version>.so` braucht. Die liegt im System, aber in einem **Unterordner**
+außerhalb des Suchpfads — deshalb blieb xemu stumm, obwohl PulseAudio lief. Der Agent
+setzt für Xbox deshalb `LD_LIBRARY_PATH` auf beide Pfade.
+
+> **Nicht den ganzen lib-Ordner eines anderen Emulators einhängen.** Genau das wurde
+> versucht: dessen `libpulse.so.0` verdrängt die des Systems und passt nicht zur
+> System-`libpulsecommon` — `undefined symbol: pa_in_valgrind`, und der Ton bleibt
+> wieder weg. Es wird deshalb **genau eine Datei** geliehen, kein Verzeichnis.
+
+Eine eigene `xemu.toml` braucht es **nicht**. Der anfängliche
+`Failed to load BIOS '(null)'` war ein Folgefehler des fehlenden Festplattenabbilds:
+mit Abbild startet xemu auch ohne Konfigurationsdatei und ohne `eeprom.bin`, das es
+sich selbst anlegt. Nachgeprüft, indem beide Dateien entfernt wurden.
+
 ## Was noch überrascht
 
 **Init-Skripte gehören nach `/custom-cont-init.d`.** Der ältere Pfad
@@ -808,6 +836,34 @@ to a real Xorg (#169): **the goal was reached without it.**
 `init/10-virtualgl` and `/opt/VirtualGL` remain in the image but no emulator uses them.
 They stay for now as a fallback; before removing them, check with `ps aux | grep vglrun`
 that nothing still launches through them.
+
+### xemu (Xbox) needs two extra things
+
+Measured on the running host (#300). `init/22-xemu-vorbereiten` handles both:
+
+1. **`libusb-1.0.so.0`.** Every other emulator AppImage ships its libraries; xemu's does
+   **not** ship libusb, and the container has none. Without it the launch dies instantly
+   with `error while loading shared libraries` — the stream opens and stays empty. The
+   script borrows it from an emulator that does ship it and places a **copy** in
+   `/config/lib`; writing to `/usr` is the trap that once made an `apt`-installed Dolphin
+   vanish silently.
+2. **`xbox_hdd.qcow2`.** The Xbox will not boot without a hard disk. The image is empty,
+   formatted, and comes from the xemu project itself; the script fetches it once.
+
+Then there is **audio**: ALSA loads its Pulse module through `libpulse.so.0`, which needs
+`libpulsecommon-<version>.so`. That one is present on the system but in a **subdirectory**
+outside the search path — which is why xemu stayed silent while PulseAudio was running.
+The agent therefore sets `LD_LIBRARY_PATH` to both paths for Xbox.
+
+> **Do not put another emulator's whole lib directory on the path.** That was tried: its
+> `libpulse.so.0` shadows the system one and does not match the system
+> `libpulsecommon` — `undefined symbol: pa_in_valgrind`, and audio breaks again. Exactly
+> **one file** is borrowed, never a directory.
+
+A dedicated `xemu.toml` is **not** required. The initial `Failed to load BIOS '(null)'`
+turned out to be a knock-on effect of the missing disk image: with the image in place,
+xemu starts without a config file and without `eeprom.bin`, which it creates itself.
+Verified by removing both.
 
 ## Other surprises
 
