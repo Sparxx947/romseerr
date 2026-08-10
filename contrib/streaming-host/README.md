@@ -157,6 +157,49 @@ ermitteln lässt: **RPCS3** (keine Release-Dateien auf GitHub, offizieller Direk
 weist automatisierte Abrufe ab) und der **Switch-Emulator** (bewusst ohne eingebaute
 Adresse). Romseerr zeigt sie als „URL nötig".
 
+## Was tatsächlich getestet ist
+
+„Installiert" ist nicht „läuft". Diese Tabelle sagt, was **mit einem echten Titel
+ausprobiert** wurde — Bild im Browser, Ton am Sink gemessen (nicht nach Gehör),
+Controller im Spiel gedrückt.
+
+| Plattform | Emulator | Bild | Ton | Controller | Anmerkung |
+|---|---|---|---|---|---|
+| PlayStation 1 | DuckStation | ✅ | ✅ | ✅ | |
+| PlayStation 2 | PCSX2 | ✅ | ✅ | ✅ | |
+| GameCube | Dolphin | ✅ | ✅ | ✅ | |
+| Wii | Dolphin | ✅ | ✅ | (⁠—⁠) | Controller nicht eigens geprüft — gleicher Emulator und gleiche Belegung wie GameCube |
+| PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
+| Switch | Eden | ✅ | ✅ | (⁠—⁠) | Controller nicht eigens geprüft |
+| Nintendo 3DS | Azahar | ❌ | ❌ | — | Emulator startet, **kein Titel spielbar** — siehe unten |
+| Dreamcast | Flycast | — | — | — | keine Titel in der Bibliothek, nichts zu testen |
+| Xbox | xemu | — | — | — | keine Titel in der Bibliothek |
+| Wii U | Cemu | — | — | — | keine Titel in der Bibliothek |
+| PS Vita | Vita3K | — | — | — | keine Titel in der Bibliothek |
+
+Ein `—` heißt **ungeprüft**, nicht „defekt". Die vier unteren Zeilen sind ungeprüft,
+weil dort schlicht nichts liegt, was man starten könnte.
+
+### Zwei Fallen, die nach einem Defekt des Hosts aussehen
+
+Beides sind **Titelprobleme**, keine Emulatorprobleme — der Emulator läuft in beiden
+Fällen einwandfrei, nur das Spiel nicht:
+
+- **3DS: verschlüsselte ROMs.** Azahar startet, aber jeder Titel scheitert. Je nach
+  Format anders: ein Cartridge-Dump zeigt den Dialog `App Encrypted`, ein eShop-Titel
+  schreibt `Failed to determine system mode (Error 8)` ins Emulator-Log und öffnet gar
+  kein Fenster, und ein `.cia` meldet `CIA must be installed before usage` — CIAs muss
+  man erst installieren, sie starten nicht direkt. Der Schlüsselsatz (`aes_keys.txt`,
+  `boot9.bin`) war dabei vollständig; es liegt an den Dateien, nicht an der Firmware.
+  Abhilfe gibt es nur außerhalb dieses Projekts: entschlüsselte Dumps verwenden.
+- **Wii: NKit-komprimierte ISOs.** Dolphin öffnet einen `NKit Warning`-Dialog statt des
+  Spiels. Dieselbe Bibliothek in `.wbfs` startet ohne Zutun.
+
+Wichtig für die Fehlersuche: In **allen** diesen Fällen meldet der Start-Dienst heute
+noch `ok` zurück, und der Stream geht auf — nur eben ohne Spiel. Wer einen leeren
+Desktop sieht, sollte deshalb zuerst das Log des Emulators lesen, bevor er den Host
+verdächtigt.
+
 ## Die Bibliothek muss auf beiden Seiten dieselbe sein
 
 Romseerr und der Streaming-Host hängen beide die ROM-Bibliothek ein. **Beide müssen
@@ -736,6 +779,48 @@ Two need a URL from you because their source cannot be resolved automatically: *
 (no GitHub release assets; the official direct link refuses automated requests) and the
 **Switch emulator** (deliberately without a built-in address). Romseerr shows these as
 "URL required".
+
+## What has actually been tested
+
+"Installed" is not "works". This table records what was tried **with a real title** —
+picture in the browser, sound measured at the sink (not judged by ear), controller
+pressed in-game.
+
+| Platform | Emulator | Picture | Sound | Controller | Note |
+|---|---|---|---|---|---|
+| PlayStation 1 | DuckStation | ✅ | ✅ | ✅ | |
+| PlayStation 2 | PCSX2 | ✅ | ✅ | ✅ | |
+| GameCube | Dolphin | ✅ | ✅ | ✅ | |
+| Wii | Dolphin | ✅ | ✅ | (⁠—⁠) | controller not checked separately — same emulator and same mapping as GameCube |
+| PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
+| Switch | Eden | ✅ | ✅ | (⁠—⁠) | controller not checked separately |
+| Nintendo 3DS | Azahar | ❌ | ❌ | — | emulator starts, **no title playable** — see below |
+| Dreamcast | Flycast | — | — | — | no titles in the library, nothing to test |
+| Xbox | xemu | — | — | — | no titles in the library |
+| Wii U | Cemu | — | — | — | no titles in the library |
+| PS Vita | Vita3K | — | — | — | no titles in the library |
+
+A `—` means **untested**, not "broken". The bottom four rows are untested because there
+is simply nothing there to start.
+
+### Two traps that look like a broken host
+
+Both are **title** problems, not emulator problems — the emulator runs fine in both
+cases, the game does not:
+
+- **3DS: encrypted ROMs.** Azahar starts, but every title fails, and differently per
+  format: a cartridge dump shows an `App Encrypted` dialog, an eShop title writes
+  `Failed to determine system mode (Error 8)` to the emulator log and opens no window at
+  all, and a `.cia` reports `CIA must be installed before usage` — CIAs have to be
+  installed first, they do not boot directly. The key set (`aes_keys.txt`, `boot9.bin`)
+  was complete throughout, so this is the files, not the firmware. The only fix lies
+  outside this project: use decrypted dumps.
+- **Wii: NKit-compressed ISOs.** Dolphin opens an `NKit Warning` dialog instead of the
+  game. The same library in `.wbfs` starts without further ado.
+
+Important when hunting faults: in **all** of these cases the launch service still
+reports `ok` today and the stream opens — just without a game. So if you get an empty
+desktop, read the emulator's own log before suspecting the host.
 
 ## The library must be the same on both sides
 
