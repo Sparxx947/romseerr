@@ -620,11 +620,12 @@ PROFILE = {
     "pcsx2":     {"system": "PS2",           "controller": pcsx2_apply,
                   "bios": pcsx2_bios_setzen, "vollbild": pcsx2_vollbild,
                   "geprueft": True},
-    # geprueft bleibt False: Bild und Ton sind gemessen (007 Agent Under Fire und
-    # Metroid Prime starten mit Ton), das Gamepad ist es NICHT.
+    # geprueft: Bild, Ton UND Gamepad sind am laufenden System bestaetigt — der
+    # Controller von einem Menschen in Metroid Prime, nicht aus einem Log geschlossen.
+    # (2026-08-10, #119)
     "dolphin":   {"system": "GameCube/Wii",  "controller": dolphin_apply,
                   "bios": None, "vollbild": None,
-                  "geprueft": False},
+                  "geprueft": True},
     "flycast":   {"system": "Dreamcast",     "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
     "xemu":      {"system": "Xbox",          "controller": None, "bios": None, "vollbild": None,
@@ -635,12 +636,12 @@ PROFILE = {
                   "geprueft": False},
     "vita3k":    {"system": "PS Vita",       "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
-    # geprueft bleibt False, bis ein Mensch das Pad IM SPIEL bewegt hat. Gemessen ist
-    # bisher nur, dass RPCS3 das Geraet annimmt (die Warnung „Adding empty device"
-    # verschwindet) — das ist ein Hinweis, kein Nachweis.
+    # geprueft: Bild, Ton und Gamepad im Spiel bestaetigt (2026-08-10, #119). Dass die
+    # Warnung „Adding empty device" verschwindet, war nur der Hinweis — den Nachweis
+    # hat ein Mensch am Pad erbracht.
     "rpcs3":     {"system": "PS3",           "controller": rpcs3_apply,
                   "bios": None, "vollbild": None,
-                  "geprueft": False},
+                  "geprueft": True},
     "switchemu": {"system": "Switch",        "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
 }
