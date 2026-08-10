@@ -179,7 +179,14 @@ _ENV_CONN = {"sab_url": SAB_URL, "sab_apikey": SAB_APIKEY, "sab_cat": SAB_CAT,
              "catalog_urls": os.environ.get("CATALOG_URLS", ""),
              # Streaming-Host (#71): Browser-URL des Hosts + optionaler Start-Dienst
              "stream_url": os.environ.get("STREAM_URL", ""),
-             "stream_launch": os.environ.get("STREAM_LAUNCH", "")}
+             "stream_launch": os.environ.get("STREAM_LAUNCH", ""),
+             # Zweiter Platz (#137). Bewusst als eigene Schluessel und nicht als Liste:
+             # Platz 1 bleibt damit unveraendert, eine bestehende Einrichtung merkt vom
+             # Umbau nichts, und ein dritter Platz ist zwei Zeilen mehr.
+             # EN: separate keys rather than a list, so seat 1 stays byte-identical for
+             # existing installs and a third seat is two more lines.
+             "stream_url_2": os.environ.get("STREAM_URL_2", ""),
+             "stream_launch_2": os.environ.get("STREAM_LAUNCH_2", "")}
 CONN_KEYS = list(_ENV_CONN.keys())
 CONN_SECRET = {"sab_apikey", "prow_apikey", "igdb_secret", "romm_pass",
                "sgdb_key", "ss_pass", "ra_key"}   # in der GUI maskiert (Klartext-Anzeige via Reveal-Endpoint)
@@ -2528,14 +2535,89 @@ STREAM_LOCK = threading.Lock()
 def stream_cfg():
     return {"url": cfg("stream_url"), "launch": cfg("stream_launch")}
 
-def stream_session():
-    """Laufende Sitzung oder None. Abgelaufene Sitzungen geben den Platz von selbst frei —
-    ein vergessener Browser-Tab darf den Einzelplatz nicht dauerhaft blockieren."""
-    ses = kv_get("stream_session", None)
-    if not ses: return None
-    if time.time() > float(ses.get("expires") or 0):
-        kv_put("stream_session", None); return None
-    return ses
+# Obere Schranke fuer die Platzsuche. Kein Grenzwert der Anlage, nur ein Anschlag gegen
+# eine Endlosschleife, falls jemand `stream_url_999` einträgt.
+STREAM_SEATS_MAX = 8
+
+
+def stream_seats():
+    """Eingerichtete Plaetze in fester Reihenfolge -> [{"id", "url", "launch"}, …].
+
+    Platz 1 sind die bisherigen Schluessel `stream_url`/`stream_launch`; fuer eine
+    bestehende Einrichtung aendert sich damit nichts. Weitere heissen `stream_url_2`,
+    `stream_launch_2` und so fort, und die Suche endet an der ERSTEN Luecke — sonst
+    haette ein vergessener `stream_url_5` einen Platz erzeugt, den niemand eingerichtet
+    hat und der bei jedem Start ins Leere liefe.
+    EN: seat 1 keeps the original keys; the scan stops at the first gap so a stray
+    higher-numbered entry cannot conjure a seat nobody configured.
+    """
+    seats = []
+    # Platz 1 ueber `stream_cfg()` und nicht direkt ueber `cfg()`: sonst faellt ein Platz
+    # weg, bei dem NUR der Start-Dienst eingerichtet ist (Browser-URL leer) — und das
+    # war vor #137 eine gueltige Einrichtung.
+    # EN: via stream_cfg so a seat with only a launch service configured still counts.
+    eins = stream_cfg()
+    if eins["url"] or eins["launch"]:
+        seats.append({"id": 1, "url": eins["url"], "launch": eins["launch"]})
+    for n in range(2, STREAM_SEATS_MAX + 1):
+        u, l = cfg(f"stream_url_{n}"), cfg(f"stream_launch_{n}")
+        if not (u or l):
+            break
+        seats.append({"id": n, "url": u, "launch": l})
+    return seats
+
+
+def stream_sessions():
+    """Belegte Plaetze als {"1": sitzung, …}. Abgelaufene fallen von selbst heraus.
+
+    Ein vergessener Browser-Tab darf keinen Platz dauerhaft blockieren — deshalb traegt
+    jede Sitzung ihr eigenes Ablaufdatum, und aufgeraeumt wird beim Lesen.
+
+    MIGRATION: Bis #137 gab es genau einen Platz unter dem Schluessel `stream_session`.
+    Ein solcher Eintrag wird hier zu Platz 1 — wer waehrend des Updates gerade spielte,
+    verliert seinen Platz also nicht.
+    EN: sessions expire on their own; a pre-#137 single-seat record becomes seat 1, so
+    an update does not evict whoever is playing.
+    """
+    roh = kv_get("stream_sessions", None)
+    if roh is None:
+        alt = kv_get("stream_session", None)
+        roh = {"1": alt} if alt else {}
+        if alt:
+            kv_put("stream_sessions", roh)
+            kv_put("stream_session", None)
+    jetzt = time.time()
+    lebend = {str(k): v for k, v in (roh or {}).items()
+              if v and jetzt <= float(v.get("expires") or 0)}
+    if lebend != (roh or {}):
+        kv_put("stream_sessions", lebend)
+    return lebend
+
+
+def stream_session_of(user):
+    """-> (platz_id, sitzung) des Nutzers, sonst (None, None)."""
+    for sid, ses in stream_sessions().items():
+        if ses.get("user") == user:
+            return sid, ses
+    return None, None
+
+
+def stream_freier_platz(user):
+    """-> Platz fuer diesen Nutzer: sein eigener, sonst der erste freie, sonst None.
+
+    Der eigene Platz zuerst: wer einen zweiten Titel startet, soll seinen Platz
+    weiterbenutzen und nicht den zweiten mit belegen.
+    EN: reuse the caller's own seat before taking a free one, so starting a second
+    title does not occupy both.
+    """
+    belegt = stream_sessions()
+    eigener, _ = stream_session_of(user)
+    if eigener:
+        return eigener
+    for seat in stream_seats():
+        if str(seat["id"]) not in belegt:
+            return str(seat["id"])
+    return None
 
 def stream_find_file(title, slug):
     """Titel -> Datei in der Bibliothek. Ohne Datei kein Stream (dieselbe Regel wie bei Play).
@@ -2635,25 +2717,52 @@ def stream_info(title, slug, user=""):
     path = stream_find_file(title, slug)
     if not path:
         return {"streamable": False, "reason": "not_in_library", "platform": slug}
-    ses = stream_session()
-    busy = bool(ses and ses.get("user") != user)
-    return {"streamable": not busy, "platform": slug, "path": path,
-            "reason": "busy" if busy else "",
-            "busy_with": (ses or {}).get("title", "") if busy else "",
-            "busy_user": (ses or {}).get("user", "") if busy else "",
-            "url": conf["url"]}
+    # Besetzt ist erst, wenn KEIN Platz mehr frei ist — nicht schon, wenn einer belegt
+    # ist. Genau das war die Einschraenkung des Einzelplatzes. (#137)
+    platz = stream_freier_platz(user)
+    seats = {str(s["id"]): s for s in stream_seats()}
+    belegt = stream_sessions()
+    if platz is None:
+        # Wer blockiert, ist eine Frage der Auskunft, nicht der Logik: bei mehreren
+        # Plaetzen wird der zuerst belegte genannt, damit die Meldung stabil bleibt.
+        andere = [belegt[k] for k in sorted(belegt)] or [{}]
+        return {"streamable": False, "platform": slug, "path": path, "reason": "busy",
+                "busy_with": andere[0].get("title", ""),
+                "busy_user": andere[0].get("user", ""),
+                "seats": len(seats), "seats_free": 0,
+                "url": conf["url"]}
+    return {"streamable": True, "platform": slug, "path": path, "reason": "",
+            "busy_with": "", "busy_user": "",
+            "seat": platz, "seats": len(seats),
+            "seats_free": len(seats) - len(belegt) + (1 if platz in belegt else 0),
+            # Die URL des ZUGETEILTEN Platzes, nicht die des ersten: bei zwei Plaetzen
+            # sind es zwei verschiedene Adressen, und die falsche fuehrt auf den
+            # Desktop eines anderen.
+            # EN: the URL of the ASSIGNED seat — the wrong one lands on someone else's desktop.
+            "url": (seats.get(platz) or {}).get("url") or conf["url"]}
 
 def stream_start(user, title, slug):
-    """Einzelplatz belegen und — falls ein Start-Dienst hinterlegt ist — den Titel starten."""
+    """Einen Platz belegen und — falls ein Start-Dienst hinterlegt ist — den Titel starten."""
     info = stream_info(title, slug, user)
     if not info.get("streamable"):
         return info, 409 if info.get("reason") == "busy" else 400
     with STREAM_LOCK:
-        ses = stream_session()
-        if ses and ses.get("user") != user:      # zweite Pruefung IM Lock (Wettlauf)
+        # Zweite Pruefung IM Lock (Wettlauf): zwischen `stream_info` und hier kann der
+        # letzte freie Platz weg sein. Bei einem Einzelplatz war das "ist besetzt?",
+        # bei mehreren ist es "ist noch einer frei?" — sonst belegen zwei gleichzeitige
+        # Anfragen denselben Platz und der zweite Spieler landet im Bild des ersten.
+        # EN: re-check inside the lock; with several seats the question is whether one
+        # is still free, otherwise two simultaneous requests take the same seat.
+        platz = stream_freier_platz(user)
+        if platz is None:
+            belegt = stream_sessions()
+            andere = [belegt[k] for k in sorted(belegt)] or [{}]
             return {"streamable": False, "reason": "busy",
-                    "busy_with": ses.get("title", ""), "busy_user": ses.get("user", "")}, 409
-        conf = stream_cfg()
+                    "busy_with": andere[0].get("title", ""),
+                    "busy_user": andere[0].get("user", "")}, 409
+        seats = {str(s["id"]): s for s in stream_seats()}
+        conf = {"url": (seats.get(platz) or {}).get("url") or cfg("stream_url"),
+                "launch": (seats.get(platz) or {}).get("launch") or ""}
         launched = False
         fehler = ""
         fehlergrund = ""          # maschinenlesbar, damit die Oberflaeche unterscheiden kann (#177)
@@ -2695,12 +2804,15 @@ def stream_start(user, title, slug):
             except Exception as e:
                 fehler = err_kind(e)
                 log(f"Stream-Start-Fehler: {e}")
-        kv_put("stream_session", {"user": user, "title": title, "platform": info["platform"],
-                                  "started": int(time.time()),
-                                  "expires": time.time() + STREAM_TTL, "launched": launched})
+        alle = dict(stream_sessions())
+        alle[platz] = {"user": user, "title": title, "platform": info["platform"],
+                       "started": int(time.time()), "seat": platz,
+                       "expires": time.time() + STREAM_TTL, "launched": launched}
+        kv_put("stream_sessions", alle)
     return {"streamable": True, "url": conf["url"], "launched": launched,
             "launch_error": fehler, "launch_reason": fehlergrund,
-            "platform": info["platform"], "expires_in": STREAM_TTL}, 200
+            "platform": info["platform"], "expires_in": STREAM_TTL,
+            "seat": platz, "seats": len(stream_seats())}, 200
 
 def worker_collect():
     """Dauerthread (alle 20 s): sucht für noch laufende usenet/filehoster-Jobs den fertigen
@@ -3293,12 +3405,25 @@ def api_stream_stop():
     """Platz freigeben. Nur der Inhaber oder ein Anfragen-Verwalter — sonst koennte
     jeder jedem die laufende Sitzung abdrehen."""
     me = session.get("user", "")
-    ses = stream_session()
-    if not ses: return jsonify({"ok": True, "was_running": False})
+    # Ohne Platzangabe der eigene; Verwalter duerfen einen fremden ausdruecklich nennen.
+    # Frueher gab es nur einen, deshalb war "welchen?" keine Frage — jetzt schon, und
+    # ein Verwalter, der ohne Angabe beendet, soll NICHT zufaellig einen fremden treffen.
+    # EN: without an explicit seat, stop your own; a manager must name a foreign one.
+    gewuenscht = (request.args.get("seat") or "").strip()
+    sitzungen = stream_sessions()
+    if gewuenscht:
+        if gewuenscht not in sitzungen:
+            return jsonify({"ok": True, "was_running": False})
+        sid, ses = gewuenscht, sitzungen[gewuenscht]
+    else:
+        sid, ses = stream_session_of(me)
+    if not ses:
+        return jsonify({"ok": True, "was_running": False})
     if ses.get("user") != me and not has_perm("manage_requests"):
         return jsonify({"ok": False, "msg": "fremde Sitzung / not your session"}), 403
-    kv_put("stream_session", None)
-    return jsonify({"ok": True, "was_running": True})
+    rest = {k: v for k, v in sitzungen.items() if k != sid}
+    kv_put("stream_sessions", rest)
+    return jsonify({"ok": True, "was_running": True, "seat": sid})
 
 def _agent_url(pfad):
     """Der Start-Dienst hat mehrere Endpunkte unter derselben Wurzel; in den
@@ -3481,12 +3606,23 @@ def api_stream_emulators_rollback():
 @app.route("/api/stream/status")
 @perm_required("request")
 def api_stream_status():
-    ses = stream_session()
     conf = stream_cfg()
-    return jsonify({"configured": bool(conf["url"]), "has_launcher": bool(conf["launch"]),
-                    "seats": 1, "ttl": STREAM_TTL,
-                    "session": {k: ses[k] for k in ("user", "title", "platform", "started", "launched")}
-                               if ses else None})
+    seats = stream_seats()
+    sitzungen = stream_sessions()
+    me = session.get("user", "")
+    _, meine = stream_session_of(me)
+    felder = ("user", "title", "platform", "started", "launched")
+    return jsonify({"configured": bool(seats), "has_launcher": bool(conf["launch"]),
+                    "seats": len(seats), "seats_free": max(0, len(seats) - len(sitzungen)),
+                    "ttl": STREAM_TTL,
+                    # `session` bleibt die EIGENE Sitzung — die Oberflaeche fragt damit
+                    # "laeuft bei mir etwas?", und das darf sich durch fremde Plaetze
+                    # nicht aendern. Alle Plaetze stehen daneben in `sessions`.
+                    # EN: `session` stays the caller's own, so the UI question
+                    # "am I playing?" keeps its meaning; all seats are listed separately.
+                    "session": {k: meine[k] for k in felder} if meine else None,
+                    "sessions": {sid: {k: s[k] for k in felder}
+                                 for sid, s in sitzungen.items()}})
 
 # ---------- Logos: mitgebracht wird KEINES (#211/#199) ----------
 # ENTSCHIEDEN und hier festgehalten, damit es nicht beim naechsten Anlauf neu verhandelt
