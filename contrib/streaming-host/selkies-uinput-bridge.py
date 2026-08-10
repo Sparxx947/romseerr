@@ -140,6 +140,16 @@ def knoten_spiegeln(sysname):
     return angelegt, schon_richtig
 
 
+# Alle selbst angelegten Knoten, damit auch ein Abbruch von aussen sie wieder loswird.
+# OHNE DAS bleiben sie liegen: `terminate` beendet den Prozess, das `finally` im
+# Arbeitsthread laeuft dann nicht mehr. Gemessen — nach einem Neustart der Bruecke im
+# laufenden Container standen `event7` und `js4` verwaist da und zeigten ins Leere.
+# EN: a terminated process never runs the worker's finally block, leaving nodes that
+# point at destroyed devices.
+ALLE_KNOTEN = []
+KNOTEN_SPERRE = threading.Lock()
+
+
 def knoten_entfernen(pfade):
     """Selbst angelegte Knoten wieder abraeumen.
 
@@ -153,6 +163,9 @@ def knoten_entfernen(pfade):
             os.unlink(p)
         except OSError as e:
             log.info("Knoten %s liess sich nicht entfernen: %s", p, e)
+        with KNOTEN_SPERRE:
+            if p in ALLE_KNOTEN:
+                ALLE_KNOTEN.remove(p)
 
 
 class JsConfig(ctypes.Structure):
@@ -254,6 +267,8 @@ def bediene(pfad):
             # device that shows up later; the node must exist before the emulator starts.
             sysname = sysname_lesen(ui.fd)
             knoten, vorhanden = knoten_spiegeln(sysname)
+            with KNOTEN_SPERRE:
+                ALLE_KNOTEN.extend(knoten)
             log.info("%s: Geraet '%s' angelegt (%d Tasten, %d Achsen), %s, "
                      "Knoten neu: %s, bereits richtig: %s",
                      os.path.basename(pfad), name, len(tasten), len(achsen), sysname,
@@ -301,6 +316,23 @@ def main():
     except OSError as e:
         log.error("/dev/uinput nicht nutzbar: %s — Modul geladen? Geraet durchgereicht?", e)
         return 1
+    # Beim Beenden aufraeumen. Die Arbeitsthreads sind `daemon=True`, ihr `finally`
+    # laeuft beim Prozessende NICHT — ohne diesen Handler bleiben die Knoten stehen und
+    # zeigen auf Geraete, die es nicht mehr gibt. Das ist schlimmer als kein Knoten:
+    # ein Emulator findet ihn, oeffnet ihn und meldet ein Pad, das nie etwas sendet.
+    # EN: daemon threads never run their finally on exit; without this the nodes survive
+    # their devices and SDL offers a controller that stays silent forever.
+    def aufraeumen(signum, rahmen):
+        with KNOTEN_SPERRE:
+            rest = list(ALLE_KNOTEN)
+        if rest:
+            log.info("Signal %s — entferne %d Knoten", signum, len(rest))
+        knoten_entfernen(rest)
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, aufraeumen)
+    signal.signal(signal.SIGINT, aufraeumen)
+
     for pfad in SOCKETS:
         threading.Thread(target=bediene, args=(pfad,), daemon=True).start()
     log.info("Bruecke laeuft fuer %d Sockets", len(SOCKETS))

@@ -83,6 +83,14 @@ def main():
     srv.listen(1)
     srv.settimeout(20)
 
+    # Den Bestand VOR dem Start der Bruecke aufnehmen. Wird er erst nach dem Senden der
+    # Beschreibung gebildet, kann die Bruecke den Knoten laengst angelegt haben — er
+    # steht dann schon im "vorher" und gilt nie als neu. Die Sonde meldete so "kein
+    # Geraeteknoten", obwohl alles funktionierte: ein Messfehler, der wie ein Defekt
+    # aussieht. / EN: snapshot before starting the bridge; taking it later loses the
+    # node to a race and reports a working chain as broken.
+    vorher = set(os.listdir("/dev/input"))
+
     umgebung = dict(os.environ, SELKIES_JS_SOCKET_PREFIX=PRAEFIX)
     kind = subprocess.Popen([sys.executable, "-u", BRUECKE],
                             env=umgebung, stdout=subprocess.PIPE,
@@ -100,7 +108,6 @@ def main():
         # Auf den Knoten warten. Die Bruecke legt ihn an, NACHDEM der Kernel das Geraet
         # erzeugt hat — vorher gibt es im Container nichts zu sehen.
         knoten = None
-        vorher = set(os.listdir("/dev/input"))
         for _ in range(50):
             time.sleep(0.2)
             neu = set(os.listdir("/dev/input")) - vorher
