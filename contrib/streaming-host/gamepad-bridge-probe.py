@@ -105,6 +105,25 @@ def main():
         sag("OK", "Bruecke verbunden")
         verbindung.sendall(konfig_bytes())
 
+        # Das echte Selkies liest hier EIN Byte (`sizeof(long)` des Clients) und nimmt
+        # den Client erst danach in die Liste auf, an die es Ereignisse verteilt. Diese
+        # Sonde muss denselben Schritt verlangen — sonst prueft sie eine Gegenseite, die
+        # es so nicht gibt, und meldet Erfolg, waehrend am echten Selkies nichts fliesst.
+        # Genau so ist der Fehler durchgerutscht. / EN: the real Selkies reads one byte
+        # before it starts sending; a probe that skips it validates a fiction.
+        verbindung.settimeout(10)
+        try:
+            arch = verbindung.recv(1)
+        except socket.timeout:
+            arch = b""
+        if len(arch) != 1:
+            sag("FEHLER", "Die Bruecke hat das Architektur-Byte nicht gesendet.")
+            sag("      ", "Selkies nimmt sie deshalb nie in seine Empfaengerliste auf —")
+            sag("      ", "Geraete entstehen, aber es kommt nie ein Ereignis an.")
+            return 1
+        sag("OK", "Handshake: Bruecke meldet %d-Bit-Architektur" % (arch[0] * 8))
+        verbindung.settimeout(None)
+
         # Auf den Knoten warten. Die Bruecke legt ihn an, NACHDEM der Kernel das Geraet
         # erzeugt hat — vorher gibt es im Container nichts zu sehen.
         knoten = None
