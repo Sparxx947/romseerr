@@ -354,25 +354,31 @@ def rpcs3_apply(pruefen=False):
 # Dual core moves the bottleneck to the video thread rather than removing it; the
 # VirtualGL detour is the actual cause.
 # DuckStation benutzt DIESELBEN Schluessel wie PCSX2 (`Cross`, `L1`, `LUp`) — aber bei
-# vier Werten einen anderen Namen. Am ausgelieferten Binaer nachgemessen:
+# den vier Gesichtstasten andere WERTE. Aus dem Quelltext abgelesen
+# (`src/util/sdl_input_source.cpp`, Tabelle `s_button_info`), nicht geraten:
 #
-#   strings duckstation-qt | grep -x FaceSouth   -> nichts
-#   strings duckstation-qt | grep -x South       -> vorhanden
+#   A, B, X, Y  |  LeftShoulder, RightShoulder  |  DPadUp/Down/Left/Right
+#   Back, Guide, Start  |  LeftStick, RightStick
+#   Achsen: LeftX, LeftY, RightX, RightY, LeftTrigger, RightTrigger
 #
-# Alle uebrigen 21 Werte (DPad*, *Shoulder, *Stick, *Trigger, LeftX/Y, RightX/Y, Back,
-# Start, Guide) sind identisch — deshalb eine Abweichungstabelle statt einer zweiten
-# Vollliste, die beim naechsten Umbau auseinanderliefe.
+# Alle uebrigen 21 Werte sind mit PCSX2 identisch — deshalb eine Abweichungstabelle
+# statt einer zweiten Vollliste, die beim naechsten Umbau auseinanderliefe.
 #
-# WIE DER FEHLER ENTSTAND: Ich hatte geprueft, dass die SCHLUESSEL uebereinstimmen, und
-# daraus geschlossen, dass auch die WERTE passen. Das Ergebnis war ein Pad, bei dem
-# Stick und Steuerkreuz gehen und die vier Tasten nicht — DuckStation ignoriert einen
-# unbekannten Wert stillschweigend, wie fast jeder Emulator hier.
-# EN: same keys as PCSX2 but four different values, measured in the shipped binary.
-# Checking that the keys match and inferring the values do too produced a pad where the
-# sticks worked and the face buttons silently did nothing.
+# ZWEI FEHLSCHLUESSE AUF DEM WEG HIERHIN, beide dieselbe Sorte:
+#   1. "Die Schluessel stimmen, also stimmen die Werte" — falsch, `FaceSouth` gibt es
+#      hier nicht. Ergebnis: Stick und Steuerkreuz gingen, die Tasten nicht.
+#   2. `strings duckstation-qt | grep -x South` fand die Zeichenkette, und ich hielt
+#      das fuer den Beweis. **Eine vorhandene Zeichenkette sagt nichts darueber, wofuer
+#      sie verwendet wird** — `South` steht dort in ganz anderem Zusammenhang.
+# DuckStation ignoriert einen unbekannten Wert stillschweigend, wie Dolphin und RPCS3
+# auch; eine halb falsche Belegung sieht deshalb aus wie ein halb defekter Controller.
+#
+# EN: same keys as PCSX2 but different values for the four face buttons, read from
+# s_button_info in sdl_input_source.cpp. Note the second wrong turn: finding a string
+# in the binary proves it exists, not what it is used for.
 DUCKSTATION_ANDERS = {
-    "FaceSouth": "South", "FaceEast": "East",
-    "FaceWest": "West", "FaceNorth": "North",
+    "FaceSouth": "A", "FaceEast": "B",
+    "FaceWest": "X", "FaceNorth": "Y",
 }
 
 

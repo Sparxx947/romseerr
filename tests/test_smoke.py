@@ -4848,7 +4848,7 @@ def test_duckstation_disables_the_setup_wizard(tmp_path):
     assert "SetupWizardIncomplete" in inhalt.split("[Pad1]")[0]
     # South, NICHT FaceSouth: DuckStation kennt PCSX2s Face*-Namen nicht (am Binary
     # nachgemessen) und ignoriert sie stillschweigend — Sticks gehen, Tasten nicht.
-    assert "Cross = SDL-0/South" in inhalt
+    assert "Cross = SDL-0/A" in inhalt
     assert "FaceSouth" not in inhalt, "PCSX2-Name für DuckStation geschrieben"
     assert "Type = AnalogController" in inhalt, "der Controller-Typ gehört dem Benutzer"
     assert "[Pad2]" in inhalt and "Type = None" in inhalt, "Spieler 2 angetastet"
@@ -4913,8 +4913,8 @@ def test_duckstation_face_buttons_use_its_own_names(tmp_path):
 
     Am ausgelieferten Binary nachgemessen (2026-08-10):
 
-        strings duckstation-qt | grep -x FaceSouth   -> nichts
-        strings duckstation-qt | grep -x South       -> vorhanden
+        src/util/sdl_input_source.cpp, Tabelle s_button_info:
+        "A", "B", "X", "Y", "LeftShoulder", ... — kein FaceSouth, kein South
 
     Alle übrigen 21 Werte sind identisch. Der Fehler entstand, weil ich geprüft hatte,
     dass die SCHLÜSSEL übereinstimmen, und daraus schloss, die Werte täten es auch:
@@ -4923,9 +4923,9 @@ def test_duckstation_face_buttons_use_its_own_names(tmp_path):
     """
     m = _profil_modul(tmp_path)
     assert m.DUCKSTATION_ANDERS == {
-        "FaceSouth": "South", "FaceEast": "East",
-        "FaceWest": "West", "FaceNorth": "North",
-    }, "Abweichungstabelle geändert — am Binary gegenprüfen"
+        "FaceSouth": "A", "FaceEast": "B",
+        "FaceWest": "X", "FaceNorth": "Y",
+    }, "Abweichungstabelle geändert — gegen s_button_info im Quelltext prüfen"
     # Was NICHT abweicht, darf auch nicht übersetzt werden.
     for wert in ("DPadUp", "LeftShoulder", "LeftStick", "+LeftTrigger", "-LeftY",
                  "Back", "Start", "Guide"):
