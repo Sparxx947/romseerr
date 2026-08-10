@@ -1,0 +1,73 @@
+#!/bin/bash
+# xemu braucht zwei Dinge, die weder im Abbild noch in seinem AppImage stecken.
+# xemu needs two things neither the image nor its own AppImage provides.
+#
+# 1. libusb-1.0.so.0
+#    Jedes andere Emulator-AppImage bringt seine Bibliotheken mit; xemus tut es fuer
+#    libusb NICHT, und der Container hat keine (`ldconfig -p | grep libusb` ist leer).
+#    Ergebnis ohne diesen Schritt:
+#        error while loading shared libraries: libusb-1.0.so.0
+#    Der Prozess endet sofort, der Stream geht auf und bleibt leer — von aussen
+#    ununterscheidbar von "der Emulator kann die Plattform nicht". (#300)
+#
+#    Geliehen wird aus einem Emulator, der sie mitbringt. Kopiert statt verlinkt, weil
+#    der Spender-Emulator deinstalliert werden kann.
+#
+# 2. xbox_hdd.qcow2
+#    Die Xbox startet ohne Festplatte nicht. Das Abbild ist LEER und formatiert, kommt
+#    vom xemu-Projekt selbst und enthaelt nichts Geschuetztes.
+#
+# WOHIN: alles nach /config — das ist ein Volume und ueberlebt Abbild-Aktualisierungen.
+# Nach /usr zu schreiben waere die Falle, die hier schon ein per apt installiertes
+# Dolphin lautlos verschwinden liess.
+set -u
+
+LIB=/config/lib
+XDIR=/config/.local/share/xemu/xemu
+HDD_URL=${XEMU_HDD_URL:-https://github.com/xemu-project/xemu-hdd-image/releases/latest/download/xbox_hdd.qcow2.zip}
+
+# Nur taetig werden, wenn xemu ueberhaupt installiert ist.
+[ -x /config/emulators/xemu/AppRun ] || exit 0
+
+# ---- 1. libusb bereitstellen -------------------------------------------------------
+mkdir -p "$LIB"
+if [ ! -e "$LIB/libusb-1.0.so.0" ]; then
+  quelle=$(find /config/emulators -name 'libusb-1.0.so.0' -not -path "$LIB/*" 2>/dev/null | head -1)
+  if [ -n "$quelle" ]; then
+    cp "$quelle" "$LIB/libusb-1.0.so.0"
+    echo "[xemu] libusb aus $(basename "$(dirname "$(dirname "$quelle")")") uebernommen"
+  else
+    echo "[xemu] WARNUNG: keine libusb-1.0.so.0 gefunden — xemu wird nicht starten"
+  fi
+fi
+
+# ---- 2. Festplattenabbild -----------------------------------------------------------
+mkdir -p "$XDIR"
+if [ ! -s "$XDIR/xbox_hdd.qcow2" ]; then
+  echo "[xemu] hole Festplattenabbild …"
+  tmp=$(mktemp -d)
+  if curl -sL --max-time 300 -o "$tmp/hdd.zip" "$HDD_URL" && [ -s "$tmp/hdd.zip" ]; then
+    # Ohne unzip im Abbild: Python bringt zipfile mit.
+    if python3 -c "
+import sys, zipfile
+z = zipfile.ZipFile('$tmp/hdd.zip')
+n = [x for x in z.namelist() if x.endswith('.qcow2')]
+if not n:
+    sys.exit(1)
+open('$XDIR/xbox_hdd.qcow2','wb').write(z.read(n[0]))
+" 2>/dev/null; then
+      echo "[xemu] Festplattenabbild abgelegt ($(stat -c%s "$XDIR/xbox_hdd.qcow2") Byte)"
+    else
+      echo "[xemu] WARNUNG: Abbild nicht entpackbar — xemu bootet ohne Platte nicht"
+    fi
+  else
+    # Kein Netz ist kein Grund, den Containerstart abzubrechen.
+    echo "[xemu] WARNUNG: Abbild nicht ladbar (Netz?) — xemu bootet ohne Platte nicht"
+  fi
+  rm -rf "$tmp"
+fi
+
+# Alles gehoert dem Dienstnutzer, nicht root — sonst kann xemu die Platte nicht
+# beschreiben und die Spielstaende landen nirgends.
+chown -R abc:abc "$LIB" "$XDIR" 2>/dev/null || true
+exit 0

@@ -316,6 +316,36 @@ def _stop_locked():
                      "window": "", "window_detail": ""})
 
 
+# Bibliothekspfade, die einzelne Emulatoren zusaetzlich brauchen (#300).
+#
+# xemus AppImage bringt als einziges KEINE libusb mit, und der Container hat keine —
+# ohne diesen Pfad endet der Start mit `error while loading shared libraries`. Die
+# Kopie liegt in /config/lib (siehe init/22-xemu-vorbereiten).
+#
+# Der zweite Pfad ist der Ton: ALSA laedt sein Pulse-Modul ueber `libpulse.so.0`, das
+# wiederum `libpulsecommon-<version>.so` braucht. Die liegt im System, aber in einem
+# UNTERORDNER, der nicht im Suchpfad steht — deshalb schlug der Ton mit
+# `Couldn't open audio device` fehl, obwohl Pulse laeuft.
+#
+# WARUM NICHT den ganzen lib-Ordner eines anderen Emulators: genau das wurde versucht
+# und ging schief. Dessen `libpulse.so.0` verdraengt die des Systems und passt nicht
+# zur System-`libpulsecommon` — `undefined symbol: pa_in_valgrind`. Es wird deshalb
+# genau eine Datei geliehen, nicht ein Verzeichnis.
+EXTRA_LIBS = {
+    "xbox": ["/config/lib", "/usr/lib/x86_64-linux-gnu/pulseaudio"],
+}
+
+
+def start_umgebung(platform):
+    """Umgebung fuer den Emulatorstart: die eigene plus etwaige Zusatzpfade."""
+    umg = dict(os.environ)
+    extra = EXTRA_LIBS.get(platform)
+    if extra:
+        vorher = umg.get("LD_LIBRARY_PATH", "")
+        umg["LD_LIBRARY_PATH"] = ":".join(extra + ([vorher] if vorher else []))
+    return umg
+
+
 def launch(path, platform, rel="", region=""):
     """(ok, meldung). Einzelplatz: ein laufender Emulator wird zuvor beendet.
 
@@ -409,12 +439,13 @@ def launch(path, platform, rel="", region=""):
     argv = [real if part == "%s" else part for part in shlex.split(cmd)]
     if "%s" not in cmd:
         argv.append(real)
+    umgebung = start_umgebung(platform)
     with _lock:
         _stop_locked()
         try:
             # Kein shell=True: die Argumentliste geht unveraendert an execve.
             _current["proc"] = subprocess.Popen(argv, stdout=subprocess.DEVNULL,
-                                                stderr=subprocess.DEVNULL)
+                                                stderr=subprocess.DEVNULL, env=umgebung)
         except OSError as e:
             return False, f"Start fehlgeschlagen / launch failed: {e.__class__.__name__}"
         _current["platform"] = platform
