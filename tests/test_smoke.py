@@ -5136,3 +5136,36 @@ def test_gpu_encoding_is_switched_on():
         # Der Code prüft gegen diese Liste; ein Standard aus ihr wäre wirkungslos.
         assert not any(w in wert.lower() for w in ("false", "off", "no")) or ":-" in wert, \
             f"{dienst}: Standardwert schaltet die GPU-Kodierung ab: {wert}"
+
+
+def test_a_permission_error_is_reported_not_thrown(tmp_path):
+    """Ein Rechtefehler darf das Startprofil nicht als Traceback verlassen.
+
+    Genau das ist passiert (2026-08-10): `PCSX2.ini` gehörte noch root mit Modus 600 —
+    ein Überbleibsel aus der Zeit, als Emulatoren als root liefen (#273). Der Agent
+    läuft seither als `abc`, konnte die Datei nicht lesen, und der `PermissionError`
+    verließ das Profil als Traceback:
+
+        PermissionError: [Errno 13] Permission denied: '.../PCSX2.ini'
+
+    Folge: Der Schritt brach ab, BIOS und Vollbild wurden nicht gesetzt, und PCSX2 kam
+    mit einem 500×101-Dialog statt mit dem Spiel hoch. Von außen: "der Stream geht auf,
+    aber es startet kein Spiel" — nichts daran deutet auf Dateirechte.
+
+    Die Meldung muss deshalb sagen, **wem** die Datei gehört, **wer** wir sind und
+    **was zu tun ist**. Und der Rückgabewert darf kein Erfolg sein. (#283/#273)
+    """
+    m = _profil_modul(tmp_path)
+    pfad = m.pcsx2_ini()
+    os.makedirs(os.path.dirname(pfad), exist_ok=True)
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write("[Pad1]\nType = DualShock2\n")
+    os.chmod(pfad, 0o000)
+    try:
+        geaendert, msg = m.sicher(m.pcsx2_apply)
+    finally:
+        os.chmod(pfad, 0o600)
+    assert not geaendert, "ein Rechtefehler darf nicht als Erfolg gelten"
+    assert msg.startswith("KEIN ZUGRIFF"), msg
+    for teil in ("gehoert", "wir sind", "chown"):
+        assert teil in msg, f"Meldung nennt '{teil}' nicht: {msg}"
