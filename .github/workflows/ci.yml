@@ -115,12 +115,26 @@ jobs:
       - name: Build and start the image
         run: |
           docker build -t romseerr:ci .
-          docker run -d --name romseerr-ci -p 8770:8770 romseerr:ci
+          # WARUM DIE EINHAENGEPUNKTE: Das Image legt /config und /roms NICHT an — es
+          # erwartet sie gemountet. Ohne sie stirbt der Prozess beim Start, und der
+          # Auftrag scheitert mit „connection refused", was nach einem Netzproblem
+          # aussieht und keines ist. 777, weil der Container als uid 1000 laeuft.
+          # The image does not create /config or /roms; without them the process dies at
+          # startup and the job fails with a misleading "connection refused".
+          mkdir -p /tmp/rs/config /tmp/rs/roms && chmod -R 777 /tmp/rs
+          docker run -d --name romseerr-ci -p 8770:8770 \
+            -v /tmp/rs/config:/config -v /tmp/rs/roms:/roms romseerr:ci
           for i in $(seq 1 30); do
-            curl -fsS http://127.0.0.1:8770/login >/dev/null 2>&1 && break
+            curl -fsS http://127.0.0.1:8770/health >/dev/null 2>&1 && break
             sleep 2
           done
-          curl -fsS http://127.0.0.1:8770/login >/dev/null
+          # Bei Fehlschlag die Container-Logs zeigen. Ohne das steht im Protokoll nur
+          # „Couldn't connect" — die Ursache bleibt unsichtbar. Genau daran hat dieser
+          # Auftrag beim ersten Lauf eine Runde verloren.
+          if ! curl -fsS http://127.0.0.1:8770/login >/dev/null; then
+            echo "::group::Container-Logs"; docker logs romseerr-ci 2>&1 | tail -50
+            echo "::endgroup::"; exit 1
+          fi
       # WAS HIER GEPRUEFT WIRD — und was nicht:
       # Lighthouse sieht nur die Anmeldeseite; alles dahinter braucht eine Sitzung. Das
       # ist bewusst so: Die Zahl, die hier gehalten wird, ist ein TRANSFERBUDGET, kein
