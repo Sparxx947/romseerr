@@ -91,6 +91,26 @@ The full rule is in
   **series/collection** (click starts a search), versions/sources and file list.
 - From here: request, **add to wishlist** or **report an issue**.
 
+### Library — what is actually here
+
+Coverage answers "what is missing". In front of a shelf the more common question is the
+other one: **what do I have for this console?** That is the **Library** menu entry,
+grouped by **manufacturer** and **system** — the same grouping coverage and the platform
+filter use, not a third list. Clicking a system opens its titles, with a filter and in
+pages: `c64` and ScummVM hold five-figure title counts here, and a complete list would
+stall the browser.
+
+**Platforms without a catalogue source appear here too.** No percentage can be computed
+for them — but what you own is known without IGDB, and leaving them out would be the very
+mistake the coverage page takes care to avoid.
+
+Shown is the **shortest filename** of a title: `Turrican` rather than
+`Turrican (1990)(Rainbow Arts)[cr ABC][t +3]`. Titles are normalised internally (lower
+case, stripped), which would be unreadable as a list.
+
+Available as an API too: `GET /api/library/platforms` and
+`GET /api/library/<slug>/titles` (`offset`, `limit`, `q`) — the counterpart to `…/missing`.
+
 ### Coverage
 
 The page is grouped by **manufacturer** (Nintendo, Sega, Sony, Microsoft, other) — the same

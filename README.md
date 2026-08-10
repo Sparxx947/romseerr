@@ -93,6 +93,26 @@ Die vollständige Regel steht in
   und die **Spielreihe/Collection** (Klick startet die Suche), Versionen/Quellen und Dateiliste.
 - Direkt von hier: anfragen, **auf die Wunschliste setzen** oder ein **Problem melden**.
 
+### Bibliothek — was tatsächlich da ist
+
+Die Abdeckung beantwortet „was fehlt". Vor dem Regal steht aber meist die andere Frage:
+**was habe ich für diese Konsole?** Dafür gibt es den Menüpunkt **Bibliothek**, nach
+**Hersteller** und **System** gruppiert — dieselbe Einteilung wie Abdeckung und
+Plattformfilter, nicht eine dritte Liste. Ein Klick auf ein System öffnet die Titel, mit
+Filter und seitenweise: `c64` und ScummVM halten hier fünfstellige Titelzahlen, eine
+vollständige Liste würde den Browser anhalten.
+
+**Plattformen ohne Katalogquelle erscheinen hier ebenfalls.** Für sie lässt sich keine
+Prozentzahl berechnen — was man besitzt, weiß Romseerr aber auch ohne IGDB, und sie
+deshalb wegzulassen wäre derselbe Fehler, den die Abdeckungsseite gerade vermeidet.
+
+Angezeigt wird der **kürzeste Dateiname** eines Titels: `Turrican` statt
+`Turrican (1990)(Rainbow Arts)[cr ABC][t +3]`. Die Titel selbst sind intern normalisiert
+(kleingeschrieben, entkernt) — als Liste wäre das unlesbar.
+
+Auch als API: `GET /api/library/platforms` und `GET /api/library/<slug>/titles`
+(`offset`, `limit`, `q`) — das Gegenstück zu `…/missing`.
+
 ### Abdeckung
 
 Die Seite ist nach **Hersteller** gruppiert (Nintendo, Sega, Sony, Microsoft, Sonstige) —

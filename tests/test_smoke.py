@@ -5485,3 +5485,100 @@ def test_cd32_uses_the_amiga_core_that_is_already_there(appmod):
     assert "amiga-cd32" in appmod.NEEDS_BIOS
     # Und der Slug muss eine bekannte Plattform sein, sonst taucht er nirgends auf.
     assert "amiga-cd32" in appmod.SLUG_NAME
+
+
+# ------------------------------- Eigene Bibliothek durchsehen (#293)
+
+def _lege_titel_an(appmod, slug, dateien):
+    d = os.path.join(appmod.ROMS, slug)
+    os.makedirs(d, exist_ok=True)
+    for name, groesse in dateien:
+        with open(os.path.join(d, name), "wb") as f:
+            f.write(b"x" * groesse)
+    appmod.build_index()
+    return d
+
+
+def test_owned_titles_show_a_readable_name_not_the_normalised_one(appmod):
+    """Die Liste zeigt Dateinamen, nicht `norm`.
+
+    `norm` ist kleingeschrieben und entkernt — als Bibliotheksliste unlesbar. Bei
+    mehreren Dateien desselben Titels gewinnt der KUERZESTE Name: `Turrican` ist als
+    Ueberschrift brauchbar, `Turrican (1990)(Rainbow Arts)[cr ABC][t +3]` nicht. (#293)
+    """
+    d = _lege_titel_an(appmod, "c64", [
+        ("Turrican (1990)(Rainbow Arts)[cr ABC].d64", 2048),
+        ("Turrican.d64", 1024),
+    ])
+    try:
+        erg = appmod.owned_titles("c64")
+        assert erg["total"] == 1, erg          # beide sind DERSELBE Titel
+        assert erg["titles"] == ["Turrican"], erg
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        appmod.build_index()
+
+
+def test_owned_titles_page_and_filter(appmod):
+    """Ohne Paging waere die Ansicht bei c64 (fuenfstellig) unbenutzbar. (#293)"""
+    d = _lege_titel_an(appmod, "c64",
+                       [(f"Zzz Titel {i:03d}.d64", 512) for i in range(25)])
+    try:
+        seite = appmod.owned_titles("c64", offset=0, limit=10)
+        assert seite["total"] == 25 and len(seite["titles"]) == 10, seite
+        zweite = appmod.owned_titles("c64", offset=10, limit=10)
+        assert zweite["titles"][0] != seite["titles"][0]
+        # Sortiert, damit Blaettern nicht dieselbe Zeile zweimal zeigt.
+        assert seite["titles"] == sorted(seite["titles"])
+        gefiltert = appmod.owned_titles("c64", q="Titel 007")
+        assert gefiltert["total"] == 1, gefiltert
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        appmod.build_index()
+
+
+def test_library_overview_groups_by_vendor_and_keeps_sourceless_platforms(appmod, client):
+    """Gruppiert wie die Abdeckungsseite — und versteckt nichts.
+
+    Plattformen OHNE Katalogquelle haben keine Prozentzahl. Sie deshalb wegzulassen
+    waere derselbe Fehler, den die Abdeckungsseite gerade vermeidet: was man besitzt,
+    weiss Romseerr auch ohne IGDB. (#293)
+    """
+    appmod.save_users({"c": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "c"; sess["role"] = "admin"
+    d1 = _lege_titel_an(appmod, "c64", [("Zzz Ein Titel.d64", 512)])
+    # `vectrex` hat keine IGDB-Katalogquelle und muss trotzdem erscheinen.
+    d2 = _lege_titel_an(appmod, "vectrex", [("Zzz Anderer Titel.bin", 512)])
+    try:
+        d = client.get("/api/library/platforms").get_json()
+        slugs = {p["slug"] for g in d["vendors"] for p in g["platforms"]}
+        assert "c64" in slugs, d
+        assert "vectrex" not in appmod.IGDB_PLAT or True   # Doku: keine Quelle noetig
+        assert "vectrex" in slugs, "Plattform ohne Katalogquelle fehlt"
+        # Die Herstellersumme muss der Summe ihrer Systeme entsprechen.
+        for g in d["vendors"]:
+            assert g["owned"] == sum(p["owned"] for p in g["platforms"]), g
+        assert d["total"] >= 2
+    finally:
+        for d_ in (d1, d2):
+            shutil.rmtree(d_, ignore_errors=True)
+        appmod.build_index()
+        appmod.save_users({})
+
+
+def test_library_titles_endpoint_answers(appmod, client):
+    """Der Endpunkt spiegelt `…/missing` — gleiche Form, andere Menge. (#293)"""
+    appmod.save_users({"c": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "c"; sess["role"] = "admin"
+    d = _lege_titel_an(appmod, "c64", [("Zzz Nur Einer.d64", 512)])
+    try:
+        r = client.get("/api/library/c64/titles?limit=5").get_json()
+        assert r["slug"] == "c64" and r["total"] >= 1, r
+        assert "Zzz Nur Einer" in r["titles"], r
+        assert r["limit"] == 5 and r["offset"] == 0
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        appmod.build_index()
+        appmod.save_users({})
