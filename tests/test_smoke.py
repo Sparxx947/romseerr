@@ -5372,3 +5372,59 @@ def test_agent_exposes_the_window_verdict_on_status():
     assert '_current["window"] = "pending"' in quelle, "Start setzt den Befund nicht zurueck"
     # Beim Stoppen muss er weg sein, sonst klebt der Befund des Vortitels am naechsten.
     assert '"window": "", "window_detail": ""' in quelle, "Stop raeumt den Befund nicht ab"
+
+
+def test_a_base_game_carrying_an_applied_update_is_not_mistaken_for_one(appmod):
+    """Eine Basis-ID (`000`) mit Fassung > 0 ist eine AKTUALISIERTE BASIS, kein Update.
+
+    Frueher fiel sie durch die Titel-ID-Pruefung hindurch zur Fassungsregel und wurde
+    dort verworfen. In der Bibliothek nachgemessen: 5 von 484 Switch-Dateien, darunter
+    `Crime O'Clock [0100E4A0194DE000][v65536]`. Steht daneben ein echtes Update, waehlte
+    die Regel dieses — also genau der Fehler, den #174 beheben sollte.
+
+    Die Titel-ID sagt, WAS die Datei ist. Die Fassung sagt nur, wie alt sie ist.
+    """
+    # Basis mit eingespieltem Update: ID endet auf 000, Fassung ist trotzdem hoch.
+    assert not appmod.ist_zusatz("Crime O'Clock [0100E4A0194DE000][v65536][US].nsp")
+    assert not appmod.ist_zusatz("Killer Frequency [0100B3601926A000][v196608].nsp")
+    # Die Gegenrichtung bleibt: 800 ist und bleibt ein Update, auch bei [v0].
+    assert appmod.ist_zusatz("A Tale For Anna [010032A01AACA800][v0].nsp")
+    # Ohne Titel-ID bleibt nur die Fassung — dort gilt die alte, schwaechere Regel.
+    assert appmod.ist_zusatz("Irgendein Titel [v131072].nsp")
+    assert not appmod.ist_zusatz("Irgendein Titel [v0].nsp")
+
+
+def test_a_title_id_with_stray_spaces_still_counts(appmod):
+    """`[ 0100643002136800]` kommt in echten Sammlungen vor.
+
+    Ohne Toleranz fuer das Leerzeichen ist das gar keine Titel-ID, die Datei faellt auf
+    die Fassungsregel zurueck und wird nur zufaellig richtig eingestuft. (#174)
+    """
+    assert appmod.ist_zusatz("Resident Evil Revelations[ 0100643002136800][v65536].nsp")
+    # Und dasselbe Muster mit Basis-ID darf NICHT als Zusatz gelten.
+    assert not appmod.ist_zusatz("Resident Evil Revelations[ 0100643002136000][v65536].nsp")
+
+
+def test_the_base_game_wins_over_an_update_that_is_larger(appmod):
+    """Der Fall, der ohne die Titel-ID-Regel nicht zu entscheiden waere.
+
+    Das Update ist hier ABSICHTLICH groesser als die Basis — faellt die Regel auf die
+    Groesse zurueck, waehlt sie das Update und der Test schlaegt fehl. Nur so beweist er
+    die Regel statt eines Zufalls. (#174)
+    """
+    d = os.path.join(appmod.ROMS, "switch")
+    os.makedirs(d, exist_ok=True)
+    basis = os.path.join(d, "Zzz Grenzfall [0100AAA0BBBCC000][v65536].nsp")
+    update = os.path.join(d, "Zzz Grenzfall [0100AAA0BBBCC800][v131072].nsp")
+    with open(basis, "wb") as f:
+        f.write(b"x" * 1024)
+    with open(update, "wb") as f:
+        f.write(b"x" * 65536)          # das Update ist 64x groesser
+    appmod.build_index()
+    try:
+        assert appmod.stream_find_file("Zzz Grenzfall", "switch") == basis
+    finally:
+        for p in (basis, update):
+            if os.path.exists(p):
+                os.remove(p)
+        appmod.build_index()
