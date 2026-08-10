@@ -5087,3 +5087,24 @@ def test_the_two_seats_do_not_share_ports_but_do_share_config():
     # ungefragt mitstarten.
     assert s2.get("profiles") == ["seat2"]
     assert not s1.get("profiles")
+
+
+def test_the_second_seat_is_reachable_from_the_interface():
+    """Ein Platz, den man nicht eintragen kann, gibt es nicht.
+
+    Die Oberfläche rendert die Verbindungsfelder EINZELN und namentlich — eine neue
+    Einstellung erscheint dort nicht von allein, auch wenn der Server sie kennt. Ohne
+    diese Felder wäre der zweite Platz nur über die .env erreichbar, und das Feature
+    aus Sicht der Bedienung nicht vorhanden. (#137)
+    """
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    for feld in ("stream_url_2", "stream_launch_2"):
+        assert f"fld('{feld}'" in js, f"kein Eingabefeld für {feld}"
+    # Alle Textbausteine in allen fünf Sprachen — ein fehlender fällt sonst erst
+    # auf, wenn jemand die Sprache umstellt und dort der Schlüsselname steht.
+    for schluessel in ("stream_url2_l", "stream_launch2_l", "stream_seat2_hint",
+                       "stream_seats"):
+        assert js.count(f"{schluessel}:'") == 5, \
+            f"{schluessel} fehlt in einer der fünf Sprachen"
+    # Die Platzanzeige darf bei mehreren Plätzen nicht mehr "Einzelplatz" behaupten.
+    assert "d.seats||1)>1" in js.replace(" ", ""), "Platzanzeige nicht von der Zahl abhängig"
