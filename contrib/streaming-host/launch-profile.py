@@ -658,6 +658,32 @@ def dolphin_dualcore(pruefen=False):
 #   controller: Funktion oder None (None = ordnet ein SDL-Pad selbst zu)
 #   bios:       Funktion oder None (None = braucht kein BIOS zum Starten)
 #   geprueft:   Ist das am laufenden Emulator NACHGEMESSEN oder nur angenommen?
+def xemu_vollbild():
+    """xemu ins Vollbild schalten — per TASTE, nicht per Konfiguration.
+
+    DREI WEGE PROBIERT, nur einer wirkt (alles am laufenden Host gemessen, #300):
+
+    1. `fullscreen = true` in der `xemu.toml`: wird beim Start **ignoriert**. Das
+       Fenster oeffnet weiter in 1280x960.
+    2. Der Fenstertrick (`nur_emulator`): vergroessert die X-Fenster-HUELLE auf
+       1920x1080, aber xemus GL-Bereich waechst NICHT mit — sichtbar bleibt ein
+       960 Pixel breiter Ausschnitt in einem 1920 breiten Fenster. Bei Dolphin und
+       PCSX2 greift derselbe Trick, bei xemu nicht.
+    3. **F11 an das Fenster**: wirkt. Der gezeichnete Bereich waechst sofort mit.
+
+    Deshalb steht hier eine Tastensendung statt eines Konfigurationsschluessels — und
+    deshalb muss sie NACH dem Start kommen, nicht davor.
+    """
+    fenster = _x("xdotool", "search", "--onlyvisible", "--name", "xemu").stdout.split()
+    if not fenster:
+        return False, "kein xemu-Fenster gefunden — laeuft der Emulator?"
+    fid = fenster[0]
+    _x("xdotool", "windowactivate", fid)
+    time.sleep(1)
+    _x("xdotool", "key", "--window", fid, "F11")
+    return True, "Vollbild ueber F11 geschaltet"
+
+
 PROFILE = {
     # geprueft: Bild und Gamepad im Spiel bestaetigt (2026-08-10). Bis dahin drei
     # Anlaeufe — Erstlaufdialog, dann PCSX2s Face*-Namen, dann `South` aus dem Binary.
@@ -679,8 +705,14 @@ PROFILE = {
     # Fenster und Ton am laufenden Host bestaetigt (2026-08-10, #300) — es brauchte
     # KEINE Konfigurationsdatei, nur libusb, den Pulse-Pfad und das Festplattenabbild
     # (init/22-xemu-vorbereiten). Der Controller ist NICHT geprueft.
-    "xemu":      {"system": "Xbox",          "controller": None, "bios": None, "vollbild": None,
-                  "geprueft": False},
+    # geprueft: Bild, Ton UND Gamepad im Spiel bestaetigt (2026-08-10, #300) — der
+    # Controller von einem Menschen gedrueckt, nicht aus einem Log geschlossen.
+    # Es brauchte KEINE Konfigurationsdatei, sondern libusb, den Pulse-Pfad, das
+    # Festplattenabbild und vor allem das RICHTIGE BIOS: alle Retail-Dumps bleiben
+    # schwarz, erst das gepatchte COMPLEX 4627 mit MCPX 1.0 bootet.
+    "xemu":      {"system": "Xbox",          "controller": None, "bios": None,
+                  "vollbild": xemu_vollbild,
+                  "geprueft": True},
     "cemu":      {"system": "Wii U",         "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
     "azahar":    {"system": "3DS",           "controller": None, "bios": None, "vollbild": None,
