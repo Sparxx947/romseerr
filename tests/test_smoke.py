@@ -2549,9 +2549,19 @@ def test_rpcs3_binds_player_one_to_sdl_not_the_keyboard(tmp_path):
     pfad = m.rpcs3_input()
     text = open(pfad, encoding="utf-8").read()
     assert "Handler: SDL" in text, text
-    assert "Microsoft X-Box 360 pad 1" in text, text
-    # Die Meldung darf NICHT behaupten, das Pad sei fertig — die Belegung fehlt noch.
-    assert "belegung" in msg.lower(), msg
+    # Der Gerätename hat sich mit der Gamepad-Brücke GEÄNDERT (#119): über Selkies'
+    # Interposer meldete SDL den rohen Namen "Microsoft X-Box 360 pad", bei echten
+    # Kernel-Geräten erkennt es sie an VID/PID und nimmt den Namen aus seiner eigenen
+    # Datenbank. Im RPCS3-Log gemessen. Der alte Name darf nicht zurückkehren — er
+    # führt zu "Adding empty device": Pad angenommen, an nichts gebunden.
+    assert "Xbox 360 Controller 1" in text, text
+    assert "Microsoft X-Box 360 pad" not in text, "alter Interposer-Name zurück"
+    # Die Belegung wird mitgeliefert; früher musste sie von Hand gesetzt werden, und
+    # eine leere Config sieht im Spiel exakt wie ein defekter Controller aus.
+    assert "Config:" in text and "Cross: South" in text, text
+    assert len(m.RPCS3_BELEGUNG) >= 24, "Belegung unvollständig"
+    # Und die Meldung darf nicht mehr zur Handarbeit auffordern.
+    assert "Pad-Dialog" not in msg, msg
 
 
 def test_setup_starter_takes_the_environment_from_the_running_agent(tmp_path):

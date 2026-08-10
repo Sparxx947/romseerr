@@ -237,9 +237,53 @@ def pcsx2_vollbild():
 # nimmt es das Geraet zwar an, aber ohne Belegung — im Log steht dann
 # "Adding empty device", und das Pad tut im Spiel nichts.
 # Abgelesen aus der Datei, die RPCS3 nach dem Einrichten von Hand selbst geschrieben
-# hat: `Device: Microsoft X-Box 360 pad 1`. (#160)
-# The trailing index matters: RPCS3 disambiguates the five identical virtual pads.
-RPCS3_PAD = os.environ.get("RPCS3_PAD_NAME", "Microsoft X-Box 360 pad 1")
+# hat. (#160)
+# The trailing index matters: RPCS3 disambiguates the identical virtual pads.
+#
+# DER NAME HAT SICH MIT DER GAMEPAD-BRUECKE GEAENDERT (2026-08-10, #119). Solange die
+# Pads ueber Selkies' Interposer kamen, meldete SDL den rohen Namen
+# `Microsoft X-Box 360 pad`. Die Bruecke legt jetzt ECHTE Kernel-Geraete an, und SDL
+# erkennt sie an VID/PID (0x45e/0x28e) als bekannten Controller — es benutzt dann den
+# Namen aus seiner eigenen Datenbank: `Xbox 360 Controller`. Gemessen im RPCS3-Log:
+#
+#   SDL: Found game pad 1: name='Xbox 360 Controller', path='/dev/input/event3'
+#   SDL: Adding empty device: Microsoft X-Box 360 pad 1     <- alter Name, ins Leere
+#   Pad 0: device='Xbox 360 Controller 1', handler=SDL      <- nach der Korrektur
+#
+# ERKENNUNGSMERKMAL, wenn der Name je wieder wandert: "Adding empty device" im Log.
+# Das Pad wird angenommen, hat aber keine Belegung und tut im Spiel nichts — von aussen
+# ununterscheidbar von einem defekten Controller.
+# EN: the name changed when real kernel devices replaced the interposer's dummies: SDL
+# recognises them by VID/PID and uses its own database name. Watch for "Adding empty
+# device" in the log — the pad is accepted but bound to nothing.
+RPCS3_PAD = os.environ.get("RPCS3_PAD_NAME", "Xbox 360 Controller 1")
+
+# Die Belegung selbst — abgelesen aus der Datei, die RPCS3 nach dem Einrichten im
+# Pad-Dialog geschrieben hat, nicht aus der Dokumentation.
+#
+# WARUM SIE HIER STEHT: Bis 2026-08-10 legte dieses Profil nur Handler und Geraet an,
+# und die Tastenbelegung musste EINMAL von Hand im Dialog gesetzt werden. Auf einer
+# frischen Maschine hiess das: Pad wird erkannt, Spiel startet, nichts reagiert — und
+# der Grund stand nur im Log ("config=" leer). Mit der vollstaendigen Belegung ist ein
+# frisch eingerichteter Host sofort spielbar.
+#
+# `PS Button` ist bewusst zusammengesetzt: der Guide-Knopf allein wird von manchen
+# Pads gar nicht gemeldet, deshalb zusaetzlich die Kombination Back+Start.
+# EN: read from the file RPCS3 itself wrote after configuring the pad by hand. Until
+# now only handler and device were written and the mapping had to be set manually once,
+# which on a fresh host looks like a dead controller.
+RPCS3_BELEGUNG = [
+    ("Left Stick Left", "LS X-"), ("Left Stick Down", "LS Y-"),
+    ("Left Stick Right", "LS X+"), ("Left Stick Up", "LS Y+"),
+    ("Right Stick Left", "RS X-"), ("Right Stick Down", "RS Y-"),
+    ("Right Stick Right", "RS X+"), ("Right Stick Up", "RS Y+"),
+    ("Start", "Start"), ("Select", "Back"),
+    ("PS Button", '"Back&Start,Guide"'),
+    ("Square", "West"), ("Cross", "South"), ("Circle", "East"), ("Triangle", "North"),
+    ("Left", "Left"), ("Down", "Down"), ("Right", "Right"), ("Up", "Up"),
+    ("R1", "RB"), ("R2", "RT"), ("R3", "RS"),
+    ("L1", "LB"), ("L2", "LT"), ("L3", "LS"),
+]
 
 
 def rpcs3_input():
@@ -247,22 +291,22 @@ def rpcs3_input():
 
 
 def rpcs3_apply(pruefen=False):
-    """-> (geaendert, meldung). Legt den SDL-Handler an, WENN noch nichts da ist.
+    """-> (geaendert, meldung). Legt Handler, Geraet UND Belegung an, wenn nichts da ist.
 
-    WAS DAS TUT UND WAS NICHT: RPCS3s Standard bindet Spieler 1 an die Tastatur und
-    schreibt bis zum ersten Griff in den Einstellungsdialog gar keine Konfiguration.
-    Dieser Stumpf sorgt dafuer, dass wenigstens der SDL-Handler und das richtige Geraet
-    eingetragen sind.
-
-    ER MACHT DAS PAD NOCH NICHT SPIELBAR. Nachgemessen, entgegen der urspruenglichen
-    Annahme: RPCS3 ergaenzt KEINE Standardbelegung. Im Log steht dann
+    WAS DAS TUT: RPCS3s Standard bindet Spieler 1 an die Tastatur und schreibt bis zum
+    ersten Griff in den Einstellungsdialog gar keine Konfiguration. Frueher legte dieses
+    Profil nur Handler und Geraet an — RPCS3 ergaenzt naemlich KEINE Standardbelegung,
+    im Log steht dann
 
         Input: Pad 0: device='...', handler=SDL
         Input: Pad 0: config=            <- leer
         SDL: Adding empty device: ...
 
-    Die Tastenbelegung muss einmal im Pad-Dialog von RPCS3 gesetzt werden. Danach
-    bleibt sie in /config erhalten.
+    und im Spiel passiert nichts. Die Belegung musste einmal von Hand gesetzt werden.
+    Seit 2026-08-10 wird sie mitgeliefert (`RPCS3_BELEGUNG`), damit ein frisch
+    eingerichteter Host sofort spielbar ist.
+    EN: RPCS3 adds no default mapping of its own, so an empty config looks like a dead
+    controller; the mapping now ships with the profile.
 
     UND DESHALB WIRD NIE UEBERSCHRIEBEN: Das Profil laeuft VOR JEDEM Start. Wuerde es
     eine vorhandene Datei ersetzen, waere die von Hand gesetzte Belegung beim naechsten
@@ -272,7 +316,11 @@ def rpcs3_apply(pruefen=False):
     file would silently discard the mapping the operator set by hand.
     """
     pfad = rpcs3_input()
-    soll = f'Player 1 Input:\n  Handler: SDL\n  Device: "{RPCS3_PAD}"\n'
+    soll = ('Player 1 Input:\n'
+            '  Handler: SDL\n'
+            f'  Device: "{RPCS3_PAD}"\n'
+            '  Config:\n'
+            + "".join(f"    {k}: {v}\n" for k, v in RPCS3_BELEGUNG))
     if os.path.isfile(pfad):
         return False, "Konfiguration vorhanden — unveraendert gelassen"
     if pruefen:
@@ -289,8 +337,8 @@ def rpcs3_apply(pruefen=False):
             pass
     with open(pfad, "w", encoding="utf-8") as f:
         f.write(soll)
-    return True, (f"SDL-Handler angelegt, Geraet '{RPCS3_PAD}' — "
-                  "Tastenbelegung noch EINMAL im Pad-Dialog von RPCS3 setzen")
+    return True, (f"SDL-Handler und Belegung angelegt ({len(RPCS3_BELEGUNG)} Eintraege), "
+                  f"Geraet '{RPCS3_PAD}'")
 
 
 # ------------------------------------------------------------- Dolphin (GameCube/Wii)

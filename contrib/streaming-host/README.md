@@ -397,6 +397,29 @@ docker exec -u 1000 stream-host head -c1 /dev/input/event3    # EPERM = Cgroup-R
 und melden „No such device" — das ist normal, sie funktionieren nur über den Interposer.
 Die `js0`–`js3` zeigen dagegen auf die echten Geräte der Brücke.
 
+### Der Gerätename ändert sich mit der Brücke
+
+Wichtig für jeden Emulator, der Pads über **SDL** anspricht (RPCS3, PCSX2, DuckStation):
+Über den Interposer meldete SDL den rohen Namen `Microsoft X-Box 360 pad`. Die Brücke legt
+echte Kernel-Geräte an, und SDL erkennt sie an VID/PID (`0x45e/0x28e`) — es benutzt dann
+den Namen aus **seiner eigenen Datenbank**: `Xbox 360 Controller`.
+
+Eine Konfiguration, die noch auf den alten Namen zeigt, wird angenommen und ist an nichts
+gebunden. Im RPCS3-Log sieht das so aus:
+
+```
+SDL: Found game pad 1: name='Xbox 360 Controller', path='/dev/input/event3'
+SDL: Adding empty device: Microsoft X-Box 360 pad 1     ← zeigt ins Leere
+```
+
+**„Adding empty device" ist das Erkennungsmerkmal** — von außen ununterscheidbar von einem
+defekten Controller. Überschreibbar bleibt der Name über `RPCS3_PAD_NAME`.
+
+*EN: with the bridge in place SDL recognises the real kernel devices by VID/PID and uses
+its own database name (`Xbox 360 Controller`) instead of the raw one the interposer
+reported. A config still pointing at the old name is accepted but bound to nothing —
+watch for "Adding empty device" in the log.*
+
 **`NO_GAMEPAD` ist keine Lösung:** Der Schalter entfernt zwar die Attrappen, sein
 `else`-Zweig setzt aber `SELKIES_GAMEPAD_ENABLED=false` und schaltet damit die Sockets ab,
 aus denen die Brücke liest. Er würde den Controller vollständig abschalten.
