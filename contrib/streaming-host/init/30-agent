@@ -123,6 +123,11 @@ export STREAM_ROMS=/roms
 [ -x "$EMU/dolphin/AppRun" ]   && export EMU_GC="$VGL $EMU/dolphin/AppRun -b -e %s"
 [ -x "$EMU/switchemu/AppRun" ] && export EMU_SWITCH="$VGL $EMU/switchemu/AppRun -f -g %s"
 [ -x "$EMU/flycast/AppRun" ]   && export EMU_DC="$VGL $EMU/flycast/AppRun %s"
+# `-batch` startet den Titel ohne Umweg ueber die Bibliotheksoberflaeche und beendet
+# DuckStation beim Herunterfahren des Spiels — sonst bliebe ein Fenster stehen, das aus
+# der Ferne niemand schliesst. / EN: -batch boots straight into the title and exits with
+# it, instead of leaving a window nobody can close remotely.
+[ -x "$EMU/duckstation/AppRun" ] && export EMU_PSX="$VGL $EMU/duckstation/AppRun -batch -fullscreen %s"
 [ -x "$EMU/xemu/AppRun" ]      && export EMU_XBOX="$VGL $EMU/xemu/AppRun -dvd_path %s"
 [ -x "$EMU/cemu/AppRun" ]      && export EMU_WIIU="$VGL $EMU/cemu/AppRun -g %s"
 [ -x "$EMU/azahar/AppRun" ]    && export EMU_3DS="$VGL $EMU/azahar/AppRun %s"

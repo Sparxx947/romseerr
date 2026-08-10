@@ -305,6 +305,95 @@ def rpcs3_apply(pruefen=False):
 # es verteilt die Arbeit dorthin, wo Platz ist.
 # Dual core moves the bottleneck to the video thread rather than removing it; the
 # VirtualGL detour is the actual cause.
+def duckstation_ini():
+    return os.path.join(CONFIG, ".local/share/duckstation/settings.ini")
+
+
+def duckstation_apply(pruefen=False):
+    """-> (geaendert, meldung). Legt Spieler 1 auf das gebrueckte Gamepad.
+
+    DuckStation benutzt DIESELBEN Tastennamen wie PCSX2 (`Cross`, `L1`, `LUp`, …) und
+    dieselbe SDL-Quelle — am laufenden Host in seiner `settings.ini` nachgesehen, nicht
+    angenommen. Deshalb wird hier die vorhandene Tabelle wiederverwendet statt einer
+    zweiten danebengestellt: zwei Listen mit denselben Namen laufen auseinander, sobald
+    jemand nur eine pflegt.
+    EN: DuckStation uses the same binding names and SDL source as PCSX2 (verified in its
+    settings.ini on the running host), so the existing table is reused rather than
+    duplicated.
+
+    Anders als bei PCSX2 steht hier je Taste nur EIN Wert: DuckStation fuehrt pro
+    Schluessel eine Zeile, PCSX2 erlaubt mehrere. Die Tastaturbelegung von Spieler 1
+    weicht daher dem Gamepad; der Rueckweg liegt als `.vor-gamepad` daneben.
+    """
+    pfad = duckstation_ini()
+    if not os.path.isfile(pfad):
+        return False, "settings.ini gibt es noch nicht — der Emulator legt sie beim ersten Start an"
+
+    with open(pfad, encoding="utf-8", errors="ignore") as f:
+        zeilen = f.read().splitlines()
+
+    # ERSTLAUFDIALOG ABSCHALTEN, sonst ist die Belegung wertlos: DuckStation oeffnet beim
+    # ersten Start einen modalen "Setup Wizard". Im Container sieht den niemand, und
+    # dahinter staut sich alles — gemessen: der Prozess lief, das Fenster hiess
+    # "DuckStation Setup Wizard", ein Spiel startete nie. Mit dem Schalter bootet
+    # derselbe Aufruf direkt in den Titel (nachgewiesen an "Spyro the Dragon", 1920x1080).
+    # Dieselbe Falle wie RPCS3s Willkommensfenster und JDownloaders Rueckfragen.
+    # EN: without this, DuckStation opens a modal setup wizard nobody can see in a
+    # container and every launch stalls behind it.
+    wizard_fehlt = not any(z.split("=")[0].strip() == "SetupWizardIncomplete"
+                           for z in zeilen)
+
+    start = next((i for i, z in enumerate(zeilen) if z.strip() == "[Pad1]"), None)
+    if start is None:
+        return False, "kein [Pad1] in der settings.ini"
+    ende = next((i for i in range(start + 1, len(zeilen))
+                 if zeilen[i].startswith("[")), len(zeilen))
+
+    block = zeilen[start + 1:ende]
+    # `Type` bleibt, wie er ist: AnalogController ist DuckStations Standard, aber wer
+    # ihn bewusst auf DigitalController gestellt hat, soll das behalten.
+    behalten = [z for z in block if z.split("=")[0].strip() == "Type"]
+    neu = [f"{taste} = SDL-0/{sdl}" for taste, sdl in sorted(PCSX2.items())]
+
+    vorher = [z for z in block if z.strip()]
+    nachher = behalten + neu
+    pad_fehlt = vorher != nachher
+    if not pad_fehlt and not wizard_fehlt:
+        return False, "Gamepad-Belegung und Erstlaufdialog stehen bereits"
+    if pruefen:
+        was = []
+        if pad_fehlt:
+            was.append(f"{len(neu)} Belegungen")
+        if wizard_fehlt:
+            was.append("Erstlaufdialog")
+        return True, " und ".join(was) + " wuerden gesetzt"
+
+    sicherung = pfad + ".vor-gamepad"
+    if not os.path.exists(sicherung):
+        with open(sicherung, "w", encoding="utf-8") as f:
+            f.write("\n".join(zeilen) + "\n")
+
+    if pad_fehlt:
+        zeilen[start + 1:ende] = nachher + [""]
+    # Den Schalter ZULETZT einsetzen: er steht in [Main], also VOR [Pad1], und wuerde
+    # die oben bestimmten Indizes sonst verschieben.
+    # EN: insert last — [Main] precedes [Pad1] and would shift the indices computed above.
+    if wizard_fehlt:
+        try:
+            zeilen.insert(zeilen.index("[Main]") + 1, "SetupWizardIncomplete = false")
+        except ValueError:
+            pass          # kein [Main] — dann ist die Datei nicht die erwartete
+
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write("\n".join(zeilen) + "\n")
+    getan = []
+    if pad_fehlt:
+        getan.append(f"{len(neu)} Gamepad-Belegungen (Spieler 1)")
+    if wizard_fehlt:
+        getan.append("Erstlaufdialog abgeschaltet")
+    return True, ", ".join(getan)
+
+
 def dolphin_ini():
     return os.path.join(CONFIG, ".config/dolphin-emu/Dolphin.ini")
 
@@ -474,6 +563,12 @@ def dolphin_dualcore(pruefen=False):
 #   bios:       Funktion oder None (None = braucht kein BIOS zum Starten)
 #   geprueft:   Ist das am laufenden Emulator NACHGEMESSEN oder nur angenommen?
 PROFILE = {
+    # geprueft bleibt False: die Belegung ist gesetzt und die Namen sind aus DuckStations
+    # eigener settings.ini abgelesen — ein Spiel starten konnte hier aber niemand, weil
+    # auf der Maschine KEIN PS1-BIOS liegt (#268). Ohne BIOS bootet DuckStation nichts.
+    "duckstation": {"system": "PS1",         "controller": duckstation_apply,
+                    "bios": None, "vollbild": None,
+                    "geprueft": False},
     "pcsx2":     {"system": "PS2",           "controller": pcsx2_apply,
                   "bios": pcsx2_bios_setzen, "vollbild": pcsx2_vollbild,
                   "geprueft": True},

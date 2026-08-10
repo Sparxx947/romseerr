@@ -212,6 +212,12 @@ KATALOG=(
   # cannot create a namespace in an unprivileged container.
   "Dolphin|dolphin|GameCube/Wii|release|$GH/pkgforge-dev/Dolphin-emu-AppImage/releases/latest|Dolphin_Emulator-.*x86_64\\.AppImage$"
   "Flycast|flycast|Dreamcast|release|$GH/flyinghead/flycast/releases/latest|flycast-x86_64\.AppImage$"
+  # DuckStation veroeffentlicht rollend unter dem Tag `latest` (nicht als Versions-Tag);
+  # daneben steht ein `preview` als Vorabversion, das hier bewusst NICHT genommen wird.
+  # Das Muster endet auf `-x64.AppImage`, damit die daneben liegende SSE2-Fassung
+  # (`DuckStation-x64-SSE2.AppImage`) nicht faelschlich trifft — sie ist fuer alte CPUs.
+  # EN: rolling `latest` tag, and the anchor keeps the SSE2 build for old CPUs out.
+  "DuckStation|duckstation|PS1|release|$GH/stenzek/duckstation/releases/latest|DuckStation-x64\.AppImage$"
   "xemu|xemu|Xbox|release|$GH/xemu-project/xemu/releases/latest|xemu-[0-9.]+-x86_64\.AppImage$"
   "Cemu|cemu|Wii U|release|$GH/cemu-project/Cemu/releases/latest|Cemu-[0-9.]+-x86_64\.AppImage$"
   "Azahar|azahar|3DS|release|$GH/azahar-emu/azahar/releases/latest|azahar\.AppImage$"
