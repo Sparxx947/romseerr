@@ -225,7 +225,7 @@ def geraet_anlegen(cfg):
                   product=cfg.product, version=cfg.version), name, tasten, achsen
 
 
-def bediene(pfad):
+def bediene(pfad, bereit=None):
     """Einen Socket bedienen: verbinden, Beschreibung lesen, Geraet anlegen, weiterreichen.
 
     Bricht die Verbindung ab, wird das Geraet abgeraeumt und neu verbunden — Selkies legt
@@ -247,6 +247,21 @@ def bediene(pfad):
                     raise ConnectionError("Verbindung beim Lesen der Beschreibung verloren")
                 roh += teil
             cfg = JsConfig.from_buffer_copy(roh)
+            # HANDSHAKE, ohne den GAR NICHTS fliesst: Selkies liest nach der Beschreibung
+            # genau EIN Byte — `sizeof(long)` des Clients — und nimmt den Client erst
+            # DANACH in seine aktive Liste auf (`clients_dict[writer]`). Nur an diese
+            # Liste werden Ereignisse verteilt.
+            #
+            # Ohne das Byte verhaelt sich alles unauffaellig: Verbindung steht,
+            # Beschreibung kommt an, das Geraet entsteht — und es passiert nie etwas.
+            # Im Selkies-Log steht dann als einziger Hinweis
+            # "Writer not found in active list during finally block".
+            # Abgelesen in selkies/input_handler.py `_handle_interposer_client`.
+            #
+            # EN: Selkies reads exactly one byte (the client's sizeof(long)) after the
+            # config and only then adds the client to the list it broadcasts events to.
+            # Without it everything looks connected and nothing ever arrives.
+            s.sendall(struct.pack("=B", ctypes.sizeof(ctypes.c_long)))
             ui, name, tasten, achsen = geraet_anlegen(cfg)
             # `ui.device` ist bei python-evdev nicht garantiert gesetzt — es hier
             # ungeprueft zu lesen hat die Verbindung abgeschossen, NACHDEM das Geraet
@@ -273,6 +288,8 @@ def bediene(pfad):
                      "Knoten neu: %s, bereits richtig: %s",
                      os.path.basename(pfad), name, len(tasten), len(achsen), sysname,
                      ", ".join(knoten) or "—", ", ".join(vorhanden) or "—")
+            if bereit is not None:
+                bereit.set()          # der naechste Socket darf sein Geraet anlegen
             s.settimeout(None)
             puffer = b""
             while True:
@@ -333,8 +350,25 @@ def main():
     signal.signal(signal.SIGTERM, aufraeumen)
     signal.signal(signal.SIGINT, aufraeumen)
 
-    for pfad in SOCKETS:
-        threading.Thread(target=bediene, args=(pfad,), daemon=True).start()
+    # NACHEINANDER starten, nicht alle auf einmal. Der Kernel vergibt die kleinste freie
+    # Geraetenummer, und die Emulatoren sprechen ihre Spieler ueber genau diese Nummer an
+    # (Dolphin: `evdev/0/…`, `evdev/1/…`). Starten alle vier Threads gleichzeitig, ent-
+    # scheidet der Zufall, welcher Selkies-Slot welche Nummer bekommt — Spieler 1 waere
+    # mal das eine, mal das andere Pad. Das faellt erst im Spiel auf und sieht dann nach
+    # einem defekten Controller aus.
+    #
+    # Der Timeout ist wichtig: haengt an Slot 0 gar kein Pad, darf das die anderen nicht
+    # aufhalten. Bei spaeteren Einzelverbindungen greift die Reihenfolge nicht mehr —
+    # dann wird aber ohnehin genau die Nummer frei, die derselbe Slot vorher hatte.
+    #
+    # EN: start the sockets one after another so the lowest device number always belongs
+    # to slot 0; otherwise which pad becomes player 1 is a race. The timeout keeps an
+    # empty slot from blocking the rest.
+    for i, pfad in enumerate(SOCKETS):
+        bereit = threading.Event()
+        threading.Thread(target=bediene, args=(pfad, bereit), daemon=True).start()
+        if not bereit.wait(timeout=5) and i == 0:
+            log.info("Slot 0 hat in 5 s kein Geraet angelegt — Reihenfolge nicht garantiert")
     log.info("Bruecke laeuft fuer %d Sockets", len(SOCKETS))
     signal.pause()
     return 0
