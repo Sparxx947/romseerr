@@ -234,7 +234,8 @@ PLATFORMS = [
  ("Sonstige", [("turbografx16","PC Engine"),("neogeo","Neo Geo"),("neogeopocket","NGP"),
    ("wonderswan","WonderSwan"),("atari2600","Atari 2600"),("atari5200","Atari 5200"),
    ("atari7800","Atari 7800"),
-   ("lynx","Lynx"),("jaguar","Jaguar"),("3do","3DO"),("amiga","Amiga"),("c64","C64"),
+   ("lynx","Lynx"),("jaguar","Jaguar"),("3do","3DO"),("amiga","Amiga"),
+   ("amiga-cd32","Amiga CD32"),("c64","C64"),
    ("c16","C16 / Plus-4"),("vic20","VIC-20"),("colecovision","ColecoVision"),
    ("intellivision","Intellivision"),("acpc","Amstrad CPC"),("zxs","ZX Spectrum"),
    ("dos","DOS"),("arcade","Arcade")]),
@@ -737,6 +738,35 @@ IGNORE_FOLDERS = {
     "Dingoo",                          # enthaelt einen Firmware-Installer, keine Spiele
 }
 
+# XSym: das Symlink-Format, mit dem Netatalk/Samba Verweise auf Dateisystemen ablegen,
+# die keine kennen. Genau 1067 Byte gross, beginnend mit "XSym\n".
+#
+# WARUM DAS HIER STEHT: RetroNAS legt Herstellerordner (`nec`, `nintendo`, `sega`) an,
+# deren gesamter Inhalt aus solchen Verweisen auf die echten Plattformordner besteht.
+# Ueber SMB gelesen sind das gewoehnliche Dateien — und damit wurden sie zu Titeln, die
+# Ordner zu Plattformen und die Ordner zu drei "unversorgten Plattformen", die es nie
+# gab. Die Ordner am NAMEN zu verbieten waere falsch: in einer anderen Bibliothek ist
+# `sega/` voller Mega-Drive-Spiele, und die duerfen nicht verschwinden. (#193)
+#
+# Die Groesse wird ZUERST geprueft, weil sie fast nie zutrifft — der Kopf wird deshalb
+# nur bei einer Handvoll Dateien ueberhaupt gelesen.
+# EN: XSym is the symlink format Netatalk/Samba use on filesystems without symlinks —
+# exactly 1067 bytes starting with "XSym\n". Read over SMB they look like ordinary
+# files and became titles. Banning the folder NAMES would be wrong: elsewhere `sega/`
+# holds real games.
+XSYM_GROESSE = 1067
+
+
+def ist_xsym(pfad):
+    """-> True, wenn die Datei ein XSym-Symlink ist und kein Spiel."""
+    try:
+        if os.path.getsize(pfad) != XSYM_GROESSE:
+            return False
+        with open(pfad, "rb") as f:
+            return f.read(5) == b"XSym\n"
+    except OSError:
+        return False
+
 
 def folder_slug(ordner):
     """Ordnername -> Plattform-Slug. Leer = ignorieren.
@@ -774,7 +804,11 @@ def build_index():
                 for root, dirs, files in os.walk(p):
                     for fn in files:
                         n = norm(fn)
-                        if n: s.add(n); allset.add(n)
+                        if not n: continue
+                        # Symlink-Platzhalter sind keine Titel (#193). Die Pruefung
+                        # kostet fast nichts: sie sieht zuerst auf die Groesse.
+                        if ist_xsym(os.path.join(root, fn)): continue
+                        s.add(n); allset.add(n)
                     # nur zwei Ebenen tief laufen (Performance)
                     if root != p and os.path.relpath(root, p).count(os.sep) >= 1:
                         dirs[:] = []
@@ -2415,6 +2449,12 @@ PLAYABLE = {   # Slug -> EmulatorJS-Kern (nur zur Nachvollziehbarkeit dokumentie
     # Braucht KEINEN neuen Kern: `genesis_plus_gx` laeuft hier ohnehin (Genesis, Mega-CD,
     # Game Gear) und spielt SG-1000 mit. 406 Dateien lagen deshalb ohne Grund still. (#124)
     "sg1000": "genesis_plus_gx",
+    # Ebenfalls ohne neuen Kern: `puae` ist fuer den Amiga schon eingetragen und spielt
+    # das CD32 mit — es ist dieselbe Maschine mit CD-Laufwerk. Der Kern wurde im
+    # eingesetzten RomM-Bau per HEAD nachgesehen, nicht aus libretros Katalog
+    # abgeschrieben. 715 Dateien lagen deshalb still. (#193)
+    # Same core, no addition: puae already serves the Amiga and plays CD32 as well.
+    "amiga-cd32": "puae",
 }
 # NICHT eingetragen, weil der Player die Kerne nicht mitbringt — nachgesehen, nicht
 # vermutet. Gegen die eingesetzte Fassung geprueft (48 Kerne): Vectrex (`vecx`),
@@ -2427,7 +2467,7 @@ PLAYABLE = {   # Slug -> EmulatorJS-Kern (nur zur Nachvollziehbarkeit dokumentie
 # not copied from libretro's catalogue. Intellivision was listed and could not work.
 # Plattformen, deren Kern ohne BIOS startet und dann scheitert — der Nutzer soll das
 # VORHER lesen, statt vor einer schwarzen Flaeche zu sitzen.
-NEEDS_BIOS = {"psx", "3do", "saturn", "amiga", "segacd"}
+NEEDS_BIOS = {"psx", "3do", "saturn", "amiga", "segacd", "amiga-cd32"}
 # Arcade-Kerne brauchen zum Kern passende Romsets; ein pauschaler Play-Knopf scheitert
 # bei den meisten Dumps. Nicht verstecken, aber ehrlich beschriften.
 CAVEAT = {"arcade": "romset", "neogeo": "romset"}

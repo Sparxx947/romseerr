@@ -103,6 +103,13 @@ The method is shown as `Σ` on the card. And because **not every platform has a 
 source**, the card also states "x of y consoles measurable": a figure covering only part of
 a group, without saying so, would mislead.
 
+**Symlink placeholders do not count as titles.** Where the library sits on a filesystem
+without real symlinks (Netatalk, Samba), links are stored in the **XSym** format — read
+back over the share these are ordinary files. Left alone they become titles, pure grouping
+folders such as `nec/` or `sega/` become platforms, and coverage reports gaps that never
+existed. Detection goes by content (exactly 1067 bytes, `XSym` header), **not by folder
+name**: in someone else's library `sega/` holds real games.
+
 ### Logos — deliberately none in the repository
 
 Console and manufacturer logos are **trademarks**, so Romseerr ships **no image files at
