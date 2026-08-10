@@ -5617,3 +5617,47 @@ def test_xemu_init_script_is_wired_and_defensive():
     assert "exit 0" in text.splitlines()[-1]
     # Nur taetig werden, wenn xemu ueberhaupt da ist.
     assert "/config/emulators/xemu/AppRun" in text
+
+
+def test_xemu_goes_fullscreen_by_key_not_by_config(tmp_path, monkeypatch):
+    """xemu ignoriert `fullscreen` in seiner Konfiguration, und der Fenstertrick
+    vergroessert nur die Huelle — der gezeichnete Bereich bleibt 960 Pixel breit in
+    einem 1920 breiten Fenster. Nur F11 wirkt. Alles am laufenden Host gemessen. (#300)
+    """
+    m = _profil_modul(tmp_path)
+    gesendet = []
+
+    class R:
+        stdout = "12345"
+        stderr = ""
+        returncode = 0
+
+    def falsches_x(*args, **kw):
+        gesendet.append(args)
+        return R()
+
+    monkeypatch.setattr(m, "_x", falsches_x)
+    monkeypatch.setattr(m.time, "sleep", lambda *_a: None)
+
+    ok, msg = m.xemu_vollbild()
+    assert ok, msg
+    tasten = [a for a in gesendet if a[:2] == ("xdotool", "key")]
+    assert tasten, f"keine Taste gesendet: {gesendet}"
+    assert "F11" in tasten[0], tasten[0]
+    # Das Fenster muss vorher den Fokus bekommen, sonst geht die Taste ins Leere.
+    assert any(a[:2] == ("xdotool", "windowactivate") for a in gesendet), gesendet
+
+
+def test_xemu_fullscreen_reports_when_no_window_exists(tmp_path, monkeypatch):
+    """Ohne laufenden Emulator gibt es nichts zu schalten — das muss gesagt werden,
+    statt stillschweigend Erfolg zu melden. (#300)"""
+    m = _profil_modul(tmp_path)
+
+    class Leer:
+        stdout = ""
+        stderr = ""
+        returncode = 1
+
+    monkeypatch.setattr(m, "_x", lambda *a, **k: Leer())
+    ok, msg = m.xemu_vollbild()
+    assert not ok and "kein xemu-Fenster" in msg, msg

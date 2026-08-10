@@ -64,6 +64,16 @@ KATALOG=(
   # unsere Erfindung. Real vorgefunden: "mcpx-1.1.bin" und "xbox-5838.bin" — beide
   # gueltig, beide mit passender Groesse, beide als "fehlt" gemeldet. (#172)
   # Match by size: xemu takes paths from its own config and does not care about names.
+  #
+  # ACHTUNG, die Groessenpruefung reicht NICHT als Zusicherung: Ein RETAIL-BIOS erfuellt
+  # sie ebenso und laesst xemu trotzdem mit schwarzem Bild bzw. "Ihre Xbox muss gewartet
+  # werden" stehen — Retail-Fassungen verlangen eine GESPERRTE Festplatte, das
+  # mitgelieferte Abbild ist ungesperrt. Am laufenden Host alle 14 Kombinationen
+  # durchgemessen (#300): 5838, 5713, 5530, 5101 und 4817 bleiben schwarz; 3944 und 4034
+  # zeigen nur den Wartungshinweis. Erst das GEPATCHTE **COMPLEX 4627** zusammen mit
+  # **MCPX 1.0** bootet ein Spiel.
+  # A retail BIOS satisfies the size check and still fails: retail images demand a locked
+  # hard disk. Only the patched COMPLEX 4627 with MCPX 1.0 boots.
   "xbox|Xbox|xemu|.local/share/xemu/xemu|*mcpx*=512;*.bin=>200000|https://xemu.app/docs/getting-started/|"
   "3ds|Nintendo 3DS|azahar|.local/share/azahar-emu/sysdata|boot9.bin=65536;aes_keys.txt=*|https://github.com/azahar-emu/azahar|"
   "switch|Nintendo Switch|switchemu|.local/share/eden/keys|prod.keys=*|https://github.com/eden-emulator|"

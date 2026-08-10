@@ -143,10 +143,35 @@ setzt für Xbox deshalb `LD_LIBRARY_PATH` auf beide Pfade.
 > System-`libpulsecommon` — `undefined symbol: pa_in_valgrind`, und der Ton bleibt
 > wieder weg. Es wird deshalb **genau eine Datei** geliehen, kein Verzeichnis.
 
-Eine eigene `xemu.toml` braucht es **nicht**. Der anfängliche
-`Failed to load BIOS '(null)'` war ein Folgefehler des fehlenden Festplattenabbilds:
-mit Abbild startet xemu auch ohne Konfigurationsdatei und ohne `eeprom.bin`, das es
-sich selbst anlegt. Nachgeprüft, indem beide Dateien entfernt wurden.
+### Und vor allem: das richtige BIOS
+
+**Alle Retail-BIOS-Dumps führen zu einem schwarzen Bild** oder zum Hinweis „Ihre Xbox
+muss gewartet werden" — sie verlangen eine **gesperrte** Festplatte, und das
+mitgelieferte Abbild ist ungesperrt. Am laufenden Host wurden alle 14 Kombinationen
+durchgemessen (7 BIOS × 2 MCPX), bewertet über die mittlere Helligkeit im Fenster:
+
+| BIOS | MCPX 1.0 | MCPX 1.1 |
+|---|---|---|
+| 5838, 5713, 5530, 5101, 4817 | schwarz | schwarz |
+| 4034 | 4,5 | schwarz |
+| 3944 | 4,3 | 8,4 (Wartungshinweis) |
+| **COMPLEX 4627** | **232** | 65 |
+
+Nötig ist also ein **gepatchtes** BIOS — `COMPLEX 4627` zusammen mit **MCPX 1.0**. Die
+Firmware-Prüfung kann das nicht abfangen: Sie prüft Größen, und ein Retail-Dump hat
+dieselbe Größe.
+
+> **Der Fenstertitel taugt nicht als Erfolgskriterium.** Er lautet immer
+> `xemu | v0.8.136` — ob Willkommensdialog, Fehlermeldung oder laufendes Spiel, denn
+> xemu zeichnet seine Dialoge ins Fenster statt als eigenes X-Fenster. Wer prüfen will,
+> ob wirklich etwas läuft, misst die **Helligkeit im Fensterausschnitt** (schwarz ≈ 0)
+> oder vergleicht zwei Aufnahmen: **bitgleiche Bilder bei hoher CPU-Last bedeuten
+> eingefrorenen Framebuffer, nicht laufendes Spiel.**
+
+Eine eigene `xemu.toml` braucht es darüber hinaus **nicht** — mit Festplattenabbild
+startet xemu auch ohne Konfigurationsdatei und ohne `eeprom.bin`, das es sich selbst
+anlegt. Der anfängliche `Failed to load BIOS '(null)'` war ein Folgefehler der
+fehlenden Platte.
 
 ## Was noch überrascht
 
@@ -229,7 +254,7 @@ Controller im Spiel gedrückt.
 | Switch | Eden | ✅ | ✅ | (⁠—⁠) | Controller nicht eigens geprüft |
 | Nintendo 3DS | Azahar | ❌ | ❌ | — | Emulator startet, **kein Titel spielbar** — siehe unten |
 | Dreamcast | Flycast | — | — | — | keine Titel in der Bibliothek, nichts zu testen |
-| Xbox | xemu | — | — | — | keine Titel in der Bibliothek |
+| Xbox | xemu | ✅ | ✅ | ✅ | braucht **COMPLEX 4627 + MCPX 1.0** — Retail-BIOS bleiben schwarz |
 | Wii U | Cemu | — | — | — | keine Titel in der Bibliothek |
 | PS Vita | Vita3K | — | — | — | keine Titel in der Bibliothek |
 
@@ -860,10 +885,33 @@ The agent therefore sets `LD_LIBRARY_PATH` to both paths for Xbox.
 > `libpulsecommon` — `undefined symbol: pa_in_valgrind`, and audio breaks again. Exactly
 > **one file** is borrowed, never a directory.
 
-A dedicated `xemu.toml` is **not** required. The initial `Failed to load BIOS '(null)'`
-turned out to be a knock-on effect of the missing disk image: with the image in place,
-xemu starts without a config file and without `eeprom.bin`, which it creates itself.
-Verified by removing both.
+### And above all: the right BIOS
+
+**Every retail BIOS dump yields a black screen** or the console's "Your Xbox requires
+service" — retail images demand a **locked** hard disk, and the supplied image is
+unlocked. All 14 combinations were measured on the running host (7 BIOS × 2 MCPX),
+scored by mean brightness inside the window:
+
+| BIOS | MCPX 1.0 | MCPX 1.1 |
+|---|---|---|
+| 5838, 5713, 5530, 5101, 4817 | black | black |
+| 4034 | 4.5 | black |
+| 3944 | 4.3 | 8.4 (service notice) |
+| **COMPLEX 4627** | **232** | 65 |
+
+So a **patched** BIOS is required — `COMPLEX 4627` together with **MCPX 1.0**. The
+firmware check cannot catch this: it verifies sizes, and a retail dump has the same size.
+
+> **The window title is not a success criterion.** It always reads `xemu | v0.8.136` —
+> welcome dialog, error, or running game alike, because xemu draws its dialogs into the
+> window rather than as separate X windows. To check whether anything is actually
+> running, measure **brightness inside the window** (black ≈ 0), or compare two captures:
+> **bit-identical frames under high CPU load mean a frozen framebuffer, not a running
+> game.**
+
+Beyond that a dedicated `xemu.toml` is **not** required — with the disk image present,
+xemu starts without a config file and without `eeprom.bin`, which it creates itself. The
+initial `Failed to load BIOS '(null)'` was a knock-on effect of the missing disk.
 
 ## Other surprises
 
@@ -952,7 +1000,7 @@ pressed in-game.
 | Switch | Eden | ✅ | ✅ | (⁠—⁠) | controller not checked separately |
 | Nintendo 3DS | Azahar | ❌ | ❌ | — | emulator starts, **no title playable** — see below |
 | Dreamcast | Flycast | — | — | — | no titles in the library, nothing to test |
-| Xbox | xemu | — | — | — | no titles in the library |
+| Xbox | xemu | ✅ | ✅ | ✅ | needs **COMPLEX 4627 + MCPX 1.0** — retail BIOS stays black |
 | Wii U | Cemu | — | — | — | no titles in the library |
 | PS Vita | Vita3K | — | — | — | no titles in the library |
 
