@@ -139,5 +139,34 @@ pkill -f stream-agent.py 2>/dev/null || true
 # immer das, was im Repo steht. / Run the mounted file, so running == checked out.
 AGENT=/opt/stream-agent.py
 [ -f "$AGENT" ] || AGENT=/config/stream-agent.py   # Rueckfall fuer Altbestand
-setsid nohup python3 "$AGENT" >> /config/stream-agent.log 2>&1 &
-echo "[agent] gestartet auf :${STREAM_AGENT_PORT} / started"
+
+# ALTBESTAND HEILEN, bevor der Dienst startet. Solange er als root lief, gehoerten die
+# Konfigurationen der Emulatoren root — und ein im Desktop gestarteter Emulator (der
+# als `abc` laeuft) konnte sie weder lesen noch schreiben. Gefunden wurden so:
+# Dolphins Verzeichnis (nicht beschreibbar), PCSX2.ini mit Modus 600 (nicht lesbar),
+# RPCS3s input_configs. Nur die tatsaechlich root-eigenen Dateien anfassen — ein
+# pauschales `chown -R` ueber /config waere langsam und wuerde Fremdes mitnehmen.
+# EN: heal what the root-run agent left behind, touching only root-owned files.
+for baum in /config/.config /config/.local/share; do
+  [ -d "$baum" ] || continue
+  find "$baum" -user 0 -exec chown "${PUID:-abc}:${PGID:-users}" {} + 2>/dev/null || true
+done
+
+# DEN DIENST MIT ABGESENKTEN RECHTEN STARTEN (#273).
+#
+# Vorher lief er als root und startete die Emulatoren ebenfalls als root. Beide
+# schreiben Konfigurationen — und je nachdem, ob ein Titel ueber Romseerr oder von
+# Hand im Desktop gestartet wurde, gehoerte die Datei danach root oder `abc`, und die
+# jeweils andere Seite war ausgesperrt. Das Fehlerbild ist ein "defekter Controller"
+# oder ein Emulator, der Einstellungen vergisst, OHNE jede Fehlermeldung.
+#
+# `s6-setuidgid` statt `setpriv`, weil es die ZUSATZGRUPPEN behaelt — nachgemessen:
+#   uid=99(abc) gid=100(users) groups=100(users),18(video5zxv),27(sudo),990(docker)
+# `video5zxv` ist die Gruppe der GPU-Knoten; ohne sie waere die Beschleunigung weg.
+#
+# Der Token wird oben aus der Datei gelesen und als Variable weitergereicht, der
+# Dienst braucht dafuer also kein root — die Datei bleibt root:600.
+# EN: run the service as abc; s6-setuidgid keeps the supplementary groups, which is
+# where GPU access lives. The token is passed in as a variable, so no root needed.
+setsid nohup s6-setuidgid abc python3 "$AGENT" >> /config/stream-agent.log 2>&1 &
+echo "[agent] gestartet auf :${STREAM_AGENT_PORT} als abc / started as abc"

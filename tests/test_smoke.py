@@ -4933,3 +4933,29 @@ def test_duckstation_face_buttons_use_its_own_names(tmp_path):
     # Und die Tabelle muss auf PCSX2s Werte passen, sonst übersetzt sie ins Leere.
     for pcsx2_wert in m.DUCKSTATION_ANDERS:
         assert pcsx2_wert in m.PCSX2.values(), f"{pcsx2_wert} gibt es bei PCSX2 gar nicht"
+
+
+def test_agent_starts_with_dropped_privileges():
+    """Der Start-Dienst darf NICHT als root laufen.
+
+    Solange er es tat, liefen auch die Emulatoren als root und schrieben ihre
+    Konfigurationen root-eigen — ein im Desktop gestarteter Emulator (`abc`) konnte
+    sie dann weder lesen noch schreiben. Gefunden: Dolphins Verzeichnis nicht
+    beschreibbar, PCSX2.ini mit Modus 600 nicht lesbar, RPCS3s input_configs.
+    Das Fehlerbild ist ein "defekter Controller" oder ein Emulator, der Einstellungen
+    vergisst — **ohne jede Fehlermeldung**. (#273)
+
+    `s6-setuidgid` und nicht `setpriv`, weil es die ZUSATZGRUPPEN behält; an einer
+    davon (`video5zxv`) hängt der Zugriff auf die GPU-Knoten.
+    """
+    text = open(os.path.join(REPO, "contrib/streaming-host/init/30-agent"),
+                encoding="utf-8").read()
+    start = [z for z in text.splitlines()
+             if "stream-agent.py" in z or ('"$AGENT"' in z and "nohup" in z)]
+    starter = [z for z in start if "nohup" in z]
+    assert starter, "keine Startzeile für den Agenten gefunden"
+    for z in starter:
+        assert "s6-setuidgid" in z, f"Agent startet ohne Rechteabgabe: {z.strip()}"
+    # Und der Altbestand muss geheilt werden, sonst bleibt Unlesbares liegen.
+    assert "-user 0" in text and "chown" in text, \
+        "keine Reparatur der root-eigenen Altdateien"
