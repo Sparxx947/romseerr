@@ -4864,3 +4864,42 @@ def test_duckstation_reuses_the_pcsx2_binding_names(tmp_path):
     assert m.PROFILE["duckstation"]["controller"] is m.duckstation_apply
     assert m.PROFILE["duckstation"]["geprueft"] is False, \
         "geprueft erst, wenn ein Mensch im Spiel gespielt hat"
+
+
+def test_duckstation_resets_the_wizard_flag_when_it_flips_back(tmp_path):
+    """DuckStation setzt den Schalter beim BEENDEN wieder auf `true`.
+
+    Am laufenden Host passiert: Schalter gesetzt, Spiel bootete direkt — und nach dem
+    Beenden stand wieder `SetupWizardIncomplete = true` in der Datei, dazu war die
+    Pad-Belegung verschwunden. Beim nächsten Start öffnete der Dialog erneut.
+
+    Eine Prüfung auf "steht der Schlüssel da?" hält das für erledigt. Geprüft werden
+    muss der WERT — und die vorhandene Zeile ersetzt, nicht eine zweite danebengelegt,
+    sonst stehen zwei widersprechende Einträge in derselben Datei. Das Profil läuft vor
+    jedem Start, also heilt es sich damit selbst. (#268)
+    """
+    m = _profil_modul(tmp_path)
+    pfad = m.duckstation_ini()
+    os.makedirs(os.path.dirname(pfad), exist_ok=True)
+    # Genau der Zustand, den DuckStation hinterlässt: Schalter zurück, Belegung weg.
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write("[Main]\nConfirmPowerOff = true\nSetupWizardIncomplete = true\n\n"
+                "[Pad1]\nType = AnalogController\nCross = Keyboard/K\n\n[Pad2]\nType = None\n")
+
+    geaendert, msg = m.duckstation_apply()
+    assert geaendert, msg
+    inhalt = open(pfad, encoding="utf-8").read()
+    assert "SetupWizardIncomplete = false" in inhalt
+    assert "SetupWizardIncomplete = true" not in inhalt, "alter Wert blieb stehen"
+    assert inhalt.count("SetupWizardIncomplete") == 1, "zwei widersprechende Einträge"
+    assert inhalt.count("SDL-0/") == 25, "Belegung nicht wiederhergestellt"
+
+    # Und wenn NUR der Schalter zurückkippt, muss die Belegung unangetastet bleiben.
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write(inhalt.replace("SetupWizardIncomplete = false",
+                               "SetupWizardIncomplete = true"))
+    geaendert, msg = m.duckstation_apply()
+    assert geaendert and "Erstlauf" in msg, msg
+    wieder = open(pfad, encoding="utf-8").read()
+    assert "SetupWizardIncomplete = false" in wieder
+    assert wieder.count("SDL-0/") == 25, "Belegung beim Nachziehen zerstört"
