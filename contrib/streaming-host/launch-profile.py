@@ -353,6 +353,29 @@ def rpcs3_apply(pruefen=False):
 # es verteilt die Arbeit dorthin, wo Platz ist.
 # Dual core moves the bottleneck to the video thread rather than removing it; the
 # VirtualGL detour is the actual cause.
+# DuckStation benutzt DIESELBEN Schluessel wie PCSX2 (`Cross`, `L1`, `LUp`) — aber bei
+# vier Werten einen anderen Namen. Am ausgelieferten Binaer nachgemessen:
+#
+#   strings duckstation-qt | grep -x FaceSouth   -> nichts
+#   strings duckstation-qt | grep -x South       -> vorhanden
+#
+# Alle uebrigen 21 Werte (DPad*, *Shoulder, *Stick, *Trigger, LeftX/Y, RightX/Y, Back,
+# Start, Guide) sind identisch — deshalb eine Abweichungstabelle statt einer zweiten
+# Vollliste, die beim naechsten Umbau auseinanderliefe.
+#
+# WIE DER FEHLER ENTSTAND: Ich hatte geprueft, dass die SCHLUESSEL uebereinstimmen, und
+# daraus geschlossen, dass auch die WERTE passen. Das Ergebnis war ein Pad, bei dem
+# Stick und Steuerkreuz gehen und die vier Tasten nicht — DuckStation ignoriert einen
+# unbekannten Wert stillschweigend, wie fast jeder Emulator hier.
+# EN: same keys as PCSX2 but four different values, measured in the shipped binary.
+# Checking that the keys match and inferring the values do too produced a pad where the
+# sticks worked and the face buttons silently did nothing.
+DUCKSTATION_ANDERS = {
+    "FaceSouth": "South", "FaceEast": "East",
+    "FaceWest": "West", "FaceNorth": "North",
+}
+
+
 def duckstation_ini():
     return os.path.join(CONFIG, ".local/share/duckstation/settings.ini")
 
@@ -409,7 +432,8 @@ def duckstation_apply(pruefen=False):
     # `Type` bleibt, wie er ist: AnalogController ist DuckStations Standard, aber wer
     # ihn bewusst auf DigitalController gestellt hat, soll das behalten.
     behalten = [z for z in block if z.split("=")[0].strip() == "Type"]
-    neu = [f"{taste} = SDL-0/{sdl}" for taste, sdl in sorted(PCSX2.items())]
+    neu = [f"{taste} = SDL-0/{DUCKSTATION_ANDERS.get(sdl, sdl)}"
+           for taste, sdl in sorted(PCSX2.items())]
 
     vorher = [z for z in block if z.strip()]
     nachher = behalten + neu

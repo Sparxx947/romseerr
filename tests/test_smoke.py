@@ -4846,7 +4846,10 @@ def test_duckstation_disables_the_setup_wizard(tmp_path):
     assert "SetupWizardIncomplete = false" in inhalt, "Erstlaufdialog nicht abgeschaltet"
     # Der Schalter gehört in [Main], nicht in den Pad-Abschnitt.
     assert "SetupWizardIncomplete" in inhalt.split("[Pad1]")[0]
-    assert "Cross = SDL-0/FaceSouth" in inhalt
+    # South, NICHT FaceSouth: DuckStation kennt PCSX2s Face*-Namen nicht (am Binary
+    # nachgemessen) und ignoriert sie stillschweigend — Sticks gehen, Tasten nicht.
+    assert "Cross = SDL-0/South" in inhalt
+    assert "FaceSouth" not in inhalt, "PCSX2-Name für DuckStation geschrieben"
     assert "Type = AnalogController" in inhalt, "der Controller-Typ gehört dem Benutzer"
     assert "[Pad2]" in inhalt and "Type = None" in inhalt, "Spieler 2 angetastet"
     assert not m.duckstation_apply()[0], "zweiter Lauf darf nichts mehr tun"
@@ -4903,3 +4906,30 @@ def test_duckstation_resets_the_wizard_flag_when_it_flips_back(tmp_path):
     wieder = open(pfad, encoding="utf-8").read()
     assert "SetupWizardIncomplete = false" in wieder
     assert wieder.count("SDL-0/") == 25, "Belegung beim Nachziehen zerstört"
+
+
+def test_duckstation_face_buttons_use_its_own_names(tmp_path):
+    """DuckStation kennt PCSX2s `Face*`-Namen NICHT.
+
+    Am ausgelieferten Binary nachgemessen (2026-08-10):
+
+        strings duckstation-qt | grep -x FaceSouth   -> nichts
+        strings duckstation-qt | grep -x South       -> vorhanden
+
+    Alle übrigen 21 Werte sind identisch. Der Fehler entstand, weil ich geprüft hatte,
+    dass die SCHLÜSSEL übereinstimmen, und daraus schloss, die Werte täten es auch:
+    Stick und Steuerkreuz funktionierten, die vier Tasten nicht — stillschweigend.
+    Deshalb hält dieser Test genau die Abweichung fest. (#268)
+    """
+    m = _profil_modul(tmp_path)
+    assert m.DUCKSTATION_ANDERS == {
+        "FaceSouth": "South", "FaceEast": "East",
+        "FaceWest": "West", "FaceNorth": "North",
+    }, "Abweichungstabelle geändert — am Binary gegenprüfen"
+    # Was NICHT abweicht, darf auch nicht übersetzt werden.
+    for wert in ("DPadUp", "LeftShoulder", "LeftStick", "+LeftTrigger", "-LeftY",
+                 "Back", "Start", "Guide"):
+        assert wert not in m.DUCKSTATION_ANDERS, wert
+    # Und die Tabelle muss auf PCSX2s Werte passen, sonst übersetzt sie ins Leere.
+    for pcsx2_wert in m.DUCKSTATION_ANDERS:
+        assert pcsx2_wert in m.PCSX2.values(), f"{pcsx2_wert} gibt es bei PCSX2 gar nicht"
