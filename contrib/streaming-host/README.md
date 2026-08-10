@@ -195,10 +195,30 @@ Fällen einwandfrei, nur das Spiel nicht:
 - **Wii: NKit-komprimierte ISOs.** Dolphin öffnet einen `NKit Warning`-Dialog statt des
   Spiels. Dieselbe Bibliothek in `.wbfs` startet ohne Zutun.
 
-Wichtig für die Fehlersuche: In **allen** diesen Fällen meldet der Start-Dienst heute
-noch `ok` zurück, und der Stream geht auf — nur eben ohne Spiel. Wer einen leeren
-Desktop sieht, sollte deshalb zuerst das Log des Emulators lesen, bevor er den Host
-verdächtigt.
+### Wo der Host sagt, dass kein Spiel läuft
+
+Der Start selbst **gelingt** in diesen Fällen — der Emulator läuft ja. Deshalb antwortet
+`/launch` weiterhin mit `ok`; was scheitert, ist der Titel, und das steht in `/status`:
+
+```
+window        ""             noch nichts gestartet
+              "pending"      Start läuft, das Fenster wird noch erwartet
+              "ok"           ein Spielfenster steht
+              "dialog"       Fehlerdialog — window_detail ist dessen Titel
+              "kein-fenster" gar nichts Sichtbares entstanden
+              "unbekannt"    der Fensterschritt selbst kam nicht durch
+window_detail Klartext, bei "dialog" der Titel des Dialogs
+```
+
+Bei einer verschlüsselten 3DS-ROM steht dort also `window: "dialog"` und
+`window_detail: "App Encrypted"` — die Auskunft, die vorher nur auf dem Bildschirm des
+Emulators stand und niemanden erreichte.
+
+Erkannt werden Dialoge am Fenstertyp `_NET_WM_WINDOW_TYPE_DIALOG`, nicht an bekannten
+Fehlertexten: eine Textliste wäre in jeder neuen Emulatorfassung falsch. Nebenbei löst
+das ein zweites Ärgernis — vorher wurde der Fehlerdialog **selbst** aufs Vollbild
+gezogen (er ist mit 293×101 groß genug, um als Fenster durchzugehen), und genau das kam
+als „leerer Stream" an.
 
 ## Die Bibliothek muss auf beiden Seiten dieselbe sein
 
@@ -818,9 +838,29 @@ cases, the game does not:
 - **Wii: NKit-compressed ISOs.** Dolphin opens an `NKit Warning` dialog instead of the
   game. The same library in `.wbfs` starts without further ado.
 
-Important when hunting faults: in **all** of these cases the launch service still
-reports `ok` today and the stream opens — just without a game. So if you get an empty
-desktop, read the emulator's own log before suspecting the host.
+### Where the host tells you no game is running
+
+The launch itself **succeeds** in these cases — the emulator is running, after all. So
+`/launch` still answers `ok`; what failed is the title, and that shows up in `/status`:
+
+```
+window        ""             nothing started yet
+              "pending"      launch in progress, window still expected
+              "ok"           a game window is up
+              "dialog"       error dialog — window_detail holds its title
+              "kein-fenster" nothing visible appeared at all
+              "unbekannt"    the window step itself did not get through
+window_detail plain text; for "dialog" the dialog's title
+```
+
+So an encrypted 3DS ROM yields `window: "dialog"` and `window_detail: "App Encrypted"` —
+the very information that previously sat on the emulator's own screen and reached nobody.
+
+Dialogs are recognised by window type `_NET_WM_WINDOW_TYPE_DIALOG` rather than by known
+error strings, since a string list would be wrong in every new emulator release. This
+also fixes a second annoyance: the error dialog used to be pulled to fullscreen *itself*
+(at 293x101 it is large enough to pass as a window), which is precisely what arrived as
+an "empty stream".
 
 ## The library must be the same on both sides
 

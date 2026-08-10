@@ -5234,3 +5234,141 @@ def test_the_largest_file_wins_when_nothing_marks_an_update(appmod, tmp_path):
             if os.path.exists(p):
                 os.remove(p)
         appmod.build_index()
+
+
+# ------------------------------------- Fehlerdialog statt Spielfenster melden (#288)
+
+class _FensterAttrappe:
+    """Ein X11 ohne X11: liefert `_x` genau die Ausgaben, die xdotool/xprop liefern.
+
+    Die Fenster kommen als Liste von (id, breite, hoehe, typ, titel). Gemessen am
+    laufenden Host — `App Encrypted` traegt wirklich `_NET_WM_WINDOW_TYPE_DIALOG,
+    _NET_WM_WINDOW_TYPE_NORMAL`, also BEIDE Typen, und genau daran muss die Erkennung
+    vorbeikommen.
+    """
+
+    def __init__(self, fenster):
+        self.fenster = {f[0]: f for f in fenster}
+        self.gesetzt = []          # welche Fenster aufgezogen wurden
+
+    def __call__(self, *args, **_kw):
+        class R:
+            stdout = ""
+            stderr = ""
+            returncode = 0
+        r = R()
+        a = list(args)
+        if a[:2] == ["xdotool", "getdisplaygeometry"]:
+            r.stdout = "1920 1080"
+        elif a[:2] == ["xdotool", "search"]:
+            r.stdout = "\n".join(self.fenster)
+        elif a[:2] == ["xdotool", "getwindowgeometry"]:
+            _i, b, h, _t, _n = self.fenster[a[3]]
+            r.stdout = f"WIDTH={b}\nHEIGHT={h}\n"
+        elif a[:2] == ["xdotool", "getwindowname"]:
+            r.stdout = self.fenster[a[2]][4]
+        elif a[0] == "xprop" and "_NET_WM_WINDOW_TYPE" in a:
+            r.stdout = f"_NET_WM_WINDOW_TYPE(ATOM) = {self.fenster[a[2]][3]}"
+        elif a[:2] == ["xdotool", "windowsize"]:
+            self.gesetzt.append(a[2])
+        return r
+
+
+NORMAL = "_NET_WM_WINDOW_TYPE_NORMAL"
+DIALOG = "_NET_WM_WINDOW_TYPE_DIALOG, _NET_WM_WINDOW_TYPE_NORMAL"
+
+
+def test_an_error_dialog_is_reported_instead_of_a_fake_success(tmp_path, monkeypatch):
+    """Scheitert der TITEL, laeuft der Emulator weiter und zeigt einen Dialog.
+
+    Gemessen an drei Plattformen: `App Encrypted` und `CIA must be installed before
+    usage` (Azahar, 3DS), `NKit Warning` (Dolphin, Wii). In allen Faellen meldete der
+    Start bisher Erfolg, der Stream ging auf, und es lief kein Spiel — der Nutzer sah
+    einen leeren Desktop ohne jede Auskunft. (#288)
+
+    Der Dialog ist 293x101 = 29.593 Pixel und liegt damit UEBER der Flaechenschwelle
+    von 10.000, wurde also wie ein Spielfenster behandelt und sogar auf Vollbild
+    gezogen. Genau deshalb genuegt die Groesse als Kriterium nicht.
+    """
+    m = _profil_modul(tmp_path)
+    x = _FensterAttrappe([
+        ("0x1", 1920, 1080, NORMAL, "Azahar 2125.1.3"),   # leeres Hauptfenster
+        ("0x2", 293, 101, DIALOG, "App Encrypted"),       # die eigentliche Auskunft
+    ])
+    monkeypatch.setattr(m, "_x", x)
+    monkeypatch.setattr(m.time, "sleep", lambda *_a: None)
+
+    zustand, meldung = m.nur_emulator(4711, runden=1, pause=0)
+
+    assert zustand == "dialog", (zustand, meldung)
+    assert meldung == "App Encrypted", meldung
+    # Und der Dialog darf NICHT aufs Vollbild gezogen werden: ein bildschirmfuellender
+    # Fehlerdialog ist genau das, was als "leerer Stream" ankommt.
+    assert "0x2" not in x.gesetzt, "Fehlerdialog wurde aufgezogen"
+
+
+def test_a_real_game_window_still_reports_ok(tmp_path, monkeypatch):
+    """Die Gegenrichtung: ohne Dialog bleibt es beim Erfolg.
+
+    Ohne diese Haelfte wuerde eine Fassung, die IMMER "dialog" meldet, den Test oben
+    bestehen — und PS1, PS2, GameCube, Wii, PS3 und Switch waeren stillgelegt. (#288)
+    """
+    m = _profil_modul(tmp_path)
+    x = _FensterAttrappe([("0x1", 1920, 1080, NORMAL, "Dolphin | Vulkan | Dewy's Adventure")])
+    monkeypatch.setattr(m, "_x", x)
+    monkeypatch.setattr(m.time, "sleep", lambda *_a: None)
+
+    zustand, meldung = m.nur_emulator(4711, runden=1, pause=0)
+
+    assert zustand == "ok", (zustand, meldung)
+    assert "0x1" in x.gesetzt, "Spielfenster wurde nicht aufgezogen"
+
+
+def test_no_window_at_all_is_distinguished_from_a_dialog(tmp_path, monkeypatch):
+    """Ein eShop-3DS-Titel oeffnet GAR KEIN Fenster (`Error 8` im Emulator-Log).
+
+    Das ist ein anderer Befund als ein Dialog und muss anders heissen — sonst sucht man
+    nach einem Dialogtext, den es nicht gibt. (#288)
+    """
+    m = _profil_modul(tmp_path)
+    x = _FensterAttrappe([("0x1", 100, 30, NORMAL, "Azahar")])   # nur das Ladefenster
+    monkeypatch.setattr(m, "_x", x)
+    monkeypatch.setattr(m.time, "sleep", lambda *_a: None)
+
+    zustand, _meldung = m.nur_emulator(4711, runden=1, pause=0)
+
+    assert zustand == "kein-fenster", zustand
+
+
+def test_window_verdict_is_machine_readable_for_the_agent(tmp_path, monkeypatch, capsys):
+    """`--window` muss den Befund als letzte Zeile in JSON ausgeben.
+
+    Der Agent liest ihn dort und reicht ihn ueber /status weiter. Ein blosser Exit-Code
+    genuegt nicht: der Dialogtitel IST die Auskunft. (#288)
+    """
+    m = _profil_modul(tmp_path)
+    x = _FensterAttrappe([("0x2", 484, 101, DIALOG, "CIA must be installed before usage")])
+    monkeypatch.setattr(m, "_x", x)
+    monkeypatch.setattr(m.time, "sleep", lambda *_a: None)
+
+    rc = m.main(["--window", "4711"])
+
+    letzte = capsys.readouterr().out.strip().splitlines()[-1]
+    befund = json.loads(letzte)
+    assert rc == 1, "ein gescheiterter Titel darf nicht mit 0 enden"
+    assert befund["window"] == "dialog", befund
+    assert befund["detail"] == "CIA must be installed before usage", befund
+
+
+def test_agent_exposes_the_window_verdict_on_status():
+    """Der Befund muss den Aufrufer erreichen — sonst ist er nur ein Logeintrag.
+
+    Geprueft wird am Quelltext, weil der Agent hier keinen X-Server hat: /status muss
+    `window` fuehren, und der Startpfad muss ihn auf "pending" setzen. (#288)
+    """
+    quelle = open(os.path.join(REPO, "contrib/streaming-host/stream-agent.py"),
+                  encoding="utf-8").read()
+    assert '"window": _current["window"]' in quelle, "/status meldet den Befund nicht"
+    assert '_current["window"] = "pending"' in quelle, "Start setzt den Befund nicht zurueck"
+    # Beim Stoppen muss er weg sein, sonst klebt der Befund des Vortitels am naechsten.
+    assert '"window": "", "window_detail": ""' in quelle, "Stop raeumt den Befund nicht ab"
