@@ -631,8 +631,12 @@ the data before going back.*
 ## Entwicklung & Tests
 
 ```bash
-pip install -r requirements.txt pytest pyyaml
-pytest -q                     # Tests laufen gegen temporäre Verzeichnisse, nie gegen echte Daten
+pip install -r requirements.txt -r requirements-dev.txt
+playwright install --with-deps chromium   # einmalig, für die Browsertests
+
+pytest                        # alles: Unit, Auslieferung, Vertrag, Browser
+pytest --ignore=tests/e2e     # ohne Browser (schnell)
+pytest tests/e2e --no-cov     # nur Browser
 python scripts/build_openapi.py   # docs/openapi.yaml aus der OPENAPI-Spec erzeugen
 ```
 
@@ -685,6 +689,7 @@ docker-compose.yml    Referenz-Stack (Romseerr + SAB + Prowlarr + JDownloader + 
 requirements.txt      Flask, requests, pywebpush
 scripts/              build_openapi.py
 tests/                pytest (Smoke, i18n-JS, OpenAPI-Abdeckung, Rechte, Import …)
+tests/e2e/            Browsertests: Playwright + axe-core — siehe docs/TESTING.md
 docs/                 API.md, ARCHITECTURE.md, openapi.yaml
 .github/              CI/Security/Release-Workflows, Issue-/PR-Vorlagen, Community-Dateien
 ```

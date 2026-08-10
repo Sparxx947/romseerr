@@ -561,8 +561,12 @@ The key is generated under *Settings → General* and can be rotated there.
 ## Development & tests
 
 ```bash
-pip install -r requirements.txt pytest pyyaml
-pytest -q                     # tests run against temp directories, never real data
+pip install -r requirements.txt -r requirements-dev.txt
+playwright install --with-deps chromium   # once, for the browser tests
+
+pytest                        # everything: unit, delivery, contract, browser
+pytest --ignore=tests/e2e     # without a browser (fast)
+pytest tests/e2e --no-cov     # browser only
 python scripts/build_openapi.py   # generate docs/openapi.yaml from the OPENAPI spec
 ```
 
@@ -585,6 +589,7 @@ docker-compose.yml    reference stack (Romseerr + SAB + Prowlarr + JDownloader +
 requirements.txt      Flask, requests, pywebpush
 scripts/              build_openapi.py
 tests/                pytest (smoke, i18n JS, OpenAPI coverage, permissions, import …)
+tests/e2e/            browser tests: Playwright + axe-core — see docs/TESTING.md
 docs/                 API.md, ARCHITECTURE.md, openapi.yaml
 .github/              CI/security/release workflows, issue/PR templates, community files
 ```

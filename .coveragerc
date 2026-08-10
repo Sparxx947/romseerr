@@ -1,0 +1,18 @@
+# WARUM EINE EIGENE DATEI: `--cov=app` (Modulname) sammelt nichts, sobald `app.py` ein
+# zweites Mal als `app_server` geladen wird — siehe tests/conftest.py. Über den Pfad
+# (`--cov=.`) klappt es, dann zählen aber die Testdateien mit und heben die Summe auf
+# rund 80 %, was den Boden bedeutungslos macht. Deshalb: Pfad als Quelle, Tests raus.
+#
+# Measuring by module name collects nothing once app.py is loaded twice; measuring by path
+# works but counts the test files themselves, inflating the total. Hence: path plus omit.
+[run]
+source = .
+omit =
+    tests/*
+    scripts/*
+    contrib/*
+
+[report]
+exclude_also =
+    if __name__ == .__main__.:
+    raise NotImplementedError
