@@ -20,7 +20,7 @@ services:
     image: lscr.io/linuxserver/webtop:${WEBTOP_TAG:-ubuntu-xfce}
     container_name: stream-host
     restart: unless-stopped
-    environment:
+    environment: &sh-env
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
       TZ: ${TZ:-Etc/UTC}
@@ -110,7 +110,7 @@ services:
       DRINODE: ${DRI_RENDER_NODE}
       # Grenze fuer eine hochgeladene Firmware-Datei (Sonys PS3-Paket ist ~200 MB).
       FIRMWARE_MAX_BYTES: ${FIRMWARE_MAX_BYTES:-536870912}
-    volumes:
+    volumes: &sh-volumes
       - ${CONFIG_DIR:-./data}/config:/config
       # Init-Skripte MÜSSEN hierhin — /config/custom-cont-init.d wird ignoriert.
       # Init scripts MUST be mounted here; /config/custom-cont-init.d is ignored.
@@ -147,7 +147,7 @@ services:
       - ./web/gamepad-check.html:/opt/gamepad-check.html:ro
       # Die ROM-Bibliothek nur lesend. / The ROM library, read-only.
       - ${ROMS_DIR:?ROMS_DIR fehlt - siehe .env.example}:/roms:ro
-    devices:
+    devices: &sh-devices
       # Der Emulator braucht eine GPU. Beide Knoten derselben Karte angeben:
       # den Render-Knoten UND den Card-Knoten — VirtualGL will letzteren.
       # Give BOTH nodes of the same card: VirtualGL needs the card node.
@@ -181,7 +181,7 @@ services:
     # root, from Docker's device cgroup rather than file permissions. Minor numbers change
     # on every connect, so the whole input major is required. Note that this also grants
     # read access to the host's own input devices; check /proc/bus/input/devices first.
-    device_cgroup_rules:
+    device_cgroup_rules: &sh-cgroup
       - 'c 13:* rmw'
     shm_size: ${SHM_SIZE:-2g}
     ports:
@@ -191,6 +191,51 @@ services:
       - "${HTTPS_PORT:-8902}:3001"
       # Start-Dienst, den Romseerr aufruft. / Launch service Romseerr calls.
       - "${AGENT_PORT:-8901}:${AGENT_PORT:-8901}"
+
+  # ------------------------------------------------- Zweiter Platz (#137, optional)
+  #
+  # Startet NUR mit `--profile seat2`:
+  #     docker compose --profile seat2 up -d
+  # Ohne das Profil bleibt alles wie vorher — ein Platz, ein Container.
+  #
+  # YAML-ANKER statt `extends` — und das ist kein Geschmack, sondern gemessen:
+  # `extends` FUEHRT LISTEN ZUSAMMEN. Der zweite Dienst erbte damit die Ports des
+  # ersten und haette zusaetzlich 8900/8901/8902 veroeffentlicht, also beim Start mit
+  # "port is already allocated" abgebrochen. Anker teilen genau die Bloecke, die
+  # gemeinsam sein sollen, und lassen Ports und Namen pro Dienst.
+  # EN: anchors, not `extends` — extends MERGES lists, so seat 2 inherited seat 1's
+  # ports and would have failed to start with "port is already allocated".
+  #
+  # GETEILT wird alles unter /config — Emulatoren, Firmware, Speicherstaende,
+  # Einstellungen. Das ist so gewollt und hat eine Kehrseite: **spielen zwei Leute
+  # denselben Emulator, schreiben beide Instanzen dieselben Dateien, und wer zuletzt
+  # beendet, gewinnt.** Bei zwei verschiedenen Konsolen tritt das nicht auf. Wer es
+  # trennen will, haengt hier ein eigenes /config ein und laesst nur `emulators` und
+  # `firmware` gemeinsam.
+  # EN: everything under /config is shared by choice; two people on the SAME emulator
+  # write the same files and the last one to quit wins.
+  stream-host-2:
+    image: lscr.io/linuxserver/webtop:${WEBTOP_TAG:-ubuntu-xfce}
+    container_name: stream-host-2
+    restart: unless-stopped
+    profiles: ["seat2"]
+    environment:
+      <<: *sh-env
+      # NUR Platz 1 aktualisiert die gemeinsamen Emulatoren. Liefen beide Container
+      # gleichzeitig in ihren Kataloglauf, entpackten sie dieselbe AppImage in dasselbe
+      # Verzeichnis — das Ergebnis waere ein halb ersetzter Emulator, ohne Fehlermeldung.
+      # EN: only seat 1 updates the shared emulators.
+      EMU_AUTO_UPDATE: "false"
+      # Eigener Port fuer den Start-Dienst, sonst lauschen beide auf demselben.
+      AGENT_PORT: ${AGENT_PORT_2:-8911}
+    volumes: *sh-volumes
+    devices: *sh-devices
+    device_cgroup_rules: *sh-cgroup
+    shm_size: ${SHM_SIZE:-2g}
+    ports:
+      - "${HTTP_PORT_2:-8910}:3000"
+      - "${HTTPS_PORT_2:-8912}:3001"
+      - "${AGENT_PORT_2:-8911}:${AGENT_PORT_2:-8911}"
 
   # ------------------------------------------------- Zertifikat (optional, aber empfohlen)
   # Holt und erneuert ein Zertifikat per DNS-01 und legt es dorthin, wo der

@@ -5052,3 +5052,38 @@ def test_single_seat_session_survives_the_upgrade(appmod):
     # Der alte Schlüssel wird dabei geräumt, sonst käme die Sitzung nach dem Beenden zurück.
     assert appmod.kv_get("stream_session", None) in (None, {}), "Altschlüssel nicht geräumt"
     appmod.kv_put("stream_sessions", {}); appmod.kv_put("stream_session", None)
+
+
+def test_the_two_seats_do_not_share_ports_but_do_share_config():
+    """Zwei Plätze müssen sich `/config` und die GPU teilen — aber niemals Ports.
+
+    Der erste Anlauf benutzte `extends`, und **`extends` führt Listen zusammen**: der
+    zweite Dienst erbte damit die Ports des ersten und hätte beim Start mit "port is
+    already allocated" abgebrochen. Das wäre erst beim Ausrollen aufgefallen. Deshalb
+    prüft dieser Test beide Richtungen — was getrennt sein muss und was gemeinsam. (#137)
+    """
+    import yaml
+    pfad = os.path.join(REPO, "contrib/streaming-host/docker-compose.yml")
+    d = yaml.safe_load(open(pfad, encoding="utf-8"))
+    s1, s2 = d["services"]["stream-host"], d["services"]["stream-host-2"]
+
+    def haefen(s):
+        return {str(p).split(":")[0] for p in (s.get("ports") or [])}
+    assert not (haefen(s1) & haefen(s2)), \
+        f"Platz 1 und 2 veröffentlichen denselben Port: {haefen(s1) & haefen(s2)}"
+    assert len(haefen(s2)) == 3, "der zweite Platz braucht genau drei eigene Ports"
+
+    # Geteilt, weil der Betreiber es so gewählt hat: eine Bibliothek, eine GPU,
+    # ein /config. Liefe der zweite Platz auf anderen Volumes, wäre es ein zweiter Host.
+    assert s1.get("volumes") == s2.get("volumes"), "Volumes müssen geteilt sein"
+    assert s1.get("devices") == s2.get("devices"), "GPU muss geteilt sein"
+
+    # Nur Platz 1 aktualisiert die gemeinsamen Emulatoren — sonst entpacken zwei
+    # Container dieselbe AppImage in dasselbe Verzeichnis.
+    assert str(s2["environment"]["EMU_AUTO_UPDATE"]).lower() == "false"
+    assert s2["environment"]["AGENT_PORT"] != s1["environment"]["AGENT_PORT"]
+
+    # Ohne Profil bleibt die Anlage einsitzig — ein zweiter Container darf nicht
+    # ungefragt mitstarten.
+    assert s2.get("profiles") == ["seat2"]
+    assert not s1.get("profiles")

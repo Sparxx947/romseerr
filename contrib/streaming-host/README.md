@@ -282,6 +282,54 @@ matches by size because the filename varies. Note the trap: DuckStation opens a 
 setup wizard on first run that nobody can see in a container, and every launch stalls
 behind it — the launch profile sets `SetupWizardIncomplete = false`.*
 
+## Zwei Plätze gleichzeitig (optional)
+
+Standardmäßig ist die Anlage **einsitzig**: ein Container, eine Sitzung, und die zweite
+Person bekommt „in Benutzung von …". Mit einem Profil wird daraus ein zweiter Platz:
+
+```bash
+docker compose --profile seat2 up -d
+```
+
+Dazu in Romseerr unter *Einstellungen → Verbindungen* die Adressen des zweiten Platzes
+eintragen (`stream_url_2`, `stream_launch_2`). Romseerr vergibt dann den ersten freien
+Platz und schickt jeden auf **seine** Adresse.
+
+| | Platz 1 | Platz 2 |
+|---|---|---|
+| HTTP / HTTPS | 8900 / 8902 | 8910 / 8912 |
+| Start-Dienst | 8901 | 8911 |
+
+**Was geteilt wird — und was das kostet.** Beide Container benutzen dasselbe `/config`:
+Emulatoren, Firmware, Einstellungen und **Speicherstände**. Das spart Platz und doppelte
+Update-Arbeit, hat aber eine klare Kehrseite:
+
+> Spielen zwei Leute **denselben** Emulator, schreiben beide Instanzen dieselben Dateien.
+> Wer zuletzt beendet, gewinnt — bei Einstellungen ärgerlich, bei Speicherständen ein
+> echter Verlust. Bei zwei **verschiedenen** Konsolen tritt das nicht auf.
+
+Wer das trennen will, hängt für `stream-host-2` ein eigenes `/config` ein und lässt nur
+`emulators` und `firmware` gemeinsam.
+
+**Nur Platz 1 aktualisiert die Emulatoren** (`EMU_AUTO_UPDATE=false` beim zweiten).
+Liefen beide gleichzeitig in ihren Kataloglauf, entpackten sie dieselbe AppImage in
+dasselbe Verzeichnis — das Ergebnis wäre ein halb ersetzter Emulator, ohne Fehlermeldung.
+
+**Zur Bauweise, weil es eine Falle ist:** Der zweite Dienst erbt über **YAML-Anker**,
+nicht über `extends`. `extends` führt Listen **zusammen** — der zweite Container erbte
+damit die Ports des ersten und brach beim Start mit *„port is already allocated"* ab.
+Ein Test hält seither fest, dass sich beide Plätze `/config` und GPU teilen, aber
+niemals einen Port.
+
+*EN: the host is single-seat by default; `--profile seat2` adds a second one on ports
+8910/8912/8911. Configure `stream_url_2` and `stream_launch_2` in Romseerr, which then
+hands out the first free seat and sends each player to their own address. Everything
+under `/config` is shared — including save states, so two people on the SAME emulator
+overwrite each other and the last to quit wins; different consoles are unaffected. Only
+seat 1 updates the shared emulators. The second service inherits through YAML anchors
+rather than `extends`, because `extends` merges lists and the second container would
+have inherited the first one's ports.*
+
 ## Emulatoren aktualisieren und zurücksetzen
 
 Läuft bei jedem Containerstart: die aktuelle Release-URL wird geholt und mit der
