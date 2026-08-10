@@ -2786,15 +2786,19 @@ def test_dolphin_gets_dual_core(tmp_path):
     m = _profil_modul(tmp_path)
     assert m.PROFILE["dolphin"]["controller"] is m.dolphin_apply
     # Ohne Dolphin.ini darf es nicht raten, sondern muss das sagen.
-    geaendert, msg = m.dolphin_apply()
+    geaendert, msg = m.dolphin_dualcore()
     assert not geaendert and "noch nicht" in msg, msg
     pfad = m.dolphin_ini()
     os.makedirs(os.path.dirname(pfad), exist_ok=True)
     open(pfad, "w", encoding="utf-8").write("[Core]\nGFXBackend = OGL\n")
-    geaendert, msg = m.dolphin_apply()
+    geaendert, msg = m.dolphin_dualcore()
     assert geaendert, msg
     assert "CPUThread = True" in open(pfad, encoding="utf-8").read()
     # Zweiter Lauf: nichts mehr zu tun (das Profil laeuft vor JEDEM Start).
+    assert m.dolphin_dualcore()[0] is False
+    # Und dasselbe fuer den Sammelschritt, sobald er einmal durchgelaufen ist —
+    # sonst schriebe jeder Start die Dateien neu.
+    assert m.dolphin_apply()[0] is True      # erster Lauf: Gamepad fehlt noch
     assert m.dolphin_apply()[0] is False
 
 
@@ -4754,3 +4758,49 @@ def test_every_playable_core_entry_is_documented_as_checked(appmod):
         "der Hinweis auf die Messung fehlt"
     # Intellivision darf nicht zurückkehren, solange der Kern fehlt.
     assert '"intellivision":' not in block, "freeintv wird vom Player nicht ausgeliefert (#124)"
+
+
+def test_dolphin_gcpad_uses_the_spelling_dolphin_itself_writes(tmp_path):
+    """Dolphin benennt Tasten und Achsen UNTERSCHIEDLICH — und ignoriert still, was es
+    nicht auflösen kann.
+
+    Gemessen am 2026-08-10, nachdem Dolphin die Zuweisung selbst geschrieben hatte:
+    Tasten tragen den Ereigniscode-Namen OHNE `BTN_` und ohne Zeichen (`SOUTH`),
+    Achsen sind durchnummeriert und stehen in schrägen Anführungszeichen (`Axis 1-`).
+    Vorher stand hier `BTN_A` bzw. `ABS_Y-`; die Belegung sah vollständig aus und tat
+    nichts. Genau das hält dieser Test fest — ein Rückfall auf die alte Schreibweise
+    wäre von außen nicht zu erkennen. (#119)
+    """
+    m = _profil_modul(tmp_path)
+    werte = dict(m.DOLPHIN_PAD)
+    assert werte["Buttons/A"] == "SOUTH"
+    assert werte["Main Stick/Up"] == "`Axis 1-`"
+    for schluessel, wert in m.DOLPHIN_PAD:
+        assert not wert.startswith("BTN_"), f"{schluessel}: BTN_-Präfix wirkt nicht"
+        assert "ABS_" not in wert, f"{schluessel}: Achsen heißen 'Axis N', nicht ABS_*"
+    # Jede Achse braucht die schrägen Anführungszeichen, jede Taste darf sie nicht haben.
+    for schluessel, wert in m.DOLPHIN_PAD:
+        if "Axis" in wert:
+            assert wert.startswith("`") and wert.endswith("`"), schluessel
+
+
+def test_dolphin_gcpad_replaces_only_port_one(tmp_path):
+    """Die anderen drei Ports gehören dem Benutzer und dürfen nicht verschwinden.
+    Zusätzlich muss ein zweiter Lauf nichts mehr tun, sonst wächst die Datei bei
+    jedem Start."""
+    m = _profil_modul(tmp_path)
+    pfad = m.dolphin_gcpad_ini()
+    os.makedirs(os.path.dirname(pfad), exist_ok=True)
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write("[GCPad1]\nDevice = XInput2/0/Virtual core pointer\nButtons/A = `X`\n"
+                "\n[GCPad2]\nDevice = etwas\nButtons/A = `Y`\n")
+
+    geaendert, _ = m.dolphin_gcpad()
+    assert geaendert
+    inhalt = open(pfad, encoding="utf-8").read()
+    assert "[GCPad2]" in inhalt and "Device = etwas" in inhalt
+    assert "XInput2" not in inhalt.split("[GCPad2]")[0]
+    assert os.path.exists(pfad + ".vor-gamepad"), "Rückweg fehlt"
+
+    nochmal, msg = m.dolphin_gcpad()
+    assert not nochmal, msg

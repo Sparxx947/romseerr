@@ -309,7 +309,129 @@ def dolphin_ini():
     return os.path.join(CONFIG, ".config/dolphin-emu/Dolphin.ini")
 
 
+def dolphin_gcpad_ini():
+    return os.path.join(CONFIG, ".config/dolphin-emu/GCPadNew.ini")
+
+
+# GEMESSEN, nicht abgeleitet: Dolphin hat diese Schreibweisen am 2026-08-10 SELBST in
+# die Datei geschrieben, nachdem in der Oberflaeche eine Taste und eine Achse zugewiesen
+# wurden. Die Asymmetrie ist der Grund, warum Raten hier scheitert:
+#
+#   Tasten -> Name des Ereigniscodes OHNE `BTN_`-Praefix und ohne Zeichen:  SOUTH
+#   Achsen -> durchnummeriert, in schraegen Anfuehrungszeichen:             `Axis 1-`
+#
+# Vorher stand hier `BTN_A` und `ABS_Y-`. Beides ist falsch, und **Dolphin ignoriert
+# unbekannte Eingaenge stillschweigend** — die Belegung stand vollstaendig da und tat
+# nichts. Kein Fehler, keine Meldung, kein Hinweis in der Oberflaeche.
+#
+# EN: measured, not guessed — Dolphin wrote these spellings itself. Buttons use the
+# event-code name without the BTN_ prefix; axes are numbered. Dolphin silently ignores
+# inputs it cannot resolve, so a wrong spelling looks exactly like a working config.
+#
+# Die Achsennummern folgen der aufsteigenden ABS-Code-Reihenfolge des Geraets:
+#   0=ABS_X 1=ABS_Y 2=ABS_Z(LT) 3=ABS_RX 4=ABS_RY 5=ABS_RZ(RT) 6=HAT0X 7=HAT0Y
+KALIBRIERUNG = "100.00 141.42 100.00 141.42 100.00 141.42 100.00 141.42"
+DOLPHIN_PAD = [
+    ("Buttons/A", "SOUTH"),
+    ("Buttons/B", "EAST"),
+    ("Buttons/X", "NORTH"),
+    ("Buttons/Y", "WEST"),
+    ("Buttons/Z", "TR"),
+    ("Buttons/Start", "START"),
+    ("Main Stick/Up", "`Axis 1-`"),
+    ("Main Stick/Down", "`Axis 1+`"),
+    ("Main Stick/Left", "`Axis 0-`"),
+    ("Main Stick/Right", "`Axis 0+`"),
+    ("Main Stick/Calibration", KALIBRIERUNG),
+    ("C-Stick/Up", "`Axis 4-`"),
+    ("C-Stick/Down", "`Axis 4+`"),
+    ("C-Stick/Left", "`Axis 3-`"),
+    ("C-Stick/Right", "`Axis 3+`"),
+    ("C-Stick/Calibration", KALIBRIERUNG),
+    # L liegt zusaetzlich auf der Schultertaste: die Trigger-Achse ruht bei -32767,
+    # nicht bei 0, deshalb greift `Axis 2+` erst ab etwa halbem Druck.
+    # EN: the trigger axis rests at -32767, so the analog half only engages past centre.
+    ("Triggers/L", "TL"),
+    ("Triggers/R", "`Axis 5+`"),
+    ("Triggers/L-Analog", "`Axis 2+`"),
+    ("Triggers/R-Analog", "`Axis 5+`"),
+    ("D-Pad/Up", "`Axis 7-`"),
+    ("D-Pad/Down", "`Axis 7+`"),
+    ("D-Pad/Left", "`Axis 6-`"),
+    ("D-Pad/Right", "`Axis 6+`"),
+]
+
+# Ueberschreibbar, falls ein Abbild das gebrueckte Pad anders benennt — genauso wie
+# RPCS3_PAD_NAME. Der Index 0 ist Selkies' Slot 0, weil die Bruecke ihre Geraete in
+# Socket-Reihenfolge anlegt. / EN: overridable; index 0 is Selkies' slot 0.
+DOLPHIN_GERAET = os.environ.get("DOLPHIN_PAD_NAME",
+                                "evdev/0/Microsoft X-Box 360 pad")
+
+
+def dolphin_gcpad(pruefen=False):
+    """-> (geaendert, meldung). Legt GameCube-Port 1 auf das gebrueckte Gamepad.
+
+    Ersetzt ausschliesslich den Abschnitt `[GCPad1]`; die Ports 2 bis 4 bleiben, wie sie
+    sind. Die Tastaturbelegung von Port 1 entfaellt dabei — Dolphin bindet einen Port an
+    GENAU EIN Geraet, und ein zweites Geraet liesse sich nur ueber voll qualifizierte
+    Ausdruecke dazunehmen. Der Rueckweg liegt als `.vor-gamepad` daneben.
+    EN: Dolphin binds one port to exactly one device, so the keyboard mapping of port 1
+    is replaced; ports 2-4 are untouched and a backup is kept.
+    """
+    pfad = dolphin_gcpad_ini()
+    block = ["[GCPad1]", f"Device = {DOLPHIN_GERAET}"]
+    block += [f"{schluessel} = {wert}" for schluessel, wert in DOLPHIN_PAD]
+
+    if os.path.isfile(pfad):
+        with open(pfad, encoding="utf-8", errors="ignore") as f:
+            zeilen = f.read().splitlines()
+    else:
+        zeilen = []
+
+    start = next((i for i, z in enumerate(zeilen) if z.strip() == "[GCPad1]"), None)
+    if start is None:
+        if pruefen:
+            return True, "GCPad1 wuerde angelegt"
+        zeilen = block + ([""] + zeilen if zeilen else [])
+    else:
+        ende = next((i for i in range(start + 1, len(zeilen))
+                     if zeilen[i].startswith("[")), len(zeilen))
+        if [z.strip() for z in zeilen[start:ende] if z.strip()] == block:
+            return False, "Gamepad-Belegung steht bereits"
+        if pruefen:
+            return True, "Gamepad-Belegung wuerde gesetzt"
+        # Sicherung EINMAL, vom Ausgangsstand — nicht bei jedem Lauf neu.
+        sicherung = pfad + ".vor-gamepad"
+        if not os.path.exists(sicherung):
+            with open(sicherung, "w", encoding="utf-8") as f:
+                f.write("\n".join(zeilen) + "\n")
+        zeilen[start:ende] = block
+
+    os.makedirs(os.path.dirname(pfad), exist_ok=True)
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write("\n".join(zeilen) + "\n")
+    return True, f"GameCube-Port 1 auf {DOLPHIN_GERAET} gelegt"
+
+
 def dolphin_apply(pruefen=False):
+    """-> (geaendert, meldung). Gamepad-Belegung UND Dual Core.
+
+    Die Funktion stand schon vorher unter `controller` in der Profiltabelle, setzte aber
+    ausschliesslich Dual Core — der Eintrag behauptete etwas, das der Code nicht tat.
+    Genau deshalb kam am GameCube nie ein Controller an, obwohl die Bruecke lief.
+    EN: this was listed as the controller step while only ever setting dual core.
+    """
+    geaendert = []
+    for schritt in (dolphin_gcpad, dolphin_dualcore):
+        tat, meldung = schritt(pruefen)
+        if tat:
+            geaendert.append(meldung)
+    if not geaendert:
+        return False, "Gamepad-Belegung und Dual Core stehen bereits"
+    return True, "; ".join(geaendert)
+
+
+def dolphin_dualcore(pruefen=False):
     """-> (geaendert, meldung). Schaltet Dual Core ein (CPUThread)."""
     pfad = dolphin_ini()
     if not os.path.isfile(pfad):
