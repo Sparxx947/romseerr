@@ -415,6 +415,49 @@ paths:
         schema:
           type: string
         description: Textfilter
+  /api/library/platforms:
+    get:
+      summary: 'Eigene Bibliothek: Titelzahl je System, nach Hersteller gruppiert'
+      tags:
+      - Search
+      responses:
+        '200':
+          description: OK
+      security: *id002
+  /api/library/{slug}/titles:
+    get:
+      summary: Vorhandene Titel einer Plattform (paginiert, filterbar)
+      tags:
+      - Search
+      responses:
+        '200':
+          description: OK
+      security: *id002
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Plattform-Slug
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Versatz
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: string
+        description: max. 500
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Textfilter
   /api/discover:
     get:
       summary: Beliebte Titel (flach)

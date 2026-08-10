@@ -10,6 +10,9 @@
  <a class=nav id=nJ onclick="show('j')"><span data-i18n=nav_requests>📥 Anfragen</span><span id=jobbadge></span></a>
  <a class=nav id=nI data-i18n=nav_issues onclick="show('issues')">🐞 Probleme</a>
  <a class=nav id=nC data-i18n=nav_coverage onclick="show('cov')">📊 Abdeckung</a>
+ <!-- Abdeckung beantwortet „was fehlt", die Bibliothek „was habe ich". Vor dem Regal
+      ist Letzteres die häufigere Frage, deshalb steht sie gleich daneben. (#293) -->
+ <a class=nav id=nL data-i18n=nav_library onclick="show('lib')">📚 Bibliothek</a>
  <a class=nav id=nM onclick="show('msg')">✉ <span data-i18n=nav_messages>Nachrichten</span><span id=msgbadge></span></a>
  <a class=nav id=nSet data-i18n=nav_settings onclick="show('set')" style="display:none">⚙️ Einstellungen</a>
 </div>
@@ -46,6 +49,7 @@
  <div id=issues></div>
  <div id=messages></div>
  <div id=coverage></div>
+ <div id=library></div>
  <div id=lists></div>
  <!-- Fußzeile (#208): die Version stand nur unter Einstellungen → Über, also hinter zwei
       Klicks und nur für Verwalter. Damit trägt jetzt jeder Bildschirmauszug seinen Stand —

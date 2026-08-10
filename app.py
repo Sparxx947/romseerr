@@ -553,6 +553,12 @@ def db_init():
             c.execute("CREATE TABLE IF NOT EXISTS library(slug TEXT, norm TEXT)")
             c.execute("CREATE INDEX IF NOT EXISTS ix_lib_norm ON library(norm)")
             c.execute("CREATE INDEX IF NOT EXISTS ix_lib_slug ON library(slug, norm)")
+            # Anzeigename je Titel (#293). `norm` ist kleingeschrieben und entkernt —
+            # als Bibliotheksliste unlesbar. Nachgerüstet statt neu angelegt, damit
+            # bestehende Datenbanken nicht neu aufgebaut werden muessen; der naechste
+            # Index-Lauf fuellt die Spalte.
+            if "name" not in {r[1] for r in c.execute("PRAGMA table_info(library)")}:
+                c.execute("ALTER TABLE library ADD COLUMN name TEXT")
             c.execute("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)")
             # Katalog = „welche Titel gibt es für diese Plattform" (Momentaufnahme aus IGDB).
             # Getrennt von `library` (= was wir haben); die Differenz ist die Abdeckung. (#78)
@@ -644,13 +650,19 @@ def geheimnisse_absichern():
         if os.path.exists(pfad):
             geheim_absichern(pfad)
 
-def save_index_to_db(per, allset, slugs, ts):
-    """RAM-Index atomar in SQLite spiegeln (library-Tabelle komplett ersetzen + meta-Zähler)."""
-    rows = [(slug, n) for slug, s in per.items() for n in s]
+def save_index_to_db(per, allset, slugs, ts, namen=None):
+    """RAM-Index atomar in SQLite spiegeln (library-Tabelle komplett ersetzen + meta-Zähler).
+
+    `namen` bildet (slug, norm) -> Anzeigename ab (#293). Fehlt es, bleibt die Spalte
+    leer und die Bibliotheksansicht faellt auf `norm` zurueck — die Liste ist dann
+    haesslich, aber nicht falsch.
+    """
+    namen = namen or {}
+    rows = [(slug, n, namen.get((slug, n))) for slug, s in per.items() for n in s]
     try:
         with DB_LOCK, closing(db_conn()) as c, c:
             c.execute("DELETE FROM library")
-            c.executemany("INSERT INTO library(slug,norm) VALUES(?,?)", rows)
+            c.executemany("INSERT INTO library(slug,norm,name) VALUES(?,?,?)", rows)
             c.executemany("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)",
                           [("index_ts", str(ts)), ("index_titles", str(len(allset))),
                            ("index_platforms", str(len(slugs))), ("slugs", json.dumps(sorted(slugs)))])
@@ -790,6 +802,10 @@ def build_index():
     in LIB (RAM) ablegen UND in SQLite persistieren. Läuft beim allerersten Start und
     danach periodisch im Hintergrund (periodic_index) sowie nach jedem Import."""
     per, allset, slugs = {}, set(), set()
+    # Anzeigename je (slug, norm) — der Dateiname ohne Endung (#293). Bei mehreren
+    # Dateien desselben Titels gewinnt der KUERZESTE: `Turrican.d64` ist als
+    # Ueberschrift brauchbar, `Turrican (1990)(Rainbow Arts)[cr ABC][t +3].d64` nicht.
+    namen = {}
     try:
         for ordner in os.listdir(ROMS):
             p = os.path.join(ROMS, ordner)
@@ -809,6 +825,10 @@ def build_index():
                         # kostet fast nichts: sie sieht zuerst auf die Groesse.
                         if ist_xsym(os.path.join(root, fn)): continue
                         s.add(n); allset.add(n)
+                        anzeige = os.path.splitext(fn)[0].strip() or fn
+                        vorher = namen.get((slug, n))
+                        if vorher is None or len(anzeige) < len(vorher):
+                            namen[(slug, n)] = anzeige
                     # nur zwei Ebenen tief laufen (Performance)
                     if root != p and os.path.relpath(root, p).count(os.sep) >= 1:
                         dirs[:] = []
@@ -818,7 +838,7 @@ def build_index():
     ts = time.time()
     with LIB_LOCK:
         LIB["per"], LIB["all"], LIB["slugs"], LIB["ts"] = per, allset, slugs, ts
-    save_index_to_db(per, allset, slugs, ts)   # persistieren -> schneller Neustart
+    save_index_to_db(per, allset, slugs, ts, namen)   # persistieren -> schneller Neustart
     log(f"Bibliotheks-Index: {len(slugs)} Plattformen, {len(allset)} Titel (in DB gesichert)")
     refresh_coverage_counts()   # Abdeckung folgt der Bibliothek, wird nicht je Request gerechnet (#78)
 
@@ -929,6 +949,36 @@ def missing_titles(slug, offset=0, limit=100, q=""):
             names = [r[0] for r in c.execute(sql, args + [int(limit), int(offset)])]
     except Exception as e:
         log(f"Fehlende-Titel {slug}: {e}"); return {"total": 0, "titles": []}
+    return {"total": total, "titles": names}
+
+
+def owned_titles(slug, offset=0, limit=100, q=""):
+    """Die VORHANDENEN Titel einer Plattform, paginiert und filterbar. (#293)
+
+    Das Gegenstueck zu `missing_titles`. Die Abdeckungsseite konnte bisher nur
+    beantworten, was FEHLT — vor dem Regal ist aber die haeufigere Frage, was man
+    fuer eine Konsole HAT.
+
+    Paginiert von Anfang an, nicht nachtraeglich: `c64` haelt hier fuenfstellige
+    Titelzahlen, und eine vollstaendige Liste wuerde den Browser anhalten.
+
+    Angezeigt wird `name` (der kuerzeste Dateiname des Titels); wo die Spalte noch
+    leer ist — Datenbank von vor #293, Index seitdem nicht neu gebaut —, faellt es
+    auf `norm` zurueck, damit die Liste nie leer aussieht.
+    """
+    sql = "SELECT COALESCE(NULLIF(l.name,''), l.norm) FROM library l WHERE l.slug=?"
+    args = [slug]
+    if q:
+        sql += " AND (l.name LIKE ? OR l.norm LIKE ?)"
+        args += [f"%{q}%", f"%{q.lower()}%"]
+    cnt_sql = sql.replace("SELECT COALESCE(NULLIF(l.name,''), l.norm)", "SELECT COUNT(*)", 1)
+    sql += " ORDER BY 1 LIMIT ? OFFSET ?"
+    try:
+        with closing(db_conn()) as c:
+            total = c.execute(cnt_sql, args).fetchone()[0]
+            names = [r[0] for r in c.execute(sql, args + [int(limit), int(offset)])]
+    except Exception as e:
+        log(f"Vorhandene-Titel {slug}: {e}"); return {"total": 0, "titles": []}
     return {"total": total, "titles": names}
 
 # ---------- RetroAchievements (optional, rein schmückend) (#79) ----------
@@ -3448,6 +3498,50 @@ def api_coverage_missing(slug):
     return jsonify({**d, "slug": slug, "offset": offset, "limit": limit,
                     "source": e.get("source", ""), "snapshot": e.get("snapshot", "")})
 
+@app.route("/api/library/platforms")
+def api_library_platforms():
+    """Die eigene Bibliothek, nach Hersteller und System gruppiert. (#293)
+
+    Bewusst DIESELBE Gruppierung wie Plattformfilter und Abdeckungsseite (`PLATFORMS`) —
+    eine dritte Liste waere eine dritte Wahrheit. Plattformen OHNE Katalogquelle
+    erscheinen hier ebenfalls: was man besitzt, weiss Romseerr auch ohne IGDB, und sie
+    hinter einer nicht berechenbaren Prozentzahl verschwinden zu lassen waere der
+    Fehler, den die Abdeckungsseite gerade vermeidet.
+    """
+    with LIB_LOCK:
+        per = {s: len(v) for s, v in (LIB["per"] or {}).items()}
+    gruppen = []
+    for hersteller, items in PLATFORMS:
+        systeme = [{"slug": s, "name": n, "owned": per.get(s, 0)}
+                   for s, n in items if per.get(s, 0)]
+        if systeme:
+            gruppen.append({"vendor": hersteller,
+                            "owned": sum(x["owned"] for x in systeme),
+                            "platforms": systeme})
+    # Ordner, die Romseerr kennt, die aber in keiner Herstellergruppe stehen — sonst
+    # fehlten sie in der Summe, und niemand faende sie wieder.
+    bekannt = {s for _g, items in PLATFORMS for s, _n in items}
+    rest = [{"slug": s, "name": SLUG_NAME.get(s, s), "owned": n}
+            for s, n in sorted(per.items()) if s not in bekannt and n]
+    if rest:
+        gruppen.append({"vendor": "—", "owned": sum(x["owned"] for x in rest),
+                        "platforms": rest})
+    return jsonify({"vendors": gruppen, "total": sum(per.values())})
+
+
+@app.route("/api/library/<slug>/titles")
+def api_library_titles(slug):
+    """Die vorhandenen Titel einer Plattform — das Gegenstueck zu `…/missing`. (#293)"""
+    try:
+        offset = max(0, int(request.args.get("offset", 0) or 0))
+        limit = min(500, max(1, int(request.args.get("limit", 100) or 100)))
+    except ValueError:
+        offset, limit = 0, 100
+    d = owned_titles(slug, offset, limit, (request.args.get("q") or "").strip()[:60])
+    return jsonify({**d, "slug": slug, "name": SLUG_NAME.get(slug, slug),
+                    "offset": offset, "limit": limit})
+
+
 @app.route("/api/detail")
 def api_detail():
     source = request.args.get("source",""); ref = request.args.get("ref",""); title = request.args.get("title","")
@@ -5544,6 +5638,12 @@ OPENAPI = {
         "/api/coverage/{slug}/missing": {"get": _op("Fehlende Titel einer Plattform (paginiert, filterbar)", "Search",
             params=[_pp("slug", "Plattform-Slug"), _qp("offset", "Versatz"), _qp("limit", "max. 500"),
                     _qp("q", "Textfilter")])},
+        "/api/library/platforms": {"get": _op(
+            "Eigene Bibliothek: Titelzahl je System, nach Hersteller gruppiert", "Search")},
+        "/api/library/{slug}/titles": {"get": _op(
+            "Vorhandene Titel einer Plattform (paginiert, filterbar)", "Search",
+            params=[_pp("slug", "Plattform-Slug"), _qp("offset", "Versatz"),
+                    _qp("limit", "max. 500"), _qp("q", "Textfilter")])},
         "/api/discover": {"get": _op("Beliebte Titel (flach)", "Search")},
         "/api/discover/rows": {"get": _op("Startseiten-Reihen (beliebt je Konsole + je Genre)", "Search")},
         "/api/detail": {"get": _op("Detaildaten inkl. IGDB (Wertung, Screenshots, Ähnliches) + Dateien", "Search",
