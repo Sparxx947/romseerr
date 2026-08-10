@@ -699,6 +699,31 @@ root auf dem Host. Für einen nginx-Reload ist das kein ausreichender Grund.
 DNS-01 funktioniert mit jedem Anbieter, für den certbot ein Plugin hat — `DNS_PLUGIN`
 in der `.env` umstellen (`cloudflare`, `route53`, `digitalocean`, `rfc2136`, …).
 
+### Warum certbot ein eigener Container bleibt
+
+Zwei Container für eine Aufgabe sieht nach einem zu viel aus, und die Frage wurde
+geprüft (#191). Ergebnis: **der Beiwagen bleibt.** Nachgemessen am laufenden Host:
+
+- **Eine Installation im Streaming-Host würde nicht überleben.** `pip3` ist vorhanden
+  (LSIOs Python unter `/lsiopy`), aber `/lsiopy` ist **kein Volume** — was dort landet,
+  liegt in der beschreibbaren Schicht und ist nach dem nächsten Image-Update weg.
+  Dasselbe Muster, das hier schon einmal einen per `apt` installierten Dolphin lautlos
+  verschwinden ließ.
+- **Nach `/config` auszuweichen verlagert das Problem nur.** Das Verfahren gibt es hier
+  (`init/35-gamepad-bridge` legt python-evdev ABI-gebunden dort ab), aber certbot bringt
+  `cryptography` mit — ein kompiliertes Paket. Ein Python-Wechsel im Image (aktuell 3.14)
+  macht es unbrauchbar, und dann erneuert sich das Zertifikat still nicht mehr.
+- **Was ein abgelaufenes Zertifikat kostet, ist überproportional.** Ohne HTTPS verweigert
+  der Browser die WebCodecs-API: **Ton und Gamepad bleiben still, ohne Fehlermeldung.**
+  Ein Ausfall, der genau dort nicht auffällt, wo er wehtut.
+
+Dagegen steht als Gewinn: ein Container und `init/40-cert-watch` weniger. Das wiegt das
+Risiko nicht auf.
+
+**Sichtbar ist der Fehlschlag heute doppelt** — der Beiwagen steht dann nicht mehr auf
+`Up`, und die Ablaufüberwachung schlägt unabhängig davon an. Wer den Umbau später doch
+erwägt, muss die zweite Sicherung erst haben, bevor er die erste abschafft.
+
 ---
 ---
 
@@ -1079,3 +1104,27 @@ The `stream-certbot` sidecar renews every 12 hours into the same directory the
 streaming host reads from; `init/40-cert-watch` notices the changed fingerprint and
 reloads the web server. Deliberately **without a Docker socket** — a container that
 can see the socket is effectively root on the host, which a reload does not justify.
+
+### Why certbot stays a separate container
+
+Two containers for one job looks like one too many, and the question was examined
+(#191). The answer: **the sidecar stays.** Measured on the running host:
+
+- **An install inside the streaming host would not survive.** `pip3` is there (LSIO's
+  Python under `/lsiopy`), but `/lsiopy` is **not a volume** — anything installed there
+  sits in the writable layer and is gone after the next image update. The same pattern
+  that once made an `apt`-installed Dolphin vanish silently.
+- **Moving it to `/config` only relocates the problem.** The technique exists here
+  (`init/35-gamepad-bridge` caches python-evdev there, keyed by ABI), but certbot pulls
+  in `cryptography` — a compiled package. A Python change in the image (currently 3.14)
+  breaks it, and the certificate then quietly stops renewing.
+- **An expired certificate costs disproportionately.** Without HTTPS the browser gates
+  the WebCodecs API: **audio and gamepad go silent, with no error shown.** A failure
+  that hides exactly where it hurts.
+
+Against that, the gain is one container and `init/40-cert-watch` fewer. That does not
+outweigh the risk.
+
+**Failure is visible twice today** — the sidecar drops out of `Up`, and certificate
+expiry monitoring alerts independently. Anyone revisiting this later needs the second
+safeguard in place *before* removing the first.
