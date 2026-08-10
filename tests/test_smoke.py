@@ -5428,3 +5428,60 @@ def test_the_base_game_wins_over_an_update_that_is_larger(appmod):
             if os.path.exists(p):
                 os.remove(p)
         appmod.build_index()
+
+
+# ------------------------------- Unversorgte Plattformen einsortieren (#193)
+
+def test_xsym_symlink_placeholders_do_not_become_titles(appmod):
+    """RetroNAS legt Herstellerordner an, deren Inhalt nur Verweise sind.
+
+    Ueber SMB gelesen sind XSym-Symlinks gewoehnliche Dateien — genau 1067 Byte,
+    beginnend mit `XSym\\n`. Ohne die Pruefung werden sie zu Titeln, ihre Ordner zu
+    Plattformen, und `nec`, `nintendo` und `sega` erscheinen als drei unversorgte
+    Plattformen, die es nie gab. (#193)
+
+    Die Ordner am NAMEN zu verbieten waere der falsche Weg: anderswo ist `sega/` voller
+    Mega-Drive-Spiele. Deshalb entscheidet der Dateiinhalt, nicht der Ordnername.
+    """
+    d = os.path.join(appmod.ROMS, "nec")
+    os.makedirs(d, exist_ok=True)
+    # GENAU der Fall aus der Bibliothek: `nec/turbografx16` ist ein Verweis auf
+    # `nec/pcengine`. Der Name ueberlebt die Normalisierung (anders als etwa "genesis",
+    # das ohnehin verworfen wird) — ohne die Pruefung wird daraus also ein Titel.
+    verweis = os.path.join(d, "turbografx16")
+    echt = os.path.join(d, "Zzz Echtes Spiel.md")
+    # XSym: 1067 Byte, Kopfwort, danach Ziel — so legt Netatalk/Samba das ab.
+    with open(verweis, "wb") as f:
+        f.write(b"XSym\n0031\n" + b"0" * 32 + b"\n/srv/retronas/roms/nec/pcengine\n")
+        f.truncate(appmod.XSYM_GROESSE)
+    with open(echt, "wb") as f:
+        f.write(b"x" * 2048)
+    appmod.build_index()
+    try:
+        titel = appmod.LIB["per"].get("nec") or set()
+        assert appmod.norm("Zzz Echtes Spiel.md") in titel, "echter Titel fehlt"
+        assert appmod.norm("turbografx16") not in titel, "XSym-Verweis wurde zum Titel"
+        # Und die Gegenprobe zur Groesse: eine gleich grosse Datei OHNE Kopfwort zaehlt.
+        assert appmod.ist_xsym(verweis)
+        assert not appmod.ist_xsym(echt)
+    finally:
+        for p in (verweis, echt):
+            if os.path.exists(p):
+                os.remove(p)
+        appmod.build_index()
+
+
+def test_cd32_uses_the_amiga_core_that_is_already_there(appmod):
+    """CD32 ist ein Amiga mit CD-Laufwerk und laeuft auf demselben Kern.
+
+    Der Kern `puae` war fuer den Amiga laengst eingetragen; die 715 CD32-Dateien lagen
+    nur still, weil die Zuordnung fehlte — die billigste Abdeckung der ganzen Liste.
+    Er wurde im eingesetzten RomM-Bau per HEAD nachgesehen, nicht aus libretros Katalog
+    uebernommen. (#193)
+    """
+    assert appmod.PLAYABLE.get("amiga-cd32") == "puae"
+    assert appmod.PLAYABLE.get("amiga") == "puae", "beide muessen denselben Kern nutzen"
+    # Ohne Kickstart startet der Kern und scheitert dann — das muss VORHER dastehen.
+    assert "amiga-cd32" in appmod.NEEDS_BIOS
+    # Und der Slug muss eine bekannte Plattform sein, sonst taucht er nirgends auf.
+    assert "amiga-cd32" in appmod.SLUG_NAME

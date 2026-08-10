@@ -105,6 +105,13 @@ Methode steht als `Σ` auf der Karte. Und weil **nicht jede Plattform eine Katal
 hat**, steht dort auch „x von y Konsolen messbar": eine Zahl über einen Ausschnitt, ohne
 das dazuzusagen, wäre irreführend.
 
+**Symlink-Platzhalter zählen nicht als Titel.** Legt die Bibliothek auf einem Dateisystem
+ohne echte Symlinks (Netatalk, Samba) Verweise im **XSym**-Format ab, sind das über die
+Freigabe gelesen ganz normale Dateien. Ohne Gegenmaßnahme werden daraus Titel, aus reinen
+Gruppierungsordnern wie `nec/` oder `sega/` werden Plattformen — und die Abdeckung meldet
+Lücken, die es nie gab. Erkannt wird das am Inhalt (genau 1067 Byte, Kopfwort `XSym`),
+**nicht am Ordnernamen**: in einer anderen Bibliothek liegen unter `sega/` echte Spiele.
+
 ### Logos — bewusst keine im Repo
 
 Konsolen- und Herstellerlogos sind **Marken**. Romseerr liefert deshalb **kein einziges
