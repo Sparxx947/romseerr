@@ -1817,7 +1817,15 @@ def test_streamable_and_playable_stay_disjoint(appmod):
     gibt es keinen Stream-Knopf. Beim Nachruesten von Plattformen ist genau das die
     Stelle, an der man es kaputt macht. (#101)"""
     ueberschneidung = appmod.STREAMABLE & set(appmod.PLAYABLE)
-    assert not ueberschneidung, f"Plattform in beiden Mengen: {ueberschneidung}"
+    # Ausnahmen sind erlaubt, aber nur ausdrueckliche: PS1 bietet bewusst beide Wege
+    # an (#268). Alles, was nicht in DUAL_WEG steht, bleibt ein Fehler — sonst waere
+    # die Regel beim naechsten Nachruesten still ausgehoehlt.
+    assert ueberschneidung <= appmod.DUAL_WEG, \
+        f"Plattform in beiden Mengen, ohne Eintrag in DUAL_WEG: {ueberschneidung - appmod.DUAL_WEG}"
+    # Und umgekehrt: eine Ausnahme, die gar nicht mehr in beiden Mengen steht, ist
+    # eine Karteileiche und gehoert entfernt.
+    assert appmod.DUAL_WEG <= ueberschneidung, \
+        f"DUAL_WEG nennt Plattformen, die gar nicht in beiden Mengen sind: {appmod.DUAL_WEG - ueberschneidung}"
     # die nachgeruesteten Plattformen sind wirklich drin
     for slug in ("xbox", "ps3", "psvita", "dreamcast", "3ds", "wiiu"):
         assert slug in appmod.STREAMABLE, slug
@@ -4804,3 +4812,45 @@ def test_dolphin_gcpad_replaces_only_port_one(tmp_path):
 
     nochmal, msg = m.dolphin_gcpad()
     assert not nochmal, msg
+
+
+def test_duckstation_disables_the_setup_wizard(tmp_path):
+    """Ohne diesen Schalter ist die schönste Belegung wertlos.
+
+    DuckStation öffnet beim ersten Start einen **modalen** "Setup Wizard". Im Container
+    sieht den niemand, und jeder Start staut sich dahinter — gemessen am laufenden Host:
+    Prozess lebte, Fenster hieß "DuckStation Setup Wizard", ein Spiel startete nie. Mit
+    dem Schalter bootet derselbe Aufruf direkt in den Titel. Dieselbe Falle wie RPCS3s
+    Willkommensfenster (#164) und JDownloaders Rückfragen (#219). (#268)
+    """
+    m = _profil_modul(tmp_path)
+    pfad = m.duckstation_ini()
+    os.makedirs(os.path.dirname(pfad), exist_ok=True)
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write("[Main]\nConfirmPowerOff = true\n\n[Pad1]\nType = AnalogController\n"
+                "Cross = Keyboard/K\n\n[Pad2]\nType = None\n")
+
+    geaendert, msg = m.duckstation_apply()
+    assert geaendert, msg
+    inhalt = open(pfad, encoding="utf-8").read()
+    assert "SetupWizardIncomplete = false" in inhalt, "Erstlaufdialog nicht abgeschaltet"
+    # Der Schalter gehört in [Main], nicht in den Pad-Abschnitt.
+    assert "SetupWizardIncomplete" in inhalt.split("[Pad1]")[0]
+    assert "Cross = SDL-0/FaceSouth" in inhalt
+    assert "Type = AnalogController" in inhalt, "der Controller-Typ gehört dem Benutzer"
+    assert "[Pad2]" in inhalt and "Type = None" in inhalt, "Spieler 2 angetastet"
+    assert not m.duckstation_apply()[0], "zweiter Lauf darf nichts mehr tun"
+
+
+def test_duckstation_reuses_the_pcsx2_binding_names(tmp_path):
+    """Beide Emulatoren benutzen dieselben Namen und dieselbe SDL-Quelle — nachgesehen
+    in DuckStations eigener settings.ini. Eine zweite Tabelle daneben würde auseinander
+    laufen, sobald jemand nur eine pflegt. (#268)"""
+    m = _profil_modul(tmp_path)
+    quelle = open(os.path.join(REPO, "contrib/streaming-host/launch-profile.py"),
+                  encoding="utf-8").read()
+    # Es darf genau EINE Bindungstabelle geben.
+    assert quelle.count("\"Cross\":") == 1, "zweite Tabelle mit denselben Namen angelegt"
+    assert m.PROFILE["duckstation"]["controller"] is m.duckstation_apply
+    assert m.PROFILE["duckstation"]["geprueft"] is False, \
+        "geprueft erst, wenn ein Mensch im Spiel gespielt hat"

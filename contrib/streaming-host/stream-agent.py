@@ -47,6 +47,7 @@ ROMS = os.path.realpath(os.environ.get("STREAM_ROMS", "/roms"))
 # Plattform -> Startbefehl. Leer = nicht verfuegbar, der Aufrufer bekommt dann eine
 # klare Absage statt eines Startversuchs ins Leere. Die Werte setzt init/30-agent.
 EMULATORS = {
+    "psx":       os.environ.get("EMU_PSX", ""),
     "ps2":       os.environ.get("EMU_PS2", ""),
     "ngc":       os.environ.get("EMU_GC", ""),
     "wii":       os.environ.get("EMU_GC", ""),

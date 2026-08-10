@@ -51,6 +51,12 @@ umask 077
 # file alone is enough. RPCS3 needs it in dev_flash, and the file-only check said ready
 # while the emulator had nothing.
 KATALOG=(
+  # PS1: 512 KiB, und der Name variiert stark (scph1001/5500/5501/7001, je nach
+  # Region und Konsole) — deshalb wie bei der PS2 nach GROESSE statt nach Namen.
+  # Das PS2-BIOS taugt NICHT als Ersatz, auch wenn eine PS2 PS1-Spiele abspielt:
+  # DuckStation liest ein echtes PS1-Abbild. / EN: match by size; the PS2 BIOS is not
+  # a substitute even though a PS2 plays PS1 discs.
+  "psx|PlayStation 1|duckstation|.local/share/duckstation/bios|*.bin=524288|https://github.com/stenzek/duckstation#bios|"
   "ps2|PlayStation 2|pcsx2|.config/PCSX2/bios|*.bin=4194304|https://pcsx2.net/docs/setup/bios/|"
   "dreamcast|Dreamcast|flycast|.local/share/flycast|dc_boot.bin=2097152;dc_flash.bin=131072|https://github.com/flyinghead/flycast/wiki|"
   # Xbox: NACH GROESSE statt nach Namen. xemu bekommt die Pfade in seiner eigenen

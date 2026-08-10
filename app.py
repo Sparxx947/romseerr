@@ -2495,8 +2495,23 @@ def play_info(title, slug=""):
 #
 # EINZELPLATZ: mit einer GPU ist das eine Sitzung gleichzeitig. Das muss die Oberflaeche
 # klar sagen, statt beim zweiten Versuch zu scheitern.
-STREAMABLE = {"ps2", "ngc", "wii", "wiiu", "switch", "dreamcast", "3ds",
+STREAMABLE = {"psx", "ps2", "ngc", "wii", "wiiu", "switch", "dreamcast", "3ds",
               "xbox", "ps3", "psvita"}
+
+# Ausnahme von der Regel "Browser-Kern ODER Stream, nie beides" (#101).
+#
+# Die Regel bleibt richtig: zwei Knoepfe fuer dasselbe Spiel sind erklaerungsbeduerftig,
+# und fuer die meisten Plattformen gibt es einen klar besseren Weg. Bei PS1 gibt es das
+# nicht — beide Wege sind ihre eigene Sache wert:
+#   Browser  — sofort, ohne Sitzung, MEHRERE Personen gleichzeitig
+#   Stream   — Vollbild und Speicherstaende neben den anderen Konsolen, aber nur EINE
+#              Sitzung zur selben Zeit (#137)
+# Wer hier eine Plattform eintraegt, trifft diese Entscheidung ausdruecklich; alles,
+# was NICHT hier steht, bleibt eine verbotene Ueberschneidung.
+#
+# EN: deliberate exception to "browser core or stream, never both". For PS1 neither way
+# is clearly better, so both are offered. Anything not listed here stays an error.
+DUAL_WEG = {"psx"}
 # Verzeichnisname je Plattform. Der Umweg ueber diese feste Tabelle ist Absicht: der
 # Pfad wird damit aus einer KONSTANTE gebaut, nicht aus der Eingabe. Ein '../'-Versuch
 # findet hier schlicht keinen Eintrag, statt bis in os.path.join durchzureichen.

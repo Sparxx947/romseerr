@@ -254,6 +254,34 @@ docker exec stream-host /custom-cont-init.d/25-firmware --import dreamcast /pfad
 docker exec stream-host /custom-cont-init.d/25-firmware --vendor ps3
 ```
 
+## PlayStation 1 (DuckStation)
+
+PS1 ist die einzige Plattform, die **beide Wege** anbietet: den Browser-Kern *und* den
+Stream. Das ist eine bewusste Ausnahme (`DUAL_WEG` in `app.py`) — bei allen anderen gilt
+weiter „Browser-Kern oder Stream, nie beides". Der Grund: Im Browser spielen mehrere
+Personen gleichzeitig und ohne Sitzung, der Stream liefert Vollbild und legt die
+Speicherstände neben die der anderen Konsolen.
+
+**PS1 braucht ein BIOS** (512 KiB, `scph*.bin`) unter `<config>/.local/share/duckstation/bios`.
+Das PS2-BIOS taugt **nicht** als Ersatz, auch wenn eine PS2 PS1-Discs abspielt. Die
+Firmware-Prüfung erkennt es an der **Größe**, nicht am Namen — die Datei heißt je nach
+Region und Konsole anders.
+
+**Falle: der Erstlaufdialog.** DuckStation öffnet beim ersten Start einen *modalen*
+„Setup Wizard". Im Container sieht den niemand, und **jeder Start staut sich dahinter** —
+der Prozess lebt, ein Fenster existiert, ein Spiel startet nie. Das Startprofil setzt
+deshalb `SetupWizardIncomplete = false`. Dieselbe Falle wie RPCS3s Willkommensfenster und
+JDownloaders Rückfragen; wer einen neuen Emulator ergänzt, sollte zuerst danach suchen.
+
+*EN: PS1 is the only platform offering both the browser core and the stream — a
+deliberate exception (`DUAL_WEG`), because neither way is clearly better: the browser
+serves several people at once without a session, the stream gives fullscreen and keeps
+saves next to the other consoles. It needs a 512 KiB PS1 BIOS in
+`<config>/.local/share/duckstation/bios`; the PS2 BIOS is not a substitute, and the check
+matches by size because the filename varies. Note the trap: DuckStation opens a modal
+setup wizard on first run that nobody can see in a container, and every launch stalls
+behind it — the launch profile sets `SetupWizardIncomplete = false`.*
+
 ## Emulatoren aktualisieren und zurücksetzen
 
 Läuft bei jedem Containerstart: die aktuelle Release-URL wird geholt und mit der
