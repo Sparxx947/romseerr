@@ -809,6 +809,46 @@ def panel_zurueck():
        "-t", "int", "-s", "0", "--create")
 
 
+def rechte_hinweis(pfad):
+    """-> lesbarer Hinweis, warum eine Datei nicht zugaenglich ist.
+
+    WOZU: Ein `PermissionError` verlaesst dieses Programm sonst als Traceback im
+    Agent-Log — der Schritt bricht ab, BIOS und Vollbild werden nicht gesetzt, und der
+    Emulator startet mit einem Dialog statt mit dem Spiel. Von aussen sieht das aus wie
+    "der Stream geht auf, aber es startet kein Spiel". Genau so passiert (2026-08-10).
+    EN: a PermissionError otherwise leaves as a traceback, the step aborts, and the
+    emulator comes up with a dialog instead of the game.
+    """
+    try:
+        st = os.stat(pfad)
+    except OSError:
+        return f"{pfad} nicht lesbar"
+    import pwd
+    def name(uid):
+        try:
+            return pwd.getpwuid(uid).pw_name
+        except KeyError:
+            return str(uid)
+    return (f"{pfad} gehoert {name(st.st_uid)} (Modus {oct(st.st_mode)[-3:]}), "
+            f"wir sind {name(os.geteuid())} — Abhilfe: "
+            f"chown {name(os.geteuid())} '{pfad}'")
+
+
+def sicher(schritt, *args, **kw):
+    """Einen Profilschritt ausfuehren und Rechtefehler in Klartext uebersetzen.
+
+    Fehlende Rechte sind hier der Normalfall des Scheiterns, seit Emulatoren nicht mehr
+    als root laufen: alles, was frueher als root geschrieben wurde, gehoert root und ist
+    mit Modus 600 fuer niemanden sonst lesbar.
+    EN: missing permissions are the expected failure mode since emulators stopped
+    running as root; anything written back then is root-owned and mode 600.
+    """
+    try:
+        return schritt(*args, **kw)
+    except PermissionError as e:
+        return False, "KEIN ZUGRIFF: " + rechte_hinweis(e.filename or "?")
+
+
 def main(argv):
     if argv and argv[0] == "--fullscreen":
         if len(argv) < 2 or argv[1] not in PROFILE:
@@ -817,7 +857,7 @@ def main(argv):
         if not fn:
             print(f"[vollbild] {argv[1]}: kein eigener Schalter — Fenstertrick greift")
             return 2                       # 2 = Rueckfall noetig
-        geaendert, msg = fn()
+        geaendert, msg = sicher(fn)
         print(f"[vollbild] {argv[1]}: {msg}")
         return 0
     if argv and argv[0] == "--window":
@@ -835,7 +875,7 @@ def main(argv):
         if not fn:
             print(f"[bios] {argv[1]}: braucht kein BIOS zum Starten")
             return 0
-        geaendert, msg = fn(argv[2])
+        geaendert, msg = sicher(fn, argv[2])
         print(f"[bios] {argv[1]}: {msg}")
         return 0 if geaendert or "bereits" in msg else 1
     if not argv or argv[0] not in ("--apply", "--status"):
@@ -845,7 +885,7 @@ def main(argv):
         for name, e in PROFILE.items():
             teile = []
             if e["controller"]:
-                noetig, msg = e["controller"](pruefen=True)
+                noetig, msg = sicher(e["controller"], pruefen=True)
                 teile.append(("offen" if noetig else "gesetzt") + f" ({msg})")
             else:
                 teile.append("Controller: eigene Zuordnung")
@@ -861,9 +901,14 @@ def main(argv):
     if not fn:
         print(f"[controller] {ziel}: ordnet ein erkanntes SDL-Pad selbst zu")
         return 0
-    geaendert, msg = fn()
+    geaendert, msg = sicher(fn)
     print(f"[controller] {ziel}: {msg}")
-    return 0
+    # Ein Rechtefehler ist KEIN Erfolg. Frueher verliess er das Programm als Traceback,
+    # der Rueckgabewert blieb 0, und der Agent startete den Emulator ohne gesetztes
+    # BIOS und ohne Vollbild — das Ergebnis war ein Dialog statt eines Spiels.
+    # EN: a permission error is not success; it used to leave as a traceback while the
+    # exit code stayed 0 and the emulator came up unconfigured.
+    return 1 if msg.startswith("KEIN ZUGRIFF") else 0
 
 
 if __name__ == "__main__":
