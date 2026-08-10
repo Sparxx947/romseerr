@@ -292,7 +292,7 @@ Die Abhilfe ist `DRINODE` in der Compose-Datei. Gemessen mit und ohne:
 Ein echter Xorg auf der GPU wurde probiert und funktioniert auch (headless, `modesetting`
 + glamor, als unprivilegierter Nutzer) — er wird schlicht nicht gebraucht.
 
-## Gamepads erreichen die Emulatoren nicht (offen)
+## Gamepads: die uinput-Brücke
 
 Selkies reicht Gamepads über einen **`LD_PRELOAD`-Interposer** weiter. Die Emulatoren hier
 sind AppImages, deren Runtime **statisch gelinkt** ist (`AppRun` ist `static-pie`) — und auf
@@ -305,17 +305,85 @@ Ausprobiert und verworfen: den Interposer neu bauen (geht, ändert nichts), das 
 statt des AppImage (öffnet kein Fenster), die mitgelieferte `libudev` beiseitelegen
 (wirkungslos).
 
-Der Weg, der funktioniert, ist `selkies-uinput-bridge.py`: Sie spricht dasselbe
+Der Weg, der funktioniert, ist `selkies-uinput-bridge.py`. Sie spricht dasselbe
 Socket-Protokoll wie der Interposer und legt daraus **echte Kernel-Geräte** an, die kein
-Preloading brauchen. Der Prototyp erzeugt sie nachweislich. Offen ist, Selkies' eigene
-Interposer-Geräte abzuschalten, damit die echten deren Plätze einnehmen, und die Brücke als
-Dienst zu verankern. Voraussetzung ist das **uinput-Modul auf dem Host** und
-`/dev/uinput` im Container.
+Preloading brauchen. Gestartet wird sie von `init/35-gamepad-bridge`.
 
-*EN: gamepads never reach the emulators because `LD_PRELOAD` cannot apply to a statically
-linked AppImage runtime. `selkies-uinput-bridge.py` speaks the same socket protocol and
-creates real kernel devices instead; the prototype works, wiring it up as a service is
-still open.*
+### Was dafür nötig ist
+
+| | |
+|---|---|
+| `uinput`-Modul **auf dem Host** | `modprobe uinput`, dauerhaft über `/etc/modules-load.d/` |
+| `/dev/uinput` im Container | steht unter `devices:` |
+| `device_cgroup_rules: c 13:* rmw` | **ohne das geht es nicht**, siehe unten |
+
+Die Freigabe ist der Punkt, der am meisten Zeit gekostet hat: Der Container darf Geräte
+**anlegen**, aber nicht **öffnen**. Das gebrückte Pad stand als `/dev/input/event3` mit
+`crw-rw-rw-` im Container — und `open()` scheiterte trotzdem mit `EPERM`, auch als `root`.
+Es sind nicht die Dateirechte, sondern Dockers Device-Cgroup: erlaubt ist nur, was unter
+`devices:` aufgeführt ist. Weil die Gerätenummer bei jedem Verbinden wechselt, hilft keine
+feste Nummer, sondern nur der ganze Major 13.
+
+**Abwägung:** Damit darf der Container auch die Eingabegeräte des Hosts lesen. Auf einem
+Server ohne Tastatur und Maus ist das gegenstandslos — vorher `cat /proc/bus/input/devices`
+ansehen.
+
+### Zwei Eigenheiten, die von außen wie Defekte aussehen
+
+**Die Geräte entstehen im `/dev` des Hosts, nicht im Container.** uinput legt sie im Kernel
+an, also erscheinen sie im devtmpfs des Hosts; der Container hat sein eigenes `/dev`. Die
+Brücke liest deshalb die Gerätenummer aus `/sys/devices/virtual/input/<sysname>/…/dev` und
+legt den Knoten selbst an (`mknod` ist erlaubt, der Container ist **nicht** privilegiert).
+Beim Verbindungsabbruch räumt sie nur das weg, was sie selbst angelegt hat.
+
+**Selkies bietet immer vier Pads an**, auch ohne angeschlossenen Controller — es entstehen
+also stets vier Geräte. Das ist beabsichtigt: Im Container läuft kein `udev`, ein bereits
+laufender Emulator würde ein später erscheinendes Gerät nie bemerken. Reihenfolge deshalb:
+**erst Pad im Browser verbinden, dann das Spiel starten.**
+
+### Wenn nichts ankommt
+
+Zuerst die Sonde — sie prüft die **ganze** Kette ohne angeschlossenen Controller und sagt,
+welches der drei Glieder fehlt:
+
+```bash
+docker exec -u 0 stream-host python3 /opt/gamepad-bridge-probe.py
+```
+
+```
+OK Bruecke verbunden
+OK Geraeteknoten angelegt: /dev/input/event7
+OK Eingaben kommen als uid 1000 an — die Kette steht.
+```
+
+Sie legt einen **eigenen** Socket an und lässt die echten unberührt; eine laufende Sitzung
+stört sie nicht. Von Hand nachsehen geht auch:
+
+```bash
+docker exec stream-host tail -20 /config/gamepad-bridge.log   # legt sie Geräte an?
+docker exec stream-host ls -l /dev/input/                     # event3.. vorhanden?
+docker exec -u 1000 stream-host head -c1 /dev/input/event3    # EPERM = Cgroup-Regel fehlt
+```
+
+`event1000`–`event1003` und `js0`–`js3` legt **Selkies** an. Die `event100x` sind Attrappen
+und melden „No such device" — das ist normal, sie funktionieren nur über den Interposer.
+Die `js0`–`js3` zeigen dagegen auf die echten Geräte der Brücke.
+
+**`NO_GAMEPAD` ist keine Lösung:** Der Schalter entfernt zwar die Attrappen, sein
+`else`-Zweig setzt aber `SELKIES_GAMEPAD_ENABLED=false` und schaltet damit die Sockets ab,
+aus denen die Brücke liest. Er würde den Controller vollständig abschalten.
+
+*EN: gamepads cannot reach the emulators because `LD_PRELOAD` does not apply to a
+statically linked AppImage runtime. `selkies-uinput-bridge.py` speaks the same socket
+protocol and creates real kernel devices instead, started by `init/35-gamepad-bridge`.
+Three things are required: the `uinput` module on the host, `/dev/uinput` in the container,
+and `device_cgroup_rules: c 13:* rmw` — without the last one the container may create
+devices but not open them, failing with EPERM even as root, which looks like a permission
+bug but is Docker's device cgroup. Note that uinput devices appear in the host's `/dev`,
+so the bridge creates the container-side nodes itself from sysfs. Selkies always offers
+four pads even with no controller attached; connect the pad before launching a game,
+because there is no udev inside the container. Do not set `NO_GAMEPAD`: it also disables
+the gamepad sockets the bridge reads from.*
 
 ## Der Start-Dienst
 
@@ -556,6 +624,58 @@ actually broken — restarting the title is enough.
 
 Check in the browser with `navigator.getGamepads()`. If nothing shows there, the
 container is not the problem.
+
+### The interposer is not enough: the uinput bridge
+
+The interposer only works for dynamically linked programs. The emulators here are
+AppImages with a **statically linked** runtime (`AppRun` is `static-pie`), and `LD_PRELOAD`
+has no effect on those — measured: no interposer in the running process, zero input
+devices opened, SDL finds no pads.
+
+`selkies-uinput-bridge.py` speaks the same socket protocol and creates **real kernel
+devices**, which need no preloading. `init/35-gamepad-bridge` starts it.
+
+Three requirements, and the third is the one that costs an afternoon:
+
+| | |
+|---|---|
+| `uinput` module **on the host** | `modprobe uinput`, persist via `/etc/modules-load.d/` |
+| `/dev/uinput` in the container | listed under `devices:` |
+| `device_cgroup_rules: c 13:* rmw` | the container may otherwise create devices but not open them |
+
+Without the cgroup rule, `open()` fails with `EPERM` **even as root**, while the node sits
+there with `crw-rw-rw-`. That is not a file permission problem — Docker's device cgroup
+only admits what is listed under `devices:`. Minor numbers change on every connect, so
+only the whole input major works. Be aware this also grants read access to the host's own
+input devices; check `cat /proc/bus/input/devices` first.
+
+Two behaviours that look like faults but are not:
+
+* **The devices appear in the host's `/dev`**, because uinput creates them in the kernel
+  and the container has its own `/dev`. The bridge reads the device number from
+  `/sys/devices/virtual/input/<sysname>/…/dev` and creates the container-side node itself.
+  On disconnect it removes only the nodes it created.
+* **Selkies always offers four pads**, even with no controller attached, so four devices
+  always exist. This is deliberate: there is no `udev` in the container, so an already
+  running emulator would never notice a device appearing later. Connect the pad first,
+  then launch the title.
+
+Do **not** set `NO_GAMEPAD` to get rid of Selkies' dummy nodes: its `else` branch also
+sets `SELKIES_GAMEPAD_ENABLED=false`, which disables the very sockets the bridge reads.
+
+The probe checks the whole chain without a controller attached and names the missing link.
+It binds its own socket and leaves the production ones alone:
+
+```bash
+docker exec -u 0 stream-host python3 /opt/gamepad-bridge-probe.py
+# OK Bruecke verbunden
+# OK Geraeteknoten angelegt: /dev/input/event7
+# OK Eingaben kommen als uid 1000 an — die Kette steht.
+
+docker exec stream-host tail -20 /config/gamepad-bridge.log
+docker exec stream-host ls -l /dev/input/
+docker exec -u 1000 stream-host head -c1 /dev/input/event3   # EPERM = cgroup rule missing
+```
 
 ## BIOS and firmware
 

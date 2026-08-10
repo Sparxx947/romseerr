@@ -1,0 +1,89 @@
+#!/usr/bin/with-contenv bash
+# Gamepad-Bruecke verankern und starten (#119).
+#
+# WARUM ES DAS GIBT: Selkies reicht Gamepads ueber einen LD_PRELOAD-Interposer weiter.
+# Die Emulatoren sind AppImages mit statisch gelinkter Runtime — auf statische Binaries
+# wirkt LD_PRELOAD nicht, deshalb kam dort nie ein Controller an. Die Bruecke liest
+# dieselben Sockets und legt daraus echte Kernel-Geraete an, die jeder Prozess sieht.
+#
+# EN: the emulators are AppImages with a statically linked runtime, which LD_PRELOAD
+# cannot reach. This bridge turns Selkies' gamepad sockets into real kernel devices.
+#
+# ZWEI DINGE UEBERLEBEN EIN NEUANLEGEN DES CONTAINERS NICHT und werden hier wieder
+# hergestellt (siehe feedback_reparaturen_neustartsicher):
+#   1. `python-evdev` — per pip installiert, liegt in der Schreibschicht.
+#   2. der laufende Bruecken-Prozess.
+set -eu
+
+LOG=/config/gamepad-bridge.log
+BRIDGE=/opt/selkies-uinput-bridge.py
+[ -f "$BRIDGE" ] || BRIDGE=/config/selkies-uinput-bridge.py   # Rueckfall fuer Altbestand
+
+sag() { echo "[gamepad] $*"; }
+
+if [ ! -f "$BRIDGE" ]; then
+  sag "FEHLT: $BRIDGE ist nicht eingehaengt — Controller bleiben ohne Wirkung."
+  sag "Abhilfe: in docker-compose.yml selkies-uinput-bridge.py nach /opt einhaengen."
+  exit 0            # kein harter Abbruch: der Rest des Containers soll laufen
+fi
+
+# --- python-evdev sicherstellen -------------------------------------------------------
+#
+# Die Sicherung traegt die ABI-Kennung (z. B. `cp314`) im Pfad. Die kompilierten
+# `.so`-Dateien gehoeren zu GENAU dieser Python-Fassung; nach einem Image-Update mit
+# neuerem Python waeren sie unbrauchbar, und ein blindes Zurueckkopieren erzeugte einen
+# Importfehler, der wie ein defektes Paket aussieht.
+# EN: the cache is keyed by ABI tag, because the compiled .so files belong to exactly
+# one Python version; restoring blindly across an update would look like a broken package.
+ABI="$(python3 -c 'import sysconfig;print(sysconfig.get_config_var("SOABI") or "unbekannt")' 2>/dev/null || echo unbekannt)"
+CACHE="/config/pylibs/$ABI"
+export PYTHONPATH="${CACHE}${PYTHONPATH:+:$PYTHONPATH}"
+
+hat_evdev() { python3 -c 'from evdev import UInput' >/dev/null 2>&1; }
+
+# PYTHONPATH steht oben schon auf der Sicherung, ein Treffer dort zaehlt also mit.
+if hat_evdev; then
+  sag "python-evdev vorhanden (ABI $ABI)"
+else
+  sag "python-evdev fehlt — installiere nach $CACHE"
+  mkdir -p "$CACHE"
+  # `--target` statt einer Installation in die Schreibschicht: nur so ueberlebt es das
+  # naechste Neuanlegen. evdev wird aus dem Quelltext uebersetzt, wenn es kein
+  # passendes Wheel gibt — dafuer braucht es Netz UND die Python-Header. Beides ist
+  # nicht garantiert, deshalb ist die Sicherung unten der eigentliche Weg und pip
+  # nur der Rueckfall. / EN: the cache below is the real mechanism; pip is the fallback.
+  if python3 -m pip install --no-cache-dir --target "$CACHE" evdev >>"$LOG" 2>&1; then
+    sag "installiert"
+  else
+    sag "FEHLGESCHLAGEN — Controller bleiben ohne Wirkung. Einzelheiten in $LOG."
+    sag "Abhilfe: python3 -m pip install --target $CACHE evdev (braucht Netz + Header)."
+    exit 0
+  fi
+fi
+
+# Sicherung nachfuehren, solange die Installation nachweislich funktioniert. Damit ist
+# beim naechsten Neuanlegen weder Netz noch Compiler noetig.
+# EN: keep the cache fresh while the install provably works — no network or compiler
+# needed the next time the container is recreated.
+if hat_evdev && [ ! -d "$CACHE/evdev" ]; then
+  QUELLE="$(python3 -c 'import evdev,os;print(os.path.dirname(evdev.__file__))' 2>/dev/null || true)"
+  if [ -n "$QUELLE" ] && [ -d "$QUELLE" ]; then
+    mkdir -p "$CACHE"
+    cp -a "$QUELLE" "$CACHE/" && sag "Sicherung angelegt: $CACHE/evdev"
+  fi
+fi
+
+# --- Bruecke starten ------------------------------------------------------------------
+#
+# Alte Instanz beenden. Das Muster trifft die eigene Zeile NICHT: dieses Skript laeuft
+# als `bash /custom-cont-init.d/35-gamepad-bridge`. / EN: the pattern cannot match this
+# script's own command line.
+pkill -f selkies-uinput-bridge.py 2>/dev/null || true
+
+if [ ! -e /dev/uinput ]; then
+  sag "/dev/uinput fehlt — Modul auf dem HOST laden (modprobe uinput) und durchreichen."
+  exit 0
+fi
+
+setsid nohup python3 "$BRIDGE" >>"$LOG" 2>&1 &
+sag "gestartet, Log: $LOG"

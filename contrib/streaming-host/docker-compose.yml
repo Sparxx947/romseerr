@@ -126,6 +126,10 @@ services:
       # EN: mounted like the launch service so it does not live only inside the container.
       # Not a service yet; started by hand until Selkies' own fake devices are disabled.
       - ./selkies-uinput-bridge.py:/opt/selkies-uinput-bridge.py:ro
+      # Sonde fuer die Bruecke. Ohne sie ist der Controller-Weg nur mit angeschlossenem
+      # Pad pruefbar — und "es kommt nichts an" hat drei Ursachen, die gleich aussehen.
+      # EN: without this probe the controller path can only be tested with a real pad.
+      - ./gamepad-bridge-probe.py:/opt/gamepad-bridge-probe.py:ro
       # Startprofil je Emulator: Controller-Belegung und regionsrichtiges BIOS (#119).
       # Eingehaengt, damit das, was laeuft, immer das ist, was im Repo steht.
       - ./launch-profile.py:/opt/launch-profile.py:ro
@@ -161,6 +165,24 @@ services:
       # linked AppImage runtime. Requires the uinput module loaded on the host.
       - /dev/uinput:/dev/uinput
       - ${DRI_CARD_NODE:?DRI_CARD_NODE fehlt}:${DRI_CARD_NODE}
+    # Ohne diese Regel darf der Container Geraete zwar ANLEGEN, aber nicht OEFFNEN.
+    # Gemessen am 2026-08-10: das gebrueckte Pad stand als `/dev/input/event3` mit
+    # `crw-rw-rw-` im Container — und `open()` scheiterte trotzdem mit EPERM, auch als
+    # root. Es sind nicht die Dateirechte, sondern Dockers Device-Cgroup: erlaubt ist
+    # nur, was unter `devices:` steht. Die Geraetenummer wechselt bei jedem Verbinden,
+    # eine feste Nummer waere also wertlos — deshalb der ganze Major 13 (Eingabegeraete).
+    #
+    # ABWAEGUNG: der Container darf damit alle Eingabegeraete des HOSTS lesen. Auf einem
+    # Server ohne Tastatur und Maus ist das gegenstandslos; steht die Maschine mit
+    # angeschlossener Tastatur irgendwo, ist es ein Mitlesen-Risiko. Vor dem Uebernehmen
+    # `cat /proc/bus/input/devices` auf dem Host ansehen.
+    #
+    # EN: without this the container may CREATE devices but not OPEN them — EPERM even as
+    # root, from Docker's device cgroup rather than file permissions. Minor numbers change
+    # on every connect, so the whole input major is required. Note that this also grants
+    # read access to the host's own input devices; check /proc/bus/input/devices first.
+    device_cgroup_rules:
+      - 'c 13:* rmw'
     shm_size: ${SHM_SIZE:-2g}
     ports:
       # HTTP — nur für den ersten Blick. Ton und Gamepad brauchen HTTPS (s. README).
