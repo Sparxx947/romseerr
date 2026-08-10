@@ -86,9 +86,37 @@ der Karte und schiebt die Bilder in den X-Server. Kein DRI3, keine Zusatzrechte.
 
 Deshalb müssen in `.env` **beide** Knoten derselben Karte stehen.
 
-Der eingebaute DRI3-Schalter des Images (`DRINODE` + `DISABLE_DRI3=false`) ist
-**keine** Alternative: mit Intel-Arc-Karten und aktuellem Mesa stürzt Xvfb dabei
-mit `Segmentation fault` ab.
+### Nachtrag: der DRI3-Schalter funktioniert inzwischen — und macht VirtualGL überflüssig
+
+Hier stand lange, der eingebaute Schalter (`DRINODE` + `DISABLE_DRI3=false`) sei **keine**
+Alternative, weil Xvfb mit Intel-Arc-Karten dabei mit `Segmentation fault` abstürzte. Das
+gilt nicht mehr. Am laufenden Host nachgemessen (2026-08-10):
+
+```
+DRINODE=/dev/dri/renderD129
+DISABLE_DRI3=false
+```
+
+Xvfb läuft damit stabil, **DRI3 ist vorhanden**, und `vulkaninfo --summary` zeigt
+`Intel(R) Arc(tm) A310 Graphics (DG2)` mit dem Mesa-Treiber. Die Emulatoren starten
+seitdem **ohne `vglrun`** — Dolphin meldet im Fenstertitel `Vulkan`, und die Karte
+arbeitet nachweislich (GPU-Last steigt, Bildrate steht).
+
+**Was das an Rechenzeit spart**, an Dolphin je Thread aus `/proc` gemessen
+(100 % = ein Kern voll):
+
+| Thread | vorher (VirtualGL) | jetzt (Vulkan direkt) |
+|---|---|---|
+| Video thread | **dauerhaft ~100 %** | **5,7 %** |
+| CPU thread | — | 51,7 % |
+
+Der Video-Thread war der Engpass: Er kostete pro Bild und pro Zeichenaufruf, nicht pro
+Pixel — die Signatur des VirtualGL-Umwegs. Damit erübrigt sich auch der Umbau auf einen
+echten Xorg, der dafür einmal geplant war (#169): **das Ziel ist ohne ihn erreicht.**
+
+`init/10-virtualgl` und `/opt/VirtualGL` liegen weiterhin im Abbild, werden aber von
+keinem Emulator mehr benutzt. Sie bleiben vorerst als Rückfallebene — wer sie loswerden
+will, prüft vorher mit `ps aux | grep vglrun`, ob wirklich nichts mehr darüber startet.
 
 ---
 
@@ -726,8 +754,35 @@ VirtualGL solves it by rendering via EGL on the card. **It wants the card node, 
 the render node** — `renderD*` yields `Invalid EGL device`. Both nodes therefore go
 into `.env`.
 
-The image's own DRI3 switch is not an alternative: with Intel Arc cards and current
-Mesa, Xvfb segfaults.
+### Update: the DRI3 switch works now, and it makes VirtualGL redundant
+
+This section long claimed the image's own switch (`DRINODE` + `DISABLE_DRI3=false`) was
+no alternative, because Xvfb segfaulted with Intel Arc cards. That no longer holds.
+Measured on the running host (2026-08-10) with:
+
+```
+DRINODE=/dev/dri/renderD129
+DISABLE_DRI3=false
+```
+
+Xvfb stays up, **DRI3 is present**, and `vulkaninfo --summary` reports
+`Intel(R) Arc(tm) A310 Graphics (DG2)` on the Mesa driver. Emulators now start
+**without `vglrun`** — Dolphin reports `Vulkan` in its window title.
+
+**What that saves**, measured per thread from `/proc` on Dolphin (100 % = one full core):
+
+| Thread | before (VirtualGL) | now (Vulkan direct) |
+|---|---|---|
+| Video thread | **pegged at ~100 %** | **5.7 %** |
+| CPU thread | — | 51.7 % |
+
+The video thread was the bottleneck: it cost per frame and per draw call rather than per
+pixel — the signature of the VirtualGL round trip. This also retires the planned switch
+to a real Xorg (#169): **the goal was reached without it.**
+
+`init/10-virtualgl` and `/opt/VirtualGL` remain in the image but no emulator uses them.
+They stay for now as a fallback; before removing them, check with `ps aux | grep vglrun`
+that nothing still launches through them.
 
 ## Other surprises
 
