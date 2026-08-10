@@ -658,12 +658,12 @@ def dolphin_dualcore(pruefen=False):
 #   bios:       Funktion oder None (None = braucht kein BIOS zum Starten)
 #   geprueft:   Ist das am laufenden Emulator NACHGEMESSEN oder nur angenommen?
 PROFILE = {
-    # geprueft bleibt False: die Belegung ist gesetzt und die Namen sind aus DuckStations
-    # eigener settings.ini abgelesen — ein Spiel starten konnte hier aber niemand, weil
-    # auf der Maschine KEIN PS1-BIOS liegt (#268). Ohne BIOS bootet DuckStation nichts.
+    # geprueft: Bild und Gamepad im Spiel bestaetigt (2026-08-10). Bis dahin drei
+    # Anlaeufe — Erstlaufdialog, dann PCSX2s Face*-Namen, dann `South` aus dem Binary.
+    # Erst der Quelltext (`s_button_info`) lieferte A/B/X/Y.
     "duckstation": {"system": "PS1",         "controller": duckstation_apply,
                     "bios": None, "vollbild": None,
-                    "geprueft": False},
+                    "geprueft": True},
     "pcsx2":     {"system": "PS2",           "controller": pcsx2_apply,
                   "bios": pcsx2_bios_setzen, "vollbild": pcsx2_vollbild,
                   "geprueft": True},
