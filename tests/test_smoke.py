@@ -5718,3 +5718,47 @@ def test_encrypted_3ds_images_are_rejected_before_launch(tmp_path):
     open(fremd, "wb").write(b"x" * 100)
     ok, _ = m._3ds_spielbar(fremd)
     assert ok, "unbekanntes Format darf nicht abgewiesen werden"
+def test_azahar_binds_the_pad_and_swaps_a_b(tmp_path):
+    """Azahars Voreinstellung ist die TASTATUR — dieselbe Falle wie RPCS3 (#156).
+
+    Und die 3DS-Tasten sind gegenueber Xbox VERTAUSCHT: A liegt rechts, B unten. Wer
+    stur A auf A legt, bekommt ein Pad, auf dem jede Bestaetigung abbricht. (#304)
+    """
+    m = _profil_modul(tmp_path)
+    ini = m.azahar_ini()
+    os.makedirs(os.path.dirname(ini), exist_ok=True)
+    with open(ini, "w", encoding="utf-8") as f:
+        f.write("[Controls]\nprofile=0\n"
+                'profiles\\1\\button_a="code:65,engine:keyboard"\n'
+                "profiles\\1\\button_a\\default=true\n")
+    geaendert, msg = m.azahar_apply()
+    assert geaendert, msg
+    text = open(ini, encoding="utf-8").read()
+    assert "engine:sdl" in text and "engine:keyboard" not in text, text
+    # A und B vertauscht: 3DS-A liegt auf SDL-Knopf 1, 3DS-B auf 0.
+    assert 'button_a="button:1' in text, text
+    assert 'button_b="button:0' in text, text
+    # Qts default-Flag muss false sein, sonst gilt der Wert nicht.
+    assert "button_a\\default=false" in text, text
+
+
+def test_azahar_does_not_overwrite_an_existing_sdl_mapping(tmp_path):
+    """Eine vorhandene SDL-Belegung stammt von Azahars Auto-Map — und nur das kennt den
+    richtigen Port.
+
+    Im Container liegen ACHT identische Pad-Geraete; unseres ist fuer SDL das dritte,
+    nicht das erste. Der Port haengt an der Aufzaehlungsreihenfolge und kann sich
+    verschieben, deshalb darf eine funktionierende Belegung nicht ueberschrieben
+    werden. (#304)
+    """
+    m = _profil_modul(tmp_path)
+    ini = m.azahar_ini()
+    os.makedirs(os.path.dirname(ini), exist_ok=True)
+    vorhanden = ("[Controls]\nprofile=0\n"
+                 'profiles\\1\\button_a="button:1,engine:sdl,guid:abc,port:2"\n'
+                 "profiles\\1\\button_a\\default=false\n")
+    with open(ini, "w", encoding="utf-8") as f:
+        f.write(vorhanden)
+    geaendert, msg = m.azahar_apply()
+    assert not geaendert, msg
+    assert open(ini, encoding="utf-8").read() == vorhanden, "Auto-Map wurde ueberschrieben"
