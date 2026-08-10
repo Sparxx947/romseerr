@@ -276,6 +276,41 @@ Fällen einwandfrei, nur das Spiel nicht:
 - **Wii: NKit-komprimierte ISOs.** Dolphin öffnet einen `NKit Warning`-Dialog statt des
   Spiels. Dieselbe Bibliothek in `.wbfs` startet ohne Zutun.
 
+### 3DS: entschlüsseln, sonst geht nichts
+
+Azahar spielt **nur entschlüsselte Dumps** und entschlüsselt nicht selbst — der Wunsch
+wurde upstream als *closed as not planned* abgelehnt. In der hiesigen Bibliothek waren
+**1248 von 1249 Abbildern verschlüsselt**, also praktisch alle.
+
+Was funktioniert: **[3DS-Decrypt](https://github.com/aszuraz/3DS-Decrypt)** (Python +
+`pycryptodome`, leitet die Schlüssel selbst ab, braucht keine `aes_keys.txt`):
+
+```bash
+docker run --rm -v /pfad/zu/3DS-Decrypt:/tool:ro -v /pfad/zu/roms:/arbeit \
+  python:3.12-slim sh -c "pip install -q pycryptodome && cd /arbeit && \
+    python3 /tool/decrypt_3ds.py <datei>.3ds"
+```
+
+Danach ist das `NoCrypto`-Flag gesetzt und Azahar startet den Titel mit Namen im Fenster.
+
+> **NDecrypt hilft hier nicht.** Es ist der erste Suchtreffer, akzeptiert `aes_keys.txt`,
+> meldet jede Partition als entschlüsselt — und lässt die Datei **byteweise unverändert**.
+> Wer ihm glaubt, legt den Fall fälschlich als „nicht behebbar" ab. **Nachmessen:**
+> Prüfsumme vorher/nachher und das `NoCrypto`-Flag.
+
+**Renderer:** Azahar startet auf OpenGL. Für Vulkan in `qt-config.ini`
+`graphics_api=2` — und **`graphics_api\default=false` dazu**, sonst gilt weiter der
+eingebaute Standard und der Wert daneben wird beim nächsten Start überschrieben.
+Dieselbe Falle gilt für jeden Qt-Schlüssel dort, auch für die Tastenbelegung.
+
+**Gamepad:** Azahar ist auf die **Tastatur** voreingestellt — dieselbe Falle wie bei
+RPCS3. Zwei Dinge sind dabei nicht offensichtlich: Die 3DS-Tasten sind gegenüber Xbox
+**vertauscht** (A rechts, B unten), und der **Port ist nicht 0**. Im Container liegen
+acht identische Pad-Geräte, unseres ist für SDL das dritte (`port:2`). Weil diese
+Reihenfolge nicht stabil ist, überschreibt der Host eine vorhandene SDL-Belegung nie —
+**Azahars eigenes Auto-Map ist die verlässliche Quelle**, denn nur der Emulator kennt
+den Port.
+
 ### Wo der Host sagt, dass kein Spiel läuft
 
 Der Start selbst **gelingt** in diesen Fällen — der Emulator läuft ja. Deshalb antwortet
