@@ -388,8 +388,16 @@ def duckstation_apply(pruefen=False):
     # Dieselbe Falle wie RPCS3s Willkommensfenster und JDownloaders Rueckfragen.
     # EN: without this, DuckStation opens a modal setup wizard nobody can see in a
     # container and every launch stalls behind it.
-    wizard_fehlt = not any(z.split("=")[0].strip() == "SetupWizardIncomplete"
-                           for z in zeilen)
+    # Auf den WERT pruefen, nicht auf die Existenz des Schluessels: DuckStation setzt
+    # ihn beim Beenden wieder auf `true`, solange der Assistent nie durchlaufen wurde.
+    # Eine Pruefung auf "steht der Schluessel da?" haelt das fuer erledigt — und beim
+    # naechsten Start oeffnet der Dialog erneut. Genau so ist es passiert (2026-08-10).
+    # EN: check the value, not the key: DuckStation resets it to true on exit, so a
+    # presence check considers it done while the wizard reappears on the next launch.
+    wizard_falsch = not any(
+        z.split("=")[0].strip() == "SetupWizardIncomplete"
+        and z.split("=", 1)[-1].strip().lower() == "false"
+        for z in zeilen)
 
     start = next((i for i, z in enumerate(zeilen) if z.strip() == "[Pad1]"), None)
     if start is None:
@@ -406,13 +414,13 @@ def duckstation_apply(pruefen=False):
     vorher = [z for z in block if z.strip()]
     nachher = behalten + neu
     pad_fehlt = vorher != nachher
-    if not pad_fehlt and not wizard_fehlt:
+    if not pad_fehlt and not wizard_falsch:
         return False, "Gamepad-Belegung und Erstlaufdialog stehen bereits"
     if pruefen:
         was = []
         if pad_fehlt:
             was.append(f"{len(neu)} Belegungen")
-        if wizard_fehlt:
+        if wizard_falsch:
             was.append("Erstlaufdialog")
         return True, " und ".join(was) + " wuerden gesetzt"
 
@@ -426,18 +434,27 @@ def duckstation_apply(pruefen=False):
     # Den Schalter ZULETZT einsetzen: er steht in [Main], also VOR [Pad1], und wuerde
     # die oben bestimmten Indizes sonst verschieben.
     # EN: insert last — [Main] precedes [Pad1] and would shift the indices computed above.
-    if wizard_fehlt:
-        try:
-            zeilen.insert(zeilen.index("[Main]") + 1, "SetupWizardIncomplete = false")
-        except ValueError:
-            pass          # kein [Main] — dann ist die Datei nicht die erwartete
+    if wizard_falsch:
+        # Vorhandene Zeile ERSETZEN, nicht eine zweite danebenlegen: DuckStation hat den
+        # Schluessel meist schon (auf `true`), und zwei widersprechende Eintraege waeren
+        # eine Wette darauf, welchen es liest.
+        # EN: replace the existing key instead of adding a second, contradicting one.
+        vorhanden = next((i for i, z in enumerate(zeilen)
+                          if z.split("=")[0].strip() == "SetupWizardIncomplete"), None)
+        if vorhanden is not None:
+            zeilen[vorhanden] = "SetupWizardIncomplete = false"
+        else:
+            try:
+                zeilen.insert(zeilen.index("[Main]") + 1, "SetupWizardIncomplete = false")
+            except ValueError:
+                pass      # kein [Main] — dann ist die Datei nicht die erwartete
 
     with open(pfad, "w", encoding="utf-8") as f:
         f.write("\n".join(zeilen) + "\n")
     getan = []
     if pad_fehlt:
         getan.append(f"{len(neu)} Gamepad-Belegungen (Spieler 1)")
-    if wizard_fehlt:
+    if wizard_falsch:
         getan.append("Erstlaufdialog abgeschaltet")
     return True, ", ".join(getan)
 
