@@ -22,6 +22,7 @@ funktionieren danach nebeneinander.
     launch-profile.py --bios pcsx2 Europe      # BIOS zur Region waehlen
     launch-profile.py --status                 # Stand
 """
+import json
 import os
 import re
 import subprocess
@@ -715,12 +716,52 @@ PROFILE = {
 XPROP_KEINE_DEKO = ["-f", "_MOTIF_WM_HINTS", "32c", "-set", "_MOTIF_WM_HINTS", "2, 0, 0, 0, 0"]
 
 
+class _LeerErgebnis:
+    stdout = ""
+    stderr = ""
+    returncode = 1
+
+
 def _x(*args, **kw):
+    """Ein X-Werkzeug aufrufen. Ein haengendes Werkzeug darf den Schritt nicht kosten.
+
+    `xdotool windowactivate --sync` wartet, bis das Fenster den Fokus HAT — und ein
+    modaler Fehlerdialog gibt ihn nie her. Am laufenden Host gemessen: der Fensterschritt
+    lief dadurch in den 60-Sekunden-Timeout des Agenten, und der Befund kam als
+    "unbekannt" statt als Dialogtitel an. Ein Timeout hier ist ein Messwert, kein
+    Programmabbruch. (#288)
+    """
     umg = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":1")}
-    return subprocess.run(args, capture_output=True, text=True, env=umg, timeout=20, **kw)
+    try:
+        return subprocess.run(args, capture_output=True, text=True, env=umg, timeout=20, **kw)
+    except subprocess.TimeoutExpired:
+        return _LeerErgebnis()
 
 
-def sichtbare_fenster(pid):
+def ist_dialog(fid):
+    """Traegt das Fenster _NET_WM_WINDOW_TYPE_DIALOG?
+
+    WOZU: Scheitert ein Titel, zeigen die Emulatoren keinen Fehler auf einem Kanal, den
+    wir lesen — sie zeigen einen DIALOG. Gemessen: `App Encrypted` (Azahar, 3DS),
+    `CIA must be installed before usage` (Azahar), `NKit Warning` (Dolphin, Wii).
+    Alle drei sind gross genug, um die Flaechenschwelle unten zu ueberspringen, und
+    wurden deshalb wie ein Spielfenster behandelt — samt Aufziehen auf Vollbild. Genau
+    das sieht der Nutzer dann als "der Stream geht auf, aber da ist nichts".
+
+    Der Typ ist der emulatorunabhaengige Weg: eine Liste bekannter Fehlertexte zu
+    pflegen waere sproede und in jeder neuen Emulatorfassung falsch.
+    EN: a failing title shows a DIALOG, not an error on any channel we read. The window
+    type is the emulator-agnostic test; a list of known error strings would rot.
+    """
+    typ = _x("xprop", "-id", fid, "_NET_WM_WINDOW_TYPE").stdout
+    return "_NET_WM_WINDOW_TYPE_DIALOG" in typ
+
+
+def fenstername(fid):
+    return _x("xdotool", "getwindowname", fid).stdout.strip()
+
+
+def sichtbare_fenster(pid, mit_dialogen=False):
     """Sichtbare Fenster des Prozesses, groesstes zuerst.
 
     `--onlyvisible` ist wichtig: Emulatoren legen unsichtbare Hilfsfenster an, und ohne
@@ -728,7 +769,11 @@ def sichtbare_fenster(pid):
     Skript meldete Erfolg an einem Fenster, das niemand sieht, waehrend das Spielfenster
     unveraendert danebenstand.
     Without --onlyvisible one grabs a helper window and reports success on something
-    nobody sees, which is exactly what happened on the first attempt."""
+    nobody sees, which is exactly what happened on the first attempt.
+
+    Dialoge bleiben standardmaessig draussen (siehe `ist_dialog`) — ein aufs Vollbild
+    gezogener Fehlerdialog ist schlimmer als gar keine Behandlung.
+    """
     r = _x("xdotool", "search", "--onlyvisible", "--pid", str(pid))
     mit_flaeche = []
     for i in [z for z in r.stdout.split() if z.strip()]:
@@ -738,9 +783,25 @@ def sichtbare_fenster(pid):
             f = int(masse.get("WIDTH", 0)) * int(masse.get("HEIGHT", 0))
         except ValueError:
             f = 0
-        if f > 10000:                     # echte Fenster, keine Platzhalter
-            mit_flaeche.append((f, i))
+        if f <= 10000:                    # Platzhalter, kein echtes Fenster
+            continue
+        if not mit_dialogen and ist_dialog(i):
+            continue
+        mit_flaeche.append((f, i))
     return [i for _f, i in sorted(mit_flaeche, reverse=True)]
+
+
+def dialoge(pid):
+    """-> [(id, Titel)] der sichtbaren Dialogfenster des Prozesses.
+
+    Der Titel IST die Fehlermeldung: `App Encrypted` sagt genau, was fehlt. Deshalb wird
+    er nach oben durchgereicht, statt ihn zu verwerfen.
+    """
+    gefunden = []
+    for fid in sichtbare_fenster(pid, mit_dialogen=True):
+        if ist_dialog(fid):
+            gefunden.append((fid, fenstername(fid)))
+    return gefunden
 
 
 def fenster_von_pid(pid, versuche=20):
@@ -753,7 +814,7 @@ def fenster_von_pid(pid, versuche=20):
     return ""
 
 
-def _fenster_fuellen(fid, b, h):
+def _fenster_fuellen(fid, b, h, aktivieren=True):
     # REIHENFOLGE ZAEHLT: erst Groesse, dann Position. Andersherum schiebt xfwm4 das
     # Fenster beim Vergroessern wieder unter die Panel-Zeile — gemessen: y=50 statt 0,
     # also genau die Panelhoehe. Und danach noch einmal setzen, weil der
@@ -764,14 +825,33 @@ def _fenster_fuellen(fid, b, h):
     _x("xprop", "-id", fid, *XPROP_KEINE_DEKO)
     _x("xdotool", "windowsize", fid, b, h)
     _x("xdotool", "windowmove", fid, "0", "0")
-    _x("xdotool", "windowactivate", "--sync", fid)
+    # NUR das groesste Fenster aktivieren. `--sync` wartet, bis das Fenster den Fokus
+    # HAT — und den kann immer nur eines haben. Bei Eden (vier Fenster, drei Runden)
+    # lief jeder vergebliche Versuch in seinen 20-Sekunden-Timeout: gemessen 157 s fuer
+    # den ganzen Schritt, womit der Agent nach 60 s abbrach und der Befund als
+    # "unbekannt" ankam statt als "ok". Ohne Aktivierung sind es wenige Sekunden.
+    # OHNE `--sync`: das Warten auf die Fokus-Bestaetigung ist der teure Teil, und bei
+    # Eden sind alle vier Fenster gleich gross — die Reihenfolge trifft dann auch mal
+    # ein Hilfsfenster, das den Fokus nie bekommt. Der Fokus wird auch ohne Bestaetigung
+    # gesetzt; das anschliessende Warten unten reicht aus. Gemessen: 157 s -> 67 s
+    # durch die Beschraenkung auf ein Fenster, -> wenige Sekunden ohne `--sync`.
+    if aktivieren:
+        _x("xdotool", "windowactivate", fid)
     _x("xdotool", "windowraise", fid)
     time.sleep(0.4)
     _x("xdotool", "windowmove", fid, "0", "0")
 
 
 def nur_emulator(pid, runden=3, pause=6):
-    """-> (ok, meldung). Panel weg, Dekoration weg, Fenster auf volle Flaeche.
+    """-> (zustand, meldung). Panel weg, Dekoration weg, Fenster auf volle Flaeche.
+
+    zustand ist einer von:
+      "ok"          — ein Spielfenster steht auf voller Flaeche
+      "dialog"      — der Emulator zeigt einen Fehlerdialog; meldung ist dessen Titel
+      "kein-fenster"— gar nichts Sichtbares entstanden
+      "fehler"      — die Bildschirmgroesse war nicht zu ermitteln
+    Frueher ein bool. Ein blosses False sagte nicht, WARUM nichts zu sehen ist, und
+    genau diese Auskunft fehlte dem Nutzer vor dem leeren Stream (#288).
 
     MEHRERE RUNDEN, weil das SPIELFENSTER spaeter entsteht als das erste Fenster des
     Emulators. Einmalig anzuwenden traf beim ersten Anlauf ein Hilfsfenster, meldete
@@ -781,24 +861,46 @@ def nur_emulator(pid, runden=3, pause=6):
     reported success on a helper window while the user still saw the desktop."""
     breite_hoehe = _x("xdotool", "getdisplaygeometry").stdout.split()
     if len(breite_hoehe) != 2:
-        return False, "Bildschirmgroesse nicht ermittelbar"
+        return "fehler", "Bildschirmgroesse nicht ermittelbar"
     b, h = breite_hoehe
     if not fenster_von_pid(pid):
-        return False, "kein sichtbares Fenster zum Prozess gefunden"
+        # Kein Spielfenster — aber vielleicht ein Dialog, der sagt WARUM (#288).
+        offen = dialoge(pid)
+        if offen:
+            return "dialog", offen[0][1]
+        return "kein-fenster", "kein sichtbares Fenster zum Prozess gefunden"
+    # Dialog VOR dem Aufziehen pruefen, nicht erst danach. Zwei Gruende, beide gemessen:
+    # der Dialog ist modal, also haengt jedes `windowactivate --sync` auf den Fenstern
+    # dahinter in seinen Timeout — der ganze Schritt lief so in die 60 Sekunden des
+    # Agenten. Und aufzuziehen gibt es ohnehin nichts, wenn kein Spiel laeuft.
+    offen = dialoge(pid)
+    if offen:
+        return "dialog", offen[0][1]
     # Panel ausblenden. Schlaegt es fehl, ist das kein Grund abzubrechen — ein Fenster
     # ueber dem Panel ist immer noch besser als ein Desktop.
     _x("xfconf-query", "-c", "xfce4-panel", "-p", "/panels/panel-1/autohide-behavior",
        "-t", "int", "-s", "2", "--create")
     behandelt = set()
     for runde in range(runden):
-        for fid in sichtbare_fenster(pid):
-            _fenster_fuellen(fid, b, h)
+        # sichtbare_fenster liefert groesstes zuerst — das ist das Spielfenster, und nur
+        # das bekommt den Fokus (siehe _fenster_fuellen).
+        for platz, fid in enumerate(sichtbare_fenster(pid)):
+            _fenster_fuellen(fid, b, h, aktivieren=(platz == 0))
             behandelt.add(fid)
         if runde < runden - 1:
             time.sleep(pause)
     if not behandelt:
-        return False, "kein sichtbares Fenster"
-    return True, f"{len(behandelt)} Fenster auf {b}x{h}, ohne Rahmen, Panel ausgeblendet"
+        offen = dialoge(pid)
+        if offen:
+            return "dialog", offen[0][1]
+        return "kein-fenster", "kein sichtbares Fenster"
+    # Auch WENN ein Fenster behandelt wurde, kann daneben ein Fehlerdialog stehen: bei
+    # Azahar bleibt das leere Hauptfenster auf 1920x1080 offen und der Dialog `App
+    # Encrypted` liegt davor. Ein Erfolg waere hier gelogen.
+    offen = dialoge(pid)
+    if offen:
+        return "dialog", offen[0][1]
+    return "ok", f"{len(behandelt)} Fenster auf {b}x{h}, ohne Rahmen, Panel ausgeblendet"
 
 
 def panel_zurueck():
@@ -863,9 +965,13 @@ def main(argv):
     if argv and argv[0] == "--window":
         if len(argv) < 2 or not argv[1].isdigit():
             print("Aufruf: --window <pid>", file=sys.stderr); return 1
-        ok, msg = nur_emulator(int(argv[1]))
+        zustand, msg = nur_emulator(int(argv[1]))
         print(f"[fenster] {msg}")
-        return 0 if ok else 1
+        # Maschinenlesbar als LETZTE Zeile, damit der Agent den Befund weiterreichen
+        # kann statt ihn nur ins Log zu schreiben (#288). Eine JSON-Zeile statt eines
+        # blossen Exit-Codes, weil der Dialogtitel die eigentliche Auskunft ist.
+        print(json.dumps({"window": zustand, "detail": msg}))
+        return 0 if zustand == "ok" else 1
     if argv and argv[0] == "--desktop":
         panel_zurueck(); print("[fenster] Panel wieder eingeblendet"); return 0
     if argv and argv[0] == "--bios":

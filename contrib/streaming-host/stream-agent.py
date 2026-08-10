@@ -60,7 +60,15 @@ EMULATORS = {
     "psvita":    os.environ.get("EMU_VITA", ""),
 }
 
-_current = {"proc": None, "platform": "", "path": ""}
+# `window` haelt fest, ob nach dem Start wirklich ein Spielfenster erschien (#288):
+#   "" (leer)      noch nichts gestartet
+#   "pending"      Start laeuft, das Fenster wird noch erwartet
+#   "ok"           Spielfenster steht
+#   "dialog"       der Emulator zeigt einen Fehlerdialog — `window_detail` ist dessen Titel
+#   "kein-fenster" nichts Sichtbares entstanden
+# WOZU: Der Start GELINGT auch dann, wenn der Titel scheitert — verschluesselte 3DS-ROMs,
+# NKit-komprimierte Wii-ISOs. Der Nutzer sah bis dahin nur einen leeren Stream.
+_current = {"proc": None, "platform": "", "path": "", "window": "", "window_detail": ""}
 _lock = threading.Lock()
 
 # Ordner-Titel -> die Datei, mit der der Emulator startet.
@@ -304,7 +312,8 @@ def _stop_locked():
             p.wait(timeout=8)
         except subprocess.TimeoutExpired:
             p.kill()
-    _current.update({"proc": None, "platform": "", "path": ""})
+    _current.update({"proc": None, "platform": "", "path": "",
+                     "window": "", "window_detail": ""})
 
 
 def launch(path, platform, rel="", region=""):
@@ -410,6 +419,8 @@ def launch(path, platform, rel="", region=""):
             return False, f"Start fehlgeschlagen / launch failed: {e.__class__.__name__}"
         _current["platform"] = platform
         _current["path"] = real
+        _current["window"] = "pending"
+        _current["window_detail"] = ""
 
     # Nur das Emulatorfenster zeigen (#141). Im Hintergrund, weil auf das Fenster bis
     # zu 20 Sekunden gewartet wird — der Aufrufer soll darauf nicht haengen. Schlaegt
@@ -419,13 +430,40 @@ def launch(path, platform, rel="", region=""):
     # launch, only the framing.
     if os.path.isfile(PROFILE_SCRIPT):
         pid = _current["proc"].pid
+        def _merken(zustand, detail=""):
+            # Nur solange derselbe Titel laeuft: ein inzwischen gestarteter zweiter Titel
+            # darf nicht den Befund des ersten uebergestuelpt bekommen.
+            with _lock:
+                if _current["proc"] is not None and _current["proc"].pid == pid:
+                    _current["window"] = zustand
+                    _current["window_detail"] = detail
+
         def _fenster():
             try:
+                # 150 statt 60 Sekunden: der Schritt wartet bewusst mehrere Runden auf
+                # das SPIELFENSTER, das spaeter entsteht als das erste Fenster des
+                # Emulators. Bei Eden reichten 60 s nicht, und der Befund kam als
+                # "unbekannt" an — also als Nichtaussage genau dort, wo eine Aussage
+                # gebraucht wird. (#288)
                 r = subprocess.run([sys.executable, PROFILE_SCRIPT, "--window", str(pid)],
-                                   capture_output=True, text=True, timeout=60)
-                print((r.stdout + r.stderr).strip(), flush=True)
+                                   capture_output=True, text=True, timeout=150)
+                ausgabe = (r.stdout + r.stderr).strip()
+                print(ausgabe, flush=True)
+                # Letzte Zeile ist die JSON-Auskunft von --window (#288). Faellt sie aus
+                # — altes Skript, Absturz —, bleibt es beim Zustand "unbekannt" statt
+                # einer erfundenen Zusage.
+                befund = {}
+                for zeile in reversed(ausgabe.splitlines()):
+                    if zeile.startswith("{"):
+                        try:
+                            befund = json.loads(zeile)
+                        except ValueError:
+                            befund = {}
+                        break
+                _merken(befund.get("window", "unbekannt"), befund.get("detail", ""))
             except (subprocess.TimeoutExpired, OSError) as e:
                 print(f"[fenster] {e.__class__.__name__}", flush=True)
+                _merken("unbekannt", e.__class__.__name__)
         threading.Thread(target=_fenster, daemon=True).start()
     return True, os.path.basename(real)
 
@@ -604,6 +642,8 @@ class Handler(BaseHTTPRequestHandler):
         p = _current["proc"]
         return self._reply(200, {"ok": True, "running": bool(p and p.poll() is None),
                                  "platform": _current["platform"],
+                                 "window": _current["window"],
+                                 "window_detail": _current["window_detail"],
                                  "file": os.path.basename(_current["path"]) if _current["path"] else "",
                                  "platforms": sorted(k for k, v in EMULATORS.items() if v),
                                  "emulators": installed_emulators(),
