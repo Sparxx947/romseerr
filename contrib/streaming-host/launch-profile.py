@@ -25,6 +25,7 @@ funktionieren danach nebeneinander.
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -684,6 +685,131 @@ def xemu_vollbild():
     return True, "Vollbild ueber F11 geschaltet"
 
 
+# --------------------------------------------------------------- Azahar (3DS)
+
+def azahar_ini():
+    return os.path.join(CONFIG, ".config", "azahar-emu", "qt-config.ini")
+
+
+# SDL-Kennung des gebrueckten Pads. Aufbau: Bus 03 (USB), Vendor 045e (Microsoft),
+# Product 028e (Xbox 360 Controller) — jeweils byteweise gedreht. SDL hat sie sich in
+# xemus Konfiguration selbst eingetragen; von dort abgelesen, nicht erfunden.
+AZAHAR_GUID = "030081b85e0400008e02000000010000"
+
+# WELCHER PORT: nicht 0. Im Container liegen ACHT identische "Microsoft X-Box 360 pad"
+# (js0..js7) — die vier der Bruecke und vier weitere —, und das gebrueckte Pad ist fuer
+# SDL das dritte. Azahars eigenes Auto-Map hat `port:2` eingetragen; meine Annahme
+# `port:0` war falsch und lieferte ein Pad, das erkannt wurde und nichts ausloeste.
+#
+# ACHTUNG: Der Port ist NICHT stabil. Er haengt an der Aufzaehlungsreihenfolge und kann
+# sich nach einem Neustart der Bruecke verschieben. Deshalb wird eine bereits
+# vorhandene SDL-Belegung NIE ueberschrieben — nur die Tastatur-Voreinstellung wird
+# ersetzt. Wer sichergehen will, laesst Azahar einmal selbst mappen.
+AZAHAR_PORT = 2
+
+# 3DS-Taste -> SDL-Eingabe. Knopfnummern sind die des Xbox-360-Layouts, wie SDL sie
+# meldet: 0=A 1=B 2=X 3=Y 4=LB 5=RB 6=Back 7=Start.
+#
+# ACHTUNG, die 3DS-Tasten sind gegenueber Xbox VERTAUSCHT: Auf dem 3DS liegt A rechts
+# und B unten — dieselbe Anordnung wie bei Nintendo ueblich, spiegelverkehrt zu Xbox.
+# Wer hier stur A auf A legt, bekommt ein Pad, auf dem jede Bestaetigung abbricht.
+AZAHAR_BELEGUNG = {
+    "button_a":      f"button:1,guid:{AZAHAR_GUID},port:{AZAHAR_PORT},engine:sdl",
+    "button_b":      f"button:0,guid:{AZAHAR_GUID},port:{AZAHAR_PORT},engine:sdl",
+    "button_x":      f"button:3,guid:{AZAHAR_GUID},port:{AZAHAR_PORT},engine:sdl",
+    "button_y":      f"button:2,guid:{AZAHAR_GUID},port:{AZAHAR_PORT},engine:sdl",
+    "button_l":      f"button:4,guid:{AZAHAR_GUID},port:{AZAHAR_PORT},engine:sdl",
+    "button_r":      f"button:5,guid:{AZAHAR_GUID},port:{AZAHAR_PORT},engine:sdl",
+    "button_start":  f"button:7,guid:{AZAHAR_GUID},port:{AZAHAR_PORT},engine:sdl",
+    "button_select": f"button:6,guid:{AZAHAR_GUID},port:{AZAHAR_PORT},engine:sdl",
+    # Schultertasten ZL/ZR liegen auf den ANALOGEN Triggern (Achse 2 und 5).
+    "button_zl":     f"axis:2,guid:{AZAHAR_GUID},port:{AZAHAR_PORT},direction:+,threshold:0.5,engine:sdl",
+    "button_zr":     f"axis:5,guid:{AZAHAR_GUID},port:{AZAHAR_PORT},direction:+,threshold:0.5,engine:sdl",
+    # Steuerkreuz ueber den Hat.
+    "button_up":     f"hat:0,guid:{AZAHAR_GUID},port:{AZAHAR_PORT},direction:up,engine:sdl",
+    "button_down":   f"hat:0,guid:{AZAHAR_GUID},port:{AZAHAR_PORT},direction:down,engine:sdl",
+    "button_left":   f"hat:0,guid:{AZAHAR_GUID},port:{AZAHAR_PORT},direction:left,engine:sdl",
+    "button_right":  f"hat:0,guid:{AZAHAR_GUID},port:{AZAHAR_PORT},direction:right,engine:sdl",
+    # Schiebepad und C-Stick als Achsenpaare.
+    "circle_pad":    f"axis_x:0,axis_y:1,guid:{AZAHAR_GUID},port:{AZAHAR_PORT},engine:sdl",
+    "c_stick":       f"axis_x:3,axis_y:4,guid:{AZAHAR_GUID},port:{AZAHAR_PORT},engine:sdl",
+}
+
+
+def azahar_apply(pruefen=False):
+    r"""-> (geaendert, meldung). Legt Spieler 1 auf das gebrueckte Gamepad.
+
+    Azahars Standardbelegung ist die TASTATUR (`engine:keyboard`) — dieselbe Falle wie
+    bei RPCS3 (#156): Das Pad wird erkannt und aufgezaehlt, im Spiel passiert nichts,
+    und von aussen sieht das aus wie ein defekter Controller.
+
+    Qt schreibt neben jeden Schluessel ein `\default`-Flag. Steht es auf `true`, gilt
+    der eingebaute Standard und der danebenstehende Wert wird beim naechsten Start
+    ueberschrieben — deshalb muss BEIDES gesetzt werden. Genau daran ist hier zuerst die
+    Umstellung auf Vulkan gescheitert: Der Wert stand richtig da und wirkte trotzdem
+    nicht.
+    EN: Azahar defaults to the keyboard. Qt keeps a `\default` flag next to every key;
+    while it is true the value beside it is ignored and rewritten.
+    """
+    pfad = azahar_ini()
+    if not os.path.isfile(pfad):
+        return False, "qt-config.ini gibt es noch nicht — der Emulator legt sie beim ersten Start an"
+
+    with open(pfad, encoding="utf-8", errors="ignore") as f:
+        zeilen = f.read().splitlines()
+
+    # Steht dort schon eine SDL-Belegung, bleibt sie unangetastet: Sie stammt dann von
+    # Azahars Auto-Map, und das kennt den richtigen Port — wir raten ihn nur.
+    if any("engine:sdl" in z and "profiles\\1\\button_a" in z for z in zeilen):
+        return False, "SDL-Belegung vorhanden (vermutlich Auto-Map) — unveraendert gelassen"
+
+    gewuenscht = {f"profiles\\1\\{k}": v for k, v in AZAHAR_BELEGUNG.items()}
+    geaendert = False
+    neu_zeilen, gesehen = [], set()
+    for z in zeilen:
+        schluessel = z.split("=", 1)[0].strip()
+        # Der Wert selbst
+        if schluessel in gewuenscht:
+            soll = f'{schluessel}="{gewuenscht[schluessel]}"'
+            gesehen.add(schluessel)
+            if z != soll:
+                geaendert = True
+            neu_zeilen.append(soll)
+            continue
+        # Das zugehoerige default-Flag muss false sein, sonst gilt der Wert nicht.
+        if schluessel.endswith("\\default"):
+            basis = schluessel[: -len("\\default")]
+            if basis in gewuenscht:
+                soll = f"{schluessel}=false"
+                if z != soll:
+                    geaendert = True
+                neu_zeilen.append(soll)
+                continue
+        neu_zeilen.append(z)
+
+    fehlend = [k for k in gewuenscht if k not in gesehen]
+    if fehlend:
+        # Neue Schluessel gehoeren in den [Controls]-Abschnitt, nicht ans Dateiende.
+        try:
+            i = neu_zeilen.index("[Controls]") + 1
+        except ValueError:
+            neu_zeilen.append("[Controls]")
+            i = len(neu_zeilen)
+        for k in sorted(fehlend):
+            neu_zeilen[i:i] = [f'{k}="{gewuenscht[k]}"', f"{k}\\default=false"]
+        geaendert = True
+
+    if pruefen or not geaendert:
+        return geaendert, ("Belegung muesste gesetzt werden" if geaendert
+                           else "Gamepad-Belegung steht bereits")
+    sicherung = pfad + ".vor-gamepad"
+    if not os.path.exists(sicherung):
+        shutil.copy2(pfad, sicherung)
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write("\n".join(neu_zeilen) + "\n")
+    return True, f"Gamepad-Belegung gesetzt ({len(gewuenscht)} Tasten), Rueckweg: {sicherung}"
+
+
 PROFILE = {
     # geprueft: Bild und Gamepad im Spiel bestaetigt (2026-08-10). Bis dahin drei
     # Anlaeufe — Erstlaufdialog, dann PCSX2s Face*-Namen, dann `South` aus dem Binary.
@@ -715,7 +841,8 @@ PROFILE = {
                   "geprueft": True},
     "cemu":      {"system": "Wii U",         "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
-    "azahar":    {"system": "3DS",           "controller": None, "bios": None, "vollbild": None,
+    "azahar":    {"system": "3DS",           "controller": azahar_apply,
+                  "bios": None, "vollbild": None,
                   "geprueft": False},
     "vita3k":    {"system": "PS Vita",       "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
