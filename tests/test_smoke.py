@@ -1536,7 +1536,7 @@ def test_stream_only_for_platforms_without_a_browser_core(appmod):
     """Der Stream-Knopf ergaenzt Play, er ersetzt ihn nicht: wo ein EmulatorJS-Kern
     existiert, gibt es keinen Stream. (#71)"""
     _stream_ready(appmod)
-    appmod.kv_put("stream_session", None)
+    appmod.kv_put("stream_sessions", {}); appmod.kv_put("stream_session", None)
     for slug in ("snes", "psx", "gba", "n64"):
         assert appmod.stream_info("X", slug)["reason"] == "use_play", slug
     for slug in ("ps2", "ngc", "wii", "switch"):
@@ -1561,7 +1561,7 @@ def test_stream_is_single_seat(appmod, client):
     """Einzelplatz: die zweite Sitzung wird mit 409 und dem Namen des Belegers abgewiesen,
     nicht mit einem stillen Fehlschlag. (#71)"""
     _stream_ready(appmod)
-    appmod.kv_put("stream_session", None)
+    appmod.kv_put("stream_sessions", {}); appmod.kv_put("stream_session", None)
     appmod.save_users({**ADMIN_FIX, "anna": {"pw": "x", "role": "user", "perms": ["request"]},
                        "bert": {"pw": "x", "role": "user", "perms": ["request"]}})
     with client.session_transaction() as sess:
@@ -1577,24 +1577,31 @@ def test_stream_is_single_seat(appmod, client):
     assert r.status_code == 409
     d = r.get_json()
     assert d["reason"] == "busy" and d["busy_user"] == "anna"
-    # ... und darf sie nicht einfach abdrehen
-    assert client.post("/api/stream/stop").status_code == 403
+    # ... und darf sie nicht abdrehen. Ohne Platzangabe beendet `stop` die EIGENE
+    # Sitzung — bert hat keine, es passiert also nichts (200, was_running=false).
+    # Nennt er annas Platz ausdrücklich, wird er abgewiesen. Beides ist wichtig:
+    # das erste verhindert versehentliches Abdrehen, das zweite absichtliches. (#137)
+    r_ohne = client.post("/api/stream/stop")
+    assert r_ohne.status_code == 200 and r_ohne.get_json()["was_running"] is False
+    assert client.post("/api/stream/stop?seat=1").status_code == 403
     with client.session_transaction() as sess:
         sess["user"] = "anna"; sess["role"] = "user"
     assert client.post("/api/stream/stop").get_json()["was_running"] is True
-    assert appmod.stream_session() is None
+    assert appmod.stream_sessions() == {}
     appmod.save_users({}); appmod.save_settings({})
 
 
 def test_stream_session_expires(appmod):
-    """Ein vergessener Tab darf den Einzelplatz nicht dauerhaft blockieren. (#71)"""
-    appmod.kv_put("stream_session", {"user": "anna", "title": "X", "platform": "ps2",
-                                     "started": 0, "expires": time.time() - 1})
-    assert appmod.stream_session() is None      # abgelaufen -> Platz frei
-    appmod.kv_put("stream_session", {"user": "anna", "title": "X", "platform": "ps2",
-                                     "started": 0, "expires": time.time() + 600})
-    assert appmod.stream_session()["user"] == "anna"
-    appmod.kv_put("stream_session", None)
+    """Ein vergessener Tab darf einen Platz nicht dauerhaft blockieren. (#71)"""
+    appmod.kv_put("stream_sessions", {"1": {"user": "anna", "title": "X", "platform": "ps2",
+                                            "started": 0, "expires": time.time() - 1}})
+    assert appmod.stream_sessions() == {}       # abgelaufen -> Platz frei
+    appmod.kv_put("stream_sessions", {"1": {"user": "anna", "title": "X", "platform": "ps2",
+                                            "started": 0, "expires": time.time() + 600}})
+    assert appmod.stream_sessions()["1"]["user"] == "anna"
+    assert appmod.stream_session_of("anna")[0] == "1"
+    assert appmod.stream_session_of("bea") == (None, None)
+    appmod.kv_put("stream_sessions", {}); appmod.kv_put("stream_session", None)
 
 
 def test_stream_needs_permission(appmod, client):
@@ -2365,7 +2372,7 @@ def test_romseerr_sends_a_library_relative_path(appmod, client, monkeypatch):
     assert code == 200 and out["launched"] is True
     assert gesehen.get("rel") == os.path.join("ps2", "ISO", "spiel.iso"), gesehen
     assert "path" in gesehen, "der absolute Pfad geht zur Vertraeglichkeit weiter mit"
-    appmod.kv_put("stream_session", None); appmod.save_settings({})
+    appmod.kv_put("stream_sessions", {}); appmod.kv_put("stream_session", None); appmod.save_settings({})
 
 
 # ------------------------------------------------ Controller-Profile (#119)
@@ -2679,7 +2686,7 @@ def test_launch_sends_the_region(appmod, client, monkeypatch):
                                           "stream_launch": "http://h.example:8901/launch?token=x"}})
     appmod.stream_start("lena", "Ratchet & Clank", "ps2")
     assert gesehen.get("region") == "Europe", gesehen
-    appmod.kv_put("stream_session", None); appmod.save_settings({})
+    appmod.kv_put("stream_sessions", {}); appmod.kv_put("stream_session", None); appmod.save_settings({})
 
 
 def test_version_says_whether_it_knows_its_own_build(appmod, client, monkeypatch):
@@ -4659,7 +4666,7 @@ def test_wrong_launch_token_is_reported_as_such(appmod, monkeypatch, tmp_path):
     monkeypatch.setattr(appmod, "PLAYABLE", set())
     monkeypatch.setattr(appmod, "resolve_slug", lambda x: x)
     monkeypatch.setattr(appmod, "stream_find_file", lambda t, s: str(tmp_path / "spiel.iso"))
-    monkeypatch.setattr(appmod, "stream_session", lambda: None)
+    monkeypatch.setattr(appmod, "stream_sessions", lambda: {})
     monkeypatch.setattr(appmod, "kv_put", lambda *a, **k: None)
 
     class Antwort:
@@ -4959,3 +4966,89 @@ def test_agent_starts_with_dropped_privileges():
     # Und der Altbestand muss geheilt werden, sonst bleibt Unlesbares liegen.
     assert "-user 0" in text and "chown" in text, \
         "keine Reparatur der root-eigenen Altdateien"
+
+
+def test_two_seats_allow_two_people_at_once(appmod, client):
+    """Zwei Plätze, zwei Leute, gleichzeitig — das war der Zweck von #137.
+
+    Geprüft werden die Abnahmekriterien des Issues: beide kommen dran, jeder bekommt
+    die Adresse SEINES Platzes (die falsche landete auf dem Desktop des anderen), der
+    dritte wird abgewiesen statt still zu übernehmen, und das Beenden des einen lässt
+    den anderen unberührt.
+    """
+    _stream_ready(appmod)
+    appmod.kv_put("stream_sessions", {}); appmod.kv_put("stream_session", None)
+    appmod.save_settings({"connections": {
+        "stream_url": "http://sitz1.example:3000/",
+        "stream_url_2": "http://sitz2.example:3000/"}})
+    appmod.save_users({**ADMIN_FIX,
+                       "anna": {"pw": "x", "role": "user", "perms": ["request"]},
+                       "bert": {"pw": "x", "role": "user", "perms": ["request"]},
+                       "cara": {"pw": "x", "role": "user", "perms": ["request"]}})
+    assert len(appmod.stream_seats()) == 2
+
+    def start(wer):
+        with client.session_transaction() as sess:
+            sess["user"] = wer; sess["role"] = "user"
+        return client.post("/api/stream/start",
+                           json={"title": "Zzz Streamtitel", "platform": "ps2"})
+
+    r1 = start("anna")
+    assert r1.status_code == 200, r1.get_json()
+    r2 = start("bert")
+    assert r2.status_code == 200, "zweiter Platz wurde nicht vergeben"
+    # Jeder auf SEINER Adresse — sonst sieht der zweite das Bild des ersten.
+    assert r1.get_json()["url"] != r2.get_json()["url"]
+    assert r1.get_json()["seat"] != r2.get_json()["seat"]
+
+    # Der dritte bekommt eine klare Absage, nicht den Platz eines anderen.
+    r3 = start("cara")
+    assert r3.status_code == 409 and r3.get_json()["reason"] == "busy"
+
+    # Beenden des einen lässt den anderen laufen.
+    with client.session_transaction() as sess:
+        sess["user"] = "anna"; sess["role"] = "user"
+    assert client.post("/api/stream/stop").get_json()["was_running"] is True
+    assert appmod.stream_session_of("bert")[1] is not None, "fremde Sitzung mitgerissen"
+    assert appmod.stream_session_of("anna") == (None, None)
+    # ... und der frei gewordene Platz geht an den nächsten.
+    assert start("cara").status_code == 200
+
+    appmod.kv_put("stream_sessions", {}); appmod.kv_put("stream_session", None)
+    appmod.save_users({}); appmod.save_settings({})
+
+
+def test_second_title_reuses_your_own_seat(appmod, client):
+    """Wer einen zweiten Titel startet, soll seinen Platz behalten und nicht den
+    zweiten mitbelegen — sonst sperrt eine Person allein die ganze Anlage."""
+    _stream_ready(appmod)
+    appmod.kv_put("stream_sessions", {}); appmod.kv_put("stream_session", None)
+    appmod.save_settings({"connections": {
+        "stream_url": "http://sitz1.example:3000/",
+        "stream_url_2": "http://sitz2.example:3000/"}})
+    appmod.save_users({**ADMIN_FIX, "anna": {"pw": "x", "role": "user", "perms": ["request"]}})
+    with client.session_transaction() as sess:
+        sess["user"] = "anna"; sess["role"] = "user"
+    a = client.post("/api/stream/start", json={"title": "Zzz Streamtitel", "platform": "ps2"})
+    b = client.post("/api/stream/start", json={"title": "Zzz Streamtitel", "platform": "ps2"})
+    assert a.get_json()["seat"] == b.get_json()["seat"]
+    assert len(appmod.stream_sessions()) == 1, "zweiter Platz unnötig belegt"
+    appmod.kv_put("stream_sessions", {}); appmod.kv_put("stream_session", None)
+    appmod.save_users({}); appmod.save_settings({})
+
+
+def test_single_seat_session_survives_the_upgrade(appmod):
+    """Wer beim Update gerade spielt, darf seinen Platz nicht verlieren.
+
+    Vor #137 lag die Sitzung als Einzelwert unter `stream_session`. Ein solcher
+    Altbestand wird zu Platz 1 — sonst wäre das Update für den Spielenden ein
+    plötzliches „besetzt durch niemanden". (#137)
+    """
+    appmod.kv_put("stream_sessions", None)
+    appmod.kv_put("stream_session", {"user": "anna", "title": "X", "platform": "ps2",
+                                     "started": 0, "expires": time.time() + 600})
+    sitzungen = appmod.stream_sessions()
+    assert sitzungen.get("1", {}).get("user") == "anna", "laufende Sitzung verloren"
+    # Der alte Schlüssel wird dabei geräumt, sonst käme die Sitzung nach dem Beenden zurück.
+    assert appmod.kv_get("stream_session", None) in (None, {}), "Altschlüssel nicht geräumt"
+    appmod.kv_put("stream_sessions", {}); appmod.kv_put("stream_session", None)
