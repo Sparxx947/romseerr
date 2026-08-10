@@ -330,6 +330,53 @@ seat 1 updates the shared emulators. The second service inherits through YAML an
 rather than `extends`, because `extends` merges lists and the second container would
 have inherited the first one's ports.*
 
+## Was zwei gleichzeitige Sitzungen kosten (gemessen)
+
+Gemessen am 2026-08-10 auf einer **Arc A310**, 1920×1080 bei 30 fps, mit
+`intel_gpu_top`. Je drei Läufe à 10–15 s; Ladephasen verworfen.
+
+| Zustand | RCS (3D) | VCS (Video) | GPU-Takt | CPU gesamt |
+|---|---|---|---|---|
+| leer | 0 % | 0 % | 0 MHz | — |
+| 1 Emulator (PS1), kein Bild | 7,9 % | 0 % | 367 MHz | — |
+| 2 Emulatoren (PS1), kein Bild | 15,2 % | 0 % | 575 MHz | — |
+| 1 Emulator (GameCube), kein Bild | 18,8 % | 0 % | 745 MHz | 94 % |
+| GameCube + PS1, kein Bild | 18,7 % | 0 % | 772 MHz | 124 % |
+| **GameCube + PS1, beide Streams offen** | **30,0 %** | **0 %** | 849 MHz | **371 %** |
+
+**Die GPU ist nicht der Engpass.** Bei zwei laufenden Sitzungen mit Bild liegt die
+Render-Engine bei 30 % und der Takt bei 849 MHz — von **2450 MHz** möglichem Maximum,
+kaum über dem Dauerlast-Takt von 600 MHz. Da ist Luft für mehr als zwei Plätze.
+
+**Zwei gleichartige Sitzungen addieren sich, ungleiche nicht.** Zweimal PS1 verdoppelt
+die Last (7,9 → 15,2 %), GameCube plus PS1 kostet dagegen nichts extra (18,8 → 18,7 %).
+Der Grund steckt in der Zahl: `RCS %` ist die **Belegungszeit** der Engine, nicht
+Rechenleistung. Die zweite Sitzung füllt Lücken, statt die Engine länger zu beschäftigen
+— sichtbar daran, dass stattdessen der Takt steigt.
+
+**Der Engpass ist die CPU, und zwar vermeidbar.** Die Kodierung kostet rund
+**1,2 Kerne je Sitzung** (124 % → 371 % beim Öffnen beider Streams). Das liegt daran,
+dass Selkies hier in Software kodiert:
+
+```
+[x11] No GPU Encoder available -> Using CPU Software Encoding.
+[x11] Encoder: CPU | Mode: H264 | Res: 1920x1080 | FPS: 30
+```
+
+`VCS` bleibt in **allen** Messungen bei 0 % — die Video-Engine der Arc liegt brach.
+Ursache ist dieselbe Bauart wie beim DRI3-Problem: Selkies leitet den GPU-Index aus dem
+**Namen** des Knotens ab (`parse_dri_node_to_index`: `renderD129` → Index 1), im
+Container existiert aber nur ein Knoten, der dort Index 0 ist. Das Aufnahmemodul sucht
+Karte 1, findet keine und weicht auf die CPU aus.
+
+*EN: measured on an Arc A310 at 1080p30. The GPU is not the bottleneck — two sessions
+with video sit at 30 % render engine and 849 MHz of a possible 2450. Two identical
+sessions add up, mixed ones do not, because RCS % is engine occupancy rather than work.
+The real cost is the CPU: roughly 1.2 cores per session, because Selkies falls back to
+software encoding. VCS stays at 0 % throughout — Selkies derives the GPU index from the
+node NAME (renderD129 → index 1) while the container exposes a single node at index 0,
+so the capture module looks for a card that is not there.*
+
 ## Emulatoren aktualisieren und zurücksetzen
 
 Läuft bei jedem Containerstart: die aktuelle Release-URL wird geholt und mit der
