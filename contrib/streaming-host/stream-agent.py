@@ -346,6 +346,59 @@ def start_umgebung(platform):
     return umg
 
 
+# ------------------------------------------- 3DS: vor dem Start pruefbar (#299)
+#
+# Azahar laedt ausschliesslich ENTSCHLUESSELTE Abbilder und entschluesselt NICHT selbst —
+# auch nicht mit `aes_keys.txt` und `boot9.bin`. Der Wunsch danach wurde upstream als
+# "closed as not planned" abgelehnt (azahar-emu/azahar#2207).
+#
+# Ohne diese Pruefung endet ein verschluesselter Titel als leerer Stream: Azahar startet,
+# zeigt `App Encrypted` oder gar kein Fenster, und der Nutzer sieht einen Desktop ohne
+# Erklaerung. Am Bestand nachgemessen waren 1248 von 1249 Abbildern verschluesselt — das
+# ist kein Randfall, sondern der Normalfall einer Sammlung aus Cartridge-Dumps.
+#
+# Geprueft wird der NCCH-Kopf: Bei 0x100 steht `NCSD`, die erste Partition beginnt bei
+# 0x4000 mit `NCCH` bei 0x4100, und ab 0x188 liegen acht Flag-Bytes. Bit 2 von Flag 7
+# (0x04) ist `NoCrypto` — gesetzt heisst unverschluesselt.
+#
+# EN: Azahar only loads decrypted dumps and will not decrypt (upstream: closed as not
+# planned). Without this check an encrypted title becomes an empty stream.
+_3DS_ENDUNGEN = (".3ds", ".cci")
+
+
+def _3ds_spielbar(pfad):
+    """-> (spielbar, grund). Nur fuer 3DS-Abbilder; alles andere gilt als spielbar."""
+    endung = os.path.splitext(pfad)[1].lower()
+    if endung == ".cia":
+        # CIAs sind Installationspakete, keine startbaren Abbilder — unabhaengig von
+        # jeder Verschluesselung. Azahar sagt das selbst: "CIA must be installed
+        # before usage".
+        return False, ("CIA-Dateien sind Installationspakete und starten nicht direkt / "
+                       "CIA files are installation packages and do not boot directly")
+    if endung not in _3DS_ENDUNGEN:
+        return True, ""
+    try:
+        with open(pfad, "rb") as f:
+            f.seek(0x100)
+            if f.read(4) != b"NCSD":
+                return True, ""          # kein NCSD -> nicht beurteilbar, nicht abweisen
+            f.seek(0x4100)
+            if f.read(4) != b"NCCH":
+                return True, ""
+            f.seek(0x4188)
+            flags = f.read(8)
+    except OSError:
+        return True, ""                  # nicht lesbar ist ein anderes Problem
+    if len(flags) < 8:
+        return True, ""
+    if flags[7] & 0x04:                  # NoCrypto
+        return True, ""
+    return False, ("Das Abbild ist VERSCHLUESSELT. Azahar spielt nur entschluesselte "
+                   "Dumps und entschluesselt nicht selbst — der Titel muss entschluesselt "
+                   "vorliegen (etwa mit GodMode9 auf einer echten Konsole). / The image "
+                   "is ENCRYPTED; Azahar only runs decrypted dumps and will not decrypt.")
+
+
 def launch(path, platform, rel="", region=""):
     """(ok, meldung). Einzelplatz: ein laufender Emulator wird zuvor beendet.
 
@@ -380,6 +433,13 @@ def launch(path, platform, rel="", region=""):
         return False, (f"In der Bibliothek nicht gefunden / not found in the library: "
                        f"{rel} — haengen Romseerr und der Streaming-Host DIESELBE "
                        "Bibliothekswurzel ein? / do both mount the same library root?")
+
+    # 3DS vor dem Start pruefen (#299): Was verschluesselt ist, kann Azahar nicht
+    # spielen — das jetzt zu sagen ist ehrlicher als ein Stream, der leer aufgeht.
+    if platform == "3ds" and os.path.isfile(real):
+        spielbar, grund = _3ds_spielbar(real)
+        if not spielbar:
+            return False, grund
 
     # Ein Titel ist nicht immer eine Datei. Eine PS3-Disc ist ein ORDNER mit
     # PS3_DISC.SFB und PS3_GAME/USRDIR/EBOOT.BIN darin — nachgemessen, 13 von 17

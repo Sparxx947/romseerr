@@ -5663,6 +5663,61 @@ def test_xemu_fullscreen_reports_when_no_window_exists(tmp_path, monkeypatch):
     assert not ok and "kein xemu-Fenster" in msg, msg
 
 
+# ------------------------------- 3DS: Verschluesselung vor dem Start erkennen (#299)
+
+def _ncsd_bauen(pfad, nocrypto):
+    """Minimales 3DS-Abbild: NCSD-Kennung, NCCH-Kennung, Flags."""
+    daten = bytearray(0x4200)
+    daten[0x100:0x104] = b"NCSD"
+    daten[0x4100:0x4104] = b"NCCH"
+    daten[0x4188:0x4190] = bytes([0, 0, 0, 0, 1, 3, 0, 0x04 if nocrypto else 0x00])
+    with open(pfad, "wb") as f:
+        f.write(daten)
+
+
+def test_encrypted_3ds_images_are_rejected_before_launch(tmp_path):
+    """Ein verschluesselter Titel darf gar nicht erst starten. (#299)
+
+    Azahar spielt ausschliesslich entschluesselte Dumps und entschluesselt NICHT selbst;
+    der Wunsch danach wurde upstream als "closed as not planned" abgelehnt. Ohne diese
+    Pruefung endet so ein Titel als leerer Stream — der Emulator startet, zeigt
+    `App Encrypted` oder gar kein Fenster, und der Nutzer sieht einen Desktop ohne
+    jede Erklaerung.
+
+    Am Bestand nachgemessen: 1248 von 1249 Abbildern verschluesselt. Das ist der
+    Normalfall einer Sammlung aus Cartridge-Dumps, kein Randfall.
+    """
+    import importlib.util
+    pfad = os.path.join(REPO, "contrib/streaming-host/stream-agent.py")
+    spec = importlib.util.spec_from_file_location("agent_3ds_test", pfad)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+
+    verschluesselt = str(tmp_path / "verschluesselt.3ds")
+    entschluesselt = str(tmp_path / "entschluesselt.3ds")
+    _ncsd_bauen(verschluesselt, nocrypto=False)
+    _ncsd_bauen(entschluesselt, nocrypto=True)
+
+    ok, grund = m._3ds_spielbar(verschluesselt)
+    assert not ok, "verschluesseltes Abbild wurde durchgelassen"
+    assert "VERSCHLUESSELT" in grund, grund
+
+    ok, _ = m._3ds_spielbar(entschluesselt)
+    assert ok, "entschluesseltes Abbild wurde faelschlich abgewiesen"
+
+    # CIAs starten nie direkt — unabhaengig von jeder Verschluesselung.
+    cia = str(tmp_path / "paket.cia")
+    open(cia, "wb").write(b"x" * 100)
+    ok, grund = m._3ds_spielbar(cia)
+    assert not ok and "Installationspakete" in grund, grund
+
+    # Was kein NCSD ist, wird NICHT abgewiesen: lieber starten lassen und den
+    # Emulator entscheiden, als einen brauchbaren Titel wegen einer zu strengen
+    # Pruefung zu blockieren.
+    fremd = str(tmp_path / "fremd.3ds")
+    open(fremd, "wb").write(b"x" * 100)
+    ok, _ = m._3ds_spielbar(fremd)
+    assert ok, "unbekanntes Format darf nicht abgewiesen werden"
 def test_azahar_binds_the_pad_and_swaps_a_b(tmp_path):
     """Azahars Voreinstellung ist die TASTATUR — dieselbe Falle wie RPCS3 (#156).
 
