@@ -96,18 +96,39 @@ services:
 
       # --- DRI3 fuer den X-Server -------------------------------------------------
       # Der X-Dienst des Abbilds KANN DRI3, sucht dafuer aber fest nach
-      # /dev/dri/renderD128. Haengt die Karte woanders (hier: renderD129), greift die
-      # Erkennung nie: Xvfb laeuft ohne GPU-Knoten, DRI3 fehlt, und Vulkan kann gar
-      # nicht praesentieren ("No DRI3 support detected - required for presentation").
-      # Genau deshalb war VirtualGL ueberhaupt noetig.
+      # /dev/dri/renderD128. Ohne Treffer laeuft Xvfb ohne GPU-Knoten, DRI3 fehlt, und
+      # Vulkan kann gar nicht praesentieren ("No DRI3 support detected - required for
+      # presentation"). Genau deshalb war VirtualGL ueberhaupt noetig.
       #
-      # Nachgemessen (#169): mit diesem Knoten meldet derselbe Xvfb DRI3, vulkaninfo
-      # eine praesentierfaehige Oberflaeche, und Dolphins Video-Thread faellt von
-      # "saettigt einen Kern" auf 14 % — ohne VirtualGL im Prozess.
+      # Nachgemessen (#169): mit dem Knoten meldet derselbe Xvfb DRI3, vulkaninfo eine
+      # praesentierfaehige Oberflaeche, und Dolphins Video-Thread faellt von "saettigt
+      # einen Kern" auf 14 % — ohne VirtualGL im Prozess.
       #
       # EN: the image's X service supports DRI3 but hard-codes renderD128; point it at
       # the actual render node and Vulkan can present, dropping VirtualGL entirely.
       DRINODE: ${DRI_RENDER_NODE}
+
+      # --- GPU-Kodierung (#283) ----------------------------------------------------
+      # OHNE DAS KODIERT SELKIES IN SOFTWARE. Gemessen: ~1,2 CPU-Kerne je Sitzung,
+      # waehrend die Video-Engine der Karte brachliegt (VCS durchgehend 0 %). Im Log
+      # steht dann nur `No GPU Encoder available -> Using CPU Software Encoding`.
+      #
+      # Der Grund ist eine Rechnung im Quelltext: ohne diese Variable leitet Selkies den
+      # GPU-Index aus dem NAMEN des Knotens ab (`parse_dri_node_to_index`: renderD129
+      # -> Index 1) und oeffnet die n-te Karte. Der Container bekommt aber genau eine,
+      # und die ist dort Index 0. Mit AUTO_GPU sucht das Aufnahmemodul die Karte selbst
+      # (`encode_node_index = -2`) und die Rechnung entfaellt.
+      #
+      # VERSUCHT UND VERWORFEN: den Knoten als renderD128 einhaengen. Das macht den
+      # Index richtig, aber den Knoten widerspruechlich — Name 128, Geraetenummer 129.
+      # X und Vulkan stoert das nicht, libva lehnt ab:
+      #   [VAAPI] DRM instance fd does not appear to refer to a DRM device
+      #
+      # EN: without this Selkies encodes in software (~1.2 CPU cores per session) while
+      # the card's video engine idles. It otherwise derives the GPU index from the node
+      # NAME and opens the n-th card; AUTO_GPU makes the capture module find the card
+      # itself. Mounting the node as renderD128 fixes the index but breaks libva.
+      SELKIES_AUTO_GPU: "${SELKIES_AUTO_GPU:-true}"
       # Grenze fuer eine hochgeladene Firmware-Datei (Sonys PS3-Paket ist ~200 MB).
       FIRMWARE_MAX_BYTES: ${FIRMWARE_MAX_BYTES:-536870912}
     volumes: &sh-volumes

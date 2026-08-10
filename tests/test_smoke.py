@@ -5108,3 +5108,31 @@ def test_the_second_seat_is_reachable_from_the_interface():
             f"{schluessel} fehlt in einer der fünf Sprachen"
     # Die Platzanzeige darf bei mehreren Plätzen nicht mehr "Einzelplatz" behaupten.
     assert "d.seats||1)>1" in js.replace(" ", ""), "Platzanzeige nicht von der Zahl abhängig"
+
+
+def test_gpu_encoding_is_switched_on():
+    """Ohne `SELKIES_AUTO_GPU` kodiert Selkies in SOFTWARE — lautlos.
+
+    Gemessen am 2026-08-10: ~1,2 CPU-Kerne je Sitzung, während die Video-Engine der
+    Karte brachlag (VCS durchgehend 0 %). Im Log steht dann nur eine Zeile:
+    `No GPU Encoder available -> Using CPU Software Encoding`.
+
+    Der Grund ist eine Rechnung im Selkies-Quelltext: ohne die Variable leitet es den
+    GPU-Index aus dem NAMEN des Knotens ab (`renderD129` → Index 1) und öffnet die n-te
+    Karte — der Container hat aber genau eine, und die ist dort Index 0. Mit AUTO_GPU
+    sucht das Aufnahmemodul die Karte selbst und die Rechnung entfällt.
+
+    Die Variable war schon einmal gesetzt und ist beim Umstieg auf Compose verloren
+    gegangen, weil sie nur am Container hing (dieselbe Falle wie bei SELKIES_FRAMERATE).
+    Deshalb dieser Test. (#283)
+    """
+    import yaml
+    pfad = os.path.join(REPO, "contrib/streaming-host/docker-compose.yml")
+    d = yaml.safe_load(open(pfad, encoding="utf-8"))
+    for dienst in ("stream-host", "stream-host-2"):
+        env = d["services"][dienst].get("environment") or {}
+        wert = str(env.get("SELKIES_AUTO_GPU", ""))
+        assert wert, f"{dienst}: SELKIES_AUTO_GPU fehlt — Kodierung fiele auf die CPU zurück"
+        # Der Code prüft gegen diese Liste; ein Standard aus ihr wäre wirkungslos.
+        assert not any(w in wert.lower() for w in ("false", "off", "no")) or ":-" in wert, \
+            f"{dienst}: Standardwert schaltet die GPU-Kodierung ab: {wert}"

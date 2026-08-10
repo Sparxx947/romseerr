@@ -354,20 +354,41 @@ Der Grund steckt in der Zahl: `RCS %` ist die **Belegungszeit** der Engine, nich
 Rechenleistung. Die zweite Sitzung füllt Lücken, statt die Engine länger zu beschäftigen
 — sichtbar daran, dass stattdessen der Takt steigt.
 
-**Der Engpass ist die CPU, und zwar vermeidbar.** Die Kodierung kostet rund
-**1,2 Kerne je Sitzung** (124 % → 371 % beim Öffnen beider Streams). Das liegt daran,
-dass Selkies hier in Software kodiert:
+**Der Engpass war die CPU — und das war ein Konfigurationsfehler.** In den Messungen
+oben kostete die Kodierung rund **1,2 Kerne je Sitzung**, weil Selkies in Software
+kodierte:
 
 ```
 [x11] No GPU Encoder available -> Using CPU Software Encoding.
-[x11] Encoder: CPU | Mode: H264 | Res: 1920x1080 | FPS: 30
 ```
 
-`VCS` bleibt in **allen** Messungen bei 0 % — die Video-Engine der Arc liegt brach.
-Ursache ist dieselbe Bauart wie beim DRI3-Problem: Selkies leitet den GPU-Index aus dem
-**Namen** des Knotens ab (`parse_dri_node_to_index`: `renderD129` → Index 1), im
-Container existiert aber nur ein Knoten, der dort Index 0 ist. Das Aufnahmemodul sucht
-Karte 1, findet keine und weicht auf die CPU aus.
+`VCS` blieb dabei durchgehend bei 0 % — die Video-Engine der Arc lag brach. **Behoben
+mit `SELKIES_AUTO_GPU` (#283):**
+
+```
+[x11] VAAPI Encoder initialized successfully.
+[x11] Encoder: VAAPI | Mode: H264
+```
+
+| eine Sitzung mit Bild | Software | **VAAPI** |
+|---|---|---|
+| VCS (Video-Engine) | 0 % | **2,8 %** |
+| VECS | 0 % | 1,5 % |
+| CPU des Containers | 179 % | **152 %** |
+
+**Warum die Variable nötig ist:** Ohne sie leitet Selkies den GPU-Index aus dem **Namen**
+des Knotens ab (`parse_dri_node_to_index`: `renderD129` → Index 1) und öffnet die n-te
+Karte. Der Container bekommt aber genau eine, und die ist dort Index 0 — also sucht es
+eine zweite, findet keine und weicht auf die CPU aus. Mit `SELKIES_AUTO_GPU` sucht das
+Aufnahmemodul die Karte selbst (`encode_node_index = -2`), und die Rechnung entfällt.
+
+**Versucht und verworfen:** den Knoten als `renderD128` einzuhängen. Das macht den Index
+richtig, aber den Knoten widersprüchlich — Name sagt 128, Gerätenummer sagt 129. X und
+Vulkan stört das nicht, `libva` lehnt ab: *DRM instance fd does not appear to refer to a
+DRM device*.
+
+`Slice count rounded up to 68 (from 4)` im Log ist **kein Fehler**, sondern Rechnen:
+1080 ÷ 16 = 67,5 → 68. Intels Low-Power-Encoder will einen Slice je Makroblockzeile.
 
 *EN: measured on an Arc A310 at 1080p30. The GPU is not the bottleneck — two sessions
 with video sit at 30 % render engine and 849 MHz of a possible 2450. Two identical
