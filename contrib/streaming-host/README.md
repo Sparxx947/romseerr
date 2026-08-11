@@ -348,6 +348,26 @@ startet die Kopie:
 `/status` meldet die Fähigkeit als `can_decrypt_3ds`. Romseerr fragt sie ab und sagt einen
 verschlüsselten Titel **nicht mehr ab**, sondern kündigt die Wartezeit an.
 
+**`.cia` ebenso, mit einem Unterschied: die Installation ist dauerhaft.** Der Host holt
+zusätzlich `decrypt_cia.py` und meldet `can_install_cia`. Beim Start einer CIA wird
+entschlüsselt, per `azahar --install` installiert und dann der installierte Titel gestartet
+— beim **zweiten** Mal nur noch gestartet, denn die Installation liegt auf Azahars
+SD-Karte und bleibt. Das Werkzeug für CIAs schreibt eine **neue** Datei
+(`<name>-decrypted.cia`) statt in-place zu arbeiten; die Logik der Abbilder ließ sich
+deshalb nicht wiederverwenden.
+
+Nicht jede CIA ist ein Spiel. Entscheidend ist die Kategorie der Titel-ID:
+
+| obere 32 Bit | Bedeutung | startbar |
+|---|---|---|
+| `0x00040000` | Anwendung | ja |
+| `0x00040002` | Demo | ja |
+| `0x0004000E` | Update | nein — gehört zu einem anderen Titel |
+| `0x0004008C` | DLC | nein |
+
+In dieser Bibliothek: 9 Anwendungen, 1 Demo, 13 Updates, 2 DLC. **Der Dateiname taugt
+nicht** — bei zweien stand etwas anderes drin, als die Datei enthielt.
+
 **Warum daneben und nicht an Ort und Stelle:** Das verschlüsselte Original ist es, was den
 Titel identifizierbar macht — von 20 3DS-Titeln erkannte Hasheous **15** an ihrer
 Prüfsumme, die beste Quote der ganzen Bibliothek. Würde man die Dateien ersetzen, wären
@@ -1176,6 +1196,25 @@ cache alongside** and starts the copy:
 
 `/status` reports the capability as `can_decrypt_3ds`. Romseerr asks for it and no longer
 refuses an encrypted title, announcing the wait instead.
+
+**`.cia` likewise, with one difference: the installation is permanent.** The host also
+fetches `decrypt_cia.py` and reports `can_install_cia`. Launching a CIA decrypts it,
+installs it with `azahar --install` and then boots the installed title — the **second**
+time it only boots, because the installation lives on Azahar's SD card and stays. The CIA
+tool writes a **new** file (`<name>-decrypted.cia`) rather than working in place, so the
+image logic could not be reused.
+
+Not every CIA is a game. The title ID's category decides:
+
+| upper 32 bits | meaning | bootable |
+|---|---|---|
+| `0x00040000` | application | yes |
+| `0x00040002` | demo | yes |
+| `0x0004000E` | update | no — belongs to another title |
+| `0x0004008C` | DLC | no |
+
+In this library: 9 applications, 1 demo, 13 updates, 2 DLC. **The filename is not
+reliable** — in two cases it said something other than what the file contained.
 
 **Why alongside rather than in place:** the encrypted original is what identifies the
 title — of 20 3DS titles Hasheous matched **15** by checksum, the best rate in the whole

@@ -215,6 +215,14 @@ that is the normal case and complete as it stands, not a fallback.
   capability and turns the refusal into a promise with an announced wait (`will_decrypt`);
   if the host does not answer, the refusal stands — a promise it cannot keep would only
   surface after a seat has been taken.
+  **`.cia` is installed rather than refused.** A CIA never boots directly, but Azahar can
+  install it, and the installed title then boots. What decides is the **kind of package**,
+  and that lives in the title ID rather than the filename: of 25 CIAs in this library 13 are
+  updates and 2 are DLC, which never boot even once installed, and in two cases the filename
+  disagreed with the title ID. Romseerr therefore refuses with a reason of its own
+  (`cia_update`, `cia_dlc`) and only promises a launch when the host reports
+  `can_install_cia`. Unlike an image, an **unreadable CIA is refused** rather than passed:
+  a CIA must have a title header, so its absence is a defect and not a special case.
   **Why alongside rather than in place:** *the encrypted original is what identifies the
   title.* Of 20 3DS titles Hasheous matched 15 by checksum — the best rate in the whole
   library, and replacing the files would throw those metadata away. The cache has a cap

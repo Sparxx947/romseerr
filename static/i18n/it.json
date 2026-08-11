@@ -365,5 +365,8 @@
  "push_on": "Push attivato ✓",
  "push_off": "Push disattivato",
  "stream_encrypted": "Questa immagine è cifrata — l’emulatore riproduce solo dump decifrati.",
- "stream_cia": "I file CIA sono pacchetti di installazione e non si avviano direttamente."
+ "stream_cia": "I file CIA sono pacchetti di installazione e non si avviano direttamente.",
+ "stream_cia_update": "Questo è un aggiornamento, non un gioco — appartiene a un altro titolo e non si avvia nemmeno installato.",
+ "stream_cia_dlc": "Questo è un contenuto aggiuntivo (DLC), non un gioco a sé.",
+ "stream_cia_broken": "Questo CIA non è leggibile — l'intestazione del titolo manca o è danneggiata."
 }
