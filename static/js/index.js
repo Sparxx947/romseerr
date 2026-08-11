@@ -665,7 +665,12 @@ async function loadPlay(it){let box=document.getElementById('mplay');if(!box)ret
 // jetzt in Schritt. Codes ohne eigenen Text zeigen bewusst `stream_no`.
 const STREAM_GRUND={no_host:'stream_no',use_play:'stream_no',not_supported:'stream_no',
  not_in_library:'stream_not_in_lib',ambiguous_platform:'stream_ambiguous',
- busy:'stream_busy','':'stream_no'};
+ busy:'stream_busy',
+ // 3DS: die Absage kommt jetzt VOR der Platzvergabe, mit eigenem Text je Grund —
+ // „geht nicht" allein laesst den Nutzer raten, ob es an ihm, am Titel oder am
+ // Dienst liegt. (#299)
+ encrypted:'stream_encrypted',cia_not_bootable:'stream_cia',
+ '':'stream_no'};
 // --- Stream (#71): Plattformen OHNE Browser-Kern laufen auf dem Streaming-Host ---
 // Einzelplatz: eine Sitzung gleichzeitig. Das muss dastehen, nicht beim zweiten Versuch knallen.
 async function loadStream(it){let box=document.getElementById('mstream');if(!box)return;

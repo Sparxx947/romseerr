@@ -363,5 +363,7 @@
  "push_unsupported": "Push unavailable (needs HTTPS)",
  "push_denied": "Permission denied",
  "push_on": "Push enabled ✓",
- "push_off": "Push disabled"
+ "push_off": "Push disabled",
+ "stream_encrypted": "This image is encrypted — the emulator only plays decrypted dumps.",
+ "stream_cia": "CIA files are installation packages and do not boot directly."
 }

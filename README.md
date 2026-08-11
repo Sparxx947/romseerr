@@ -195,6 +195,14 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   stehen als Knöpfe da. Der schlanke
   komplette Streaming-Host liegt als **`contrib/streaming-host/`** bei (Compose,
   Init-Skripte, Start-Dienst, Doku) und ist ohne fremde Umgebung nachbaubar.
+  **3DS: die Absage kommt vor der Zusage.** Ein verschlüsseltes Abbild und eine `.cia`
+  starten beide nicht — aber aus verschiedenen Gründen, und beides steht jetzt dran,
+  **bevor** ein Platz belegt wird. Vorher meldete Romseerr „streambar", der Nutzer klickte,
+  nahm einen Platz und wartete auf ein Bild, das nie kam. *Verschlüsselt* betrifft diesen
+  Titel, so wie er vorliegt; *`.cia`* betrifft das Format, immer — auch entschlüsselt
+  starten Installationspakete nicht direkt. Im Zweifel wird durchgelassen: ein Abbild ohne
+  lesbaren NCSD-Kopf ist nicht beurteilbar, und eine falsche Absage kostet mehr als ein
+  Fehlversuch.
   **Ton und Gamepad brauchen dort HTTPS** — über HTTP verweigert der Browser die
   WebCodecs-API, und beides bleibt still, ohne dass ein Fehler erscheint.
   Liegen zu einem Titel **mehrere Dateien** vor — Basisspiel, Update, DLC —, wählt
