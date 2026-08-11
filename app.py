@@ -838,6 +838,19 @@ IGNORE_FOLDERS = {
     # different thing from "content without a core", and only the former may disappear.
     "WinUAE1610",                      # Amiga-Emulator samt Konfiguration und Aufzeichnungen
     "Dingoo",                          # enthaelt einen Firmware-Installer, keine Spiele
+    # `Mixed` ist eine ABLAGE, kein System — und war lange Romseerrs eigene Erfindung:
+    # `resolve_slug("")` gab den Namen zurueck, der Import legte den Ordner an, der Index
+    # machte eine Plattform daraus. Die Ursache ist weg (#367); der Ordner bleibt, weil
+    # RetroNAS ihn ebenfalls anlegt und weil dort echte Dateien liegen — 707 gemessen,
+    # davon 198 Intellivision-ROMs. Sie einzusortieren ist #366; sie als System zu fuehren
+    # war immer falsch.
+    #
+    # WAS DAS KOSTET, offen gesagt: Die Bibliothekszahl faellt um die dort gezaehlten
+    # Titel. Das ist eine Korrektur, kein Verlust — es waren nie Titel eines Systems.
+    #
+    # Mixed is a holding area, not a system, and was Romseerr's own invention. The cause is
+    # gone; the folder stays because RetroNAS creates it too and it holds real files.
+    "Mixed",
 }
 
 # XSym: das Symlink-Format, mit dem Netatalk/Samba Verweise auf Dateisystemen ablegen,
@@ -1211,9 +1224,27 @@ def in_library(title, slug):
             return n in LIB["per"][slug]
         return n in LIB["all"]      # Plattform unbekannt -> global prüfen (konservativ)
 
+# Wohin eine Datei geht, deren Plattform sich nicht bestimmen laesst. Der PUNKT ist die
+# ganze Mechanik: `build_index` ueberspringt Ordner, die damit beginnen (#321). Ein
+# Ablageort, der keine Plattform vortaeuscht, braucht deshalb keine neue Sonderregel.
+# A leading dot is the whole mechanism: build_index skips such folders, so a holding area
+# needs no special case to stay out of the platform list.
+UNSORTIERT = ".unsortiert"
+
+
 def resolve_slug(slug):
-    """auf existierenden Ordner mappen, sonst so lassen (wird angelegt) / Mixed."""
-    if not slug: return "Mixed"
+    """Auf einen existierenden Ordner abbilden, sonst unveraendert lassen.
+
+    UNBEKANNT BLEIBT LEER (#367). Frueher stand hier `"Mixed"` — und weil dieser Wert
+    weiterlief bis `os.makedirs(ROMS/<slug>)`, ERZEUGTE Romseerr daraus eine Plattform:
+    erst den Ordner, dann den Eintrag im Index, dann das System in der Ansicht. Ein Titel
+    ohne erkennbare Plattform war damit nicht etwa unbeschriftet, sondern mit einer
+    Plattform beschriftet, die es nicht gibt.
+
+    Unknown stays empty: the old "Mixed" sentinel flowed into os.makedirs and thereby
+    created the very platform it was standing in for.
+    """
+    if not slug: return ""
     with LIB_LOCK:
         if slug in LIB["slugs"]: return slug
     return slug   # neuer Plattform-Ordner ist ok
@@ -1997,7 +2028,7 @@ def new_job(item, user="", approved=True):
     approved=False -> `pending` (wartet auf Admin-Freigabe). Gibt den Job zurück."""
     jid = f"{int(time.time())}{len(JOBS)%1000:03d}"
     job = {"id":jid,"title":item["title"],"source":item["source"],"ref":item["ref"],
-           "platform":item.get("platform_slug") or "Mixed","size":item.get("size",0),
+           "platform":item.get("platform_slug") or "","size":item.get("size",0),
            "variant":item.get("variant") or parse_release(item.get("title","")),
            "variant_label":variant_label(item.get("variant") or parse_release(item.get("title",""))),
            "variant_wanted":item.get("variant_wanted") or {},
@@ -2675,12 +2706,19 @@ def import_folder(jid, folder):
             slug = resolve_slug(EXT2PLAT.get(ext) or job_slug)
             if in_library(ziel, slug):
                 continue  # schon vorhanden -> nicht doppeln
-            target = os.path.join(ROMS, slug); os.makedirs(target, exist_ok=True)
+            # Ohne Plattform NICHT raten und schon gar keine erfinden: ab in die Ablage.
+            # Sie beginnt mit einem Punkt und ist damit keine Plattform — die Datei ist
+            # da, sichtbar, und taucht nirgends als System auf. (#367)
+            ordner = slug or UNSORTIERT
+            target = os.path.join(ROMS, ordner); os.makedirs(target, exist_ok=True)
             dst = os.path.join(target, ziel)
             if os.path.exists(dst): continue
             try:
                 subprocess.run(["cp","-a",src,dst], check=True); moved += 1
-                by_plat[slug] = by_plat.get(slug,0)+1
+                # Gezaehlt wird der ORDNER, nicht der Slug: aus einem leeren Slug wuerde
+                # sonst die Meldung „1 Datei(en) → 1×" — eine Zahl ohne Ort. Wer wissen
+                # will, wo seine Datei liegt, bekommt hier die einzige Antwort. (#367)
+                by_plat[ordner] = by_plat.get(ordner,0)+1
             except Exception as e:
                 log(f"move-Fehler {fn}: {e}"); copy_errors += 1
     # Staging aufräumen
@@ -5977,7 +6015,7 @@ def alternative_quelle(job):
     versucht = set(job.get("tried_sources") or []) | {job.get("source")}
     plat = job.get("platform")
     try:
-        treffer = do_search(job.get("title", ""), [plat] if plat and plat != "Mixed" else None)
+        treffer = do_search(job.get("title", ""), [plat] if plat else None)
     except Exception as e:
         log(f"Quellenwechsel {job.get('id')}: Suche fehlgeschlagen — {err_kind(e)}")
         return None

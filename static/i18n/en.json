@@ -208,6 +208,7 @@
  "saved": "saved ✓",
  "test_sent": "test sent ✓",
  "webhook_ph": "Discord webhook URL",
+ "plat_unknown": "platform unknown",
  "st_pending": "⏳ Awaiting approval",
  "st_queued": "Requested",
  "st_downloading": "Downloading…",

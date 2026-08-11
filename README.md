@@ -235,6 +235,15 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   Update trägt eine Fassungsnummer > 0 und sähe sonst wie ein Update aus. Startet man
   ein Update allein, meldet der Emulator nur `Error while loading ROM!` — von außen
   ununterscheidbar davon, dass er die Plattform nicht beherrscht.
+- 🗂 **Was keine Plattform ist, wird auch keine.** Lässt sich zu einem Titel keine
+  Plattform bestimmen, bleibt sie **leer** — Romseerr erfindet keinen Namen. Früher stand
+  dort `Mixed`, und weil dieser Wert bis zum Anlegen des Zielordners durchlief, **erzeugte**
+  Romseerr daraus eine Plattform: erst den Ordner, dann den Indexeintrag, dann das System in
+  der Ansicht. Ein Titel ohne erkennbare Plattform war damit nicht unbeschriftet, sondern
+  mit einer Plattform beschriftet, die es nicht gibt. Downloads ohne Plattform landen jetzt
+  in `.unsortiert` — der führende Punkt genügt, damit daraus nie ein System wird. Ein
+  **vorhandener** `Mixed`-Ordner bleibt unangetastet liegen; er zählt nur nicht mehr als
+  Plattform.
 - ▶ **Play im Browser**: liegt der Titel in RomM und gibt es für die Plattform einen
   EmulatorJS-Kern, führt ein Knopf auf der Detailseite direkt in RomMs eingebauten Spieler.
   Romseerr emuliert selbst nichts. **PS2, GameCube, Wii, Dreamcast und Switch zeigen den Knopf

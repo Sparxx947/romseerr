@@ -368,5 +368,6 @@
  "stream_cia": "CIA-Dateien sind Installationspakete und starten nicht direkt.",
  "stream_cia_update": "Das ist ein Update, kein Spiel — es gehört zu einem anderen Titel und startet auch installiert nicht.",
  "stream_cia_dlc": "Das ist ein Zusatzinhalt (DLC), kein eigenständiges Spiel.",
- "stream_cia_broken": "Diese CIA lässt sich nicht lesen — der Titelkopf fehlt oder ist beschädigt."
+ "stream_cia_broken": "Diese CIA lässt sich nicht lesen — der Titelkopf fehlt oder ist beschädigt.",
+ "plat_unknown": "Plattform unbekannt"
 }
