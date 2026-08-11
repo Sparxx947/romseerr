@@ -3558,8 +3558,16 @@ BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 TPL_DIR    = os.path.join(BASE_DIR, "templates")
 ASSET_RE   = re.compile(r"__ASSET:([A-Za-z0-9._/-]+)__")
+# WARUM `.json` HIER STEHT: Ohne Eintrag faellt eine Datei auf `application/octet-stream`
+# zurueck — und damit aus der Vorkomprimierung heraus, die nur Text-Typen packt. Die
+# Sprachdateien (#350) gingen so mit 17 KB statt rund 4 KB ueber die Leitung, und der
+# Inhaltstyp war obendrein falsch. Aufgefallen erst beim Nachmessen am laufenden Dienst;
+# die Behauptung, es sei abgedeckt, war ungeprueft.
+# Without an entry a file falls back to octet-stream and drops out of the pre-compression,
+# which only packs text types.
 ASSET_MIME = {".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8",
-              ".svg": "image/svg+xml", ".png": "image/png", ".webmanifest": "application/manifest+json"}
+              ".svg": "image/svg+xml", ".png": "image/png", ".webmanifest": "application/manifest+json",
+              ".json": "application/json; charset=utf-8"}
 _ASSETS    = {}   # "css/index.css" -> {"hash","body","mime"}
 _TPL_CACHE = {}
 
