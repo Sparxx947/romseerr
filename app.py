@@ -178,6 +178,25 @@ ARIA_GRUND = {
 }
 
 
+def ia_kopfzeile():
+    """-> ["--header", "Authorization: LOW <key>:<secret>"] oder [].
+
+    NIE PROTOKOLLIEREN. Der Rueckgabewert enthaelt das Geheimnis im Klartext; Romseerrs
+    Log-Zeilen landen in Issues und Berichten, und das Repository ist oeffentlich. Deshalb
+    gibt diese Funktion die fertigen ARGUMENTE zurueck und nichts, was man versehentlich
+    in eine Meldung schreibt. (#384)
+    """
+    a, g = cfg("ia_access"), cfg("ia_secret")
+    if not (a and g):
+        return []
+    return ["--header", f"Authorization: LOW {a}:{g}"]
+
+
+def ia_bereit():
+    """Sind beide Schluessel hinterlegt? Einer allein nuetzt nichts."""
+    return bool(cfg("ia_access") and cfg("ia_secret"))
+
+
 def aria_fehler(code):
     """-> lesbarer Grund fuer einen aria2c-Rueckgabewert, sonst der nackte Code."""
     grund = ARIA_GRUND.get(code)
@@ -223,6 +242,15 @@ _ENV_CONN = {"sab_url": SAB_URL, "sab_apikey": SAB_APIKEY, "sab_cat": SAB_CAT,
              "ss_pass":  os.environ.get("SCREENSCRAPER_PASS", ""),
              # RetroAchievements-Web-API-Key (optional, nur Dekoration auf der Detailseite)
              "ra_key":   os.environ.get("RETROACHIEVEMENTS_KEY", ""),
+             # Archive.org: S3-artiges Schluesselpaar von archive.org/account/s3.php.
+             #
+             # WARUM SCHLUESSEL UND KEIN PASSWORT (#384): Ein Schluessel ist einzeln
+             # widerrufbar, ohne das Konto anzufassen; er hat keine Sitzung, die nachts um
+             # drei still ablaeuft; und `aria2c` nimmt ihn als Kopfzeile entgegen, so dass
+             # der Downloadweg ein Argument braucht statt eines neuen Clients. Romseerr
+             # fasst das Kontopasswort damit nie an.
+             "ia_access": os.environ.get("IA_ACCESS_KEY", ""),
+             "ia_secret": os.environ.get("IA_SECRET_KEY", ""),
              # Katalog-JSON-Quellen fuer den Filehoster-Zweig — eine URL je Zeile.
              # Bewusst NUR konfigurierbar, nie im Repo hinterlegt. (#63)
              "catalog_urls": os.environ.get("CATALOG_URLS", ""),
@@ -238,7 +266,7 @@ _ENV_CONN = {"sab_url": SAB_URL, "sab_apikey": SAB_APIKEY, "sab_cat": SAB_CAT,
              "stream_launch_2": os.environ.get("STREAM_LAUNCH_2", "")}
 CONN_KEYS = list(_ENV_CONN.keys())
 CONN_SECRET = {"sab_apikey", "prow_apikey", "igdb_secret", "romm_pass",
-               "sgdb_key", "ss_pass", "ra_key"}   # in der GUI maskiert (Klartext-Anzeige via Reveal-Endpoint)
+               "sgdb_key", "ss_pass", "ra_key", "ia_secret"}   # in der GUI maskiert (Klartext-Anzeige via Reveal-Endpoint)
 def cfg(key):
     """Verbindungswert holen: settings['connections'] (UI) hat Vorrang, sonst Env-Default."""
     v = (load_settings().get("connections") or {}).get(key)
@@ -1690,7 +1718,9 @@ def search_archive(q, limit=30):
                         # Zugangsbeschraenkt: der Download braucht ein Konto, das Romseerr
                         # nicht hat. Der Treffer bleibt sichtbar — es gibt ihn ja —, traegt
                         # die Einschraenkung aber mit. (#382)
-                        "restricted": "loggedin" in coll,
+                        # Mit hinterlegten Schluesseln ist der Titel ladbar — dann ist
+                        # das Schloss falsch. Die Sperre haengt am KONTO, nicht am Titel.
+                        "restricted": ("loggedin" in coll) and not ia_bereit(),
                         "extra":str(doc.get("downloads") or 0)})
     except Exception as e:
         log(f"Archive-Suche-Fehler: {e}")
@@ -2096,6 +2126,12 @@ def set_state(jid, **kw):
 def new_job(item, user="", approved=True):
     """Anfrage anlegen. approved=True -> direkt `queued` + in die Worker-Queue;
     approved=False -> `pending` (wartet auf Admin-Freigabe). Gibt den Job zurück."""
+    # FRUEH ABSAGEN, nicht nach 5,5 GB (#382/#384). Ein zugangsbeschraenkter
+    # Archive.org-Titel ohne hinterlegte Schluessel endet zwangslaeufig in HTTP 401 —
+    # das jetzt zu sagen ist ehrlicher als ein Auftrag, der stundenlang laeuft und
+    # scheitert. Dieselbe Regel wie bei den 3DS-Abbildern (#299).
+    if item.get("restricted") and item.get("source") == "archive" and not ia_bereit():
+        raise ValueError("ia_login_required")
     jid = f"{int(time.time())}{len(JOBS)%1000:03d}"
     job = {"id":jid,"title":item["title"],"source":item["source"],"ref":item["ref"],
            "platform":item.get("platform_slug") or "","size":item.get("size",0),
@@ -2665,7 +2701,7 @@ def worker_download():
                 # `check=True` wuerde die nackte CalledProcessError weiterreichen — genau
                 # die unlesbare Meldung aus #382. Deshalb den Code selbst auswerten.
                 r = subprocess.run(["aria2c","-x8","-s8","-j4","--auto-file-renaming=false",
-                                    "--continue=true","-d",dst,"-i",inp],
+                                    "--continue=true"] + ia_kopfzeile() + ["-d",dst,"-i",inp],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if r.returncode != 0:
                     raise RuntimeError(aria_fehler(r.returncode))
@@ -4564,7 +4600,18 @@ def api_download():
     # damit eine Falschlieferung spaeter belegbar ist statt Diskussionssache. (#77)
     it["variant"] = parse_release(it.get("title", ""))
     it["variant_wanted"] = variant_prefs(user)
-    job = new_job(it, user=user, approved=auto)
+    try:
+        job = new_job(it, user=user, approved=auto)
+    except ValueError as e:
+        # Kein Auftrag, keine Warteschlange, kein stundenlanger Fehlversuch — sondern eine
+        # Antwort, mit der der Nutzer etwas anfangen kann. (#384)
+        if str(e) == "ia_login_required":
+            return jsonify({"ok": False, "reason": "ia_login_required",
+                            "msg": "Dieser Titel verlangt ein Archive.org-Konto. "
+                                   "Schlüssel unter Einstellungen → Verbindungen eintragen "
+                                   "(archive.org/account/s3.php). / This title needs an "
+                                   "Archive.org account; add the keys in the settings."})
+        raise
     if onbehalf:
         send_push_to_user(user, "Romseerr", f"Für dich angefragt / requested for you: {it.get('title','')[:60]}")
     if not auto:

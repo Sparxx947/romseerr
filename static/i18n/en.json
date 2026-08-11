@@ -370,5 +370,6 @@
  "stream_cia_update": "This is an update, not a game — it belongs to another title and does not boot even once installed.",
  "stream_cia_dlc": "This is downloadable content (DLC), not a game of its own.",
  "stream_cia_broken": "This CIA cannot be read — its title header is missing or damaged.",
- "needs_ia_login": "account required"
+ "needs_ia_login": "account required",
+ "ia_hint": "Some Archive.org items sit in the `loggedin` collection and need an account — without one the download answers HTTP 401. This is not the place for a password but for the key pair from archive.org/account/s3.php: revocable on its own, with no session to expire quietly."
 }

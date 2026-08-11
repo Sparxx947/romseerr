@@ -235,6 +235,14 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   Update trägt eine Fassungsnummer > 0 und sähe sonst wie ein Update aus. Startet man
   ein Update allein, meldet der Emulator nur `Error while loading ROM!` — von außen
   ununterscheidbar davon, dass er die Plattform nicht beherrscht.
+- 🔑 **Archive.org-Konto per Schlüsselpaar, nicht per Passwort.** Unter *Einstellungen →
+  Verbindungen → Archive.org* nimmt Romseerr Access- und Secret-Key von
+  `archive.org/account/s3.php` entgegen und schickt sie als Kopfzeile mit
+  (`Authorization: LOW …`). Das ist einzeln widerrufbar, hat keine Sitzung, die nachts
+  still abläuft, und das Kontopasswort bleibt außen vor. Mit hinterlegten Schlüsseln
+  verschwindet das Schloss an gesperrten Treffern — sie sind dann ja ladbar. **Ohne**
+  Schlüssel wird ein gesperrter Titel gar nicht erst eingereiht, sondern sofort mit Grund
+  abgelehnt.
 - 🔒 **Gesperrte Archive.org-Titel sagen es vorher.** Manche Einträge liegen in der
   Sammlung `loggedin` und brauchen ein Konto; ohne eines antwortet der Download mit
   **HTTP 401**. Solche Treffer bleiben sichtbar — es gibt sie ja —, tragen aber ein
