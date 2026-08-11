@@ -70,7 +70,87 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest pyyaml
+        run: pip install -r requirements.txt -r requirements-dev.txt
       # node ist auf ubuntu-latest vorinstalliert -> der Inline-JS-Guard läuft
+      # WARUM --ignore: Die Browsertests laufen im eigenen Auftrag unten. Sie brauchen
+      # einen 115-MB-Browser und rund eine halbe Minute; dieser Auftrag soll schnell
+      # bleiben, damit ihn niemand aus Ungeduld überspringt.
+      # Browser tests run in their own job below: they need a 115 MB browser download,
+      # and this job must stay fast enough that nobody is tempted to skip it.
       - name: Run pytest
-        run: pytest -q
+        run: pytest --ignore=tests/e2e
+
+  browser:
+    name: Browsertests (Playwright + axe)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Install Chromium
+        run: playwright install --with-deps chromium
+      # Kein Abdeckungsboden hier: Dieser Auftrag fährt nur einen Teil der Suite, die
+      # Zahl wäre also zwangsläufig niedriger und würde grundlos rot.
+      - name: Run browser tests
+        run: pytest tests/e2e --no-cov
+      # Aufnahmen der fehlgeschlagenen Läufe mitgeben — ein Browsertest, der nur
+      # „assert False" sagt, ist ohne Bild kaum zu deuten.
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: playwright-traces
+          path: test-results/
+          if-no-files-found: ignore
+
+  lighthouse:
+    name: Lighthouse (Transferbudget)
+    runs-on: ubuntu-latest
+    needs: docker-build
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - name: Build and start the image
+        run: |
+          docker build -t romseerr:ci .
+          # WARUM DIE EINHAENGEPUNKTE: Das Image legt /config und /roms NICHT an — es
+          # erwartet sie gemountet. Ohne sie stirbt der Prozess beim Start, und der
+          # Auftrag scheitert mit „connection refused", was nach einem Netzproblem
+          # aussieht und keines ist. 777, weil der Container als uid 1000 laeuft.
+          # The image does not create /config or /roms; without them the process dies at
+          # startup and the job fails with a misleading "connection refused".
+          mkdir -p /tmp/rs/config /tmp/rs/roms && chmod -R 777 /tmp/rs
+          docker run -d --name romseerr-ci -p 8770:8770 \
+            -v /tmp/rs/config:/config -v /tmp/rs/roms:/roms romseerr:ci
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8770/health >/dev/null 2>&1 && break
+            sleep 2
+          done
+          # Bei Fehlschlag die Container-Logs zeigen. Ohne das steht im Protokoll nur
+          # „Couldn't connect" — die Ursache bleibt unsichtbar. Genau daran hat dieser
+          # Auftrag beim ersten Lauf eine Runde verloren.
+          if ! curl -fsS http://127.0.0.1:8770/login >/dev/null; then
+            echo "::group::Container-Logs"; docker logs romseerr-ci 2>&1 | tail -50
+            echo "::endgroup::"; exit 1
+          fi
+      # WAS HIER GEPRUEFT WIRD — und was nicht:
+      # Lighthouse sieht nur die Anmeldeseite; alles dahinter braucht eine Sitzung. Das
+      # ist bewusst so: Die Zahl, die hier gehalten wird, ist ein TRANSFERBUDGET, kein
+      # Punktestand. Punktestaende schwanken auf geteilten CI-Laeufern und werden dann
+      # abgeschaltet. Das grosse Buendel hinter der Anmeldung deckt stattdessen
+      # tests/test_auslieferung.py ab, das die Koepfe direkt misst.
+      #
+      # Lighthouse only sees the login page; a budget, not a score, is asserted, because
+      # scores fluctuate on shared runners and flaky gates get switched off.
+      - name: Lighthouse CI
+        uses: treosh/lighthouse-ci-action@3e7e23fb74242897f95c0ba9cabad3d0227b9b18  # 12.6.2
+        with:
+          urls: http://127.0.0.1:8770/login
+          budgetPath: .github/lighthouse-budget.json
+          uploadArtifacts: true
+          temporaryPublicStorage: false
+      - name: Stop the container
+        if: always()
+        run: docker rm -f romseerr-ci || true

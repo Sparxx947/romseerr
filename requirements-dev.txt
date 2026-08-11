@@ -1,0 +1,24 @@
+# Testwerkzeuge / test tooling. Laufzeit-Abhängigkeiten stehen in requirements.txt.
+#
+# Installation:
+#   pip install -r requirements.txt -r requirements-dev.txt
+#   playwright install --with-deps chromium     # lädt den Browser nach
+#
+# WARUM DIE TRENNUNG: Das Laufzeit-Image soll keinen Browser enthalten. `requirements.txt`
+# bleibt deshalb unberührt; die Dockerfile installiert diese Datei nicht.
+
+pytest>=8.0
+pyyaml>=6.0                  # von test_smoke.py für docs/openapi.yaml gebraucht
+
+# Abdeckung — als Boden, nicht als Ziel (siehe CONTRIBUTING, Ratschen)
+pytest-cov>=5.0
+
+# Browsertests: echtes HTML, echtes JavaScript, echte Tastatur
+pytest-playwright>=0.5
+
+# Barrierefreiheit. Fängt Kontrast, fehlende Namen und kaputtes ARIA — NICHT anklickbare
+# `div`s ohne Rolle; dafür gibt es keine Regel, das prüft der Tastaturdurchlauf.
+axe-playwright-python>=0.1.3
+
+# Vertragstest gegen die eigene OpenAPI-Spezifikation
+schemathesis>=4.0

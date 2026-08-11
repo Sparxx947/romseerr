@@ -5762,3 +5762,83 @@ def test_azahar_does_not_overwrite_an_existing_sdl_mapping(tmp_path):
     geaendert, msg = m.azahar_apply()
     assert not geaendert, msg
     assert open(ini, encoding="utf-8").read() == vorhanden, "Auto-Map wurde ueberschrieben"
+
+
+# --- Ansichten, Routen und Browsertests -------------------------------------------
+# Beide Pruefungen sind statisch: Sie lesen index.js und die Tabelle der Browsertests.
+# Das ist Absicht — die eine haette #320 am Tag der Entstehung gefunden, ganz ohne Browser.
+
+def _js():
+    pfad = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "static", "js", "index.js")
+    with open(pfad, encoding="utf-8") as f:
+        return f.read()
+
+
+def _routen_und_ansichten():
+    """(Schluessel in ROUTEN, Schluessel die `zeige()` behandelt)."""
+    import re
+    js = _js()
+    m = re.search(r"ROUTEN\s*=\s*\{([^}]*)\}", js)
+    routen = set(re.findall(r"(\w+)\s*:", m.group(1)))
+    i = js.find("function zeige(")
+    ansichten = set(re.findall(r"v\s*==\s*'(\w+)'", js[i:i + 1400]))
+    return routen, ansichten
+
+
+@pytest.mark.xfail(strict=True, reason="#320: `lib` wird angezeigt, steht aber nicht in ROUTEN")
+def test_every_view_has_a_route():
+    """Jede Ansicht, die `zeige()` kennt, braucht einen Eintrag in ROUTEN. (#320)
+
+    WARUM DAS WICHTIG IST: `routeBauen` endet mit `ROUTEN[v] || 'discover'`. Ein fehlender
+    Eintrag erzeugt also keinen Fehler, sondern still die falsche Adresse — die Ansicht
+    wird angezeigt, die Adresse zeigt Entdecken, und Deep-Links landen woanders. Genau so
+    ist die Bibliotheksansicht aus #293 durchgerutscht.
+
+    Diese Pruefung braucht keinen Browser und haette den Fehler am selben Tag gefunden.
+
+    `routeBauen` falls back to 'discover' for an unknown key, so a missing entry produces
+    a silently wrong URL rather than an error.
+    """
+    routen, ansichten = _routen_und_ansichten()
+    ohne = sorted(ansichten - routen)
+    assert not ohne, (f"Ansichten ohne Routen-Eintrag: {ohne}. "
+                      "In ROUTEN in static/js/index.js nachtragen.")
+
+
+# RATSCHE, kein Zielwert: Die Zahl der Ansichten ohne Browsertest darf nicht steigen.
+# Heute ist sie 1 — `lists` ist routebar, steht aber in keiner Seitenleiste und wird von
+# den Browsertests nicht angeklickt. Wer eine Ansicht hinzufuegt und den Browsertest
+# vergisst, hebt sie auf 2 und wird rot. Wer `lists` nachtraegt, senkt sie auf 0. (#327)
+#
+# One view (`lists`) is routable but has no sidebar entry and no browser test. The floor
+# records that honestly instead of pretending it is covered.
+ANSICHTEN_OHNE_BROWSERTEST = 1
+
+
+def test_views_are_covered_by_browser_tests():
+    """Jede routebare Ansicht steht in der Tabelle der Browsertests. (#327)
+
+    Verglichen werden die WERTE aus ROUTEN (`discover`, `requests`, …) mit den Adressen in
+    `ANSICHTEN` in tests/e2e/test_browser.py. Wer eine Ansicht ergaenzt und den Browsertest
+    vergisst, wird hier rot — ohne dass die Browsertests selbst laufen muessen.
+
+    Rot gesehen: mit einer aus `ANSICHTEN` entfernten Zeile schlaegt die Pruefung an und
+    nennt die fehlende Ansicht.
+    """
+    import re
+    js = _js()
+    m = re.search(r"ROUTEN\s*=\s*\{([^}]*)\}", js)
+    ziele = set(re.findall(r"\w+\s*:\s*'([^']+)'", m.group(1)))
+    assert ziele, "ROUTEN konnte nicht gelesen werden — Pruefung waere wertlos"
+
+    quelle = os.path.join(os.path.dirname(os.path.abspath(__file__)), "e2e", "test_browser.py")
+    with open(quelle, encoding="utf-8") as f:
+        getestet = set(re.findall(r'"#/(\w+)"', f.read()))
+    assert getestet, "ANSICHTEN in test_browser.py konnte nicht gelesen werden"
+
+    fehlend = sorted(ziele - getestet)
+    assert len(fehlend) <= ANSICHTEN_OHNE_BROWSERTEST, (
+        f"{len(fehlend)} Ansichten ohne Browsertest (erlaubt: "
+        f"{ANSICHTEN_OHNE_BROWSERTEST}): {fehlend}. "
+        "Neue Ansicht? Dann gehoert sie in ANSICHTEN in tests/e2e/test_browser.py.")

@@ -11,3 +11,10 @@ __pycache__/
 *.db
 *.db-wal
 *.db-shm
+
+# Testartefakte / test artefacts
+.coverage
+.coverage.*
+htmlcov/
+test-results/
+.pytest_cache/
