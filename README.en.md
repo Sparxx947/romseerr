@@ -95,8 +95,16 @@ The full rule is in
 
 Coverage answers "what is missing". In front of a shelf the more common question is the
 other one: **what do I have for this console?** That is the **Library** menu entry,
-grouped by **manufacturer** and **system** — the same grouping coverage and the platform
-filter use, not a third list. Clicking a system opens its titles, with a filter and in
+grouped by **manufacturer** and **system**.
+
+The grouping here is deliberately **not the one the platform filter uses**. The filter does
+fine with five short groups and a catch-all, since you tick individual boxes anyway. A view
+that claims to order *by manufacturer* cannot: with the filter's list **74 % of all titles**
+landed in the catch-all or in a group with no name at all, and **Commodore — larger than
+Nintendo at roughly 40,000 titles** — had no group of its own. Commodore, Sinclair, Amstrad,
+Atari, NEC, SNK, Sharp and Bandai now stand on their own; DOS, ScummVM and arcade are not
+manufacturers and have their own group. What is left over is called "Unassigned" — never a
+dash. Clicking a system opens its titles, with a filter and in
 pages: `c64` and ScummVM hold five-figure title counts here, and a complete list would
 stall the browser.
 
@@ -423,6 +431,12 @@ the navigation. A **reload** lands where you were, and a **link** to a title can
 to someone.
 
 ### Cards on discover and in search
+
+The top row **"Because you requested"** only suggests titles that exist for a platform this
+instance can serve. Without that filter IGDB happily returned modern PC games for an Xbox
+seed — including an unreleased one, which sat at the very top as a black tile. A suggestion
+that can never be fulfilled costs more trust than a shorter row.
+
 
 Every card carries the **platform name** in the top left ("GameCube", not `ngc`) and,
 where it applies, a state badge at the bottom:

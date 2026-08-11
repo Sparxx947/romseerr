@@ -241,6 +241,74 @@ PLATFORMS = [
    ("dos","DOS"),("arcade","Arcade")]),
 ]
 SLUG_NAME = {s:n for _g,items in PLATFORMS for s,n in items}
+
+# --- Hersteller-Ordnung fuer die Bibliotheksansicht (#322) -------------------------
+#
+# WARUM EINE ZWEITE LISTE UND NICHT `PLATFORMS`: Die beiden haben verschiedene Aufgaben.
+# `PLATFORMS` ist die Vorauswahl im Suchfilter — dort sind fuenf kurze Gruppen richtig,
+# und ein Sammeltopf „Sonstige" stoert niemanden, weil man ohnehin einzelne Haken setzt.
+# Die Bibliotheksansicht behauptet dagegen, „nach Hersteller und System" zu ordnen. Mit
+# derselben Liste landeten dort gemessen **74 % aller Titel** in „Sonstige" (79.005) oder
+# in einer Gruppe ohne Namen (21.498) — und `scummvm`, die zweitgroesste Plattform der
+# ganzen Bibliothek, stand unter einem Gedankenstrich.
+#
+# Auffaellig dabei: **Commodore ist mit 40.371 Titeln groesser als Nintendo** und hatte
+# keine eigene Gruppe. Genau das ist der Fehler, den eine Ordnung vermeiden soll.
+#
+# Two lists with two jobs: PLATFORMS is the search filter's pre-selection, where five
+# short groups and a catch-all are fine. The library view claims to order "by vendor and
+# system", and with the same list 74 % of titles fell into a catch-all or a nameless
+# group — including scummvm, the second-largest platform in the library.
+#
+# DOS, ScummVM und Arcade sind keine Hersteller. Sie bekommen eine eigene Gruppe, statt
+# sie in einen Rest zu draengen, in dem niemand sie sucht.
+LIB_VENDORS = [
+ ("Nintendo",   ["nes","snes","n64","gb","gbc","gba","nds","3ds","ngc","wii","wiiu",
+                 "switch","virtualboy","famicom","sfam","satellaview","64dd","pokemon-mini",
+                 "new-nintendo-3ds","nintendo-dsi","e-reader-slash-card-e-reader"]),
+ ("Sega",       ["sms","genesis","segacd","sega32x","gamegear","saturn","dreamcast","sg1000",
+                 "sc3000","sega-pico","segacd32","multivision","naomi","stv","model1","model2",
+                 "model3","hikaru"]),
+ ("Sony",       ["psx","ps2","ps3","ps4","ps5","psp","psvita","pocketstation","psp-minis"]),
+ ("Microsoft",  ["xbox","xbox360","xboxone","series-x-s","win","win3x","win9x","msx","msx2",
+                 "msx2plus","msx-turbo"]),
+ ("Commodore",  ["c64","amiga","amiga-cd32","amiga-cd","vic20","c16","c128","cpet",
+                 "commodore-cdtv","commodore","plus4"]),
+ ("Sinclair",   ["zxs","zx80","zx81","sinclair-ql","zx-spectrum-next","timex-sinclair-2068",
+                 "sinclair"]),
+ ("Atari",      ["atari2600","atari5200","atari7800","lynx","jaguar","atari-st","atari8bit",
+                 "atari800","atari-jaguar-cd","atari-xegs","atari-vcs","atari"]),
+ ("Amstrad",    ["acpc","amstrad-gx4000","amstrad-pcw","amstrad"]),
+ ("NEC",        ["turbografx16","pc-fx","pc-8800-series","pc-9800-series",
+                 "nec-pc-6000-series","supergrafx","nec"]),
+ ("SNK",        ["neogeo","neogeopocket","neogeomvs","neogeoaes","neo-geo-cd","neo-geo-x","snk"]),
+ ("Bandai",     ["wonderswan","swancrystal","bandai","playdia"]),
+ ("Sharp",      ["sharp-x68000","x1","smc-777","sharp-mz-2200","sharp","sharp-zaurus"]),
+ # Die drei folgenden Gruppen sind KEINE Hersteller, sondern Sammelbegriffe. Sie tragen
+ # deshalb einen i18n-Schluessel statt eines festen Textes — Herstellernamen sind in allen
+ # Sprachen gleich, „Heimcomputer" ist es nicht.
+ # The last three are categories, not vendors, so they carry an i18n key: brand names are
+ # the same in every language, "home computers" is not.
+ ("lib_grp_home",     ["colecovision","colecoadam","intellivision","vectrex","3do","apple",
+                 "appleii","appleiii","apple-iigs","bbcmicro","acorn-electron",
+                 "acorn-archimedes","oric","dragon-32-slash-64","trs-80","ti-99",
+                 "thomson-mo5","thomson-to","fm-7","fm-towns","tandy","enterprise",
+                 "memotech-mtx","sam-coupe","galaksija","epoch-super-cassette-vision",
+                 "epoch-cassette-vision","epoch-game-pocket-computer","epoch_co"]),
+ ("lib_grp_pc",  ["dos","scummvm","arcade","mame","fbneo","cps1","cps2","cps3","atomiswave",
+                 "pico8","tic-80","linux","mac","openbor","z-machine","glulx","pc-booter"]),
+ ("lib_grp_hand",["g-and-w","gp32","GP32","gp2x","gp2x-wiz","RG350","dingoo","pandora",
+                 "LCD Handhelds","handheld-electronic-lcd","dedicated-handheld","watara",
+                 "supervision","gamate","game-dot-com","mega-duck-slash-cougar-boy",
+                 "arduboy","pokitto","uzebox","wasm-4","evercade"]),
+]
+LIB_VENDOR_OF = {s: v for v, slugs in LIB_VENDORS for s in slugs}
+# Wie die Gruppe heisst, in der alles Uebrige landet. NIE ein Gedankenstrich: Eine
+# Ueberschrift, die nichts sagt, ist schlimmer als eine, die „Rest" sagt.
+LIB_REST = "lib_grp_rest"
+# Schluessel beginnen mit `lib_grp_` — daran erkennt die Oberflaeche, dass sie uebersetzen
+# muss statt den Text direkt anzuzeigen.
+LIB_GRP_PREFIX = "lib_grp_"
 # IGDB-Plattform-IDs (für „beliebt pro Konsole")
 IGDB_PLAT = {"snes":19,"nes":18,"n64":4,"gb":33,"gbc":22,"gba":24,"nds":20,"3ds":37,"ngc":21,
  "wii":5,"switch":130,"genesis":29,"sms":64,"gamegear":35,"saturn":32,"dreamcast":23,
@@ -1248,16 +1316,49 @@ def igdb_rich(title):
     IGDB["cache"][key] = out
     return out
 
+# Die IGDB-Plattform-IDs, die Romseerr ueberhaupt bedienen kann. Aus IGDB_PLAT
+# abgeleitet, damit die beiden nicht auseinanderlaufen: Wer dort eine Plattform
+# ergaenzt, erweitert damit automatisch auch die Empfehlungen.
+IGDB_PLAT_IDS = set(IGDB_PLAT.values())
+
 def igdb_similar_games(title, limit=20):
-    """Ähnliche Spiele (mit Cover) zu einem Titel – Grundlage für „Weil du … angefragt hast"."""
+    """Ähnliche Spiele (mit Cover) zu einem Titel – Grundlage für „Weil du … angefragt hast".
+
+    GEFILTERT AUF UNSERE PLATTFORMEN (#324): IGDB liefert zu einem Xbox-Titel wie Fable
+    bereitwillig Borderlands 3, GreedFall und The Elder Scrolls VI. Nichts davon gibt es
+    fuer eine Plattform, die diese Instanz bedient — die oberste Zeile der Startseite
+    zeigte damit ausschliesslich Titel, die niemand anfragen kann. Ein Vorschlag, der nie
+    einloesbar ist, kostet mehr Vertrauen als eine kuerzere Zeile.
+
+    `The Elder Scrolls VI` war dabei besonders sprechend: unveroeffentlicht, ohne Cover,
+    ohne Bewertung — eine schwarze Kachel an der prominentesten Stelle der Anwendung.
+
+    Filtered to the platforms this instance can actually serve: IGDB happily returns
+    modern PC titles for a retro seed, and a suggestion that can never be fulfilled costs
+    more trust than a shorter row.
+    """
     key = "simg:" + norm(title)
     if key in IGDB["cache"]: return IGDB["cache"][key]
     d = igdb_query("games", f'search "{title[:60]}"; '
-        f'fields name,similar_games.name,similar_games.cover.image_id,similar_games.total_rating; limit 1;')
+        f'fields name,similar_games.name,similar_games.cover.image_id,'
+        f'similar_games.total_rating,similar_games.platforms; limit 1;')
     g = d[0] if isinstance(d, list) and d else {}
-    out = [{"title": s.get("name",""), "cover": _cover_url(s),
-            "ext_rating": round(s["total_rating"]) if s.get("total_rating") else None}
-           for s in (g.get("similar_games", []) or []) if s.get("name") and s.get("cover")][:limit]
+    out = []
+    for s in (g.get("similar_games", []) or []):
+        if not (s.get("name") and s.get("cover")):
+            continue
+        # `platforms` fehlt bei unvollstaendigen IGDB-Eintraegen. Solche Titel fliegen
+        # RAUS statt durchzurutschen: Ohne Plattformangabe ist unbekannt, ob es sie
+        # ueberhaupt fuer eine unserer Konsolen gibt — und im gemessenen Fall waren es
+        # genau die unveroeffentlichten.
+        plats = s.get("platforms") or []
+        ids = {p.get("id") if isinstance(p, dict) else p for p in plats}
+        if not (ids & IGDB_PLAT_IDS):
+            continue
+        out.append({"title": s.get("name",""), "cover": _cover_url(s),
+                    "ext_rating": round(s["total_rating"]) if s.get("total_rating") else None})
+        if len(out) >= limit:
+            break
     IGDB["cache"][key] = out
     return out
 
@@ -3561,35 +3662,54 @@ def api_coverage_missing(slug):
                     "source": e.get("source", ""), "snapshot": e.get("snapshot", "")})
 
 @app.route("/api/library/platforms")
+@login_required
 def api_library_platforms():
-    """Die eigene Bibliothek, nach Hersteller und System gruppiert. (#293)
+    """Die eigene Bibliothek, nach Hersteller und System gruppiert. (#293, #322)
 
-    Bewusst DIESELBE Gruppierung wie Plattformfilter und Abdeckungsseite (`PLATFORMS`) —
-    eine dritte Liste waere eine dritte Wahrheit. Plattformen OHNE Katalogquelle
-    erscheinen hier ebenfalls: was man besitzt, weiss Romseerr auch ohne IGDB, und sie
-    hinter einer nicht berechenbaren Prozentzahl verschwinden zu lassen waere der
-    Fehler, den die Abdeckungsseite gerade vermeidet.
+    ORDNUNG: `LIB_VENDORS`, NICHT `PLATFORMS`. Die beiden Listen haben verschiedene
+    Aufgaben — die Begruendung steht bei `LIB_VENDORS`. Kurz: Mit der Filterliste landeten
+    74 % aller Titel in „Sonstige" oder in einer Gruppe ohne Namen.
+
+    Plattformen OHNE Katalogquelle erscheinen hier ebenfalls: was man besitzt, weiss
+    Romseerr auch ohne IGDB, und sie hinter einer nicht berechenbaren Prozentzahl
+    verschwinden zu lassen waere der Fehler, den die Abdeckungsseite gerade vermeidet.
+
+    Grouped by LIB_VENDORS rather than by the search filter's PLATFORMS; with the latter
+    74 % of titles ended up in a catch-all or a nameless group.
     """
     with LIB_LOCK:
         per = {s: len(v) for s, v in (LIB["per"] or {}).items()}
-    gruppen = []
-    for hersteller, items in PLATFORMS:
-        systeme = [{"slug": s, "name": n, "owned": per.get(s, 0)}
-                   for s, n in items if per.get(s, 0)]
-        if systeme:
-            gruppen.append({"vendor": hersteller,
-                            "owned": sum(x["owned"] for x in systeme),
-                            "platforms": systeme})
-    # Ordner, die Romseerr kennt, die aber in keiner Herstellergruppe stehen — sonst
-    # fehlten sie in der Summe, und niemand faende sie wieder.
-    bekannt = {s for _g, items in PLATFORMS for s, _n in items}
-    rest = [{"slug": s, "name": SLUG_NAME.get(s, s), "owned": n}
-            for s, n in sorted(per.items()) if s not in bekannt and n]
-    if rest:
-        gruppen.append({"vendor": "—", "owned": sum(x["owned"] for x in rest),
-                        "platforms": rest})
-    return jsonify({"vendors": gruppen, "total": sum(per.values())})
 
+    def eintrag(slug, anzahl):
+        return {"slug": slug, "name": SLUG_NAME.get(slug, slug), "owned": anzahl}
+
+    gruppen = []
+    zugeordnet = set()
+    for hersteller, slugs in LIB_VENDORS:
+        systeme = [eintrag(sl, per[sl]) for sl in slugs if per.get(sl)]
+        if not systeme:
+            continue
+        zugeordnet.update(x["slug"] for x in systeme)
+        # Innerhalb einer Gruppe nach Titelzahl: Wer die Bibliothek ansieht, sucht zuerst
+        # das grosse Regal. Alphabetisch waere die Reihenfolge zwar stabiler, aber sie
+        # stellt `3do` mit 39 Titeln vor `c64` mit 24.021.
+        systeme.sort(key=lambda x: -x["owned"])
+        gruppen.append({"vendor": hersteller,
+                        "owned": sum(x["owned"] for x in systeme),
+                        "platforms": systeme})
+    # Gruppen nach Groesse, damit die Ansicht oben beginnt, wo am meisten steht.
+    gruppen.sort(key=lambda g: -g["owned"])
+
+    # Alles, was in keiner Gruppe steht. Frueher trug diese Gruppe einen Gedankenstrich
+    # als Ueberschrift — und darunter lag `scummvm` mit 16.487 Titeln. Sie heisst jetzt
+    # und steht ausdruecklich am Ende, nicht nach Groesse einsortiert: Sie ist ein
+    # Auffangbecken, kein Hersteller.
+    rest = [eintrag(sl, n) for sl, n in sorted(per.items()) if n and sl not in zugeordnet]
+    if rest:
+        rest.sort(key=lambda x: -x["owned"])
+        gruppen.append({"vendor": LIB_REST, "rest": True,
+                        "owned": sum(x["owned"] for x in rest), "platforms": rest})
+    return jsonify({"vendors": gruppen, "total": sum(per.values())})
 
 @app.route("/api/library/<slug>/titles")
 def api_library_titles(slug):
