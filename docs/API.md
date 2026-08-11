@@ -61,6 +61,18 @@ ohne gültige Session/Key mit **401**.
 | Probleme | `GET/POST /api/issues`, `/api/issues/{id}/comment\|close` |
 | Profil | `GET/POST /api/profile`, `/api/profile/password` |
 | Push | `GET /api/push/pubkey`, `POST /api/push/subscribe` |
+`GET /health` ist ohne Anmeldung erreichbar und liefert
+`{"ok", "lib_titles", "jobs", "storage", "lib_failed", "lib_failed_platforms"}`.
+`lib_failed` zählt die Plattformordner, die beim letzten Indexlauf **nicht lesbar** waren
+(`lib_failed_platforms` nennt sie). Alles über `0` heißt: **`lib_titles` ist unvollständig**
+— eine Prüfung von außen darf die Titelzahl dann nicht für bare Münze nehmen. Ein
+unlesbarer Ordner trägt null Titel bei und ist sonst nicht von einer leeren Plattform zu
+unterscheiden (#381).
+
+EN: `GET /health` needs no auth. `lib_failed` counts platform folders that could not be
+read during the last index run, `lib_failed_platforms` names them. Anything above `0`
+means `lib_titles` is incomplete — an outside check must not trust the count then.
+
 Schreibende Benutzer-Endpunkte antworten mit **400**, wenn nach der Änderung kein Admin
 mit Passwort übrig bliebe — das gilt für `PATCH /api/users/{u}` (Rolle entziehen) ebenso
 wie für `DELETE /api/users/{u}`. Eine vollständig leere Benutzerliste ist erlaubt und

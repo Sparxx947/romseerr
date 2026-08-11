@@ -51,7 +51,8 @@ paths:
   /health:
     get:
       summary: 'Liveness-Probe (Titelzahl, Jobs) samt Speicherzustand (storage: rw/ro — ro heißt: es wird
-        nichts gespeichert)'
+        nichts gespeichert) und lib_failed/lib_failed_platforms: Plattformordner, die beim letzten Indexlauf
+        nicht lesbar waren — über 0 ist lib_titles unvollständig'
       tags:
       - System
       responses:

@@ -7305,3 +7305,202 @@ def test_an_ambiguous_abbreviation_is_not_guessed(appmod):
     """
     assert appmod.guess_platform("Batman DC Collection") != "dreamcast"
     assert appmod.guess_platform("Spiel Directors Cut DC") != "dreamcast"
+
+
+# ---------------- Eine Plattform, die nicht gelesen werden kann, muss auffallen (#381)
+#
+# GEMESSEN, BEVOR HIER ETWAS STAND: `os.walk` wirft bei einem Rechte- oder E/A-Fehler
+# KEINE Ausnahme. Ohne `onerror` ruft es niemanden und liefert einfach nichts. Der
+# `except Exception: pass` im Rumpf von `build_index` wurde bei genau diesem Fall nie
+# betreten — ihn laut zu machen haette nichts geaendert.
+#
+# Live nachgewiesen am 2026-08-12: `/roms/pico8` steht auf `drwx-w----` (Gruppe darf
+# schreiben, nicht lesen), der Container laeuft in dieser Gruppe. 13.202 Dateien,
+# 13.176 distinkte Titel — verbucht wurden 0, und vier Indexlaeufe in Folge meldeten
+# `598 Plattformen, 128177 Titel` ohne ein Wort dazu.
+#
+# EN: os.walk raises nothing on a permission or I/O error — without `onerror` it just
+# yields nothing. Measured live: /roms/pico8 is 0720, so the container may write but not
+# read it; 13,176 titles counted as zero with no log line at all.
+
+def _unlesbar_machen(pfad):
+    """0o000 setzen und PRUEFEN, dass es wirkt. Als root wirkt es nicht — dann None.
+
+    Ein Test, der als root stillschweigend durchlaeuft, prueft nichts. Lieber
+    uebersprungen als gruen ohne Aussage.
+    """
+    os.chmod(pfad, 0o000)
+    try:
+        os.scandir(pfad).close()
+    except PermissionError:
+        return True
+    os.chmod(pfad, 0o755)
+    return False
+
+
+class _Protokoll:
+    """Sammelt, was `log()` geschrieben haette."""
+    def __init__(self): self.zeilen = []
+    def __call__(self, msg): self.zeilen.append(str(msg))
+    def mit(self, teil): return [z for z in self.zeilen if teil in z]
+    @property
+    def schluss(self):
+        z = self.mit("Bibliotheks-Index:")
+        return z[-1] if z else ""
+
+
+def _index_mit_protokoll(appmod, monkeypatch):
+    p = _Protokoll()
+    monkeypatch.setattr(appmod, "log", p)
+    appmod.build_index()
+    return p
+
+
+def test_an_unreadable_platform_is_named_in_the_log(appmod, monkeypatch, tmp_path):
+    """Eine Plattform, deren Ordner nicht lesbar ist, muss im Protokoll STEHEN. (#381)
+
+    Bisher trug sie null Titel bei, und die einzige Spur war eine Gesamtzahl, die kleiner
+    war als sie sein sollte — ununterscheidbar von einer kleineren Bibliothek.
+    """
+    d = os.path.join(appmod.ROMS, "zzztestunlesbar")
+    os.makedirs(d, exist_ok=True)
+    open(os.path.join(d, "Ein Spiel.rom"), "w").close()
+    if not _unlesbar_machen(d):
+        shutil.rmtree(d, ignore_errors=True)
+        pytest.skip("laeuft als root — 0o000 sperrt hier nichts, der Test bewiese nichts")
+    try:
+        p = _index_mit_protokoll(appmod, monkeypatch)
+        treffer = p.mit("zzztestunlesbar")
+        assert treffer, ("keine Zeile ueber die unlesbare Plattform:\n  "
+                         + "\n  ".join(p.zeilen[-5:]))
+        assert any("PermissionError" in z for z in treffer), \
+            f"der Grund fehlt, es steht nur: {treffer}"
+    finally:
+        os.chmod(d, 0o755)
+        shutil.rmtree(d, ignore_errors=True)
+        appmod.build_index()
+
+
+def test_the_summary_line_says_how_many_platforms_were_not_read(appmod, monkeypatch):
+    """Die Schlussmeldung darf keine Gesamtzahl nennen, die still Plattformen auslaesst.
+
+    Das Protokoll allein reicht nicht: Die Zeile mit der Titelzahl ist die, die gelesen
+    wird. Wenn dort nichts steht, ist die Zahl vertrauenswuerdiger als sie ist. (#381)
+    """
+    d = os.path.join(appmod.ROMS, "zzztestunlesbar2")
+    os.makedirs(d, exist_ok=True)
+    open(os.path.join(d, "Noch ein Spiel.rom"), "w").close()
+    if not _unlesbar_machen(d):
+        shutil.rmtree(d, ignore_errors=True)
+        pytest.skip("laeuft als root — 0o000 sperrt hier nichts, der Test bewiese nichts")
+    try:
+        p = _index_mit_protokoll(appmod, monkeypatch)
+        assert "NICHT gelesen" in p.schluss, f"Schlussmeldung schweigt: {p.schluss!r}"
+        assert "zzztestunlesbar2" in p.schluss, \
+            f"Schlussmeldung nennt keinen Namen: {p.schluss!r}"
+    finally:
+        os.chmod(d, 0o755)
+        shutil.rmtree(d, ignore_errors=True)
+        appmod.build_index()
+
+
+def test_a_healthy_library_does_not_cry_wolf(appmod, monkeypatch):
+    """Gegenprobe: Ohne Fehler steht in der Schlussmeldung KEIN Zusatz. (#381)
+
+    Eine Warnung, die immer dasteht, wird nicht gelesen. Der erste Wurf dieses Codes haette
+    das gerissen — deshalb steht die Gegenprobe hier und nicht im Kopf des Autors.
+    """
+    d = os.path.join(appmod.ROMS, "zzztestlesbar")
+    os.makedirs(d, exist_ok=True)
+    open(os.path.join(d, "Heiles Spiel.rom"), "w").close()
+    try:
+        p = _index_mit_protokoll(appmod, monkeypatch)
+        assert "NICHT gelesen" not in p.schluss, \
+            f"meldet Fehler, obwohl alles lesbar ist: {p.schluss!r}"
+        assert appmod.LIB.get("failed") in (None, {}, []), \
+            f"Fehlerliste nicht leer: {appmod.LIB.get('failed')!r}"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        appmod.build_index()
+
+
+def test_an_unreadable_subfolder_is_reported_too(appmod, monkeypatch):
+    """Auch ein unlesbarer UNTERordner der zweiten Ebene muss gemeldet werden. (#381)
+
+    Genau dieser Fall beweist, dass ein Log im `except`-Zweig nicht gereicht haette: Der
+    Plattformordner selbst ist lesbar, `os.walk` laeuft ohne Ausnahme durch und liefert
+    fuer den gesperrten Unterordner schlicht nichts.
+    """
+    d = os.path.join(appmod.ROMS, "zzztestteilweise")
+    unter = os.path.join(d, "Ordner")
+    os.makedirs(unter, exist_ok=True)
+    open(os.path.join(d, "Oben.rom"), "w").close()
+    open(os.path.join(unter, "Unten.rom"), "w").close()
+    if not _unlesbar_machen(unter):
+        shutil.rmtree(d, ignore_errors=True)
+        pytest.skip("laeuft als root — 0o000 sperrt hier nichts, der Test bewiese nichts")
+    try:
+        p = _index_mit_protokoll(appmod, monkeypatch)
+        assert "zzztestteilweise" in p.schluss, \
+            f"gesperrter Unterordner bleibt unerwaehnt: {p.schluss!r}"
+        # Was lesbar war, ist trotzdem drin — ein gesperrter Ordner kostet nicht die Platte.
+        assert appmod.norm("Oben.rom") in appmod.LIB["per"].get("zzztestteilweise", set())
+    finally:
+        os.chmod(unter, 0o755)
+        shutil.rmtree(d, ignore_errors=True)
+        appmod.build_index()
+
+
+def test_the_other_platforms_are_still_indexed(appmod, monkeypatch):
+    """Ein unlesbarer Ordner darf nicht den ganzen Index kosten. (#381)
+
+    Weitermachen war schon richtig — nur eben nicht wortlos.
+    """
+    kaputt = os.path.join(appmod.ROMS, "zzztestkaputt")
+    heil = os.path.join(appmod.ROMS, "zzztestheil")
+    os.makedirs(kaputt, exist_ok=True)
+    os.makedirs(heil, exist_ok=True)
+    open(os.path.join(kaputt, "Verloren.rom"), "w").close()
+    open(os.path.join(heil, "Gefunden.rom"), "w").close()
+    if not _unlesbar_machen(kaputt):
+        for x in (kaputt, heil): shutil.rmtree(x, ignore_errors=True)
+        pytest.skip("laeuft als root — 0o000 sperrt hier nichts, der Test bewiese nichts")
+    try:
+        _index_mit_protokoll(appmod, monkeypatch)
+        assert appmod.norm("Gefunden.rom") in appmod.LIB["all"], \
+            "die heile Plattform fehlt — ein Fehler hat den ganzen Lauf gekostet"
+        assert "zzztestkaputt" in appmod.LIB["slugs"], \
+            "die gescheiterte Plattform verschwindet ganz statt als leer aufzufallen"
+    finally:
+        os.chmod(kaputt, 0o755)
+        for x in (kaputt, heil): shutil.rmtree(x, ignore_errors=True)
+        appmod.build_index()
+
+
+def test_health_reports_platforms_that_could_not_be_read(appmod, client, monkeypatch):
+    """`/health` muss die nicht gelesenen Plattformen ZEIGEN, nicht nur das Protokoll.
+
+    WARUM DAS FELD UND NICHT NUR EIN LOG: Dieselbe Luecke wie in #309/#344 — die Zahl
+    steht da und nichts liest sie. `romseerr-check` prueft `lib_titles` gegen `LIB_MIN`
+    und meldet `OK`, waehrend 13.000 Titel fehlen. Nur ein Feld in `/health` macht das
+    von aussen sichtbar. (#381)
+    """
+    d = os.path.join(appmod.ROMS, "zzztesthealth")
+    os.makedirs(d, exist_ok=True)
+    open(os.path.join(d, "Unsichtbar.rom"), "w").close()
+    if not _unlesbar_machen(d):
+        shutil.rmtree(d, ignore_errors=True)
+        pytest.skip("laeuft als root — 0o000 sperrt hier nichts, der Test bewiese nichts")
+    try:
+        _index_mit_protokoll(appmod, monkeypatch)
+        h = client.get("/health").get_json()
+        assert h.get("lib_failed") == 1, f"/health verschweigt es: {h}"
+        # Gegenprobe: heile Bibliothek meldet 0, nicht „Feld fehlt".
+        os.chmod(d, 0o755)
+        shutil.rmtree(d, ignore_errors=True)
+        appmod.build_index()
+        assert client.get("/health").get_json().get("lib_failed") == 0
+    finally:
+        os.chmod(d, 0o755) if os.path.exists(d) else None
+        shutil.rmtree(d, ignore_errors=True)
+        appmod.build_index()
