@@ -12,6 +12,21 @@ permissions:
   security-events: write
   pull-requests: read   # gitleaks liest auf PRs die Commit-Liste / gitleaks reads PR commits
 
+env:
+  # WELCHEN STAND EIN GEPLANTER LAUF PRUEFT (#358): Geplante Laeufe starten IMMER auf dem
+  # Standardzweig. Der ist hier `main` — der Release-Zweig, nicht der laufende Stand. Am
+  # 2026-08-11 lag `main` 84 Commits hinter `dev`; der Wochenlauf pruefte also einen Baum
+  # vom 8. August und meldete zwei Fehlalarme, die auf `dev` laengst per `.gitleaks.toml`
+  # erledigt waren. Ein Scan, der ueber einen Stand berichtet, den niemand faehrt, ist
+  # schlechter als keiner: gruen ueber ungenutzten Code, rot ueber Behobenes.
+  #
+  # NICHT ueber den Zeitplan loesbar: Auch die WORKFLOW-DATEI eines geplanten Laufs kommt
+  # vom Standardzweig. Deshalb steht der Zweig hier ausdruecklich.
+  #
+  # Scheduled runs always start on the default branch, which here is the release branch and
+  # not what is deployed. A scan reporting on a tree nobody runs is worse than none.
+  SCAN_REF: ${{ github.event_name == 'schedule' && 'dev' || github.ref }}
+
 jobs:
   codeql:
     # CodeQL ist auf öffentlichen Repos kostenlos; auf privaten braucht es GHAS.
@@ -22,6 +37,8 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          ref: ${{ env.SCAN_REF }}
       - uses: github/codeql-action/init@c4dd10e44af883a891fe31ced449bcb4a6728b9b  # v3
         with:
           languages: python
@@ -32,6 +49,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          ref: ${{ env.SCAN_REF }}
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
         with:
           python-version: "3.12"
@@ -43,6 +62,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          ref: ${{ env.SCAN_REF }}
       - uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1  # 0.35.0
         with:
           scan-type: fs
@@ -57,10 +78,27 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
+          ref: ${{ env.SCAN_REF }}
           fetch-depth: 0
+      # WARUM DIE KONFIGURATION AUSDRUECKLICH GESETZT WIRD: Die Action liest `.gitleaks.toml`
+      # nicht in jedem Fall von selbst. Ohne den Verweis liefe der Standardsatz weiter und
+      # die Ausnahme fuer `.env.example` waere wirkungslos — was man erst am naechsten
+      # roten Wochenlauf merkt, also frueherstens in einer Woche. (#343)
+      # Set explicitly: without it the default ruleset stays in force and the allowlist
+      # would do nothing, which only shows up on the next weekly run.
+      #
+      # UND DIE DATEI MUSS IN JEDEM GESCANNTEN BAUM LIEGEN, auch auf `main`: Fehlt sie,
+      # bricht gitleaks ab, ohne `results.sarif` zu schreiben — die Action scheitert dann
+      # beim Hochladen mit `File results.sarif does not exist`, was wie ein Fehler der
+      # Action aussieht und keiner ist. Genau so ist der PR gescheitert, der diese
+      # Aenderung nach `main` gebracht hat. (#358)
+      # The config must exist in every scanned tree, main included: without it gitleaks
+      # aborts before writing results.sarif and the action fails on the upload instead,
+      # which looks like an action bug and is not one.
       - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: ${{ github.workspace }}/.gitleaks.toml
 
   dependency-review:
     # Blockiert PRs, die Abhängigkeiten mit bekannten Schwachstellen einführen.
