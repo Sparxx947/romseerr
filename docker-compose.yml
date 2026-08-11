@@ -20,7 +20,14 @@ services:
     container_name: romseerr
     restart: unless-stopped
     ports:
-      - "${PORT:-8770}:8770"
+      # BEIDE Seiten aus PORT — die App liest dieselbe Variable über `env_file` und
+      # lauscht INNEN darauf. Stand hier innen fest 8770, machte `PORT=9000` Romseerr
+      # unerreichbar: veröffentlicht wurde 9000 -> 8770, gelauscht wurde auf 9000. Der
+      # Health-Check liest ebenfalls PORT und meldete dabei `healthy`. (#377)
+      # Both sides from PORT — the app reads the same variable and listens on it inside.
+      - "${PORT:-8770}:${PORT:-8770}"
+      # HTTPS_PORT liest die App NICHT (der TLS-Port steht in den Einstellungen,
+      # Standard 8443) — hier ist die feste Innenseite deshalb richtig.
       - "${HTTPS_PORT:-8443}:8443"   # HTTPS (nur aktiv, wenn ein Zertifikat hinterlegt ist)
     env_file: [.env]
     volumes:
@@ -32,7 +39,15 @@ services:
       # startet nie ein Download. Gemeinsame Gruppe oder 0775 setzen. (#197)
       # Writable by BOTH containers — Romseerr writes the .crawljob, JDownloader removes
       # it. A foreign owner with 0755 disables the whole hand-off silently.
-      - ${JD_WATCH:-./data/jdownloader/folderwatch}:/jd-watch
+      #
+      # HOST-Seite heißt JD_WATCH_HOST, nicht JD_WATCH: `env_file` schiebt jeden
+      # .env-Eintrag in den Container, und die App liest `JD_WATCH` als IHREN Pfad.
+      # Hießen beide gleich, gewann der Host-Pfad drinnen — Romseerr schrieb die
+      # .crawljob dorthin, JDownloader las den gemounteten /jd-watch, nichts geschah.
+      # Dasselbe Paar wie JD_OUTPUT (Host) / JD_OUT (Romseerrs Sicht). (#377)
+      # Host side is JD_WATCH_HOST: `env_file` pushes every .env entry into the
+      # container, where the app reads JD_WATCH as its own path.
+      - ${JD_WATCH_HOST:-./data/jdownloader/folderwatch}:/jd-watch
       # Ausgabe: derselbe Ordner wie /output bei JDownloader, nur anders eingehängt.
       # JD_DL_BASE ist die JD-Sicht darauf; Romseerrs Sicht wird daraus abgeleitet.
       - ${JD_OUTPUT:-./data/jd-output}:/jd-output

@@ -471,7 +471,7 @@ Zwei Wege, die sich ergänzen — **die Weboberfläche hat Vorrang, `.env` ist d
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | IGDB (Cover, Metadaten, Empfehlungen) |
 | `ROMM_URL` / `ROMM_USER` / `ROMM_PASS` | RomM-Scan nach dem Import |
 | `JD_DL_BASE` | Basis-Zielordner für JDownloader (Filehoster), **aus Sicht des JD-Containers** |
-| `JD_WATCH` / `JD_OUT` | Romseerrs Sicht auf Übergabe- und Zielordner. `JD_OUT` leer = **aus `JD_DL_BASE` abgeleitet** |
+| `JD_WATCH` / `JD_OUT` | Romseerrs Sicht auf Übergabe- und Zielordner (Host-Seite: `JD_WATCH_HOST` / `JD_OUTPUT`, s. u.). `JD_OUT` leer = **aus `JD_DL_BASE` abgeleitet** |
 
 > **JDownloader braucht die FolderWatch-Erweiterung** (*Einstellungen → Extension Modules*).
 > Sie gehört nicht zur Grundinstallation; ohne sie wird der Übergabe-Ordner nie gelesen —
@@ -487,6 +487,25 @@ Zwei Wege, die sich ergänzen — **die Weboberfläche hat Vorrang, `.env` ist d
 > folgenden Aufträge stauen sich dahinter.
 
 Vollständige Liste und Standardwerte: **`.env.example`**.
+
+### Host-Pfade vs. Romseerrs Sicht
+
+Die letzten Einträge der `.env` (`ROMS_LIB`, `SAB_COMPLETE`, `JD_WATCH_HOST`, `JD_OUTPUT`)
+sind **Host-Pfade für die `volumes:` des Compose** — Romseerr sieht sie nie, es sieht nur
+die Einhängepunkte `/roms`, `/sab-complete`, `/jd-watch`, `/jd-output`.
+
+Beide Namen dürfen sich deshalb **nicht decken**: `env_file: [.env]` schiebt jeden Eintrag
+der `.env` in den Container, und wo ein Host-Pfad denselben Namen trägt wie eine Variable,
+die Romseerr als *eigenen* Pfad liest, gewinnt drinnen der Host-Pfad — still.
+
+> **Beim Aktualisieren:** Die Variable hieß bis dahin `JD_WATCH` und traf damit genau auf
+> diesen Fall (#377). In der eigenen `.env` **`JD_WATCH=` in `JD_WATCH_HOST=` umbenennen**,
+> sonst hängt der Compose den Standardpfad `./data/jdownloader/folderwatch` ein statt des
+> eigenen. `docker compose config` zeigt, was tatsächlich eingehängt wird.
+>
+> Ebenso gilt jetzt `PORT` innen wie außen (`${PORT}:${PORT}`). Vorher stand innen fest
+> `8770`: Ein abweichendes `PORT` veröffentlichte einen Port, auf dem niemand lauschte —
+> und der Health-Check las dieselbe Variable und meldete trotzdem `healthy`.
 
 ---
 
