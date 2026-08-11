@@ -725,6 +725,12 @@ protokolliert.
 - **API-Key** wird in konstanter Zeit verglichen.
 - **Keine Secrets im Repo** — `.gitignore` schließt `.env`, `config/` und `*.db*` aus;
   CI prüft mit **Gitleaks**, **Trivy**, **Bandit** und **CodeQL**.
+  Zwei Feinheiten, die sonst still danebengehen: Bei `push` und `pull_request` sieht
+  Gitleaks **nur die neuen Commits** — die volle Historie prüft allein der wöchentliche
+  Lauf. Und ein **geplanter Lauf startet immer auf dem Standardzweig**, hier dem
+  Release-Zweig `main`; er würde also einen Stand prüfen, den niemand fährt. Deshalb
+  checkt der Zeitplan ausdrücklich `dev` aus (`SCAN_REF` in `security.yml`). Ohne das war
+  der Wochenlauf dauerhaft rot wegen Fehlalarmen, die längst behoben waren.
 
 ---
 
