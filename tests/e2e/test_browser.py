@@ -190,3 +190,41 @@ def test_der_zurueck_knopf_kehrt_zur_vorigen_ansicht(seite):
     seite.wait_for_timeout(600)
     assert seite.url.endswith("#/issues"), (
         f"nach einmal Zurueck: {seite.url} — erzeugt ein Klick zwei History-Eintraege?")
+
+
+def test_a_non_german_language_is_fetched_and_applied(seite, eingerichtet):
+    """Eine andere Sprache wird nachgeladen und angewendet — ohne Zwischenstand. (#350)
+
+    DAS IST DER RISKANTE PFAD. Deutsch liegt im Skript und braucht keinen Abruf; alles
+    andere wird geholt. Kommt die Datei zu spaet, zeichnet die Seite erst deutsch und
+    springt dann um — genau das, was der Umbau vermeiden soll.
+
+    Geprueft wird gegen einen Text, den es NUR auf Englisch gibt, damit der Test nicht
+    versehentlich die deutsche Rueckfallebene bestaetigt.
+
+    German is inlined and needs no fetch; every other language is loaded. If the file
+    arrives late the page renders in German and then jumps.
+    """
+    # Ueber `setLang` — den Weg, den auch das Sprachmenue nimmt. Ein Setzen von
+    # `localStorage` allein genuegt NICHT: `loadAuth()` holt die Sprache aus dem Profil
+    # und ueberschreibt sie beim Laden wieder. Genau darauf ist dieser Test zuerst
+    # hereingefallen.
+    seite.evaluate("setLang('en')")
+    seite.wait_for_timeout(1200)
+
+    zustand = seite.evaluate("""() => ({
+        lang: LANG,
+        geladen: Object.keys(I18N),
+        entdecken: t('nav_discover'),
+        bibliothek: t('nav_library')
+    })""")
+    assert zustand["lang"] == "en"
+    assert "en" in zustand["geladen"], "die englische Tabelle wurde nicht geholt"
+    assert zustand["entdecken"] == "Discover", f"unerwartet: {zustand['entdecken']!r}"
+    assert zustand["bibliothek"] == "Library"
+
+    # Und im DOM, nicht nur in der Tabelle: `applyI18n` muss NACH dem Laden gelaufen sein.
+    sichtbar = seite.locator("a.nav").first.inner_text()
+    assert "Discover" in sichtbar, f"die Seite zeigt noch: {sichtbar!r}"
+
+    seite.evaluate("localStorage.setItem('lang','de')")

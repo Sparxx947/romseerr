@@ -1,7 +1,20 @@
 <!doctype html><html lang=de><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1"><title>Romseerr</title>
 <link rel=manifest href="/manifest.webmanifest"><meta name=theme-color content="#0b0d10"><link rel=icon href="/icon.svg">
-<link rel=stylesheet href="__ASSET:css/index.css__"></head><body>
+<link rel=stylesheet href="__ASSET:css/index.css__"></head><body data-i18n-src='{"en":"__ASSET:i18n/en.json__","fr":"__ASSET:i18n/fr.json__","es":"__ASSET:i18n/es.json__","it":"__ASSET:i18n/it.json__"}'>
+<!-- ACHTUNG, NICHT `data-i18n` NENNEN: `applyI18n()` waehlt `[data-i18n]` aus und setzt
+     deren `textContent`. Am <body> bedeutet das, dass die GANZE SEITE durch einen
+     Uebersetzungstext ersetzt wird — genau das ist beim ersten Versuch passiert, und es
+     sah aus, als fehle das Suchfeld. Deshalb `data-i18n-src`.
+     Do NOT name this `data-i18n`: applyI18n() selects [data-i18n] and overwrites
+     textContent, which on <body> replaces the entire page.
+
+     Die Adressen der Sprachdateien als Datenattribut, NICHT als Inline-Skript: Die
+     Seiten sollen ohne `unsafe-inline` auskommen (#73), und die Adressen sind gehasht,
+     damit sie `immutable` ausgeliefert werden koennen. `render_page` ersetzt die
+     `__ASSET:`-Platzhalter. (#350)
+     Asset URLs as a data attribute rather than an inline script: the pages must work
+     without unsafe-inline, and hashed URLs can be served immutable. -->
 <div id=side>
  <div class=logo>🎮 Romseerr</div>
  <!-- Das Symbol steht in einem EIGENEN span, nicht im uebersetzten Text (#337).
