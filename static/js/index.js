@@ -352,17 +352,30 @@ function libGruppe(g){
  let auf=LIBOFFEN.has(g.vendor);
  let logo=LOGOS.has(g.vendor.toLowerCase())
   ?`<img class=glogo src="/logo/${encodeURIComponent(g.vendor.toLowerCase())}" alt="${g.vendor}">`:'';
- let zeilen=auf?g.platforms.map(p=>`<div class=job style="cursor:pointer"
+ // WARUM KNOEPFE UND KEINE DIVS: Ein `div` mit `onclick` ist fuer die Tastatur nicht
+ // vorhanden und wird von Vorlesern nicht als bedienbar angesagt (#319). `aria-label`
+ // fasst Name und Zahl zusammen — eine nackte Zahl hinter einem Namen ist vorgelesen
+ // mehrdeutig. axe findet diese Klasse Fehler NICHT; es gibt dafuer keine Regel.
+ // A div with onclick is invisible to the keyboard and silent to screen readers; axe has
+ // no rule for it, so only a keyboard walk catches it.
+ let zeilen=auf?g.platforms.map(p=>`<button class="job libzeile"
+   aria-label="${(p.name||'').replace(/"/g,'')} — ${p.owned.toLocaleString()} ${t('lib_titles')}"
    onclick="openOwned('${p.slug}','${(p.name||'').replace(/'/g,'')}')">
-   <div><b>${(p.name||'').replace(/</g,'&lt;')}</b></div>
-   <div style="display:flex;align-items:center;gap:10px"><span class=meta>${p.owned.toLocaleString()}</span>
-   <span class=meta>›</span></div></div>`).join(''):'';
+   <span><b>${(p.name||'').replace(/</g,'&lt;')}</b></span>
+   <span style="display:flex;align-items:center;gap:10px"><span class=meta>${p.owned.toLocaleString()}</span>
+   <span class=meta aria-hidden="true">›</span></span></button>`).join(''):'';
+ // `aria-expanded` sagt an, ob die Gruppe offen ist; `aria-controls` verbindet den
+ // Knopf mit der Liste, die er auf- und zuklappt. Ohne beides hoert ein Vorleser nur
+ // einen Knopf mit einem Namen und erfaehrt nie, dass sich darunter etwas geoeffnet hat.
+ // aria-expanded announces the state, aria-controls ties the button to the list it opens.
+ let lid='libg-'+g.vendor.toLowerCase().replace(/[^a-z0-9]+/g,'-');
  return `<div class=card style="margin-bottom:10px">
-  <div class="job covhead" style="cursor:pointer"
+  <button class="job covhead libkopf" aria-expanded="${auf}" aria-controls="${lid}"
    onclick="LIBOFFEN.${auf?'delete':'add'}('${g.vendor.replace(/'/g,'')}');loadLibrary()">
-   <div style="display:flex;align-items:center;gap:8px">${logo}<b>${g.vendor.replace(/</g,'&lt;')}</b></div>
-   <div style="display:flex;align-items:center;gap:10px"><span class=meta>${g.owned.toLocaleString()}</span>
-   <span class=meta>${auf?'▾':'▸'}</span></div></div>${zeilen}</div>`;}
+   <span style="display:flex;align-items:center;gap:8px">${logo}<b>${g.vendor.replace(/</g,'&lt;')}</b></span>
+   <span style="display:flex;align-items:center;gap:10px"><span class=meta>${g.owned.toLocaleString()}</span>
+   <span class=meta aria-hidden="true">${auf?'▾':'▸'}</span></span></button>
+  <div id="${lid}">${zeilen}</div></div>`;}
 async function openOwned(slug,name){_own={slug:slug,name:name,offset:0,q:''};renderOwned();}
 async function renderOwned(){let m=document.getElementById('modal');m.style.display='block';
  m.innerHTML='<div class=box><div class=meta>…</div></div>';
@@ -423,7 +436,7 @@ async function loadMessages(){let box=document.getElementById('messages');let d=
  let thread=(d.messages||[]).filter(m=>(m.from==msgWith&&m.to==me)||(m.from==me&&m.to==msgWith))
    .map(m=>`<div class=cmt style="max-width:80%;margin-left:${m.from==me?'auto':'0'}"><span class="cu${m.from==me?' staff':''}">${m.from.replace(/</g,'&lt;')}</span> <span class=meta style="font-size:10px">${new Date(m.ts*1000).toLocaleString()}</span><div>${m.body.replace(/</g,'&lt;')}</div></div>`).join('');
  box.innerHTML=`<div style="padding:18px;max-width:680px"><h3 style="text-transform:uppercase;color:#8b929e;font-size:12px">✉ ${t('nav_messages')}</h3>`+
-  (users.length?`<div class=frow><label style="min-width:auto">${t('msg_to')}</label><select id=msgsel onchange="msgWith=this.value;loadMessages()">${opts}</select></div>
+  (users.length?`<div class=frow><label for=msgsel style="min-width:auto">${t('msg_to')}</label><select id=msgsel onchange="msgWith=this.value;loadMessages()">${opts}</select></div>
    <div class=cmts id=msgthread style="max-height:50vh;overflow:auto">${thread||('<div class=meta>'+t('msg_none')+'</div>')}</div>
    <div class=frow><textarea id=msgbody placeholder="${t('msg_ph')}" style="flex:1;min-height:60px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px" onkeydown="if(event.key=='Enter'&&event.ctrlKey)sendMsg()"></textarea></div>
    <div class=frow><button onclick="sendMsg()">${t('msg_send')}</button><span class=meta>${t('msg_hint')}</span></div>`:`<div class=meta>${t('msg_nousers')}</div>`)+`</div>`;
@@ -459,7 +472,7 @@ async function loadIssues(pref){let box=document.getElementById('issues');
  box.innerHTML=`<div style="padding:18px;max-width:640px">
   <h3 style="text-transform:uppercase;color:#8b929e;font-size:12px">${t('report_issue')}</h3>
   <div class=frow><input id=itit placeholder="Titel / title" value="${((pref&&pref.title)||'').replace(/"/g,'&quot;')}"></div>
-  <div class=frow><input id=iplat placeholder="Plattform" style="flex:0 0 140px" value="${((pref&&pref.platform)||'').replace(/"/g,'&quot;')}"><select id=ityp>${types.map(x=>'<option>'+x+'</option>').join('')}</select></div>
+  <div class=frow><input id=iplat placeholder="Plattform" style="flex:0 0 140px" value="${((pref&&pref.platform)||'').replace(/"/g,'&quot;')}"><select id=ityp aria-label="Art / type">${types.map(x=>'<option>'+x+'</option>').join('')}</select></div>
   <div class=frow><textarea id=imsg placeholder="${t('issue_msg')}" style="flex:1;min-height:60px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px"></textarea></div>
   <div class=frow><button onclick="submitIssue()">${t('submit')}</button><span id=imm class=meta></span></div>
   <h3 style="text-transform:uppercase;color:#8b929e;font-size:12px;margin-top:20px">${t('issues')}</h3><div id=ilist></div></div>`;
@@ -595,7 +608,7 @@ async function openDetail(it,ausRoute){let m=document.getElementById('modal');m.
  if(canDo('manage_requests')){try{let us=await(await fetch('/api/users')).json();
    let names=(Array.isArray(us)?us:[]).map(u=>u&&u.username).filter(Boolean).sort();
    if(names.length){let bar=document.getElementById('reqforbar');
-    bar.innerHTML=`<div class=frow style="margin-bottom:8px"><label style="min-width:auto;color:#8b929e;font-size:12px">${t('req_for')}</label><select id=reqforsel onchange="window.reqFor=this.value"><option value="">${t('req_self')}</option>${names.map(u=>`<option value="${u}">${u.replace(/</g,'&lt;')}</option>`).join('')}</select></div>`;}}catch(e){}}
+    bar.innerHTML=`<div class=frow style="margin-bottom:8px"><label for=reqforsel style="min-width:auto;color:#8b929e;font-size:12px">${t('req_for')}</label><select id=reqforsel onchange="window.reqFor=this.value"><option value="">${t('req_self')}</option>${names.map(u=>`<option value="${u}">${u.replace(/</g,'&lt;')}</option>`).join('')}</select></div>`;}}catch(e){}}
  let r=await fetch('/api/detail?source='+encodeURIComponent(it.source)+'&ref='+encodeURIComponent(it.ref||'')+'&title='+encodeURIComponent(it.title)+'&platform='+encodeURIComponent(it.platform_slug||''));
  let d=await r.json();
  window._detname=d.name||'';
@@ -976,7 +989,7 @@ async function loadAuth(){let d=await(await fetch('/api/auth/status')).json();
  // Markup, damit ein Sprachwechsel die Kopfleiste neu zeichnen kann, ohne /api/auth/status
  // erneut zu fragen.
  if(d.user){let nm=(d.display_name||d.user);
-   window._who=`<img src="${d.avatar||defAvatar(nm)}">`+nm.replace(/</g,'&lt;')+' <span style="opacity:.7">▾</span>';}
+   window._who=`<img alt="" src="${d.avatar||defAvatar(nm)}">`+nm.replace(/</g,'&lt;')+' <span style="opacity:.7">▾</span>';}
  else window._who='';
  let ubox=document.getElementById('userbox');if(ubox)ubox.style.display=d.user?'':'none';
  zeichneKopf();

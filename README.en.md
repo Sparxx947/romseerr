@@ -123,6 +123,15 @@ The method is shown as `Σ` on the card. And because **not every platform has a 
 source**, the card also states "x of y consoles measurable": a figure covering only part of
 a group, without saying so, would mislead.
 
+**Hidden directories are not platforms.** A leading dot marks a tool's directory, not a
+part of the library. The reorganiser keeps its working directory as `.umbau` next to the
+platform folders, and its log files previously showed up as a platform of their own with
+62 titles. The same rule covers `.cache`, `.stfolder` and the directories of sync tools.
+
+**The view works from the keyboard.** Vendor groups and system rows are buttons rather
+than clickable areas: they sit in the tab order, carry a readable name including the
+title count, and an expanded group announces that through `aria-expanded`.
+
 **Symlink placeholders do not count as titles.** Where the library sits on a filesystem
 without real symlinks (Netatalk, Samba), links are stored in the **XSym** format — read
 back over the share these are ordinary files. Left alone they become titles, pure grouping

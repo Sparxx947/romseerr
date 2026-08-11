@@ -36,8 +36,6 @@ def _verstoesse(ergebnis):
     return zeilen
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="#330: fehlendes alt am Logo, Kontrast am aktiven Menüpunkt")
 def test_startseite_ohne_schwere_verstoesse(seite):
     """Die Startseite trägt keine kritischen oder schweren axe-Verstöße."""
     ergebnis = Axe().run(seite)
@@ -64,8 +62,6 @@ def test_jeder_bedienbare_teil_hat_einen_namen(seite):
     assert not ohne, "Ohne vorlesbaren Namen:\n  " + "\n  ".join(ohne)
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="#330: dieselben zwei Verstöße stehen in der gemeinsamen Kopfzeile")
 @pytest.mark.parametrize("ansicht", ["Anfragen", "Probleme", "Abdeckung", "Bibliothek"])
 def test_weitere_ansichten_ohne_schwere_verstoesse(seite, ansicht):
     """Dieselbe Prüfung auf den übrigen Ansichten.

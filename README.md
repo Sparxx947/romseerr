@@ -125,6 +125,17 @@ Methode steht als `Σ` auf der Karte. Und weil **nicht jede Plattform eine Katal
 hat**, steht dort auch „x von y Konsolen messbar": eine Zahl über einen Ausschnitt, ohne
 das dazuzusagen, wäre irreführend.
 
+**Versteckte Ordner sind keine Plattformen.** Was mit einem Punkt beginnt, gehört einem
+Werkzeug und nicht der Bibliothek. Das Werkzeug, das die Bibliothek umsortiert, legt sein
+Arbeitsverzeichnis als `.umbau` neben die Plattformordner — dessen Protokolldateien
+erschienen vorher als eigene „Plattform" mit 62 Titeln. Dieselbe Regel fängt `.cache`,
+`.stfolder` und die Ordner von Synchronisationsdiensten gleich mit ab.
+
+**Die Ansicht lässt sich mit der Tastatur bedienen.** Herstellergruppen und Systemzeilen
+sind Knöpfe, keine anklickbaren Flächen: Sie stehen in der Tab-Reihenfolge, tragen einen
+vorlesbaren Namen samt Titelzahl, und eine aufgeklappte Gruppe sagt das über
+`aria-expanded` auch an.
+
 **Symlink-Platzhalter zählen nicht als Titel.** Legt die Bibliothek auf einem Dateisystem
 ohne echte Symlinks (Netatalk, Samba) Verweise im **XSym**-Format ab, sind das über die
 Freigabe gelesen ganz normale Dateien. Ohne Gegenmaßnahme werden daraus Titel, aus reinen

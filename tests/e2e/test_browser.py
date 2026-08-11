@@ -3,9 +3,10 @@
 Diese Datei prüft Dinge, die der Flask-Testclient grundsätzlich nicht sehen kann —
 gerendertes HTML, ausgeführtes JavaScript, die Adresszeile und die Tastatur.
 
-ZU DEN `xfail`-MARKERN: #319 und #323 sind belegte, noch nicht behobene Fehler.
-(#320 und #329 waren es auch — ihre Marker sind entfernt, nachdem die Reparatur sie als
-XPASS(strict) hat anschlagen lassen. Genau dafuer ist `strict` da.)
+ZU DEN `xfail`-MARKERN: Hier steht aktuell keiner mehr. #319, #320, #329 und #330 waren
+belegte Fehler; ihre Marker sind entfernt, nachdem die jeweilige Reparatur sie als
+XPASS(strict) hat anschlagen lassen. Genau dafuer ist `strict` da. Offen und weiterhin
+markiert sind #323 (Komprimierung) und #328 (Spezifikation) in den anderen Dateien.
 Die zugehörigen Prüfungen gehören trotzdem jetzt in die Suite, sonst wird der Befund
 beim nächsten Umbau still wieder eingebaut. `strict=True` heißt: Besteht die Prüfung
 eines Tages doch, schlägt sie fehl mit dem Hinweis, den Marker zu entfernen. Damit ist
@@ -98,8 +99,6 @@ def test_deep_link_oeffnet_die_gemeinte_ansicht(seite, eingerichtet):
     assert sichtbar == ["library"], f"sichtbar ist stattdessen: {sichtbar}"
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="#319: Bibliothekszeilen sind divs, nicht per Tastatur erreichbar")
 def test_bibliothek_ist_mit_der_tastatur_bedienbar(bibliothek_gefuellt):
     """Wer klicken kann, muss auch tabben können.
 
@@ -125,7 +124,7 @@ def test_bibliothek_ist_mit_der_tastatur_bedienbar(bibliothek_gefuellt):
         }
         return treffer;
     }""")
-    zeilen = seite.locator(".lib-vendor, .lib-row, [class*=vendor]").count()
+    zeilen = seite.locator("button.libkopf, button.libzeile, .job").count()
     assert zeilen > 0 or anklickbar, ("Die Bibliotheksansicht zeigt keine Zeilen — die "
                                       "Prüfung könnte nichts finden und wäre wertlos")
     assert not anklickbar, ("Anklickbar, aber nicht per Tastatur erreichbar: "
