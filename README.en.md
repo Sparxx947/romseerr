@@ -227,6 +227,12 @@ that is the normal case and complete as it stands, not a fallback.
   title.* Of 20 3DS titles Hasheous matched 15 by checksum — the best rate in the whole
   library, and replacing the files would throw those metadata away. The cache has a cap
   (`DECRYPT_3DS_CACHE_GB`, default 50) and evicts least-recently-used.
+- 🔒 **Restricted Archive.org items say so beforehand.** Some items sit in the `loggedin`
+  collection and need an account; without one the download answers **HTTP 401**. Such hits
+  stay visible — they exist — but carry a padlock. Previously this only surfaced after the
+  click, and for "Mario Kart 8 (Europe)" after 5.5 GB that could never arrive. When a
+  download does fail, the **reason** is now shown instead of
+  `returned non-zero exit status 24`.
 - 🔎 **Every source is always asked.** The platform filter applies to the *result*, never
   to the *question*. A lookup table used to decide whether Usenet was queried at all, which
   turned a gap in that table into a missing result — indistinguishable from "does not
