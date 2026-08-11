@@ -6195,6 +6195,88 @@ def test_the_env_template_contains_no_values():
                           + "; ".join(befuellt))
 
 
+def test_no_host_side_variable_is_also_read_by_the_app():
+    """Keine Variable beschreibt die HOST-Seite einer Zuordnung und wird zugleich von
+    der App als ihr eigener Wert gelesen. (#377)
+
+    DER MECHANISMUS, und er ist unscheinbar: Der Dienst `romseerr` traegt `env_file:
+    [.env]`. Damit landet JEDER Eintrag der `.env` in der Container-Umgebung — auch die,
+    die dort nur stehen, weil docker-compose sie fuer einen `volumes:`- oder `ports:`-
+    Eintrag braucht. Traegt eine solche Variable denselben Namen wie eine, die die App
+    liest, gewinnt der HOST-Pfad im Container:
+
+        os.environ.get("JD_WATCH", "/jd-watch") -> /pfad/zu/jdownloader/folderwatch
+
+    Nachgemessen mit `docker compose config` und der ausgelieferten `.env.example`:
+    Romseerr legt seine `.crawljob` unter dem Host-Pfad ab, JDownloader schaut in den
+    gemounteten `/jd-watch` — der Filehoster-Weg tut nichts, ohne Fehler. Dieselbe
+    Messung zeigte den zweiten Fall: `PORT=9000` veroeffentlicht `9000:8770`, die App
+    lauscht drinnen aber auf 9000. Der Health-Check liest dieselbe Variable und meldet
+    `healthy`, waehrend der veroeffentlichte Port tot ist.
+
+    WARUM ALLE DIENSTE geprueft werden, nicht nur `romseerr`: Die `.env` ist gemeinsam.
+    Eine Variable, die nur fuer den Mount von `sabnzbd` gedacht ist, steht trotzdem in
+    Romseerrs Umgebung.
+
+    Die Ausnahme ist bewusst: Steht dieselbe Variable auf BEIDEN Seiten
+    (`${PORT:-8770}:${PORT:-8770}`), meint sie innen wie aussen dasselbe — dann ist der
+    Durchgriff kein Fehler, sondern der Zweck.
+
+    Every entry of `.env` reaches the container through `env_file`, including the ones
+    that only exist to fill a `volumes:`/`ports:` mapping. If such a name collides with
+    one the app reads, the host value wins inside the container. Same variable on both
+    sides is fine — it then means the same thing in both places.
+    """
+    yml = os.path.join(REPO, "docker-compose.yml")
+    with open(yml, encoding="utf-8") as f:
+        compose = yaml.safe_load(f)
+    with open(os.path.join(REPO, "app.py"), encoding="utf-8") as f:
+        quelltext = f.read()
+
+    liest = set(re.findall(r"os\.environ\.get\(\s*[\"']([A-Z][A-Z0-9_]*)[\"']", quelltext))
+    liest |= set(re.findall(r"os\.getenv\(\s*[\"']([A-Z][A-Z0-9_]*)[\"']", quelltext))
+    liest |= set(re.findall(r"os\.environ\[\s*[\"']([A-Z][A-Z0-9_]*)[\"']", quelltext))
+    assert "JD_WATCH" in liest and "PORT" in liest, \
+        "die Erkennung der gelesenen Variablen greift nicht mehr"
+
+    # `${ROMS_LIB:?bitte in .env setzen}` enthaelt selbst einen Doppelpunkt — erst
+    # ausblenden, dann an ':' trennen, sonst zerfaellt die Zuordnung an der falschen
+    # Stelle.
+    def _teile(eintrag):
+        gemerkt = []
+
+        def _weg(m):
+            gemerkt.append(m.group(0))
+            return f"\x00{len(gemerkt) - 1}\x00"
+
+        stuecke = re.sub(r"\$\{[^}]*\}", _weg, eintrag).split(":")
+        zurueck = [re.sub(r"\x00(\d+)\x00", lambda m: gemerkt[int(m.group(1))], s)
+                   for s in stuecke]
+        return zurueck
+
+    def _vars(s):
+        return set(re.findall(r"\$\{([A-Z][A-Z0-9_]*)", s))
+
+    kollisionen = []
+    for dienst, d in (compose.get("services") or {}).items():
+        for feld in ("volumes", "ports"):
+            for eintrag in (d.get(feld) or []):
+                if not isinstance(eintrag, str) or "=" in eintrag:
+                    continue
+                stuecke = _teile(eintrag)
+                if len(stuecke) < 2:
+                    continue
+                host, container = stuecke[0], stuecke[1]
+                for name in sorted(_vars(host) & liest):
+                    if name in _vars(container):
+                        continue        # beide Seiten dieselbe Variable — gewollt
+                    kollisionen.append(f"{dienst}.{feld}: ${{{name}}} -> {eintrag.strip()}")
+
+    assert not kollisionen, (
+        "Diese Variablen beschreiben die Host-Seite UND werden von app.py gelesen — "
+        "im Container gewinnt der Host-Wert, still: " + "; ".join(kollisionen))
+
+
 # --- Wachhund fuer haengende Auftraege (#340) --------------------------------------
 
 def test_a_slow_but_growing_download_is_never_aborted(appmod, tmp_path, monkeypatch):

@@ -463,7 +463,7 @@ Two complementary ways — **the web UI takes precedence, `.env` is the fallback
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | IGDB (covers, metadata, recommendations) |
 | `ROMM_URL` / `ROMM_USER` / `ROMM_PASS` | RomM scan after import |
 | `JD_DL_BASE` | base target folder for JDownloader (filehoster), **as the JD container sees it** |
-| `JD_WATCH` / `JD_OUT` | Romseerr's view of the hand-off and target folders. Empty `JD_OUT` = **derived from `JD_DL_BASE`** |
+| `JD_WATCH` / `JD_OUT` | Romseerr's view of the hand-off and target folders (host side: `JD_WATCH_HOST` / `JD_OUTPUT`, see below). Empty `JD_OUT` = **derived from `JD_DL_BASE`** |
 
 > **JDownloader needs the FolderWatch extension** (*Settings → Extension Modules*). It is
 > not part of a stock install, and without it the hand-off folder is never read — and the
@@ -479,6 +479,25 @@ Two complementary ways — **the web UI takes precedence, `.env` is the fallback
 > job queues up behind it.
 
 Full list and defaults: **`.env.example`**.
+
+### Host paths vs. Romseerr's own view
+
+The last entries of `.env` (`ROMS_LIB`, `SAB_COMPLETE`, `JD_WATCH_HOST`, `JD_OUTPUT`) are
+**host paths for the compose `volumes:`** — Romseerr never sees them, it only sees the
+mount points `/roms`, `/sab-complete`, `/jd-watch`, `/jd-output`.
+
+The two sets of names must **not collide**: `env_file: [.env]` pushes every entry of `.env`
+into the container, and wherever a host path carries the same name as a variable Romseerr
+reads as its *own* path, the host path wins inside — silently.
+
+> **When updating:** this variable used to be called `JD_WATCH`, which was exactly that
+> case (#377). **Rename `JD_WATCH=` to `JD_WATCH_HOST=`** in your own `.env`, otherwise
+> compose mounts the default `./data/jdownloader/folderwatch` instead of your folder.
+> `docker compose config` shows what is actually mounted.
+>
+> Likewise `PORT` now applies inside and outside (`${PORT}:${PORT}`). The inside used to be
+> a fixed `8770`: any other `PORT` published a port nobody listened on — while the health
+> check, reading the same variable, still reported `healthy`.
 
 ---
 
