@@ -3,7 +3,9 @@
 Diese Datei prüft Dinge, die der Flask-Testclient grundsätzlich nicht sehen kann —
 gerendertes HTML, ausgeführtes JavaScript, die Adresszeile und die Tastatur.
 
-ZU DEN `xfail`-MARKERN: #319, #320 und #323 sind belegte, noch nicht behobene Fehler.
+ZU DEN `xfail`-MARKERN: #319 und #323 sind belegte, noch nicht behobene Fehler.
+(#320 und #329 waren es auch — ihre Marker sind entfernt, nachdem die Reparatur sie als
+XPASS(strict) hat anschlagen lassen. Genau dafuer ist `strict` da.)
 Die zugehörigen Prüfungen gehören trotzdem jetzt in die Suite, sonst wird der Befund
 beim nächsten Umbau still wieder eingebaut. `strict=True` heißt: Besteht die Prüfung
 eines Tages doch, schlägt sie fehl mit dem Hinweis, den Marker zu entfernen. Damit ist
@@ -63,8 +65,6 @@ def test_jede_ansicht_der_seitenleiste_rendert(seite):
     assert not leer, "; ".join(leer)
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="#320: `lib` fehlt in ROUTEN, Bibliothek landet auf #/discover")
 def test_jede_ansicht_traegt_ihre_eigene_adresse(seite):
     """Jeder Menüpunkt muss seine eigene Adresse setzen.
 
@@ -84,8 +84,6 @@ def test_jede_ansicht_traegt_ihre_eigene_adresse(seite):
     assert not falsch, "; ".join(falsch)
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="#320: ROUTEN_UM kennt 'library' nicht, Deep-Link zeigt Entdecken")
 def test_deep_link_oeffnet_die_gemeinte_ansicht(seite, eingerichtet):
     """Wer `#/library` aufruft, muss die Bibliothek sehen — nicht Entdecken.
 
@@ -134,8 +132,6 @@ def test_bibliothek_ist_mit_der_tastatur_bedienbar(bibliothek_gefuellt):
                             + ", ".join(anklickbar[:8]))
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="#329: Menüpunkte sind <a> ohne href — keine Rolle, kein Fokus")
 def test_die_navigation_ist_mit_der_tastatur_erreichbar(seite):
     """Wer nicht klicken kann, muss die Ansicht trotzdem wechseln können.
 
@@ -173,3 +169,25 @@ def test_seite_laeuft_auf_einem_telefon_nicht_ueber(seite):
         "() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]")
     scroll, sicht = breite
     assert scroll <= sicht + 1, f"Seite ist {scroll} px breit bei {sicht} px Sichtfenster"
+
+
+def test_der_zurueck_knopf_kehrt_zur_vorigen_ansicht(seite):
+    """Zurück muss zur vorigen Ansicht führen, nicht aus der Anwendung heraus. (#320)
+
+    Das war das eigentliche Versprechen hinter dem Routing-Fehler: Solange die Bibliothek
+    keine eigene Adresse setzte, gab es fuer sie keinen History-Eintrag — der Zurueck-Knopf
+    sprang an ihr vorbei.
+
+    Geprueft wird zusaetzlich, dass ein Klick GENAU EINEN Eintrag erzeugt: Der `href` und
+    `show()` koennten sonst beide schreiben, und Zurueck braeuchte zwei Druecke.
+    """
+    menuepunkt(seite, "Probleme").click()
+    seite.wait_for_timeout(400)
+    menuepunkt(seite, "Bibliothek").click()
+    seite.wait_for_timeout(400)
+    assert seite.url.endswith("#/library"), f"unerwartet: {seite.url}"
+
+    seite.go_back()
+    seite.wait_for_timeout(600)
+    assert seite.url.endswith("#/issues"), (
+        f"nach einmal Zurueck: {seite.url} — erzeugt ein Klick zwei History-Eintraege?")

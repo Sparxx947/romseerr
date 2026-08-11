@@ -169,7 +169,7 @@ let cur='s';
 // Navigation), ein Neuladen landete immer auf Entdecken, und nichts war verlinkbar.
 // Statt eines Zurück-Knopfes, der das nur überdeckt, bekommen die Ansichten eine
 // Adresse — dann macht der Browser von sich aus das Richtige.
-const ROUTEN={s:'discover',j:'requests',set:'settings',issues:'issues',msg:'messages',cov:'coverage',lists:'lists'};
+const ROUTEN={s:'discover',j:'requests',set:'settings',issues:'issues',msg:'messages',cov:'coverage',lists:'lists',lib:'library'};
 const ROUTEN_UM=Object.fromEntries(Object.entries(ROUTEN).map(([k,v])=>[v,k]));
 // Reine Funktion, absichtlich ohne DOM: so ist sie prüfbar, ohne die halbe Oberfläche
 // nachzubauen. Gibt {view, detail} zurück; detail ist null oder das Nötigste, um
@@ -223,6 +223,21 @@ function routeAnwenden(){
 window.addEventListener('popstate',()=>{EIGENE_SCHRITTE=Math.max(0,EIGENE_SCHRITTE-1);if(!ROUTE_STUMM)routeAnwenden();});
 window.addEventListener('hashchange',()=>{if(!ROUTE_STUMM)routeAnwenden();});
 
+// Die Menuepunkte sind echte Verweise mit `href`, damit sie eine Rolle haben, in der
+// Tab-Reihenfolge stehen und von Screenreadern angesagt werden (#329). Zuvor waren es
+// `<a>` OHNE `href` — gemessen: 0 von 7 per Tastatur erreichbar.
+//
+// Der Klick laeuft weiter ueber `show()` statt ueber die Navigation des Browsers, weil
+// `routeSetzen` mit `EIGENE_SCHRITTE` mitzaehlt, wie viele History-Eintraege die App
+// selbst gesetzt hat; davon haengt ab, ob das Schliessen eines Dialogs `history.back()`
+// benutzen darf. Wuerde der Browser selbst navigieren, liefe dieser Zaehler aus dem Tritt.
+// `return false` unterdrueckt deshalb die Standardnavigation — der `href` bleibt fuer
+// Fokus, Rolle und „in neuem Tab oeffnen" wirksam.
+//
+// The entries are real links so they have a role and a tab position; the click still goes
+// through show() because routeSetzen tracks how many history entries the app pushed, which
+// decides whether closing a dialog may use history.back().
+function navGeh(v){show(v);return false;}
 function show(v){zeige(v);routeSetzen(v,null,false,v==='set'?SETSEC:'',v==='set'?SETSUB:'');}
 function zeige(v){cur=v;
  document.getElementById('discview').style.display=v=='s'?'':'none';
@@ -239,6 +254,13 @@ function zeige(v){cur=v;
  let nM=document.getElementById('nM');if(nM)nM.classList.toggle('on',v=='msg');
  let nL=document.getElementById('nL');if(nL)nL.classList.toggle('on',v=='lib');
  document.getElementById('nSet').classList.toggle('on',v=='set');
+ // `class=on` ist nur Farbe. Welcher Punkt der aktuelle ist, muss auch angesagt
+ // werden — dafuer `aria-current`, sonst hoert ein Screenreader sieben
+ // gleichwertige Verweise. / class=on is colour only; aria-current carries the
+ // state to assistive technology.
+ document.querySelectorAll('a.nav').forEach(a=>{
+  if(a.classList.contains('on'))a.setAttribute('aria-current','page');
+  else a.removeAttribute('aria-current');});
  if(v=='j')loadJobs();if(v=='set')openSettingsView();
  if(v=='issues'){loadIssues(window._ipref);window._ipref=null;}
  let nC=document.getElementById('nC');if(nC)nC.classList.toggle('on',v=='cov');

@@ -45,8 +45,6 @@ def test_startseite_ohne_schwere_verstoesse(seite):
     assert not schwer, "axe auf Entdecken:\n  " + "\n  ".join(schwer)
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="#319: Menüpunkte 'Anfragen' und 'Nachrichten' ohne Namen")
 def test_jeder_bedienbare_teil_hat_einen_namen(seite):
     """Knöpfe und Verweise brauchen einen vorlesbaren Namen.
 

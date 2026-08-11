@@ -396,8 +396,13 @@ Every view has an address, and so does a title:
 |---|---|
 | `#/discover` · `#/requests` · `#/settings` | discover · requests · settings |
 | `#/issues` · `#/messages` · `#/coverage` | issues · messages · coverage |
+| `#/library` · `#/lists` | library · lists |
 | `#/title/<source>/<ref>?v=…&t=…&p=…` | detail dialog on top of view `v` |
 | `#/settings/<section>/<subpage>` | e.g. `#/settings/notif/telegram` |
+
+The sidebar entries are **real links**: they sit in the tab order, work from the
+keyboard and can be opened in a new tab. The active one carries `aria-current`, so a
+screen reader knows where you are.
 
 So the browser does the right thing on its own: **Back** returns to the previous view and
 closes an open detail dialog instead of leaving the application — on a phone, Back *is*

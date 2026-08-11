@@ -396,8 +396,13 @@ Jede Ansicht hat eine Adresse, und ein Titel auch:
 |---|---|
 | `#/discover` · `#/requests` · `#/settings` | Entdecken · Anfragen · Einstellungen |
 | `#/issues` · `#/messages` · `#/coverage` | Probleme · Nachrichten · Abdeckung |
+| `#/library` · `#/lists` | Bibliothek · Listen |
 | `#/title/<quelle>/<ref>?v=…&t=…&p=…` | Detailfenster über der Ansicht `v` |
 | `#/settings/<bereich>/<unterseite>` | z. B. `#/settings/notif/telegram` |
+
+Die Menüpunkte sind **echte Verweise**: Sie stehen in der Tab-Reihenfolge, lassen sich mit
+der Tastatur bedienen und in einem neuen Tab öffnen. Der aktive trägt `aria-current`,
+damit auch ein Vorleser weiß, wo man ist.
 
 Damit tut der Browser von sich aus das Richtige: **Zurück** kehrt zur vorherigen Ansicht
 zurück und schließt ein offenes Detailfenster, statt die Anwendung zu verlassen — auf dem

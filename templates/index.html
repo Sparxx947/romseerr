@@ -4,17 +4,17 @@
 <link rel=stylesheet href="__ASSET:css/index.css__"></head><body>
 <div id=side>
  <div class=logo>🎮 Romseerr</div>
- <a class="nav on" id=nS data-i18n=nav_discover onclick="show('s')">🔍 Entdecken</a>
+ <a class="nav on" id=nS data-i18n=nav_discover href="#/discover" onclick="return navGeh('s')">🔍 Entdecken</a>
  <!-- Kein Symbol davor: `nav_requests` bringt sein eigenes mit ("📥 Anfragen"). Sonst
       steht es zweimal da — derselbe Fallstrick wie beim Zustandsabzeichen in #205. -->
- <a class=nav id=nJ onclick="show('j')"><span data-i18n=nav_requests>📥 Anfragen</span><span id=jobbadge></span></a>
- <a class=nav id=nI data-i18n=nav_issues onclick="show('issues')">🐞 Probleme</a>
- <a class=nav id=nC data-i18n=nav_coverage onclick="show('cov')">📊 Abdeckung</a>
+ <a class=nav id=nJ href="#/requests" onclick="return navGeh('j')"><span data-i18n=nav_requests>📥 Anfragen</span><span id=jobbadge></span></a>
+ <a class=nav id=nI data-i18n=nav_issues href="#/issues" onclick="return navGeh('issues')">🐞 Probleme</a>
+ <a class=nav id=nC data-i18n=nav_coverage href="#/coverage" onclick="return navGeh('cov')">📊 Abdeckung</a>
  <!-- Abdeckung beantwortet „was fehlt", die Bibliothek „was habe ich". Vor dem Regal
       ist Letzteres die häufigere Frage, deshalb steht sie gleich daneben. (#293) -->
- <a class=nav id=nL data-i18n=nav_library onclick="show('lib')">📚 Bibliothek</a>
- <a class=nav id=nM onclick="show('msg')">✉ <span data-i18n=nav_messages>Nachrichten</span><span id=msgbadge></span></a>
- <a class=nav id=nSet data-i18n=nav_settings onclick="show('set')" style="display:none">⚙️ Einstellungen</a>
+ <a class=nav id=nL data-i18n=nav_library href="#/library" onclick="return navGeh('lib')">📚 Bibliothek</a>
+ <a class=nav id=nM href="#/messages" onclick="return navGeh('msg')">✉ <span data-i18n=nav_messages>Nachrichten</span><span id=msgbadge></span></a>
+ <a class=nav id=nSet data-i18n=nav_settings href="#/settings" onclick="return navGeh('set')" style="display:none">⚙️ Einstellungen</a>
 </div>
 <main>
  <!-- Konfigurationswarnungen: nur für Verwalter, nur wenn etwas kaputt ist. Ein Weg,
@@ -23,7 +23,13 @@
  <div id=topbar>
   <input id=q data-i18n-ph=search_ph placeholder="Spiel suchen … (Enter)" autofocus>
   <button class=fbtn id=tF onclick="toggleFilter()">🎛 Plattformen: Alle</button>
-  <button class=fbtn id=tRA onclick="toggleRA()" title="RetroAchievements">🏆</button>
+  <!-- `title` allein reicht als Name nicht: Es ist im Namensalgorithmus nur der letzte
+       Ausweg, auf Touch-Geräten unsichtbar und wird von manchen Vorlesern übergangen.
+       Ein Knopf, dessen Inhalt nur ein Emoji ist, braucht ein `aria-label`. (#329)
+       `title` alone is a last-resort name source, invisible on touch and skipped by some
+       screen readers; a button whose content is only an emoji needs an aria-label. -->
+  <button class=fbtn id=tRA onclick="toggleRA()" aria-label="RetroAchievements"
+          title="RetroAchievements">🏆</button>
   <!-- Alles, was zur PERSON gehört, steht oben rechts — dort wird es gesucht. Vorher lag
        es unten links und kostete drei Dauerzeilen für selten Benutztes. (#206) -->
   <div class=kopfrechts>
