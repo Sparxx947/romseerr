@@ -320,7 +320,10 @@ wurde upstream als *closed as not planned* abgelehnt. In der hiesigen Bibliothek
 **1248 von 1249 Abbildern verschlüsselt**, also praktisch alle.
 
 Was funktioniert: **[3DS-Decrypt](https://github.com/aszuraz/3DS-Decrypt)** (Python +
-`pycryptodome`, leitet die Schlüssel selbst ab, braucht keine `aes_keys.txt`):
+`pycryptodome`). Es trägt die vier Retail-`KeyX` **fest im Quelltext** und braucht deshalb
+**weder `aes_keys.txt` noch `boot9.bin`**. ROMs mit *Dev*-Schlüsseln entschlüsselt es nicht
+— dafür stehen auskommentierte Werte im Skript; in dieser Bibliothek kam kein solcher Fall
+vor. Azahar selbst braucht die Firmware sehr wohl, das erledigt `25-firmware`.
 
 ```bash
 docker run --rm -v /pfad/zu/3DS-Decrypt:/tool:ro -v /pfad/zu/roms:/arbeit \
@@ -331,10 +334,9 @@ docker run --rm -v /pfad/zu/3DS-Decrypt:/tool:ro -v /pfad/zu/roms:/arbeit \
 Danach ist das `NoCrypto`-Flag gesetzt und Azahar startet den Titel mit Namen im Fenster.
 
 **Der Host macht das inzwischen selbst.** `init/23-3ds-entschluesseln` legt
-`pycryptodome` und das Werkzeug nach `/config/tools/3ds-decrypt` — aber **nur, wenn
-`boot9.bin` vorliegt**; ohne Schlüsselmaterial richtet es gar nichts erst ein, statt eine
-Fähigkeit vorzutäuschen. Beim Start eines verschlüsselten Titels entschlüsselt der Agent
-**in einen Zwischenspeicher daneben** und startet die Kopie:
+`pycryptodome` und das Werkzeug nach `/config/tools/3ds-decrypt`. Beim Start eines
+verschlüsselten Titels entschlüsselt der Agent **in einen Zwischenspeicher daneben** und
+startet die Kopie:
 
 | Schalter | Vorgabe | Bedeutung |
 |---|---|---|
@@ -351,9 +353,21 @@ Prüfsumme, die beste Quote der ganzen Bibliothek. Würde man die Dateien ersetz
 diese Metadaten weg. Der Deckel ist da, weil sonst nach und nach die ganze Plattform
 doppelt läge; entschlüsselt wird nur, was auch gestartet wird.
 
-Der erste Start eines Titels dauert dadurch **einige Minuten** — er ist ein Kopiervorgang
-plus Entschlüsselung über die volle Abbildgröße. Jeder weitere Start desselben Titels ist
-sofort da, solange die Kopie im Zwischenspeicher liegt.
+**Was der erste Start wirklich kostet** — an einem echten Titel dieser Bibliothek gemessen
+(`eShop-3DS-0022`, 128 MB):
+
+| | |
+|---|---|
+| Entschlüsseln | **0,07 s** |
+| Prüfsumme vorher → nachher | `04fa95e5…` → `bf5e3f0b…` |
+| `NoCrypto`-Flag | `0x00` → `0x04` |
+
+Entschlüsselt werden nur Kopf- und ExeFS-Bereiche, nicht das ganze Abbild. **Die Kosten
+stecken vollständig im Kopieren** und wachsen mit der Abbildgröße — bei einem 4-GB-Titel
+über die Freigabe sind das Minuten, bei diesem hier Sekunden. Jeder weitere Start desselben
+Titels ist sofort da, solange die Kopie im Zwischenspeicher liegt.
+
+Eine frühere Fassung dieser Zeile schätzte „einige Minuten" pauschal. Das war geraten.
 
 > **NDecrypt hilft hier nicht.** Es ist der erste Suchtreffer, akzeptiert `aes_keys.txt`,
 > meldet jede Partition als entschlüsselt — und lässt die Datei **byteweise unverändert**.
@@ -1147,10 +1161,10 @@ So an encrypted 3DS ROM yields `window: "dialog"` and `window_detail: "App Encry
 the very information that previously sat on the emulator's own screen and reached nobody.
 
 **The host now decrypts by itself.** `init/23-3ds-entschluesseln` installs `pycryptodome`
-and places the tool in `/config/tools/3ds-decrypt` — but **only when `boot9.bin` is
-present**; without key material it sets nothing up rather than pretend a capability. On
-launching an encrypted title the agent decrypts **into a cache alongside** and starts the
-copy:
+and places the tool in `/config/tools/3ds-decrypt`. The tool carries the four retail `KeyX`
+values **in its own source** and needs neither `aes_keys.txt` nor `boot9.bin` (ROMs with
+*dev* keys are not covered). On launching an encrypted title the agent decrypts **into a
+cache alongside** and starts the copy:
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -1167,9 +1181,21 @@ library. Replacing the files would throw those metadata away. The cap exists bec
 platform would otherwise end up stored twice; only what is actually launched gets
 decrypted.
 
-The first launch of a title therefore takes **several minutes** — a copy plus decryption
-over the full image size. Every later launch of the same title is immediate, as long as
+**What the first launch actually costs** — measured on a real title from this library
+(`eShop-3DS-0022`, 128 MB):
+
+| | |
+|---|---|
+| decryption | **0.07 s** |
+| checksum before → after | `04fa95e5…` → `bf5e3f0b…` |
+| `NoCrypto` flag | `0x00` → `0x04` |
+
+Only the header and ExeFS regions are rewritten, not the whole image. **The cost is
+entirely in the copy** and scales with image size — minutes for a 4 GB title over the
+share, seconds for this one. Every later launch of the same title is immediate, as long as
 the copy is still in the cache.
+
+An earlier version of this line guessed "several minutes". It was a guess.
 
 Dialogs are recognised by window type `_NET_WM_WINDOW_TYPE_DIALOG` rather than by known
 error strings, since a string list would be wrong in every new emulator release. This

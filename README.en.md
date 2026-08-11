@@ -210,8 +210,8 @@ that is the normal case and complete as it stands, not a fallback.
   **Encrypted is no longer a dead end when the host can decrypt.** Azahar only plays
   decrypted dumps and does not decrypt by itself; 1,248 of 1,249 measured images in this
   library were encrypted — without this step the platform stays empty. The streaming host
-  therefore ships the tool itself (`init/23-3ds-entschluesseln`, only when `boot9.bin` is
-  present) and decrypts **at launch, into a cache alongside**. Romseerr asks for the
+  therefore ships the tool itself (`init/23-3ds-entschluesseln`) and decrypts **at launch,
+  into a cache alongside** — measured at 0.07 s for a 128 MB image; the time is in the copy. Romseerr asks for the
   capability and turns the refusal into a promise with an announced wait (`will_decrypt`);
   if the host does not answer, the refusal stands — a promise it cannot keep would only
   surface after a seat has been taken.
