@@ -97,8 +97,16 @@ Die vollständige Regel steht in
 
 Die Abdeckung beantwortet „was fehlt". Vor dem Regal steht aber meist die andere Frage:
 **was habe ich für diese Konsole?** Dafür gibt es den Menüpunkt **Bibliothek**, nach
-**Hersteller** und **System** gruppiert — dieselbe Einteilung wie Abdeckung und
-Plattformfilter, nicht eine dritte Liste. Ein Klick auf ein System öffnet die Titel, mit
+**Hersteller** und **System** gruppiert.
+
+Die Einteilung ist hier bewusst **eine andere als beim Plattformfilter**. Der Filter
+kommt mit fünf kurzen Gruppen und einem Sammeltopf „Sonstige" aus — man setzt dort ohnehin
+einzelne Haken. Eine Ansicht, die „nach Hersteller" ordnet, darf das nicht: Mit der
+Filterliste landeten hier **74 % aller Titel** in „Sonstige" oder in einer Gruppe ohne
+Namen, und **Commodore — mit rund 40.000 Titeln größer als Nintendo** — hatte gar keine.
+Jetzt stehen Commodore, Sinclair, Amstrad, Atari, NEC, SNK, Sharp und Bandai für sich;
+DOS, ScummVM und Arcade sind keine Hersteller und haben eine eigene Gruppe. Was übrig
+bleibt, heißt „Ohne Zuordnung" — nie ein Gedankenstrich. Ein Klick auf ein System öffnet die Titel, mit
 Filter und seitenweise: `c64` und ScummVM halten hier fünfstellige Titelzahlen, eine
 vollständige Liste würde den Browser anhalten.
 
@@ -426,6 +434,13 @@ Telefon *ist* Zurück die Navigation. Ein **Neuladen** kommt dort heraus, wo man
 ein **Link** auf einen Titel lässt sich verschicken.
 
 ### Karten auf Entdecken und in der Suche
+
+Die oberste Zeile **„Weil du angefragt hast"** schlägt nur Titel vor, die es für eine
+Plattform gibt, die diese Instanz bedient. Ohne diesen Filter lieferte IGDB zu einem
+Xbox-Titel bereitwillig moderne PC-Spiele — darunter ein unveröffentlichtes, das als
+schwarze Kachel ganz oben stand. Ein Vorschlag, der nie einlösbar ist, kostet mehr
+Vertrauen als eine kürzere Zeile.
+
 
 Jede Karte trägt oben links den **Plattformnamen** (»GameCube«, nicht `ngc`) und, wenn
 zutreffend, unten ein Zustandsabzeichen:

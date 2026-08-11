@@ -5867,3 +5867,103 @@ def test_hidden_directories_are_not_platforms(appmod, tmp_path, monkeypatch):
     versteckt = {s for s in slugs if s.startswith(".")}
     assert not versteckt, f"versteckte Ordner im Index: {sorted(versteckt)}"
     assert "snes" in slugs, "die echte Plattform fehlt — die Regel greift zu weit"
+
+
+# --- Hersteller-Ordnung der Bibliothek (#322) --------------------------------------
+
+def test_library_vendor_groups_do_not_overlap(appmod):
+    """Kein System steht in zwei Herstellergruppen.
+
+    Eine Ueberschneidung faellt in der Ansicht nicht auf — der Titel erschiene einfach
+    zweimal, und die Summe waere hoeher als die Bibliothek. Gerade beim Aufteilen einer
+    Sammelgruppe passiert das leicht: `atari-st` gehoert zu Atari, nicht zu den
+    Heimcomputern, aber beide Listen laden dazu ein.
+    """
+    gesehen = {}
+    doppelt = []
+    for hersteller, slugs in appmod.LIB_VENDORS:
+        for sl in slugs:
+            if sl in gesehen:
+                doppelt.append(f"{sl}: {gesehen[sl]} + {hersteller}")
+            gesehen[sl] = hersteller
+    assert not doppelt, "Systeme in mehreren Gruppen: " + "; ".join(doppelt)
+
+
+def test_the_leftover_group_has_a_real_name(appmod):
+    """Die Auffanggruppe traegt einen Namen, keinen Gedankenstrich. (#322)
+
+    Vorher hiess sie `—`. Darunter lag `scummvm` mit 16.487 Titeln — die zweitgroesste
+    Plattform der Bibliothek, unter einer Ueberschrift, die nichts sagt.
+    """
+    assert appmod.LIB_REST.startswith(appmod.LIB_GRP_PREFIX), \
+        "die Auffanggruppe braucht einen uebersetzbaren Schluessel"
+    assert appmod.LIB_REST.strip("-—– ") == appmod.LIB_REST
+
+
+def test_the_big_home_computer_vendors_have_their_own_group(appmod):
+    """Commodore, Sinclair, Amstrad und Atari sind eigene Gruppen. (#322)
+
+    Sie steckten alle in `PLATFORMS`' Sammeltopf „Sonstige". Commodore allein ist mit
+    rund 40.000 Titeln GROESSER als Nintendo — in einem Topf namens „Sonstige" zu
+    verschwinden ist dort der augenfaelligste Fehler.
+    """
+    namen = {v for v, _ in appmod.LIB_VENDORS}
+    for erwartet in ("Commodore", "Sinclair", "Amstrad", "Atari"):
+        assert erwartet in namen, f"{erwartet} hat keine eigene Gruppe"
+    commodore = dict(appmod.LIB_VENDORS)["Commodore"]
+    assert "c64" in commodore and "amiga" in commodore
+
+
+def test_category_group_keys_exist_in_all_five_languages(appmod):
+    """Jeder `lib_grp_`-Schluessel ist in allen fuenf Sprachen uebersetzt. (#322)
+
+    Herstellernamen sind sprachneutral, Sammelbegriffe nicht. Fehlt eine Uebersetzung,
+    zeigt die Oberflaeche dort den nackten Schluessel — sichtbar nur, wenn jemand die
+    Sprache umstellt, und deshalb sonst erst spaet.
+
+    Rot gesehen: mit einem entfernten `lib_grp_hand` in der italienischen Zeile.
+    """
+    import re
+    schluessel = {v for v, _ in appmod.LIB_VENDORS if v.startswith(appmod.LIB_GRP_PREFIX)}
+    schluessel.add(appmod.LIB_REST)
+    assert schluessel, "keine Sammelgruppen gefunden — Pruefung waere wertlos"
+
+    pfad = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "static", "js", "index.js")
+    with open(pfad, encoding="utf-8") as f:
+        js = f.read()
+    fehlend = []
+    for k in sorted(schluessel):
+        n = len(re.findall(rf"\b{re.escape(k)}\s*:", js))
+        if n != 5:
+            fehlend.append(f"{k}: {n}x statt 5")
+    assert not fehlend, "Uebersetzungen unvollstaendig: " + "; ".join(fehlend)
+
+
+# --- Empfehlungen nur fuer bedienbare Plattformen (#324) ---------------------------
+
+def test_similar_games_are_filtered_to_supported_platforms(appmod, monkeypatch):
+    """„Weil du angefragt hast" schlaegt nur vor, was es fuer eine unserer Plattformen gibt.
+
+    Der gemessene Fall: Zur Xbox-Saat *Fable* lieferte IGDB Borderlands 3, GreedFall und
+    *The Elder Scrolls VI* — Letzteres unveroeffentlicht, ohne Cover, ohne Bewertung, als
+    schwarze Kachel an der prominentesten Stelle der Anwendung. Keiner dieser Titel ist
+    anfragbar.
+
+    Titel OHNE Plattformangabe fallen ebenfalls raus: Ohne sie ist unbekannt, ob es sie
+    fuer eine unserer Konsolen gibt — und im gemessenen Fall waren es genau die
+    unveroeffentlichten.
+    """
+    snes = appmod.IGDB_PLAT["snes"]
+    antwort = [{"name": "Fable", "similar_games": [
+        {"name": "Chrono Trigger", "cover": {"image_id": "a"}, "total_rating": 95,
+         "platforms": [{"id": snes}]},
+        {"name": "Borderlands 3", "cover": {"image_id": "b"}, "total_rating": 79,
+         "platforms": [{"id": 999999}]},                      # Plattform, die wir nicht bedienen
+        {"name": "The Elder Scrolls VI", "cover": {"image_id": "c"}},   # gar keine Plattform
+    ]}]
+    monkeypatch.setattr(appmod, "igdb_query", lambda *a, **k: antwort)
+    appmod.IGDB["cache"].clear()
+
+    titel = [g["title"] for g in appmod.igdb_similar_games("Fable")]
+    assert titel == ["Chrono Trigger"], f"unerwartet: {titel}"
