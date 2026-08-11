@@ -243,6 +243,19 @@ USENET_CAT = {101010:"nds",101020:"psp",101030:"wii",101035:"switch",101040:"xbo
 SLUG2USE = {}
 for _cid, _slug in USENET_CAT.items(): SLUG2USE.setdefault(_slug, []).append(_cid)
 
+# WO EIN INDEXER NICHT TRENNT (#375). Wii U liegt beim hiesigen Indexer unter den
+# WII-Kategorien — nachgemessen: `Super.Mario.3D.World.USA.WiiU-PoWeRUp` kommt mit
+# {1030, 101030}, und die Standardkategorie fuer Wii U (1130) liefert NULL Treffer.
+#
+# Ohne diesen Eintrag ist `SLUG2USE["wiiu"]` leer, und die Auswahl „Wii U" schaltet die
+# Usenet-Suche KOMPLETT AB — sieben vorhandene Veroeffentlichungen waren damit
+# unerreichbar. Die Zuordnung am Titel funktioniert laengst: `guess_platform` erkennt
+# `WiiU` zuverlaessig. Es fehlte nur die Erlaubnis, ueberhaupt zu fragen.
+#
+# Where an indexer does not separate two platforms, the neighbour's categories are the
+# only way in; the title-based classification sorts the results out afterwards.
+SLUG2USE.setdefault("wiiu", []).extend(SLUG2USE.get("wii", []))
+
 # Für die Plattform-Vorauswahl in der Oberfläche (Gruppe -> [(slug, Anzeigename)])
 PLATFORMS = [
  ("Nintendo", [("nes","NES"),("snes","SNES"),("n64","N64"),("gb","Game Boy"),("gbc","GB Color"),
@@ -1817,12 +1830,19 @@ def do_search(q, platforms=None):
     Usenet (moderne Konsolen), nach `platforms` gefiltert, gruppiert (gkey) für die Versionen-
     Ansicht und mit `in_library`-Markierung. Reine Retro-Auswahl überspringt Usenet."""
     platforms = [p for p in (platforms or []) if p]
-    # Usenet breit über Console (1000) abfragen und danach nach Plattform filtern —
-    # Indexer taggen vieles nur unter der Oberkategorie. Retro-only-Auswahl -> Usenet aus.
-    if platforms:
-        usenet_cats = cfg("prow_cats") if any(SLUG2USE.get(p) for p in platforms) else ""
-    else:
-        usenet_cats = cfg("prow_cats")
+    # IMMER ALLE QUELLEN FRAGEN (#375, Jens' Vorgabe). Hier stand vorher eine Abkuerzung:
+    # Enthielt die Auswahl keine Plattform mit bekannter Usenet-Kategorie, wurde Usenet
+    # gar nicht erst befragt. Gedacht war das fuer reine Retro-Auswahlen, die auf
+    # Archive.org liegen — bezahlt haben es die Plattformen, deren Kategorie schlicht
+    # FEHLTE: „Wii U" schaltete Usenet ab, obwohl sieben Veroeffentlichungen dalagen.
+    #
+    # Eine Quelle wegen einer TABELLE zu ueberspringen heisst, einen Tabellenfehler in
+    # ein fehlendes Suchergebnis zu uebersetzen — und das sieht aus wie „gibt es nicht".
+    # Gefiltert wird jetzt ausschliesslich am Ergebnis, nie an der Frage.
+    #
+    # Always ask every source: skipping one because of a lookup table turns a table gap
+    # into a missing result, which looks exactly like "does not exist".
+    usenet_cats = cfg("prow_cats")
     res = []
     bl = [str(p).strip().lower() for p in load_settings().get("blocklist", []) if str(p).strip()]
     ar = search_archive(q); us = search_usenet(q, usenet_cats)
@@ -1852,7 +1872,20 @@ def do_search(q, platforms=None):
     # Einzeltitel zuerst, dann Sets; Vorhandene ans Ende; INNERHALB desselben Titels nach
     # der Fassungs-Voreinstellung des Nutzers, sonst Relevanz-Reihenfolge. (#77)
     prefs = variant_prefs(session.get("user", "") if has_request_context() else "")
-    res.sort(key=lambda x: (x["in_library"], x["is_set"], variant_rank(x["variant"], prefs), x["_rank"]))
+    # BESTAETIGTE TREFFER ZUERST (#375). Ein Ergebnis OHNE erkannte Plattform passiert
+    # jeden Filter — absichtlich, denn Archive.org-Titel tragen oft keine Zuordnung und
+    # sind trotzdem gemeint. Sie deshalb aber VOR den bestaetigten zu zeigen, war der
+    # Fehler: Bei „Mario Kart 8" mit Filter `wiiu` standen sieben unbestimmte Titel oben
+    # (ein PC-Torrent, Switch-NSPs, ein Mod) und der erste echte Wii-U-Treffer auf Platz 6.
+    # Wer nach einer Plattform filtert, sucht diese Plattform.
+    #
+    # Confirmed matches first: unclassified results still pass a filter — Archive.org
+    # titles often carry no platform and are still what was meant — but they no longer
+    # occupy the top of a filtered list.
+    passt = (lambda x: 0 if (platforms and x["platform"] in platforms) else 1) if platforms \
+        else (lambda x: 0)
+    res.sort(key=lambda x: (x["in_library"], passt(x), x["is_set"],
+                            variant_rank(x["variant"], prefs), x["_rank"]))
     return res
 
 # ---------- Jobs ----------

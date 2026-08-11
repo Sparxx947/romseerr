@@ -6879,3 +6879,71 @@ def test_an_import_without_a_platform_names_the_folder_it_landed_in(appmod, tmp_
         f"die Meldung nennt den Ablageort nicht: {msg!r}"
     assert "1×​" not in msg and not msg.rstrip().endswith("1×"), \
         f"Zahl ohne Ort: {msg!r}"
+
+
+# --- #375: Plattformfilter und Quellenauswahl ---------------------------------------
+
+def test_every_source_is_asked_regardless_of_the_platform_filter(appmod, monkeypatch):
+    """Keine Quelle wird wegen der Auswahl uebersprungen. (#375)
+
+    Vorher entschied eine TABELLE, ob Usenet ueberhaupt gefragt wird: Enthielt die Auswahl
+    keine Plattform mit bekannter Kategorie, blieb Usenet aus. Fuer reine Retro-Auswahlen
+    war das gedacht — bezahlt haben es die Plattformen, deren Eintrag schlicht FEHLTE.
+    „Wii U" schaltete Usenet ab, obwohl sieben Veroeffentlichungen dalagen.
+
+    Eine Quelle wegen einer Tabelle zu ueberspringen uebersetzt einen Tabellenfehler in ein
+    fehlendes Suchergebnis — und das sieht aus wie „gibt es nicht".
+    """
+    gefragt = []
+    monkeypatch.setattr(appmod, "search_archive", lambda q, **k: [])
+    monkeypatch.setattr(appmod, "search_usenet",
+                        lambda q, cats: gefragt.append(cats) or [])
+    monkeypatch.setattr(appmod, "catalog_urls", lambda: [])
+    monkeypatch.setattr(appmod, "cfg", lambda k, d="": "1000" if k == "prow_cats" else d)
+
+    for auswahl in ([], ["wiiu"], ["c64"], ["nes", "snes"]):
+        gefragt.clear()
+        appmod.do_search("egal", auswahl)
+        assert gefragt == ["1000"], f"Usenet nicht gefragt bei Auswahl {auswahl}"
+
+
+def test_confirmed_matches_rank_above_unclassified_ones(appmod, monkeypatch):
+    """Wer nach einer Plattform filtert, sucht diese Plattform. (#375)
+
+    Ein Ergebnis OHNE erkannte Plattform passiert jeden Filter — absichtlich, denn
+    Archive.org-Titel tragen oft keine Zuordnung und sind trotzdem gemeint. Sie deshalb
+    aber VOR den bestaetigten zu zeigen, war der Fehler: Bei „Mario Kart 8" mit Filter
+    `wiiu` standen sieben unbestimmte Titel oben und der erste echte Treffer auf Platz 6.
+    """
+    treffer = [
+        {"source": "archive", "ref": "a", "title": "Irgendwas ohne Plattform",
+         "platform": "", "size": 1, "cover": "", "extra": ""},
+        {"source": "archive", "ref": "b", "title": "Noch was ohne Plattform",
+         "platform": "", "size": 1, "cover": "", "extra": ""},
+        {"source": "archive", "ref": "c", "title": "Echter Wii-U-Titel",
+         "platform": "wiiu", "size": 1, "cover": "", "extra": ""},
+    ]
+    monkeypatch.setattr(appmod, "search_archive", lambda q, **k: [dict(t) for t in treffer])
+    monkeypatch.setattr(appmod, "search_usenet", lambda q, cats: [])
+    monkeypatch.setattr(appmod, "catalog_urls", lambda: [])
+    monkeypatch.setattr(appmod, "in_library", lambda t, p: False)
+
+    res = appmod.do_search("egal", ["wiiu"])
+    assert res, "keine Treffer"
+    assert res[0]["platform"] == "wiiu", \
+        f"oben steht {res[0]['title']!r} statt des bestaetigten Treffers"
+    # Die unbestimmten bleiben ERHALTEN — Trefferquote vor Genauigkeit.
+    assert len(res) == 3, "unbestimmte Treffer duerfen nicht verschwinden"
+
+
+def test_wiiu_uses_the_wii_categories_because_the_indexer_does_not_separate_them(appmod):
+    """Wii U liegt beim Indexer unter den Wii-Kategorien. (#375)
+
+    Nachgemessen: `Super.Mario.3D.World.USA.WiiU-PoWeRUp` kommt mit {1030, 101030}, und
+    die Standardkategorie fuer Wii U liefert NULL Treffer. Die Zuordnung am Titel raeumt
+    danach auf — `guess_platform` erkennt `WiiU` zuverlaessig.
+    """
+    assert appmod.SLUG2USE.get("wiiu"), "Wii U kennt keine Usenet-Kategorie"
+    assert set(appmod.SLUG2USE["wiiu"]) >= set(appmod.SLUG2USE["wii"]), \
+        "Wii U muss mindestens die Wii-Kategorien mitbenutzen"
+    assert appmod.guess_platform("Super.Mario.3D.World.USA.WiiU-PoWeRUp") == "wiiu"

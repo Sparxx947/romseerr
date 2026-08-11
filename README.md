@@ -235,6 +235,16 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   Update trägt eine Fassungsnummer > 0 und sähe sonst wie ein Update aus. Startet man
   ein Update allein, meldet der Emulator nur `Error while loading ROM!` — von außen
   ununterscheidbar davon, dass er die Plattform nicht beherrscht.
+- 🔎 **Gesucht wird immer an allen Quellen.** Der Plattformfilter wirkt auf das
+  *Ergebnis*, nie auf die *Frage*. Vorher entschied eine Tabelle, ob Usenet überhaupt
+  befragt wird — und übersetzte damit eine Lücke in der Tabelle in ein fehlendes
+  Suchergebnis, was aussieht wie „gibt es nicht". Gemessen: „Wii U" schaltete Usenet ab,
+  obwohl sieben Veröffentlichungen dalagen. Der Indexer legt Wii U nämlich unter die
+  **Wii**-Kategorien; die Zuordnung am Titel räumt danach auf.
+  Ein Treffer **ohne** erkannte Plattform passiert weiterhin jeden Filter — Archive.org-
+  Titel tragen oft keine Zuordnung und sind trotzdem gemeint —, steht jetzt aber **hinter**
+  den bestätigten. Vorher standen bei Filter `wiiu` sieben unbestimmte Titel oben und der
+  erste echte Treffer auf Platz 6.
 - 🗂 **Was keine Plattform ist, wird auch keine.** Lässt sich zu einem Titel keine
   Plattform bestimmen, bleibt sie **leer** — Romseerr erfindet keinen Namen. Früher stand
   dort `Mixed`, und weil dieser Wert bis zum Anlegen des Zielordners durchlief, **erzeugte**
