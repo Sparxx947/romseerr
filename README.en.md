@@ -227,6 +227,11 @@ that is the normal case and complete as it stands, not a fallback.
   title.* Of 20 3DS titles Hasheous matched 15 by checksum — the best rate in the whole
   library, and replacing the files would throw those metadata away. The cache has a cap
   (`DECRYPT_3DS_CACHE_GB`, default 50) and evicts least-recently-used.
+- 🎮 **Wii U, PS Vita and Xbox can import now.** `.wux`, `.wud`, `.wua` and `.rpx`
+  (Wii U), `.vpk` (Vita) and `.xbe` (Xbox) were missing from the extension list, and
+  without them **not a single title** of those platforms could enter the library. A 5.5 GB
+  download ended in "1 Nicht-ROM übersprungen". Wii U never working looked like a missing
+  title and was a missing line.
 - 🔑 **An Archive.org account via key pair, not a password.** Under *Settings →
   Connections → Archive.org* Romseerr takes the access and secret key from
   `archive.org/account/s3.php` and sends them as a header (`Authorization: LOW …`). It is

@@ -277,7 +277,21 @@ def cfg(key):
 ROM_EXT = {"sfc","smc","nes","fds","gb","gba","gbc","n64","z64","v64","ndd","md","gen","smd","sms",
            "gg","32x","pce","sgx","ngp","ngc","ws","wsc","iso","bin","cue","chd","img","cdi","gdi",
            "adf","d64","t64","rom","a26","a78","lnx","vec","3ds","cia","nsp","xci","wbfs","rvz","dol",
-           "gcm","pbp","ecm","dsk","st","ipf","col","int","j64","jag","min","vb","ws"}
+           "gcm","pbp","ecm","dsk","st","ipf","col","int","j64","jag","min","vb","ws",
+           # Wii U (#391): OHNE diese Endungen kann die Plattform GAR NICHT importieren —
+           # ein 5,5-GB-Download endete mit „1 Nicht-ROM uebersprungen". `.wux` ist das
+           # komprimierte Disc-Abbild, `.wud` das unkomprimierte, `.wua` Cemus eigenes
+           # Format, `.rpx` die ausfuehrbare Datei eines entpackten Spiels.
+           "wux", "wud", "wua", "rpx",
+           # Gleiche Luecke, andere Plattform: Wii-Kanaele und zwei verbreitete
+           # GameCube/Wii-Abbildformate.
+           "wad", "gcz", "nkit",
+           # PS Vita: `.vpk` ist das Installationspaket, das Vita3K einliest. Ohne diesen
+           # Eintrag kann die Plattform ebenfalls nichts importieren. (#391)
+           "vpk",
+           # Xbox: `.xbe` ist die ausfuehrbare Datei eines entpackten Titels. `.iso` steht
+           # schon oben, ist aber MEHRDEUTIG — die Plattform kommt dann aus dem Auftrag.
+           "xbe"}
 ARCH_EXT = {"zip","7z","rar","gz","tar","tgz","bz2","xz"}
 SKIP_FILES = re.compile(r'(\.xml$|\.sqlite$|\.torrent$|_meta\.|__ia_thumb|\.log$|\.txt$|\.nfo$)', re.I)
 
@@ -464,7 +478,11 @@ EXT2PLAT = {"sfc":"snes","smc":"snes","nes":"nes","fds":"nes","n64":"n64","z64":
  "gen":"genesis","smd":"genesis","32x":"sega32x","pce":"turbografx16","sgx":"turbografx16",
  "ws":"wonderswan","wsc":"wonderswan","a26":"atari2600","a78":"atari7800","lnx":"lynx",
  "vec":"vectrex","j64":"jaguar","jag":"jaguar","3ds":"3ds","cia":"3ds","nsp":"switch",
- "xci":"switch","vb":"virtualboy","col":"colecovision","int":"intellivision","min":"pokemini"}
+ "xci":"switch","vb":"virtualboy","col":"colecovision","int":"intellivision","min":"pokemini",
+            # Eindeutige Endungen -> Plattform. Sie schlagen den Hinweis aus dem Auftrag,
+            # deshalb stehen hier nur solche, die es auf genau EINER Plattform gibt. (#391)
+            "wux":"wiiu","wud":"wiiu","wua":"wiiu","rpx":"wiiu",
+            "vpk":"psvita","xbe":"xbox"}
 
 # Titel, die keine ROMs sind -> aus der Suche filtern
 NOISE_RE = re.compile(r'\b(winamp|skin|wallpaper|theme|soundtrack|\bost\b|manual|guide|artbook|'
