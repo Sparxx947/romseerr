@@ -86,6 +86,15 @@ jobs:
       # roten Wochenlauf merkt, also frueherstens in einer Woche. (#343)
       # Set explicitly: without it the default ruleset stays in force and the allowlist
       # would do nothing, which only shows up on the next weekly run.
+      #
+      # UND DIE DATEI MUSS IN JEDEM GESCANNTEN BAUM LIEGEN, auch auf `main`: Fehlt sie,
+      # bricht gitleaks ab, ohne `results.sarif` zu schreiben — die Action scheitert dann
+      # beim Hochladen mit `File results.sarif does not exist`, was wie ein Fehler der
+      # Action aussieht und keiner ist. Genau so ist der PR gescheitert, der diese
+      # Aenderung nach `main` gebracht hat. (#358)
+      # The config must exist in every scanned tree, main included: without it gitleaks
+      # aborts before writing results.sarif and the action fails on the upload instead,
+      # which looks like an action bug and is not one.
       - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
