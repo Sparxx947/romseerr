@@ -64,7 +64,14 @@ GENERATIONEN=${EMU_GENERATIONEN:-3}
 
 generationen_schieben() {  # <ordner>  — aktuelle Fassung nach .alt1, Rest weiterruecken
   local dir="$1" i
-  [ "$GENERATIONEN" -ge 1 ] 2>/dev/null || { rm -rf "$EMU/$dir"; return 0; }
+  # `${dir:?}` statt `$dir`: Waere die Variable je leer, loeschte `rm -rf "$EMU/$dir"`
+  # das GESAMTE Emulator-Verzeichnis — alle Emulatoren, alle aufgehobenen Fassungen, in
+  # einem Zug. Mit `:?` bricht die Shell stattdessen ab. Die Variable kann hier nicht leer
+  # sein, aber genau solche Annahmen halten nicht ewig, und der Preis fuer den Irrtum ist
+  # der ganze Bestand. (ShellCheck SC2115)
+  # Were dir ever empty, this would delete the entire emulator directory in one go.
+  [ -n "${dir:-}" ] || { echo "[emulators] generationen_schieben ohne Ordner"; return 1; }
+  [ "$GENERATIONEN" -ge 1 ] 2>/dev/null || { rm -rf "${EMU:?}/${dir:?}"; return 0; }
 
   # Altbestand aus der Zeit mit nur einer Generation uebernehmen, sonst laege eine
   # brauchbare Fassung unerreichbar daneben. / Migrate the single-generation layout.
@@ -200,6 +207,7 @@ from_release() {  # <schalter> <name> <ordner> <system> <api-url> <regex>
 # Zurueck zur vorigen Fassung. Wird vom Start-Dienst aufgerufen (Romseerr-Knopf).
 rollback() {  # rollback <ordner>  — EINEN Schritt zurueck, wiederholbar
   local dir="$1" i
+  [ -n "${dir:-}" ] || { echo "[emulators] rollback ohne Ordner / no directory given"; return 1; }
 
   # Altbestand mit nur einer Generation uebernehmen (#338).
   [ -d "$EMU/$dir.alt" ] && [ ! -d "$EMU/$dir.alt1" ] && mv "$EMU/$dir.alt" "$EMU/$dir.alt1"
@@ -214,7 +222,7 @@ rollback() {  # rollback <ordner>  — EINEN Schritt zurueck, wiederholbar
   # Fehler der alten Fassung. Nach vorne fuehrt statt dessen ein Update.
   # The current build is discarded: you roll back because it is broken, and keeping it at
   # position 1 is what made the previous implementation toggle instead of step back.
-  rm -rf "$EMU/$dir"
+  rm -rf "${EMU:?}/${dir:?}"
   rm -f  "$EMU/$dir.url"
   mv "$EMU/$dir.alt1" "$EMU/$dir"
   [ -f "$EMU/$dir.url.alt1" ] && mv "$EMU/$dir.url.alt1" "$EMU/$dir.url"
