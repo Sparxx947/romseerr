@@ -7075,3 +7075,31 @@ def test_a_restricted_hit_loses_its_padlock_once_keys_exist(appmod, monkeypatch)
     monkeypatch.setattr(appmod, "cfg", lambda k, d="": {
         "ia_access": "a", "ia_secret": "g"}.get(k, d))
     assert appmod.search_archive("q")[0]["restricted"] is False
+
+
+def test_no_connection_tab_reports_a_status_that_cannot_change(appmod):
+    """Kein Reiter darf einen KONSTANTEN Zustand melden. (#386)
+
+    Der RetroAchievements-Reiter stand auf `d=>({da:false,an:false})` und blieb damit
+    dauerhaft grau — auch mit hinterlegtem Schluessel und geholten Sets. Ein Zustand, der
+    sich nicht aendern kann, ist kein Zustand, sondern eine Beschriftung.
+
+    WARUM ES AUSGERECHNET DIESEN TRAF: Alle Nachbarn haengen an einem NICHT geheimen Feld
+    (`igdb_id`, `romm_url`, `sab_url`). RetroAchievements ist die einzige Verbindung, deren
+    einzige Einstellung ein Geheimnis ist — und damit die einzige, die `has_<key>` braucht.
+    Der Platzhalter fiel deshalb nirgends sonst auf.
+    """
+    import re
+    js = open(os.path.join(REPO, "static", "js", "index.js"), encoding="utf-8").read()
+    # Die Zustandsfunktionen der Reiterliste: `d=>({da:…,an:…})`
+    fest = []
+    # NUR Funktionen, die die Einstellungen ENTGEGENNEHMEN (`d=>`). Ein `()=>` sagt
+    # ausdruecklich „ich habe keinen Zustand" — `maillog` ist ein Protokollaufruf, keine
+    # Verbindung, und ein konstanter Wert ist dort ehrlich. Die Regel lautet deshalb:
+    # Wer die Daten bekommt, muss sie auch benutzen.
+    for m in re.finditer(r"\['([a-z]+)',[^,]*,\s*d\s*=>\(\{da:([^,]+),an:([^}]+)\}\)", js):
+        name, da, an = m.group(1), m.group(2).strip(), m.group(3).strip()
+        if da in ("false", "true") and an in ("false", "true"):
+            fest.append(f"{name} (da:{da}, an:{an})")
+    assert not fest, ("diese Reiter melden einen Zustand, der sich nie aendert: "
+                      + ", ".join(fest))
