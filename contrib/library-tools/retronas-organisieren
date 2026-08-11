@@ -1,0 +1,538 @@
+#!/usr/bin/env python3
+"""Einen RetroNAS-Plattformordner so umbauen, dass RomM, Romseerr UND RetroNAS
+dasselbe darin sehen.
+
+WARUM DAS NOETIG IST
+--------------------
+Alle drei lesen denselben Ordner, zaehlen aber verschieden:
+
+  RetroNAS   stellt nur bereit — die Struktur darunter ist ihm gleich.
+  RomM       nimmt JEDEN EINTRAG DER ERSTEN EBENE als genau ein Spiel.
+  Romseerr   laeuft zwei Ebenen tief und nimmt jede Datei als Titel.
+
+Deshalb sah RomM unter `c64` genau 75 "Spiele": `C64.GIF`, `BASIC.ROM` und
+Sammelordner wie `OneLoad64-Games-Collection-v5` mit 27.451 Dateien darunter.
+Romseerr sah in denselben Daten 23.802 Titel.
+
+ZIELFORM — sie erfuellt alle drei zugleich:
+
+    <plattform>/Spiel.rom              eine Datei  = ein Spiel
+    <plattform>/Spiel/                 ein Ordner  = ein Spiel (Multi-Disk,
+        Disk 1.d64                                   DOS-Installation, PS3-Titel)
+        Disk 2.d64
+
+Ebene 1 ist damit die Spielebene, und genau das erwartet RomM. Romseerr
+kommt damit ebenso zurecht (zwei Ebenen), RetroNAS ohnehin.
+
+WAS ES NICHT TUT
+----------------
+* Es benennt **keine Plattformordner um**. Die Namen stammen von RetroNAS und
+  sind dessen Zuordnung; Romseerr bildet sie ueber FOLDER_ALIASES ab, RomM ueber
+  `fs_slug`. Ein Umbenennen wuerde alle drei gleichzeitig entkoppeln.
+* Es fasst **Beiwerk nicht an** (Bilder, Texte, PDFs) — ausdruecklich so gewollt.
+* Es entpackt **keine Arcade-Romsets**. MAME und FBNeo laden ein Set als EINE
+  ZIP-Datei; entpackt ist es unbrauchbar und nur neu zu beschaffen.
+
+RUECKWEG
+--------
+Jede einzelne Aktion steht als JSON-Zeile im Protokoll, in der Reihenfolge der
+Ausfuehrung. `--zurueck <protokoll>` spielt sie rueckwaerts zurueck. Es gibt keine
+Sicherung der Bibliothek — das Protokoll IST der Rueckweg, deshalb wird es vor
+der ersten Aenderung angelegt und nach jeder Aktion sofort auf die Platte
+geschrieben.
+
+    retronas-organisieren --trocken vic-20      # nur berichten, nichts anfassen
+    retronas-organisieren vic-20                # umbauen
+    retronas-organisieren --zurueck /roms/.umbau/vic-20-<zeit>.jsonl
+"""
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+# --------------------------------------------------------------- Regelwerk
+
+# Plattformen, bei denen ein ORDNER ein Spiel ist und keine Sammlung: Spiele
+# bestehen dort aus vielen Dateien (DOS-Installation, PS3-Titel mit PS3_GAME,
+# ScummVM-Datensaetze). Ihre Ebene-1-Ordner duerfen NICHT aufgeloest werden.
+ORDNER_IST_SPIEL = {
+    "dos", "scummvm", "psp", "ps3", "ps2", "wii", "wiiu", "gc", "ngc",
+    "switch", "xbox", "xbox360", "ps4", "psvita", "GP32", "RG350", "3ds",
+}
+
+# Plattformen, deren Archive gepackt bleiben MUESSEN. Ein MAME-/FBNeo-Romset ist
+# genau eine ZIP-Datei; entpackt startet es nicht.
+ARCHIV_BLEIBT = {
+    "arcade", "mame", "fbneo", "neogeo", "neogeoaes", "neogeomvs", "neo-geo-cd",
+    "cps1", "cps2", "cps3", "Atomiswave", "atomiswave", "stv", "naomi",
+}
+
+# Endungen, die ausgepackt werden koennen.
+ARCHIV_ENDUNGEN = {".zip", ".7z", ".rar", ".lha", ".lzh", ".tar", ".gz", ".tgz"}
+
+# Beiwerk — wird gezaehlt, aber nicht angefasst.
+BEIWERK = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".txt", ".nfo", ".pdf",
+           ".html", ".htm", ".doc", ".rtf", ".diz", ".sfv", ".md5", ".dat"}
+
+# Ab wie vielen Dateien gilt ein Ordner als Sammlung und nicht als Multi-Disk-Spiel?
+# Ein Spiel mit mehr als 12 Disketten ist selten; eine Sammlung hat Hunderte.
+SPIEL_MAX_DATEIEN = 12
+
+
+def ist_beiwerk(name):
+    return os.path.splitext(name)[1].lower() in BEIWERK
+
+
+# Datentraeger-Marker: `(Disk 1)`, `(Side A)`, `[Disc 2]`, `(Tape 1 of 3)`, `(Part 2)`.
+# Das ist das EINZIGE verlaessliche Zeichen dafuer, dass mehrere Dateien EIN Spiel
+# sind. Ein gemeinsamer Namensanfang genuegt NICHT: `VC Songs-Cartridge - Inventio-Pac`
+# und `VC Songs-Cartridge - The Mad Boogy` teilen 22 Zeichen und sind zwei
+# verschiedene Demos. Am Bestand nachgemessen, nicht angenommen.
+_MARKER = re.compile(
+    r"[\(\[]\s*(disk|disc|side|tape|cassette|part|cd|dis[ck]ette)\s*"
+    r"[\w]*\s*(of\s*\d+)?\s*[\)\]]", re.I)
+
+
+def ohne_marker(name):
+    """Dateiname ohne Datentraeger-Marker und Endung.
+
+    `Cassette 50 (1983)(Cascade)(Side A).zip` -> `cassette 50 (1983)(cascade)`
+    Zwei Seiten desselben Titels fallen damit zusammen, zwei verschiedene Titel
+    nicht.
+    """
+    stamm = os.path.splitext(name)[0]
+    return _MARKER.sub("", stamm).strip().lower()
+
+
+def ist_spielordner(pfad, plattform):
+    """-> True, wenn dieser Ordner EIN Spiel ist und nicht eine Sammlung.
+
+    Drei Wege fuehren dahin, in dieser Reihenfolge:
+      1. Die Plattform kennt nur Spielordner (DOS, PS3, ScummVM …).
+      2. Der Ordner hat wenige Dateien, die sich nach Abzug des
+         Datentraeger-Markers auf DENSELBEN Titel reduzieren — Multi-Disk-Spiel.
+      3. Sonst: Sammlung.
+
+    Am Bestand geprueft: `Cassette 50 …(Side A)/(Side B)` ist ein Spiel,
+    fuenf `VC Songs-Cartridge - …`-Demos sind es nicht, obwohl sie 22 Zeichen
+    Namensanfang teilen.
+    """
+    if plattform in ORDNER_IST_SPIEL:
+        return True
+    dateien = []
+    for wurzel, _d, fs in os.walk(pfad):
+        dateien.extend(fs)
+        if len(dateien) > SPIEL_MAX_DATEIEN:
+            return False
+    if not dateien:
+        return False
+    echte = [f for f in dateien if not ist_beiwerk(f)]
+    if len(echte) < 2:
+        return False
+    # EIN Spiel liegt vor, wenn alle Dateien nach Abzug des Datentraeger-Markers
+    # denselben Titel ergeben — und mindestens eine ueberhaupt einen Marker traegt.
+    # Ohne die zweite Bedingung wuerden zwei gleichnamige Dateien mit
+    # verschiedener Endung (`spiel.d64`, `spiel.tap`) als Multi-Disk gelten.
+    stämme = {ohne_marker(f) for f in echte}
+    return len(stämme) == 1 and any(_MARKER.search(f) for f in echte)
+
+
+class Protokoll:
+    """Jede Aktion sofort auf die Platte. Ein Absturz mittendrin darf den
+    Rueckweg nicht kosten — deshalb kein Puffer."""
+
+    def __init__(self, pfad, trocken):
+        self.trocken = trocken
+        self.pfad = pfad
+        self.f = None
+        if not trocken:
+            os.makedirs(os.path.dirname(pfad), exist_ok=True)
+            self.f = open(pfad, "a", encoding="utf-8")
+
+    def schreiben(self, art, **felder):
+        if self.f:
+            self.f.write(json.dumps({"art": art, **felder}, ensure_ascii=False) + "\n")
+            self.f.flush()
+            os.fsync(self.f.fileno())
+
+    def zu(self):
+        if self.f:
+            self.f.close()
+
+
+# Unraid-Shares gehoeren `nobody:users` (99:100). Alles, was dieses Werkzeug im
+# Container als root anlegt, gehoert sonst root:root — und damit koennen RomM,
+# Romseerr und der Zugriff ueber SMB die Datei zwar lesen, aber nicht mehr
+# bewegen oder loeschen. Genau diese Falle hat hier schon einmal einen Emulator
+# lahmgelegt (root-eigene Konfigurationsdatei, Modus 600).
+SHARE_UID, SHARE_GID = 99, 100
+
+
+def rechte_setzen(pfad):
+    """Eigentuemer auf den Unraid-Standard ziehen. Fehler sind nicht fatal —
+    laeuft das Werkzeug einmal ohne root, ist das kein Grund abzubrechen."""
+    try:
+        os.chown(pfad, SHARE_UID, SHARE_GID)
+    except (OSError, AttributeError):
+        pass
+
+
+def baum_rechte_setzen(pfad):
+    if os.path.isdir(pfad):
+        rechte_setzen(pfad)
+        for w, ds, fs in os.walk(pfad):
+            for n in ds + fs:
+                rechte_setzen(os.path.join(w, n))
+    else:
+        rechte_setzen(pfad)
+
+
+def pruefsumme(pfad, block=1 << 20):
+    h = hashlib.sha256()
+    with open(pfad, "rb") as f:
+        while True:
+            b = f.read(block)
+            if not b:
+                break
+            h.update(b)
+    return h.hexdigest()
+
+
+def freier_name(ordner, name):
+    """Kollisionsfreier Name im Zielordner. Gleiche Namen aus verschiedenen Sets
+    sind der Normalfall, nicht die Ausnahme."""
+    ziel = os.path.join(ordner, name)
+    if not os.path.exists(ziel):
+        return ziel
+    stamm, endung = os.path.splitext(name)
+    for i in range(2, 10000):
+        ziel = os.path.join(ordner, f"{stamm} ({i}){endung}")
+        if not os.path.exists(ziel):
+            return ziel
+    raise RuntimeError(f"kein freier Name fuer {name}")
+
+
+def entpacken(archiv, ziel):
+    """-> True bei Erfolg. Python fuer ZIP und TAR, 7z fuer den Rest."""
+    endung = os.path.splitext(archiv)[1].lower()
+    os.makedirs(ziel, exist_ok=True)
+    try:
+        if endung == ".zip":
+            import zipfile
+            with zipfile.ZipFile(archiv) as z:
+                z.extractall(ziel)
+            return True
+        if endung in (".tar", ".gz", ".tgz"):
+            import tarfile
+            with tarfile.open(archiv) as t:
+                t.extractall(ziel)
+            return True
+        r = subprocess.run(["7z", "x", "-y", f"-o{ziel}", archiv],
+                           capture_output=True, timeout=1800)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def umbauen(wurzel, plattform, trocken, protokoll):
+    basis = os.path.join(wurzel, plattform)
+    if not os.path.isdir(basis):
+        print(f"  {plattform}: gibt es nicht", file=sys.stderr)
+        return 1
+
+    z = {"entpackt": 0, "archiv_behalten": 0, "verschoben": 0, "spielordner": 0,
+         "dubletten": 0, "beiwerk": 0, "fehler": 0, "befreit": 0}
+    arcade = plattform in ARCHIV_BLEIBT
+
+    # ---- Schritt 1: Archive entpacken -------------------------------------
+    # Zuerst, damit ihr Inhalt danach wie jede andere Datei einsortiert wird.
+    if not arcade:
+        archive = []
+        for w, _d, fs in os.walk(basis):
+            for f in fs:
+                if os.path.splitext(f)[1].lower() in ARCHIV_ENDUNGEN:
+                    archive.append(os.path.join(w, f))
+        for a in archive:
+            ziel = os.path.splitext(a)[0]
+            if trocken:
+                z["entpackt"] += 1
+                continue
+            if entpacken(a, ziel):
+                baum_rechte_setzen(ziel)
+                protokoll.schreiben("entpackt", archiv=a, ziel=ziel)
+                os.remove(a)
+                z["entpackt"] += 1
+            else:
+                shutil.rmtree(ziel, ignore_errors=True)
+                z["fehler"] += 1
+    else:
+        for w, _d, fs in os.walk(basis):
+            z["archiv_behalten"] += sum(
+                1 for f in fs if os.path.splitext(f)[1].lower() in ARCHIV_ENDUNGEN)
+
+    # ---- Schritt 2: Sammlungen aufloesen ----------------------------------
+    # Jeder Ebene-1-Ordner ist entweder EIN Spiel (bleibt) oder eine Sammlung
+    # (ihr Inhalt wandert auf Ebene 1).
+    for eintrag in sorted(os.listdir(basis)):
+        if eintrag.startswith("."):
+            continue
+        p = os.path.join(basis, eintrag)
+        if not os.path.isdir(p):
+            continue
+        if ist_spielordner(p, plattform):
+            z["spielordner"] += 1
+            continue
+        # Sammlung: alles darunter auf Ebene 1 heben. Unterordner, die selbst
+        # ein Spiel sind, wandern als GANZES — sonst zerfaellt ein Multi-Disk-
+        # Spiel in lose Disketten.
+        for w, unter, fs in os.walk(p, topdown=True):
+            behalten = []
+            for u in list(unter):
+                up = os.path.join(w, u)
+                if ist_spielordner(up, plattform):
+                    if trocken:
+                        z["verschoben"] += 1
+                    else:
+                        ziel = freier_name(basis, u)
+                        shutil.move(up, ziel)
+                        baum_rechte_setzen(ziel)
+                        protokoll.schreiben("verschoben", von=up, nach=ziel)
+                        z["verschoben"] += 1
+                else:
+                    behalten.append(u)
+            unter[:] = behalten
+            for f in fs:
+                q = os.path.join(w, f)
+                if trocken:
+                    z["beiwerk" if ist_beiwerk(f) else "verschoben"] += 1
+                    continue
+                ziel = freier_name(basis, f)
+                shutil.move(q, ziel)
+                rechte_setzen(ziel)
+                protokoll.schreiben("verschoben", von=q, nach=ziel)
+                z["beiwerk" if ist_beiwerk(f) else "verschoben"] += 1
+        if not trocken:
+            # Der leere Rest der Sammlung. rmtree statt rmdir: es bleiben leere
+            # Unterordner zurueck, und die sind kein Inhalt.
+            shutil.rmtree(p, ignore_errors=True)
+            protokoll.schreiben("leerer_ordner_entfernt", pfad=p)
+            z["befreit"] += 1
+
+    # ---- Schritt 3a: doppelte SPIELORDNER ----------------------------------
+    # Dasselbe Multi-Disk-Spiel liegt oft in mehreren Sets. Beim Anheben auf
+    # Ebene 1 bekommt das zweite ein " (2)" und bleibt sonst unangetastet — die
+    # Dateipruefung unten sieht Ordner naemlich gar nicht. Am Bestand aufgefallen:
+    # `Kraals Kingdom (1983)(Buntasoft)[16k]` stand nach dem Lauf zweimal da,
+    # mit bitgleichem Inhalt.
+    ordner_sig = {}
+    for e in sorted(os.listdir(basis)):
+        p = os.path.join(basis, e)
+        if not os.path.isdir(p) or e.startswith("."):
+            continue
+        try:
+            teile = []
+            for w, _d, fs in os.walk(p):
+                for f in sorted(fs):
+                    teile.append(pruefsumme(os.path.join(w, f)))
+            sig = hashlib.sha256("".join(sorted(teile)).encode()).hexdigest()
+        except OSError:
+            z["fehler"] += 1
+            continue
+        if sig in ordner_sig:
+            if trocken:
+                z["dubletten"] += 1
+            else:
+                shutil.rmtree(p, ignore_errors=True)
+                protokoll.schreiben("dublette_ordner_entfernt", pfad=p,
+                                    gleich_wie=ordner_sig[sig], sig=sig)
+                z["dubletten"] += 1
+        else:
+            ordner_sig[sig] = p
+
+    # ---- Schritt 3b: doppelte Dateien --------------------------------------
+    # NUR bei bitgleichem Inhalt (SHA-256). Gleiche Namen sind kein Kriterium:
+    # zwei Fassungen desselben Titels sind verschiedene Dateien.
+    nach_groesse = {}
+    for f in os.listdir(basis):
+        p = os.path.join(basis, f)
+        if os.path.isfile(p) and not ist_beiwerk(f):
+            nach_groesse.setdefault(os.path.getsize(p), []).append(p)
+    for groesse, gruppe in nach_groesse.items():
+        if len(gruppe) < 2:
+            continue                      # gleiche Groesse ist Vorbedingung
+        gesehen = {}
+        for p in sorted(gruppe, key=lambda x: (len(os.path.basename(x)), x)):
+            try:
+                s = pruefsumme(p)
+            except OSError:
+                z["fehler"] += 1
+                continue
+            if s in gesehen:
+                # Behalten wird der KUERZESTE Name — die Fassung ohne
+                # Set-Anhaengsel wie " (2)" oder "[OneLoad]".
+                if trocken:
+                    z["dubletten"] += 1
+                else:
+                    os.remove(p)
+                    protokoll.schreiben("dublette_entfernt", pfad=p,
+                                        gleich_wie=gesehen[s], sha256=s)
+                    z["dubletten"] += 1
+            else:
+                gesehen[s] = p
+
+    art = "TROCKEN" if trocken else "AUSGEFUEHRT"
+    print(f"\n  === {plattform} ({art}) ===")
+    print(f"    Archive entpackt      : {z['entpackt']}")
+    if arcade:
+        print(f"    Archive BEHALTEN      : {z['archiv_behalten']}  (Arcade-Romsets)")
+    print(f"    auf Ebene 1 gehoben   : {z['verschoben']}")
+    print(f"    davon Beiwerk         : {z['beiwerk']}")
+    print(f"    Spielordner belassen  : {z['spielordner']}")
+    print(f"    Dubletten entfernt    : {z['dubletten']}")
+    print(f"    Sammlungen aufgeloest : {z['befreit']}")
+    if z["fehler"]:
+        print(f"    FEHLER                : {z['fehler']}")
+    return 0
+
+
+def zurueck(protokoll_pfad):
+    """Rueckwaerts durch das Protokoll. Entpacktes wird geloescht, Verschobenes
+    zurueckgelegt. Entfernte Dubletten sind NICHT wiederherstellbar — sie waren
+    bitgleiche Kopien, das Original steht noch da."""
+    zeilen = [json.loads(z) for z in open(protokoll_pfad, encoding="utf-8") if z.strip()]
+    n = {"verschoben": 0, "entpackt": 0, "uebersprungen": 0}
+    for e in reversed(zeilen):
+        art = e["art"]
+        try:
+            if art == "verschoben":
+                os.makedirs(os.path.dirname(e["von"]), exist_ok=True)
+                shutil.move(e["nach"], e["von"])
+                n["verschoben"] += 1
+            elif art == "entpackt":
+                shutil.rmtree(e["ziel"], ignore_errors=True)
+                n["entpackt"] += 1        # das Archiv selbst ist weg
+            else:
+                n["uebersprungen"] += 1
+        except Exception:
+            n["uebersprungen"] += 1
+    print(f"  zurueckgelegt: {n['verschoben']}, entpackte Ordner entfernt: "
+          f"{n['entpackt']}, uebersprungen: {n['uebersprungen']}")
+    print("  HINWEIS: entpackte Archive sind nicht wiederhergestellt — der "
+          "Inhalt wurde entfernt, die Quelldatei war bereits geloescht.")
+    return 0
+
+
+def dateien_zaehlen(pfad):
+    n = 0
+    for _w, _d, fs in os.walk(pfad):
+        n += len(fs)
+    return n
+
+
+def alle_umbauen(wurzel, trocken, ueberspringen):
+    """Jede Plattform mit Inhalt, KLEINSTE ZUERST.
+
+    Die Reihenfolge ist Absicht: die kleinen sind in Minuten durch, und wenn die
+    Regeln irgendwo danebenliegen, faellt das an zwanzig kleinen Ordnern auf,
+    bevor `amiga` mit seinen 440.000 Dateien laeuft.
+
+    Der Fortschritt steht in `<wurzel>/.umbau/fortschritt.json` — er ueberlebt das
+    Ende der SSH-Sitzung und ist die Grundlage fuer die Restzeitschaetzung.
+    """
+    stand_datei = os.path.join(wurzel, ".umbau", "fortschritt.json")
+    os.makedirs(os.path.dirname(stand_datei), exist_ok=True)
+
+    kandidaten = []
+    for e in sorted(os.listdir(wurzel)):
+        p = os.path.join(wurzel, e)
+        if not os.path.isdir(p) or e.startswith("."):
+            continue
+        if e in ueberspringen:
+            continue
+        n = dateien_zaehlen(p)
+        if n:
+            kandidaten.append((n, e))
+    kandidaten.sort()
+
+    gesamt = sum(n for n, _e in kandidaten)
+    stand = {"start": time.time(), "gesamt_dateien": gesamt,
+             "plattformen_gesamt": len(kandidaten), "erledigt": [],
+             "aktuell": None, "fertig": False, "offen_dateien": gesamt}
+
+    def sichern():
+        with open(stand_datei, "w", encoding="utf-8") as f:
+            json.dump(stand, f, ensure_ascii=False, indent=1)
+        rechte_setzen(stand_datei)
+
+    sichern()
+    print(f"  {len(kandidaten)} Plattformen, {gesamt} Dateien — kleinste zuerst\n")
+
+    for n, e in kandidaten:
+        stand["aktuell"] = {"plattform": e, "dateien": n, "seit": time.time()}
+        sichern()
+        t0 = time.time()
+        pfad = os.path.join(wurzel, ".umbau",
+                            f"{e}-{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
+        prot = Protokoll(pfad, trocken)
+        try:
+            umbauen(wurzel, e, trocken, prot)
+        except Exception as ex:                    # eine Plattform darf den Lauf
+            print(f"  {e}: FEHLER {ex.__class__.__name__}: {ex}")  # nicht beenden
+        finally:
+            prot.zu()
+        # Eigentuemer geradeziehen: alles, was hier als root entstand, gehoert
+        # sonst root:root und ist fuer RomM/Romseerr/SMB unbeweglich.
+        baum_rechte_setzen(os.path.join(wurzel, e))
+        stand["erledigt"].append({"plattform": e, "dateien": n,
+                                  "sekunden": round(time.time() - t0, 1)})
+        stand["offen_dateien"] -= n
+        stand["aktuell"] = None
+        sichern()
+
+    stand["fertig"] = True
+    stand["ende"] = time.time()
+    sichern()
+    print(f"\n  === ALLE {len(kandidaten)} PLATTFORMEN FERTIG ===")
+    return 0
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("plattform", nargs="?", help="Ordnername unter <wurzel>")
+    p.add_argument("--alle", action="store_true",
+                   help="alle Plattformen mit Inhalt, kleinste zuerst")
+    p.add_argument("--ausser", default="",
+                   help="Komma-Liste bereits erledigter Plattformen")
+    p.add_argument("--wurzel", default="/roms")
+    p.add_argument("--trocken", action="store_true", help="nur berichten")
+    p.add_argument("--zurueck", metavar="PROTOKOLL", help="Umbau rueckgaengig machen")
+    a = p.parse_args()
+
+    if a.zurueck:
+        return zurueck(a.zurueck)
+    if a.alle:
+        ueber = {x.strip() for x in a.ausser.split(",") if x.strip()}
+        return alle_umbauen(a.wurzel, a.trocken, ueber)
+    if not a.plattform:
+        p.error("Plattform fehlt")
+
+    pfad = os.path.join(a.wurzel, ".umbau",
+                        f"{a.plattform}-{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
+    prot = Protokoll(pfad, a.trocken)
+    try:
+        rc = umbauen(a.wurzel, a.plattform, a.trocken, prot)
+    finally:
+        prot.zu()
+    if not a.trocken:
+        print(f"    Protokoll             : {pfad}")
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())

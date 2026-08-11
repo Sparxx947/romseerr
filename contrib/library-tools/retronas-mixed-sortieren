@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+"""Den Sammelordner `Mixed` in die echten Plattformordner aufloesen.
+
+WARUM EIGENES WERKZEUG: `retronas-organisieren` hebt Inhalte auf Ebene 1 INNERHALB
+einer Plattform. `Mixed` ist aber gar keine Plattform — es ist ein Resteordner mit
+C64-Disketten, Amiga-Images, einem Game-Boy-Modul, Emulatoren fuer Windows und
+Amiga-Kickstart-ROMs nebeneinander. Hier muss je Datei entschieden werden, WOHIN
+sie gehoert, und das kann das andere Werkzeug nicht.
+
+DREI GRUPPEN, drei Umgangsweisen:
+
+  Spiele      -> in den passenden Plattformordner verschieben
+  Emulatoren  -> bleiben liegen (Windows-Programme gehoeren in keine ROM-Bibliothek)
+  BIOS        -> bleiben liegen (Firmware ist Sache des Streaming-Hosts)
+
+Was nicht sicher zuzuordnen ist, BLEIBT LIEGEN und wird gemeldet. Lieber ein Rest,
+den ein Mensch ansieht, als eine Datei in der falschen Plattform: dort faellt sie
+niemandem mehr auf.
+
+    retronas-mixed-sortieren --trocken
+    retronas-mixed-sortieren
+"""
+import argparse
+import json
+import os
+import shutil
+import sys
+import time
+import zipfile
+
+# Endung -> RetroNAS-Plattformordner. NUR EINDEUTIGES steht hier.
+# Bewusst NICHT dabei: .bin, .iso, .rom, .img — die gibt es auf einem Dutzend
+# Systemen, und eine falsche Zuordnung ist schlimmer als gar keine.
+ENDUNG_PLATTFORM = {
+    ".t64": "c64", ".d64": "c64", ".prg": "c64", ".g64": "c64", ".p00": "c64",
+    ".d71": "c64", ".d81": "c64", ".crt": "c64", ".tap": "c64",
+    ".adf": "amiga", ".adz": "amiga", ".dms": "amiga", ".ipf": "amiga",
+    ".uae": "amiga",
+    ".gb": "gb", ".gbc": "gbc", ".gba": "gba",
+    ".nes": "nes", ".fds": "nes",
+    ".sms": "sms", ".gg": "gamegear",
+    ".md": "genesis", ".smd": "genesis", ".gen": "genesis",
+    ".int": "intellivision",
+    ".a26": "atari2600", ".a78": "atari7800",
+    ".col": "colecovision",
+    ".z64": "n64", ".v64": "n64", ".n64": "n64",
+    ".sfc": "snes", ".smc": "snes",
+}
+
+# Dateien, die KEIN Spiel sind. Emulatoren, Installer, Werkzeuge.
+KEIN_SPIEL_ENDUNG = {".exe", ".msi", ".dll", ".ini", ".cfg", ".bat", ".com"}
+
+# Namensteile, die eine Datei als Firmware ausweisen — auch wenn die Endung
+# (.rom, .zip) fuer sich genommen nichts sagt.
+BIOS_WORTE = ("kickstart", "kick13", "kick20", "kick30", "kick31", "bios")
+
+# Namensteile, die einen Emulator ausweisen. Am Bestand abgelesen, nicht geraten.
+EMU_WORTE = ("winuae", "ccs64", "winvice", "visualboyadvance", "scummvm-",
+             "mame32", "gens", "jenesis", "dgen", "emulator", "ages0")
+
+
+def plattform_fuer(name):
+    """-> Plattformordner oder None. None heisst: liegen lassen."""
+    klein = name.lower()
+    if any(w in klein for w in BIOS_WORTE):
+        return None
+    if any(w in klein for w in EMU_WORTE):
+        return None
+    endung = os.path.splitext(name)[1].lower()
+    if endung in KEIN_SPIEL_ENDUNG:
+        return None
+    return ENDUNG_PLATTFORM.get(endung)
+
+
+def plattform_fuer_archiv(pfad):
+    """Ein ZIP sagt von aussen nichts. `california_games.zip` enthaelt `.d64` und
+    gehoert damit zum C64 — das steht nur drin, nicht dran.
+
+    Zugeordnet wird nur, wenn ALLE erkennbaren Eintraege auf dieselbe Plattform
+    zeigen. Ein gemischtes Archiv bleibt liegen.
+    """
+    if os.path.splitext(pfad)[1].lower() != ".zip":
+        return None
+    klein = os.path.basename(pfad).lower()
+    if any(w in klein for w in BIOS_WORTE) or any(w in klein for w in EMU_WORTE):
+        return None
+    try:
+        with zipfile.ZipFile(pfad) as z:
+            namen = [n for n in z.namelist() if not n.endswith("/")]
+    except Exception:
+        return None
+    treffer = {ENDUNG_PLATTFORM.get(os.path.splitext(n)[1].lower()) for n in namen}
+    treffer.discard(None)
+    return treffer.pop() if len(treffer) == 1 else None
+
+
+def freier_name(ordner, name):
+    ziel = os.path.join(ordner, name)
+    if not os.path.exists(ziel):
+        return ziel
+    stamm, endung = os.path.splitext(name)
+    for i in range(2, 10000):
+        ziel = os.path.join(ordner, f"{stamm} ({i}){endung}")
+        if not os.path.exists(ziel):
+            return ziel
+    raise RuntimeError(name)
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--wurzel", default="/roms")
+    p.add_argument("--ordner", default="Mixed")
+    p.add_argument("--trocken", action="store_true")
+    a = p.parse_args()
+
+    basis = os.path.join(a.wurzel, a.ordner)
+    if not os.path.isdir(basis):
+        print(f"  {basis} gibt es nicht", file=sys.stderr)
+        return 1
+
+    prot_pfad = os.path.join(a.wurzel, ".umbau",
+                             f"mixed-{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
+    prot = None
+    if not a.trocken:
+        os.makedirs(os.path.dirname(prot_pfad), exist_ok=True)
+        prot = open(prot_pfad, "a", encoding="utf-8")
+
+    def notieren(**f):
+        if prot:
+            prot.write(json.dumps(f, ensure_ascii=False) + "\n")
+            prot.flush()
+            os.fsync(prot.fileno())
+
+    verschoben, liegen = {}, []
+    for wurzel, _dirs, dateien in os.walk(basis):
+        for fn in dateien:
+            quelle = os.path.join(wurzel, fn)
+            ziel_plat = plattform_fuer(fn) or plattform_fuer_archiv(quelle)
+            if not ziel_plat:
+                liegen.append(os.path.relpath(quelle, basis))
+                continue
+            zielordner = os.path.join(a.wurzel, ziel_plat)
+            if not os.path.isdir(zielordner):
+                liegen.append(os.path.relpath(quelle, basis) + f"  [{ziel_plat} fehlt]")
+                continue
+            verschoben.setdefault(ziel_plat, 0)
+            verschoben[ziel_plat] += 1
+            if a.trocken:
+                continue
+            ziel = freier_name(zielordner, fn)
+            shutil.move(quelle, ziel)
+            try:
+                os.chown(ziel, 99, 100)      # Unraid-Share-Standard
+            except OSError:
+                pass
+            notieren(art="verschoben", von=quelle, nach=ziel)
+
+    if not a.trocken:
+        # Leere Ordner abraeumen, von innen nach aussen.
+        for wurzel, dirs, _f in os.walk(basis, topdown=False):
+            for d in dirs:
+                p_ = os.path.join(wurzel, d)
+                try:
+                    if not os.listdir(p_):
+                        os.rmdir(p_)
+                        notieren(art="leerer_ordner_entfernt", pfad=p_)
+                except OSError:
+                    pass
+        prot.close()
+
+    art = "TROCKEN" if a.trocken else "AUSGEFUEHRT"
+    print(f"\n  === {a.ordner} aufloesen ({art}) ===")
+    for plat, n in sorted(verschoben.items(), key=lambda x: -x[1]):
+        print(f"    -> {plat:16} {n:5} Dateien")
+    print(f"    bleibt liegen    : {len(liegen)} Dateien")
+    if liegen:
+        print("\n    --- was liegen bleibt (erste 25) ---")
+        for x in sorted(liegen)[:25]:
+            print(f"      {x[:96]}")
+    if not a.trocken:
+        print(f"\n    Protokoll: {prot_pfad}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
