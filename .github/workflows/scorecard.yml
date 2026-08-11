@@ -10,12 +10,21 @@
 # Runs the same checklist that prompted this hardening, so it cannot quietly decay.
 name: Scorecard
 
+# KEIN `push`-Ausloeser (#369): `ossf/scorecard-action` bricht auf jedem anderen Zweig als
+# dem Standardzweig ab — „Only the default branch main is supported." Hier stand
+# `push: branches: [dev]`, und damit scheiterte JEDER Push, 30 von 30 zuletzt. Ein
+# Ausloeser, der nie ein Ergebnis liefern kann, ist kein Ausloeser, sondern eine dauerhaft
+# rote Meldung — und die liest nach der zweiten Woche niemand mehr.
+#
+# Was bleibt, laeuft alles auf dem Standardzweig und damit erfolgreich: der Wochenlauf
+# (zuletzt gruen), Aenderungen am Zweigschutz, und der Aufruf von Hand.
+#
+# No push trigger: the action only runs on the default branch, so every push to dev failed
+# by construction. What remains all runs on the default branch.
 on:
   branch_protection_rule:
   schedule:
     - cron: "30 5 * * 1"     # montags / Mondays
-  push:
-    branches: [dev]
   workflow_dispatch:
 
 permissions: read-all
