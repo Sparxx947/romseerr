@@ -280,7 +280,7 @@ Controller im Spiel gedrückt.
 | Wii | Dolphin | ✅ | ✅ | (⁠—⁠) | Controller nicht eigens geprüft — gleicher Emulator und gleiche Belegung wie GameCube |
 | PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
 | Switch | Eden | ✅ | ✅ | (⁠—⁠) | Controller nicht eigens geprüft |
-| Nintendo 3DS | Azahar | ❌ | ❌ | — | Emulator startet, **kein Titel spielbar** — siehe unten |
+| Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | erst seit der Entschlüsselung (#354/#356); Controller nicht eigens geprüft |
 | Dreamcast | Flycast | — | — | — | keine Titel in der Bibliothek, nichts zu testen |
 | Xbox | xemu | ✅ | ✅ | ✅ | braucht **COMPLEX 4627 + MCPX 1.0** — Retail-BIOS bleiben schwarz |
 | Wii U | Cemu | — | — | — | keine Titel in der Bibliothek |
@@ -294,7 +294,8 @@ weil dort schlicht nichts liegt, was man starten könnte.
 Beides sind **Titelprobleme**, keine Emulatorprobleme — der Emulator läuft in beiden
 Fällen einwandfrei, nur das Spiel nicht:
 
-- **3DS: verschlüsselte ROMs.** Azahar startet, aber jeder Titel scheitert. Je nach
+- **3DS: verschlüsselte ROMs.** *Erledigt seit #354/#356 — der Host entschlüsselt beim
+  Start selbst.* Vorher startete Azahar, aber jeder Titel scheiterte. Je nach
   Format anders: ein Cartridge-Dump zeigt den Dialog `App Encrypted`, ein eShop-Titel
   schreibt `Failed to determine system mode (Error 8)` ins Emulator-Log und öffnet gar
   kein Fenster, und ein `.cia` meldet `CIA must be installed before usage` — CIAs muss
@@ -1109,7 +1110,7 @@ pressed in-game.
 | Wii | Dolphin | ✅ | ✅ | (⁠—⁠) | controller not checked separately — same emulator and same mapping as GameCube |
 | PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
 | Switch | Eden | ✅ | ✅ | (⁠—⁠) | controller not checked separately |
-| Nintendo 3DS | Azahar | ❌ | ❌ | — | emulator starts, **no title playable** — see below |
+| Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | only since decryption (#354/#356); controller not separately checked |
 | Dreamcast | Flycast | — | — | — | no titles in the library, nothing to test |
 | Xbox | xemu | ✅ | ✅ | ✅ | needs **COMPLEX 4627 + MCPX 1.0** — retail BIOS stays black |
 | Wii U | Cemu | — | — | — | no titles in the library |
@@ -1123,7 +1124,8 @@ is simply nothing there to start.
 Both are **title** problems, not emulator problems — the emulator runs fine in both
 cases, the game does not:
 
-- **3DS: encrypted ROMs.** Azahar starts, but every title fails, and differently per
+- **3DS: encrypted ROMs.** *Resolved by #354/#356 — the host decrypts at launch.*
+  Previously Azahar started but every title failed, and differently per
   format: a cartridge dump shows an `App Encrypted` dialog, an eShop title writes
   `Failed to determine system mode (Error 8)` to the emulator log and opens no window at
   all, and a `.cia` reports `CIA must be installed before usage` — CIAs have to be
