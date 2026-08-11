@@ -369,5 +369,6 @@
  "stream_cia": "CIA files are installation packages and do not boot directly.",
  "stream_cia_update": "This is an update, not a game — it belongs to another title and does not boot even once installed.",
  "stream_cia_dlc": "This is downloadable content (DLC), not a game of its own.",
- "stream_cia_broken": "This CIA cannot be read — its title header is missing or damaged."
+ "stream_cia_broken": "This CIA cannot be read — its title header is missing or damaged.",
+ "needs_ia_login": "account required"
 }

@@ -157,6 +157,33 @@ TLS_KEY       = os.path.join(TLS_DIR, "key.pem")
 # sonst der Env-Default. So ist alles über die Einstellungsseite konfigurierbar.
 # Proxy fuer den EIGENEN Download (#346). Leer = direkt.
 #
+# Was aria2c mit seinem Rueckgabewert sagt — die Faelle, die hier vorkommen. (#382)
+#
+# WOZU: Ohne diese Tabelle stand beim Nutzer wortwoertlich
+#   Command '['aria2c', '-x8', ...]' returned non-zero exit status 24.
+# Das nennt das gescheiterte WERKZEUG, nicht den Grund, und niemand kann daraus etwas
+# ableiten. 24 heisst laut aria2-Dokumentation „HTTP authorization failed" — bei
+# Archive.org also: Der Titel liegt in der Sammlung `loggedin` und braucht ein Konto.
+#
+# Nur die Codes, die hier real auftreten koennen. Ein unbekannter Wert wird DURCHGEREICHT
+# statt geraten: eine falsche Erklaerung ist schlimmer als gar keine.
+ARIA_GRUND = {
+    1:  "unbekannter Fehler beim Laden / unknown download error",
+    3:  "Datei existiert nicht mehr an der Quelle / file no longer at the source",
+    9:  "kein Platz auf dem Datentraeger / no space left",
+    19: "Namensaufloesung fehlgeschlagen / name resolution failed",
+    22: "Quelle antwortet mit einem Fehler / the source returned an HTTP error",
+    24: "die Quelle verlangt eine Anmeldung (HTTP 401) / the source requires a login",
+    28: "Zeitueberschreitung / timed out",
+}
+
+
+def aria_fehler(code):
+    """-> lesbarer Grund fuer einen aria2c-Rueckgabewert, sonst der nackte Code."""
+    grund = ARIA_GRUND.get(code)
+    return f"{grund} (aria2c {code})" if grund else f"aria2c beendete sich mit {code}"
+
+
 # WARUM DAS UEBERHAUPT NOETIG IST: Bei `source: archive` laedt Romseerr SELBST, mit `aria2c`
 # im eigenen Container — es reicht die Datei nicht an SABnzbd oder JDownloader weiter.
 # Deren VPN-Konfiguration wirkt hier also nicht. Gemessen lief dieser Weg unter derselben
@@ -1641,8 +1668,12 @@ def search_archive(q, limit=30):
     try:
         params = {"q": f'title:({q}) AND mediatype:software', "rows": limit, "output": "json",
                   "sort[]": "downloads desc"}
+        # `collection` MITHOLEN (#382): Archive.org kennzeichnet zugangsbeschraenkte
+        # Eintraege ueber die Sammlung `loggedin`. Ohne dieses Feld sieht ein solcher
+        # Treffer aus wie jeder andere — bis der Download nach dem Klick mit HTTP 401
+        # abbricht. Bei „Mario Kart 8 (Europe)" waren das 5,5 GB, die nie kommen konnten.
         params_list = [("fl[]","identifier"),("fl[]","title"),("fl[]","item_size"),
-                       ("fl[]","downloads"),("fl[]","subject")]
+                       ("fl[]","downloads"),("fl[]","subject"),("fl[]","collection")]
         url = "https://archive.org/advancedsearch.php?" + urllib.parse.urlencode(params) + "&" + urllib.parse.urlencode(params_list)
         r = requests.get(url, timeout=15); d = r.json()
         for doc in d.get("response",{}).get("docs",[]):
@@ -1651,9 +1682,15 @@ def search_archive(q, limit=30):
             if NOISE_RE.search(str(title)): continue
             subj = doc.get("subject"); subj = " ".join(subj) if isinstance(subj,list) else (subj or "")
             slug = guess_platform(f"{title} {subj} {ident}")
+            coll = doc.get("collection")
+            coll = coll if isinstance(coll, list) else ([coll] if coll else [])
             out.append({"source":"archive","ref":ident,"title":str(title)[:140],
                         "platform":slug, "size":int(doc.get("item_size") or 0),
                         "cover":f"https://archive.org/services/img/{ident}",
+                        # Zugangsbeschraenkt: der Download braucht ein Konto, das Romseerr
+                        # nicht hat. Der Treffer bleibt sichtbar — es gibt ihn ja —, traegt
+                        # die Einschraenkung aber mit. (#382)
+                        "restricted": "loggedin" in coll,
                         "extra":str(doc.get("downloads") or 0)})
     except Exception as e:
         log(f"Archive-Suche-Fehler: {e}")
@@ -2625,9 +2662,13 @@ def worker_download():
                 os.makedirs(dst, exist_ok=True)
                 inp = os.path.join(dst, ".urls")
                 with open(inp,"w") as f: f.write("\n".join(urls))
-                subprocess.run(["aria2c","-x8","-s8","-j4","--auto-file-renaming=false",
-                                "--continue=true","-d",dst,"-i",inp], check=True,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                # `check=True` wuerde die nackte CalledProcessError weiterreichen — genau
+                # die unlesbare Meldung aus #382. Deshalb den Code selbst auswerten.
+                r = subprocess.run(["aria2c","-x8","-s8","-j4","--auto-file-renaming=false",
+                                    "--continue=true","-d",dst,"-i",inp],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if r.returncode != 0:
+                    raise RuntimeError(aria_fehler(r.returncode))
                 os.remove(inp)
                 import_folder(jid, dst)
             elif job["source"]=="filehoster":

@@ -6947,3 +6947,74 @@ def test_wiiu_uses_the_wii_categories_because_the_indexer_does_not_separate_them
     assert set(appmod.SLUG2USE["wiiu"]) >= set(appmod.SLUG2USE["wii"]), \
         "Wii U muss mindestens die Wii-Kategorien mitbenutzen"
     assert appmod.guess_platform("Super.Mario.3D.World.USA.WiiU-PoWeRUp") == "wiiu"
+
+
+# --- #382: gesperrte Archive.org-Eintraege -------------------------------------------
+
+def test_an_aria2c_exit_code_becomes_a_readable_reason(appmod):
+    """Der Rueckgabewert von aria2c wird uebersetzt, nicht durchgereicht. (#382)
+
+    Beim Nutzer stand woertlich:
+        Command '['aria2c', '-x8', ...]' returned non-zero exit status 24.
+    Das nennt das gescheiterte WERKZEUG, nicht den Grund. 24 heisst laut aria2-Dokumentation
+    „HTTP authorization failed" — bei Archive.org also: Der Titel braucht ein Konto.
+
+    Ein UNBEKANNTER Code wird bewusst durchgereicht statt geraten: eine falsche Erklaerung
+    ist schlimmer als gar keine.
+    """
+    assert "401" in appmod.aria_fehler(24) or "Anmeldung" in appmod.aria_fehler(24)
+    assert "24" in appmod.aria_fehler(24), "der Code selbst gehoert in die Meldung"
+    assert "existiert nicht" in appmod.aria_fehler(3)
+    assert "99" in appmod.aria_fehler(99), "unbekannter Code wird nicht geraten"
+
+
+def test_a_restricted_archive_item_is_marked_before_the_click(appmod, monkeypatch):
+    """Ein Eintrag in der Sammlung `loggedin` wird gekennzeichnet. (#382)
+
+    WARUM VORHER UND NICHT NACHHER: Der Download bricht sonst mit HTTP 401 ab — bei
+    „Mario Kart 8 (Europe)" nach 5,5 GB, die nie kommen konnten. Dieselbe Regel wie #299:
+    Die Absage gehoert dorthin, wo die Zusage stand.
+
+    Der Treffer bleibt SICHTBAR — es gibt ihn ja, und mit Konto ist er ladbar.
+    """
+    class Antwort:
+        ok = True
+        @staticmethod
+        def json():
+            return {"response": {"docs": [
+                {"identifier": "frei", "title": "Freier Titel", "item_size": 1,
+                 "collection": ["open_source_software"]},
+                {"identifier": "gesperrt", "title": "Gesperrter Titel", "item_size": 1,
+                 "collection": ["loggedin", "deemphasize"]},
+                {"identifier": "ohne", "title": "Ohne Sammlung", "item_size": 1},
+            ]}}
+    monkeypatch.setattr(appmod.requests, "get", lambda *a, **k: Antwort())
+    tr = {r["ref"]: r for r in appmod.search_archive("egal")}
+    assert tr["gesperrt"]["restricted"] is True
+    assert tr["frei"]["restricted"] is False
+    assert tr["ohne"]["restricted"] is False, "fehlende Sammlung ist keine Sperre"
+    assert len(tr) == 3, "gesperrte Treffer duerfen nicht verschwinden"
+
+
+def test_the_search_actually_asks_for_the_collection_field(appmod, monkeypatch):
+    """Das Feld muss ANGEFORDERT werden, sonst kommt es nie an. (#382)
+
+    Genau das ging beim Bauen schief: Die Kennzeichnung stand im Quelltext, das Feld fehlte
+    in der Abfrage — und `restricted` war fuer jeden Treffer False. Eine Pruefung, die nur
+    die Auswertung testet, haette das nicht bemerkt.
+    """
+    gesehen = {}
+
+    class Antwort:
+        ok = True
+        @staticmethod
+        def json(): return {"response": {"docs": []}}
+
+    def merken(url, **k):
+        gesehen["url"] = url
+        return Antwort()
+
+    monkeypatch.setattr(appmod.requests, "get", merken)
+    appmod.search_archive("egal")
+    assert "collection" in gesehen.get("url", ""), \
+        "die Suche fordert das Sammlungsfeld nicht an"

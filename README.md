@@ -235,6 +235,12 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   Update trägt eine Fassungsnummer > 0 und sähe sonst wie ein Update aus. Startet man
   ein Update allein, meldet der Emulator nur `Error while loading ROM!` — von außen
   ununterscheidbar davon, dass er die Plattform nicht beherrscht.
+- 🔒 **Gesperrte Archive.org-Titel sagen es vorher.** Manche Einträge liegen in der
+  Sammlung `loggedin` und brauchen ein Konto; ohne eines antwortet der Download mit
+  **HTTP 401**. Solche Treffer bleiben sichtbar — es gibt sie ja —, tragen aber ein
+  Schloss. Vorher fiel das erst nach dem Klick auf, bei „Mario Kart 8 (Europe)" nach
+  5,5 GB, die nie kommen konnten. Und wenn ein Download doch scheitert, steht jetzt der
+  **Grund** da statt `returned non-zero exit status 24`.
 - 🔎 **Gesucht wird immer an allen Quellen.** Der Plattformfilter wirkt auf das
   *Ergebnis*, nie auf die *Frage*. Vorher entschied eine Tabelle, ob Usenet überhaupt
   befragt wird — und übersetzte damit eine Lücke in der Tabelle in ein fehlendes
