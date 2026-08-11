@@ -1,12 +1,20 @@
 :root{--bg:#14161a;--card:#1e2229;--acc:#7c5cff;--acc2:#6c5ce7;--ok:#2ecc71;--txt:#e6e8ec;--mut:#8b929e;
  --side:#0f1114;--topbar:#0f1114;--border:#262b33;--hover:#1a1e25;--input:#0b0d10;
- --radius:12px;--shadow:0 1px 2px rgba(0,0,0,.25);--blur:0px;--navon:var(--acc);--navtxt:#fff}
+ --radius:12px;--shadow:0 1px 2px rgba(0,0,0,.25);--blur:0px;
+ /* Der aktive Menuepunkt traegt WEISSE Schrift. Auf `--acc` (#7c5cff) ergibt das 4,34:1
+    und verfehlt die geforderten 4,5:1 knapp (#330). `--acc` selbst bleibt unveraendert:
+    Es dient an sechs Stellen als TEXTfarbe auf dunklem Grund, und dort wuerde ein
+    dunklerer Ton den Kontrast verschlechtern statt verbessern. Deshalb bekommt der
+    Menue-Hintergrund einen eigenen, leicht dunkleren Wert: #7350f0 -> 5,08:1.
+    The active entry uses white text; on --acc that is 4.34:1. --acc stays as it is
+    because it serves as a text colour elsewhere, where darkening would hurt. */
+ --navon:#7350f0;--navtxt:#fff}
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--txt);transition:background .25s}
 /* ---- Designs (per Nutzer/global wählbar über <html data-design=…>) ---- */
 /* seerr = Standard (die :root-Werte oben, dunkel & poliert). glass & clean unten. */
 [data-design=glass]{--bg:#0b0e1a;--card:rgba(32,37,58,.55);--acc:#22d3ee;--acc2:#6366f1;--txt:#eaf2ff;--mut:#93a0c0;
  --side:rgba(18,22,38,.55);--topbar:rgba(18,22,38,.45);--border:rgba(255,255,255,.10);--hover:rgba(255,255,255,.07);--input:rgba(10,13,24,.5);
- --radius:16px;--shadow:0 10px 34px rgba(0,0,0,.40);--blur:16px;--navon:linear-gradient(90deg,#22d3ee,#6366f1);--navtxt:#04121a}
+ --radius:16px;--shadow:0 10px 34px rgba(0,0,0,.40);--blur:16px;--navon:linear-gradient(90deg,#22d3ee,#818cf8);--navtxt:#04121a}
 [data-design=glass] body{background:
   radial-gradient(1100px 560px at 12% -12%,rgba(99,102,241,.34),transparent 60%),
   radial-gradient(1000px 520px at 108% -4%,rgba(14,165,183,.30),transparent 60%),
@@ -125,6 +133,16 @@ img.glogo{height:26px;width:auto;max-width:90px;object-fit:contain}
 #jobs{padding:18px;display:none}
 .card .cover{cursor:pointer}
 .job{background:var(--card);border:1px solid #262b33;border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;gap:10px}
+/* Die Zeilen der Bibliothek sind Knoepfe, damit sie mit der Tastatur bedienbar sind
+   (#319). Ein Knopf bringt eigene Schrift, eigene Breite und eine Ausrichtung mit, die
+   nicht zu einer Listenzeile passt — das wird hier zurueckgesetzt, damit sich am
+   Aussehen nichts aendert. Der Fokusrahmen bleibt ausdruecklich sichtbar: Er ist der
+   einzige Hinweis darauf, wo man mit der Tastatur gerade steht.
+   The library rows are buttons for keyboard operability; a button brings its own font,
+   width and alignment, reset here so the look is unchanged. The focus ring stays. */
+button.job{width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer}
+button.job:hover{border-color:#39404b}
+button.job:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .st{font-size:12px;padding:2px 8px;border-radius:6px;background:#2a2f37}
 .st.done{background:#1e5e3a}.st.error{background:#6e2a2a}.st.downloading,.st.importing{background:#5a4a1e}
 .hint{color:var(--mut);padding:0 18px 18px;font-size:12px}

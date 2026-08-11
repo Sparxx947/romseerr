@@ -810,6 +810,15 @@ def build_index():
         for ordner in os.listdir(ROMS):
             p = os.path.join(ROMS, ordner)
             if not os.path.isdir(p): continue
+            # Versteckte Ordner sind keine Plattformen (#321). Der Umbau der Bibliothek
+            # legt sein Arbeitsverzeichnis als `.umbau` neben die Plattformen; dessen
+            # Protokolldateien tauchten danach als 62 „Titel" in der Ansicht auf. Die
+            # Regel gilt allgemein: Was mit einem Punkt beginnt, gehoert einem Werkzeug,
+            # nicht der Bibliothek — `.cache`, `.stfolder` und Ordner von Synchronisations-
+            # diensten haetten dasselbe Problem erzeugt.
+            # A leading dot marks a tool's directory, not a platform; the library
+            # reorganiser's `.umbau` showed up as 62 "titles" before this.
+            if ordner.startswith("."): continue
             slug = folder_slug(ordner)
             if not slug: continue          # kein Plattformordner (#124)
             slugs.add(slug)

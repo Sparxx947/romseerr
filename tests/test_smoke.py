@@ -5841,3 +5841,29 @@ def test_views_are_covered_by_browser_tests():
         f"{len(fehlend)} Ansichten ohne Browsertest (erlaubt: "
         f"{ANSICHTEN_OHNE_BROWSERTEST}): {fehlend}. "
         "Neue Ansicht? Dann gehoert sie in ANSICHTEN in tests/e2e/test_browser.py.")
+
+
+def test_hidden_directories_are_not_platforms(appmod, tmp_path, monkeypatch):
+    """Ordner mit einem Punkt am Anfang sind keine Plattformen. (#321)
+
+    Der Umbau der Bibliothek legt sein Arbeitsverzeichnis als `.umbau` NEBEN die
+    Plattformordner. Vor dieser Regel tauchten dessen Protokolldateien als 62 „Titel" in
+    der Bibliotheksansicht auf — sichtbar, mit Zaehler, unter einer eigenen Zeile.
+
+    Rot gesehen: ohne die Regel enthaelt der Index `.umbau` mit einem Titel.
+    """
+    wurzel = tmp_path / "roms"
+    (wurzel / "snes").mkdir(parents=True)
+    (wurzel / "snes" / "Super Mario World.sfc").write_bytes(b"x" * 32)
+    (wurzel / ".umbau").mkdir()
+    (wurzel / ".umbau" / "fortschritt.json").write_text("{}")
+    (wurzel / ".cache").mkdir()
+    (wurzel / ".cache" / "irgendwas.dat").write_bytes(b"y" * 16)
+
+    monkeypatch.setattr(appmod, "ROMS", str(wurzel))
+    appmod.build_index()
+
+    slugs = set(appmod.LIB.get("per", {}))
+    versteckt = {s for s in slugs if s.startswith(".")}
+    assert not versteckt, f"versteckte Ordner im Index: {sorted(versteckt)}"
+    assert "snes" in slugs, "die echte Plattform fehlt — die Regel greift zu weit"
