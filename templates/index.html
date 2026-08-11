@@ -4,17 +4,24 @@
 <link rel=stylesheet href="__ASSET:css/index.css__"></head><body>
 <div id=side>
  <div class=logo>🎮 Romseerr</div>
- <a class="nav on" id=nS data-i18n=nav_discover href="#/discover" onclick="return navGeh('s')">🔍 Entdecken</a>
+ <!-- Das Symbol steht in einem EIGENEN span, nicht im uebersetzten Text (#337).
+      `applyI18n` setzt `textContent` des Elements mit `data-i18n` — ein Symbol darin
+      wird dabei geloescht. Genau so verloren Abdeckung und Bibliothek ihres: In der
+      Vorlage stand es, in der Uebersetzung nicht. `aria-hidden`, weil daneben schon
+      der Name steht; sonst liest ein Vorleser „Bücher Bibliothek".
+      The icon lives in its own span: applyI18n overwrites textContent, which silently
+      deleted icons that the translations did not repeat. -->
+ <a class="nav on" id=nS href="#/discover" onclick="return navGeh('s')"><span class=navsym aria-hidden=true>🔍</span><span data-i18n=nav_discover>Entdecken</span></a>
  <!-- Kein Symbol davor: `nav_requests` bringt sein eigenes mit ("📥 Anfragen"). Sonst
       steht es zweimal da — derselbe Fallstrick wie beim Zustandsabzeichen in #205. -->
- <a class=nav id=nJ href="#/requests" onclick="return navGeh('j')"><span data-i18n=nav_requests>📥 Anfragen</span><span id=jobbadge></span></a>
- <a class=nav id=nI data-i18n=nav_issues href="#/issues" onclick="return navGeh('issues')">🐞 Probleme</a>
- <a class=nav id=nC data-i18n=nav_coverage href="#/coverage" onclick="return navGeh('cov')">📊 Abdeckung</a>
+ <a class=nav id=nJ href="#/requests" onclick="return navGeh('j')"><span class=navsym aria-hidden=true>📥</span><span data-i18n=nav_requests>Anfragen</span><span id=jobbadge></span></a>
+ <a class=nav id=nI href="#/issues" onclick="return navGeh('issues')"><span class=navsym aria-hidden=true>🐞</span><span data-i18n=nav_issues>Probleme</span></a>
+ <a class=nav id=nC href="#/coverage" onclick="return navGeh('cov')"><span class=navsym aria-hidden=true>📊</span><span data-i18n=nav_coverage>Abdeckung</span></a>
  <!-- Abdeckung beantwortet „was fehlt", die Bibliothek „was habe ich". Vor dem Regal
       ist Letzteres die häufigere Frage, deshalb steht sie gleich daneben. (#293) -->
- <a class=nav id=nL data-i18n=nav_library href="#/library" onclick="return navGeh('lib')">📚 Bibliothek</a>
- <a class=nav id=nM href="#/messages" onclick="return navGeh('msg')">✉ <span data-i18n=nav_messages>Nachrichten</span><span id=msgbadge></span></a>
- <a class=nav id=nSet data-i18n=nav_settings href="#/settings" onclick="return navGeh('set')" style="display:none">⚙️ Einstellungen</a>
+ <a class=nav id=nL href="#/library" onclick="return navGeh('lib')"><span class=navsym aria-hidden=true>📚</span><span data-i18n=nav_library>Bibliothek</span></a>
+ <a class=nav id=nM href="#/messages" onclick="return navGeh('msg')"><span class=navsym aria-hidden=true>✉️</span><span data-i18n=nav_messages>Nachrichten</span><span id=msgbadge></span></a>
+ <a class=nav id=nSet href="#/settings" onclick="return navGeh('set')" style="display:none"><span class=navsym aria-hidden=true>⚙️</span><span data-i18n=nav_settings>Einstellungen</span></a>
 </div>
 <main>
  <!-- Konfigurationswarnungen: nur für Verwalter, nur wenn etwas kaputt ist. Ein Weg,

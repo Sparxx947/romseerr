@@ -6012,3 +6012,60 @@ def test_in_flight_jobs_are_cleared_after_a_restart(appmod):
     finally:
         appmod.JOBS[:] = vorher
         appmod.save_jobs()
+
+
+def test_navigation_labels_carry_no_icon_and_exist_in_all_languages():
+    """Menue-Symbole stehen in der Vorlage, nicht im uebersetzten Text. (#337)
+
+    `applyI18n` setzt `textContent` des Elements mit `data-i18n`. Ein Symbol INNERHALB
+    dieses Elements wird dabei geloescht — es ueberlebt nur, wenn jede einzelne
+    Uebersetzung es wiederholt. Genau daran verloren Abdeckung und Bibliothek ihres,
+    waehrend fuenf andere es behielten: derselbe Mechanismus, zwei Ergebnisse.
+
+    Geprueft wird deshalb beides: dass die Beschriftungen KEIN Symbol mehr tragen (sonst
+    stuende es doppelt neben dem aus der Vorlage), und dass jeder Schluessel in allen
+    fuenf Sprachen existiert — `nav_library` gab es in zweien.
+
+    Rot gesehen: mit dem urspruenglichen Stand, in dem `nav_discover` noch `🔍 Entdecken`
+    hiess und `nav_library` in drei Sprachen fehlte.
+    """
+    import re
+    wurzel = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(wurzel, "templates", "index.html"), encoding="utf-8") as f:
+        html = f.read()
+    with open(os.path.join(wurzel, "static", "js", "index.js"), encoding="utf-8") as f:
+        js = f.read()
+
+    benutzt = set(re.findall(r'data-i18n=(nav_\w+)', html))
+    assert benutzt, "keine nav-Schluessel in der Vorlage — Pruefung waere wertlos"
+
+    unvollstaendig, mit_symbol = [], []
+    for k in sorted(benutzt):
+        werte = re.findall(rf"{k}:'([^']*)'", js)
+        if len(werte) != 5:
+            unvollstaendig.append(f"{k}: {len(werte)}x statt 5")
+        for w in werte:
+            # Alles ausserhalb von Buchstaben, Ziffern und ueblicher Interpunktion —
+            # das faengt Emoji, ohne an Akzenten oder Bindestrichen anzuschlagen.
+            if re.search(r"[^\w\s\-&/'’.,()]", w, re.UNICODE):
+                mit_symbol.append(f"{k}: {w!r}")
+    assert not unvollstaendig, "Uebersetzungen fehlen: " + "; ".join(unvollstaendig)
+    assert not mit_symbol, ("Symbol im uebersetzten Text — es gehoert in die Vorlage: "
+                            + "; ".join(mit_symbol))
+
+
+def test_every_navigation_entry_has_exactly_one_icon():
+    """Jeder Menuepunkt traegt genau ein Symbol, und zwar aus derselben Quelle. (#337)
+
+    Vorher kamen sie aus drei Richtungen: aus dem Vorlagentext, aus dem
+    Uebersetzungsstring, und bei `Nachrichten` aus einem Zeichen, das zufaellig
+    AUSSERHALB des uebersetzten Bereichs stand. Zwei Eintraege hatten am Ende gar keins.
+    """
+    import re
+    wurzel = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(wurzel, "templates", "index.html"), encoding="utf-8") as f:
+        html = f.read()
+    eintraege = re.findall(r'<a class=["\']?nav[^>]*>(.*?)</a>', html, re.S)
+    assert len(eintraege) == 7, f"{len(eintraege)} Menuepunkte gefunden, erwartet 7"
+    ohne = [e[:40] for e in eintraege if e.count("class=navsym") != 1]
+    assert not ohne, "Menuepunkte ohne genau ein Symbol-Span: " + "; ".join(ohne)

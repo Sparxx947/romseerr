@@ -33,6 +33,19 @@
 #side{position:fixed;top:0;left:0;bottom:0;width:210px;background:var(--side);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:16px 12px;z-index:6}
 #side .logo{font-size:20px;font-weight:700;margin:4px 8px 18px;background:linear-gradient(90deg,#8a7bff,#6c5ce7);-webkit-background-clip:text;background-clip:text;color:transparent}
 .nav{display:block;padding:10px 12px;border-radius:10px;color:var(--mut);font-size:14px;cursor:pointer;text-decoration:none;margin-bottom:4px}
+/* Die Symbole der Menuepunkte auf EINE Groesse und EINE Spaltenbreite zwingen (#337).
+   Ohne das sitzen die Beschriftungen unterschiedlich weit eingerueckt, weil jedes Emoji
+   anders breit ist — in einer schmalen Spalte untereinander faellt genau das auf.
+   `font-variant-emoji:emoji` erzwingt die farbige Darstellung; ohne sie rendert ein
+   Zeichen wie U+2709 einfarbig und sichtbar kleiner als der Rest. Das Zeichen traegt
+   zusaetzlich den Variantenselektor U+FE0F, fuer Engines, die die CSS-Eigenschaft noch
+   nicht kennen — Guertel und Hosentraeger, weil sich das Ergebnis je Plattform
+   unterscheidet und hier nicht auf allen geprueft werden kann.
+   One size and one column width for the icons: every emoji has its own advance width, so
+   without this the labels sit at different indents. font-variant-emoji forces the colour
+   presentation; U+FE0F covers engines that do not know the property yet. */
+.navsym{display:inline-block;width:1.4em;margin-right:.55em;text-align:center;
+  font-size:15px;line-height:1;font-variant-emoji:emoji;font-style:normal}
 .nav:hover{background:var(--hover);color:var(--txt)}
 .nav.on{background:var(--navon);color:var(--navtxt)}
 #side .grow{flex:1}
