@@ -7201,3 +7201,66 @@ def test_nothing_is_left_behind_in_the_cache(tmp_path, monkeypatch):
     assert fehler and not ziel2, "ein Werkzeug ohne Ausgabe muss einen Fehler ergeben"
     assert os.listdir(cache) == [], \
         f"nach dem Fehlschlag bleibt etwas liegen: {os.listdir(cache)}"
+def test_every_platform_has_at_least_one_importable_extension(appmod):
+    """Jede STREAMBARE Plattform muss mindestens eine Endung haben, die importiert wird. (#391)
+
+    Wii U hatte KEINE. `.wux`, `.wud`, `.wua`, `.rpx` fehlten alle in `ROM_EXT`, und damit
+    konnte kein einziger Wii-U-Titel jemals in die Bibliothek gelangen — ein 5,5-GB-Download
+    endete mit „1 Nicht-ROM uebersprungen". Dass die Plattform nie funktionierte, sah aus
+    wie ein fehlender Titel (#302) und war eine fehlende Zeile.
+
+    Die Pruefung ist eine Ratsche: Sie faellt, sobald eine neue streambare Plattform
+    aufgenommen wird, ohne dass ihre Dateien importierbar waeren.
+    """
+    ohne = sorted(p for p in appmod.STREAMABLE
+                  if not any(v == p for v in appmod.EXT2PLAT.values()))
+    # BEKANNTE AUSNAHMEN, jede mit Grund — eine Ausnahmeliste ohne Begruendung waere
+    # nur eine Stelle, an der man den naechsten Fund verstecken kann.
+    #
+    # Diese Plattformen haben KEINE eigene Endung, und das ist richtig so: Ihr Titel ist
+    # entweder ein ORDNER (PS3 mit PS3_GAME/, DOS-Installation, ScummVM) oder liegt in
+    # einem MEHRDEUTIGEN Abbildformat, das ein Dutzend Systeme benutzt (`.iso`, `.bin`,
+    # `.chd`). In beiden Faellen kommt die Plattform aus dem Auftrag, nicht aus dem Namen —
+    # und eine falsche Zuordnung waere teurer als gar keine.
+    ohne_eigene_endung = {
+        "ps3", "scummvm", "dos",          # Titel ist ein Ordner
+        "wii", "ngc", "dreamcast",        # .iso/.rvz/.gdi — mehrdeutig
+        "psx", "ps2", "xbox",             # .iso/.bin/.chd — mehrdeutig
+    }
+    ohne = [p for p in ohne if p not in ohne_eigene_endung]
+    assert not ohne, f"diese Plattformen koennen nichts importieren: {ohne}"
+
+
+def test_the_wii_u_formats_are_importable(appmod):
+    """Die vier Wii-U-Formate werden erkannt und der Plattform zugeordnet. (#391)"""
+    for e in ("wux", "wud", "wua", "rpx"):
+        assert e in appmod.ROM_EXT, f".{e} wird beim Import uebersprungen"
+        assert appmod.EXT2PLAT.get(e) == "wiiu", f".{e} zeigt nicht auf wiiu"
+
+
+def test_no_extension_silently_merged_with_its_neighbour(appmod):
+    """Keine Endung darf laenger als fuenf Zeichen sein. (#391)
+
+    Ein fehlendes Komma in der Liste laesst Python zwei Eintraege verschmelzen: aus
+    `"ws"` und `"wux"` wurde beim Bauen dieser Aenderung stillschweigend `"wswux"` —
+    beide Endungen weg, kein Fehler, keine Warnung. Nur die Messung zeigte es.
+    """
+    # NICHT ueber die Laenge: Die erste Fassung dieses Tests pruefte `len(e) > 5` und
+    # haette den ausloesenden Fall NICHT gefangen — `"ws" "wux"` ergibt `"wswux"`, genau
+    # fuenf Zeichen. Eine geratene Schwelle prueft die Vermutung, nicht die Sache.
+    #
+    # Geprueft wird deshalb die Quelle: Zwei Zeichenketten, zwischen denen kein Komma
+    # steht, verschmelzen — unabhaengig davon, wie lang das Ergebnis wird.
+    import re
+    quelle = open(os.path.join(REPO, "app.py"), encoding="utf-8").read()
+    verdaechtig = []
+    for name in ("ROM_EXT", "ARCH_EXT"):
+        m = re.search(rf"^{name} = \{{(.*?)\}}", quelle, re.S | re.M)
+        if not m:
+            continue
+        # `"a"` direkt gefolgt von `"b"` — nur Leerraum, Zeilenumbrueche oder Kommentare
+        # dazwischen, aber kein Komma.
+        for treffer in re.finditer(r'"[a-z0-9]+"(?:\s|#[^\n]*\n)+"[a-z0-9]+"', m.group(1)):
+            verdaechtig.append(f"{name}: {treffer.group(0)[:40]!r}")
+    assert not verdaechtig, ("hier fehlt ein Komma, die Eintraege verschmelzen still: "
+                             + "; ".join(verdaechtig))

@@ -235,6 +235,11 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   Update trägt eine Fassungsnummer > 0 und sähe sonst wie ein Update aus. Startet man
   ein Update allein, meldet der Emulator nur `Error while loading ROM!` — von außen
   ununterscheidbar davon, dass er die Plattform nicht beherrscht.
+- 🎮 **Wii U, PS Vita und Xbox können jetzt importieren.** `.wux`, `.wud`, `.wua` und
+  `.rpx` (Wii U), `.vpk` (Vita) und `.xbe` (Xbox) fehlten in der Endungsliste — und ohne
+  sie konnte **kein einziger Titel** dieser Plattformen in die Bibliothek gelangen. Ein
+  5,5-GB-Download endete mit „1 Nicht-ROM übersprungen". Dass Wii U nie funktionierte, sah
+  jahrelang aus wie ein fehlender Titel und war eine fehlende Zeile.
 - 🔑 **Archive.org-Konto per Schlüsselpaar, nicht per Passwort.** Unter *Einstellungen →
   Verbindungen → Archive.org* nimmt Romseerr Access- und Secret-Key von
   `archive.org/account/s3.php` entgegen und schickt sie als Kopfzeile mit
