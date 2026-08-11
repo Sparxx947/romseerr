@@ -2709,12 +2709,16 @@ def import_folder(jid, folder):
             # Ohne Plattform NICHT raten und schon gar keine erfinden: ab in die Ablage.
             # Sie beginnt mit einem Punkt und ist damit keine Plattform — die Datei ist
             # da, sichtbar, und taucht nirgends als System auf. (#367)
-            target = os.path.join(ROMS, slug or UNSORTIERT); os.makedirs(target, exist_ok=True)
+            ordner = slug or UNSORTIERT
+            target = os.path.join(ROMS, ordner); os.makedirs(target, exist_ok=True)
             dst = os.path.join(target, ziel)
             if os.path.exists(dst): continue
             try:
                 subprocess.run(["cp","-a",src,dst], check=True); moved += 1
-                by_plat[slug] = by_plat.get(slug,0)+1
+                # Gezaehlt wird der ORDNER, nicht der Slug: aus einem leeren Slug wuerde
+                # sonst die Meldung „1 Datei(en) → 1×" — eine Zahl ohne Ort. Wer wissen
+                # will, wo seine Datei liegt, bekommt hier die einzige Antwort. (#367)
+                by_plat[ordner] = by_plat.get(ordner,0)+1
             except Exception as e:
                 log(f"move-Fehler {fn}: {e}"); copy_errors += 1
     # Staging aufräumen

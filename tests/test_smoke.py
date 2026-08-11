@@ -6783,7 +6783,99 @@ def test_an_import_without_a_platform_lands_in_a_hidden_holding_folder(appmod):
 
     Der fuehrende Punkt ist die ganze Mechanik: `build_index` ueberspringt solche Ordner
     seit #321. Die Datei ist da und auffindbar — sie taucht nur nirgends als System auf.
+
+    NACHGEFAHREN, NICHT BEHAUPTET: Der Import laeuft hier wirklich. Eine Pruefung, die nur
+    `UNSORTIERT.startswith(".")` liest, haette den eigentlichen Fehler durchgelassen — ein
+    leerer Slug ergibt `os.path.join(ROMS, "")`, und das ist ROMS SELBST. Die Datei waere
+    dann neben den Plattformordnern gelandet.
     """
     assert appmod.UNSORTIERT.startswith("."), \
         "ohne fuehrenden Punkt waere die Ablage wieder eine Plattform"
-    assert appmod.folder_slug(appmod.UNSORTIERT) in ("", appmod.UNSORTIERT)
+
+    # `.bin` steht bewusst in KEINER Endungstabelle — es kommt auf einem Dutzend
+    # Plattformen vor. Damit entscheidet allein der Job, und der kennt hier keine.
+    assert "bin" in appmod.ROM_EXT and "bin" not in appmod.EXT2PLAT
+
+    job = appmod.new_job({"title": "Ohne Plattform", "source": "archive", "ref": "r", "size": 0},
+                         user="", approved=False)
+    jid = job["id"]
+    assert job["platform"] == "", "der Job erfindet schon wieder eine Plattform"
+    ordner = _staging(appmod, jid, {"Shark Shark.bin": b"\x00" * 64})
+    appmod.import_folder(jid, ordner)
+
+    ablage = os.path.join(appmod.ROMS, appmod.UNSORTIERT)
+    assert os.path.exists(os.path.join(ablage, "Shark Shark.bin")), \
+        f"Datei nicht in der Ablage: {os.listdir(appmod.ROMS)}"
+    assert "Shark Shark.bin" not in os.listdir(appmod.ROMS), \
+        "die Datei liegt direkt in ROMS — leerer Slug wurde nicht abgefangen"
+
+    appmod.build_index()
+    with appmod.LIB_LOCK:
+        slugs = set(appmod.LIB["slugs"])
+    assert appmod.UNSORTIERT not in slugs and "" not in slugs, \
+        f"die Ablage ist als Plattform im Index gelandet: {sorted(slugs)}"
+
+    # Und die Meldung am Job muss sagen, WO die Datei liegt. „1 Datei(en) → 1×" nennt
+    # keinen Ort — das war die Zeile, die den Nutzer beim alten Verhalten zu „Mixed"
+    # geschickt hat, und sie darf jetzt nicht ins Leere zeigen.
+    msg = appmod.get_job(jid).get("msg", "")
+    assert appmod.UNSORTIERT in msg, f"die Meldung nennt den Ablageort nicht: {msg!r}"
+
+    with appmod.JOBS_LOCK:
+        appmod.JOBS[:] = [x for x in appmod.JOBS if x["id"] != jid]; appmod.save_jobs()
+
+
+def test_the_requests_list_names_an_unknown_platform_instead_of_leaving_a_gap(appmod):
+    """Ohne Plattform steht in der Anfragenliste ein Wort, keine Luecke. (#367)
+
+    Der Sentinel ist weg, und damit ist das Feld leer statt falsch. Leer ist besser als
+    falsch, aber nicht gut: In der Zeile `👤 jens · <leer> · archive` sieht der Nutzer
+    zwei Trennpunkte hintereinander und keinen Hinweis, dass die Plattform schlicht
+    unbekannt ist. Uebersetzt gehoert das Wort in alle fuenf Sprachen.
+    """
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    assert "${o.platform}" not in js, \
+        "die Anfragenzeile gibt die Plattform ungeprueft aus — ohne Wert bleibt eine Luecke"
+    assert "plat_unknown" in js, "es gibt keinen Text fuer die unbekannte Plattform"
+    assert i18n_hat("plat_unknown") == 5, "der Text fehlt in mindestens einer Sprache"
+
+
+def test_an_import_without_a_platform_names_the_folder_it_landed_in(appmod, tmp_path, monkeypatch):
+    """Die Abschlussmeldung nennt den ORDNER, nicht den leeren Slug. (#367)
+
+    WARUM DAS EINEN EIGENEN TEST BRAUCHT: Die Zaehlung lief ueber `slug`. Seit der Sentinel
+    weg ist, ist der bei unbekannter Plattform LEER — und die Meldung lautete dann
+    „1 Datei(en) → 1×", eine Zahl ohne Ort. Der Test daneben prueft nur die Oberflaeche und
+    blieb gruen, als die Zaehlung zurueckgedreht wurde. Gegengeprueft, nicht angenommen.
+
+    The count ran over `slug`, which is empty since the sentinel went away, producing
+    "1 file(s) → 1×" — a number with no place. The neighbouring test covers only the UI and
+    stayed green when the counter was reverted.
+    """
+    roms = tmp_path / "roms"; roms.mkdir()
+    staging = tmp_path / "staging"; staging.mkdir()
+    # `.bin` ist eine ROM-Endung OHNE Plattformzuordnung — auf einem Dutzend Systemen
+    # gebraeuchlich, deshalb bewusst nicht zugeordnet. Genau der Fall, der frueher in
+    # `Mixed` landete. (Eine Nicht-ROM-Endung taugt hier nicht: die wird uebersprungen,
+    # und der Test prueft dann den falschen Zweig.)
+    (staging / "Irgendein Titel.bin").write_bytes(b"x" * 32)
+
+    monkeypatch.setattr(appmod, "ROMS", str(roms))
+    monkeypatch.setattr(appmod, "extract_archives", lambda p: None)
+    monkeypatch.setattr(appmod, "build_index", lambda: None)
+    monkeypatch.setattr(appmod, "in_library", lambda ziel, slug: False)
+    gemeldet = {}
+    monkeypatch.setattr(appmod, "set_state",
+                        lambda jid, **kw: gemeldet.update(kw))
+    monkeypatch.setattr(appmod, "get_job", lambda jid: {"id": "1", "platform": "", "title": "T"})
+    for name in ("romm_scan", "notify_all", "count_import", "save_jobs"):
+        if hasattr(appmod, name):
+            monkeypatch.setattr(appmod, name, lambda *a, **k: None)
+
+    appmod.import_folder("1", str(staging))
+
+    msg = gemeldet.get("msg", "")
+    assert appmod.UNSORTIERT in msg, \
+        f"die Meldung nennt den Ablageort nicht: {msg!r}"
+    assert "1×​" not in msg and not msg.rstrip().endswith("1×"), \
+        f"Zahl ohne Ort: {msg!r}"
