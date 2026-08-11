@@ -92,6 +92,38 @@ Zwei Feinheiten:
   doppelte Arbeit.
 - **Ein abgeschlossener Lauf ist kein Wiederaufsetzpunkt.** Wer nach dem Ende erneut
   startet, will neu bauen, nicht nichts tun.
+- **Eine abgestürzte Plattform gilt nicht als erledigt.** Der Lauf macht mit der nächsten
+  weiter — ein unlesbarer Ordner darf keine 19 Stunden kosten —, aber sie bleibt in der
+  Wiederaufsetzliste und wird beim nächsten Aufruf wiederholt. Die Schlussmeldung nennt
+  sie beim Namen, und `fertig` wird nicht gesetzt:
+
+  ```
+  === 72 VON 74 PLATTFORMEN FERTIG, 2 MIT FEHLER: c64, amiga ===
+      c64: RuntimeError: kein freier Name fuer VERSION.NFO
+      amiga: UnicodeEncodeError: '\udce0' surrogates not allowed
+    Erneut versuchen: derselbe Aufruf setzt genau bei diesen fort.
+  ```
+
+  Der Rückgabewert ist dann `1`. **Warum das zählt (#397):** Am 2026-08-11 meldete der
+  volle Lauf `ALLE 74 PLATTFORMEN FERTIG`, während genau diese zwei abgestürzt waren —
+  beide unter den drei größten. Weil der Fortschritt bedingungslos eingetragen wurde,
+  hätte ein Fortsetzen ausgerechnet sie übersprungen: Der Rückweg war darauf trainiert,
+  die Fehlschläge zu ignorieren.
+
+**Zwei Abstürze, die dahintersteckten** — beide nachgemessen, nicht vermutet:
+
+- **`kein freier Name`**: Die Suche nach einem freien Namen lief `(2 … 9999)` und warf
+  danach. Unter `c64` liegen 9.999 Dateien `VERSION (i).NFO` — `VERSION.NFO` ist Beiwerk
+  und steckt in jedem zweiten Set. Die Grenze beschränkte nicht die Suche, sondern die
+  Bibliothek. Sie ist weg; zusätzlich merkt sich die Suche, wo sie zuletzt endete, statt
+  für den n-ten Namen n Anfragen ans Dateisystem zu stellen (über 9.999 Dateien rund 50
+  Millionen, auf drehenden Platten).
+- **`surrogates not allowed`**: Ein Dateiname ist unter Linux eine Bytefolge, kein Text.
+  Unter `amiga` tragen 21 Namen Bytes, die kein gültiges UTF-8 sind (`catal\xe0` aus
+  `MUI38/MUI/Locale/Catalogs`). Python liest sie mit Ersatzzeichen, kann sie aber nicht
+  als UTF-8 schreiben — und daran starb ausgerechnet das **Protokoll**, der einzige
+  Rückweg. Protokoll wird jetzt mit `surrogateescape` geschrieben und gelesen; das
+  ursprüngliche Byte geht unverändert hindurch, `--zurueck` findet den Namen wieder.
 
 Der `Mixed`-Ordner — eine Sammelablage ohne Plattformzuordnung — wird getrennt aufgelöst:
 
@@ -194,6 +226,37 @@ Two details: the platform that was **running** when the abort happened is redone
 resuming inside one would need per-entry state while a pass is largely repeatable; and a
 **finished** run is not a resume point, since starting again after the end means rebuild,
 not do nothing.
+
+**A platform that crashed does not count as done.** The run carries on with the next one —
+an unreadable folder must not cost 19 hours — but it stays on the resume list and is
+retried by the next invocation. The closing line names it, `fertig` is not set, and the
+exit code is `1`:
+
+```
+=== 72 VON 74 PLATTFORMEN FERTIG, 2 MIT FEHLER: c64, amiga ===
+    c64: RuntimeError: kein freier Name fuer VERSION.NFO
+    amiga: UnicodeEncodeError: '\udce0' surrogates not allowed
+  Erneut versuchen: derselbe Aufruf setzt genau bei diesen fort.
+```
+
+**Why this matters (#397):** on 2026-08-11 the full pass reported `ALLE 74 PLATTFORMEN
+FERTIG` while exactly those two had crashed — both among the three largest. Because
+progress was recorded unconditionally, a resume would have skipped precisely them: the
+recovery path had been taught to ignore the failures.
+
+**The two crashes behind it**, both measured rather than assumed:
+
+- **`kein freier Name`** — the search for a free name ran `(2 … 9999)` and then raised.
+  `c64` holds 9,999 files named `VERSION (i).NFO`; `VERSION.NFO` is an ancillary file
+  present in every other set. The bound limited the library, not the search. It is gone,
+  and the search now remembers where it stopped instead of asking the filesystem n times
+  for the n-th name — about 50 million lookups over 9,999 files, on spinning disks.
+- **`surrogates not allowed`** — a filename on Linux is a byte string, not text. Under
+  `amiga`, 21 names carry bytes that are not valid UTF-8 (`catal\xe0` from
+  `MUI38/MUI/Locale/Catalogs`). Python reads them with surrogate escapes but cannot write
+  them as UTF-8 — and what died on that was the **log**, the one way back. The log is now
+  written and read with `surrogateescape`, so the original byte passes through untouched
+  and `--zurueck` finds the name again.
 
 The `Mixed` folder — a holding area with no platform — is resolved separately:
 

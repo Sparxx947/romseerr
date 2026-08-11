@@ -142,6 +142,17 @@ def ist_spielordner(pfad, plattform):
     return len(stämme) == 1 and any(_MARKER.search(f) for f in echte)
 
 
+# WARUM `surrogateescape` (#397): Ein Dateiname ist unter Linux eine Bytefolge, kein
+# Text. Namen aus Amiga- und DOS-Quellen enthalten Bytes, die kein gueltiges UTF-8
+# sind; `os.listdir` liefert sie als Ersatzzeichen (`\udce0` fuer 0xE0) zurueck, und
+# der Versuch, so etwas nach UTF-8 zu schreiben, wirft `UnicodeEncodeError`. Genau
+# daran starb der `amiga`-Lauf — beim Schreiben der Protokollzeile, also an der
+# einzigen Stelle, die den Rueckweg festhaelt. Mit `surrogateescape` wird das
+# urspruengliche Byte geschrieben und beim Lesen wieder zum selben Ersatzzeichen; der
+# Name geht durch das Protokoll hindurch, ohne sich zu veraendern.
+PROTOKOLL_KODIERUNG = {"encoding": "utf-8", "errors": "surrogateescape"}
+
+
 class Protokoll:
     """Jede Aktion sofort auf die Platte. Ein Absturz mittendrin darf den
     Rueckweg nicht kosten — deshalb kein Puffer."""
@@ -152,7 +163,7 @@ class Protokoll:
         self.f = None
         if not trocken:
             os.makedirs(os.path.dirname(pfad), exist_ok=True)
-            self.f = open(pfad, "a", encoding="utf-8")
+            self.f = open(pfad, "a", **PROTOKOLL_KODIERUNG)
 
     def schreiben(self, art, **felder):
         if self.f:
@@ -203,18 +214,38 @@ def pruefsumme(pfad, block=1 << 20):
     return h.hexdigest()
 
 
+# Zuletzt vergebener Index je (Ordner, Stamm, Endung) — siehe `freier_name`.
+_freier_name_start = {}
+
+
 def freier_name(ordner, name):
     """Kollisionsfreier Name im Zielordner. Gleiche Namen aus verschiedenen Sets
-    sind der Normalfall, nicht die Ausnahme."""
+    sind der Normalfall, nicht die Ausnahme.
+
+    ZWEIMAL NACHGEBESSERT (#397). Die erste Fassung suchte `range(2, 10000)` und warf
+    sonst `RuntimeError: kein freier Name`. Unter `c64` liegen 9.999 Dateien
+    `VERSION (i).NFO` — `VERSION.NFO` ist Beiwerk und steckt in jedem zweiten Set. Die
+    Grenze beschraenkte damit nicht die Suche, sondern die Bibliothek, und riss den
+    ganzen Plattformlauf ab.
+
+    Und sie fing jedes Mal wieder bei 2 an: fuer den n-ten gleichnamigen Eintrag n
+    Anfragen ans Dateisystem, ueber 9.999 Dateien rund 50 Millionen — auf einem
+    Array mit drehenden Platten. Deshalb merkt sich `_freier_name_start`, wo die letzte
+    Suche endete. Geprueft wird trotzdem jeder Kandidat: Der Ordner kann aus einem
+    frueheren Lauf schon belegt sein, und der Vermerk gilt nur fuer diesen Prozess.
+    """
     ziel = os.path.join(ordner, name)
     if not os.path.exists(ziel):
         return ziel
     stamm, endung = os.path.splitext(name)
-    for i in range(2, 10000):
+    schluessel = (ordner, stamm, endung)
+    i = _freier_name_start.get(schluessel, 2)
+    while True:
         ziel = os.path.join(ordner, f"{stamm} ({i}){endung}")
         if not os.path.exists(ziel):
+            _freier_name_start[schluessel] = i + 1
             return ziel
-    raise RuntimeError(f"kein freier Name fuer {name}")
+        i += 1
 
 
 def entpacken(archiv, ziel):
@@ -404,7 +435,10 @@ def zurueck(protokoll_pfad):
     """Rueckwaerts durch das Protokoll. Entpacktes wird geloescht, Verschobenes
     zurueckgelegt. Entfernte Dubletten sind NICHT wiederherstellbar — sie waren
     bitgleiche Kopien, das Original steht noch da."""
-    zeilen = [json.loads(z) for z in open(protokoll_pfad, encoding="utf-8") if z.strip()]
+    # Dieselbe Kodierung wie beim Schreiben (#397) — sonst waere das Protokoll fuer genau
+    # die Namen unlesbar, um derentwillen es angepasst wurde.
+    with open(protokoll_pfad, **PROTOKOLL_KODIERUNG) as f:
+        zeilen = [json.loads(z) for z in f if z.strip()]
     n = {"verschoben": 0, "entpackt": 0, "uebersprungen": 0}
     for e in reversed(zeilen):
         art = e["art"]
@@ -509,7 +543,7 @@ def alle_umbauen(wurzel, trocken, ueberspringen, neu_anfangen=False):
 
     stand = {"start": time.time(), "gesamt_dateien": gesamt,
              "plattformen_gesamt": len(kandidaten) + len(frueher),
-             "erledigt": vorher,
+             "erledigt": vorher, "fehlgeschlagen": [],
              "aktuell": None, "fertig": False, "offen_dateien": gesamt}
 
     def sichern():
@@ -527,26 +561,52 @@ def alle_umbauen(wurzel, trocken, ueberspringen, neu_anfangen=False):
         pfad = os.path.join(wurzel, ".umbau",
                             f"{e}-{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
         prot = Protokoll(pfad, trocken)
+        fehler = None
         try:
-            umbauen(wurzel, e, trocken, prot)
+            rc = umbauen(wurzel, e, trocken, prot)
+            if rc:
+                fehler = f"Rueckgabewert {rc}"
         except Exception as ex:                    # eine Plattform darf den Lauf
-            print(f"  {e}: FEHLER {ex.__class__.__name__}: {ex}")  # nicht beenden
+            fehler = f"{ex.__class__.__name__}: {ex}"                # nicht beenden
+            print(f"  {e}: FEHLER {fehler}")
         finally:
             prot.zu()
         # Eigentuemer geradeziehen: alles, was hier als root entstand, gehoert
         # sonst root:root und ist fuer RomM/Romseerr/SMB unbeweglich.
         baum_rechte_setzen(os.path.join(wurzel, e))
-        stand["erledigt"].append({"plattform": e, "dateien": n,
-                                  "sekunden": round(time.time() - t0, 1)})
-        stand["offen_dateien"] -= n
+        # NUR was ohne Ausnahme durchlief, gilt als erledigt (#397). Weiterzumachen ist
+        # richtig — ein unlesbarer Ordner darf keine 19 Stunden kosten. Den Fehlschlag als
+        # `erledigt` zu buchen ist es nicht: Seit #372 IST diese Liste der
+        # Wiederaufsetzpunkt, ein Fortsetzen ueberspraenge sonst genau die
+        # Plattformen, die nicht fertig sind. Genau so meldete der Lauf vom 2026-08-11
+        # `ALLE 74 PLATTFORMEN FERTIG`, waehrend `c64` und `amiga` abgestuerzt waren.
+        if fehler:
+            stand["fehlgeschlagen"].append({"plattform": e, "dateien": n,
+                                            "fehler": fehler})
+        else:
+            stand["erledigt"].append({"plattform": e, "dateien": n,
+                                      "sekunden": round(time.time() - t0, 1)})
+            stand["offen_dateien"] -= n
         stand["aktuell"] = None
         sichern()
 
-    stand["fertig"] = True
+    gescheitert = stand["fehlgeschlagen"]
+    # `fertig` schaltet den Wiederaufsetzpunkt ab (`stand_laden`). Nach einem Lauf mit
+    # Fehlern darf es nicht stehen, sonst begaenne der naechste Aufruf wieder von vorn und
+    # die zwei offenen Plattformen waeren nur ueber `--ausser` von Hand erreichbar.
+    stand["fertig"] = not gescheitert
     stand["ende"] = time.time()
     sichern()
-    print(f"\n  === ALLE {len(kandidaten)} PLATTFORMEN FERTIG ===")
-    return 0
+    if gescheitert:
+        namen = ", ".join(f["plattform"] for f in gescheitert)
+        print(f"\n  === {len(kandidaten) - len(gescheitert)} VON {len(kandidaten)} "
+              f"PLATTFORMEN FERTIG, {len(gescheitert)} MIT FEHLER: {namen} ===")
+        for f in gescheitert:
+            print(f"    {f['plattform']}: {f['fehler']}")
+        print("  Erneut versuchen: derselbe Aufruf setzt genau bei diesen fort.")
+    else:
+        print(f"\n  === ALLE {len(kandidaten)} PLATTFORMEN FERTIG ===")
+    return 1 if gescheitert else 0
 
 
 def main():
