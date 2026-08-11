@@ -547,34 +547,49 @@ def _cia_installiert(titel):
 
 
 def _cia_entschluesseln(pfad):
-    """-> (ziel, fehler). Wie die Abbild-Variante, aber das Werkzeug schreibt eine NEUE Datei.
+    """-> (ziel, fehler). Entschluesselt in ein EIGENES Verzeichnis und raeumt es weg.
 
-    Der Unterschied ist der Grund fuer eine eigene Funktion: `decrypt_3ds.py` arbeitet
-    in-place, `decrypt_cia.py` legt `<name>-decrypted.cia` daneben. Waere die Abbild-Logik
-    wiederverwendet worden, haette sie die UNVERAENDERTE Kopie in den Zwischenspeicher
-    gelegt — und Azahar haette sie mit derselben Meldung abgelehnt wie das Original.
+    WARUM EIN VERZEICHNIS UND NICHT NUR EINE .part-DATEI (#388): `decrypt_cia.py` bildet
+    seinen Ausgabenamen selbst — `splitext(eingabe)[0] + "-decrypted.cia"`, mit FESTER
+    Endung. Wer diesen Namen nachrechnet, rechnet ihn irgendwann falsch nach: Die erste
+    Fassung uebergab `<hash>.cia.part` und erwartete `<hash>.cia-decrypted.part`, waehrend
+    das Werkzeug `<hash>.cia-decrypted.cia` schrieb. Die Entschluesselung lief durch, die
+    Datei war da, und der Aufrufer meldete „keine Ausgabedatei" — 342 MB blieben liegen.
+
+    Deshalb wird hier NICHT nachgerechnet: Im eigenen Verzeichnis liegt hinterher genau
+    eine `.cia`, die nicht die Eingabe ist. Das ist die Ausgabe, egal wie sie heisst. Und
+    das Verzeichnis verschwindet mitsamt allem, was das Werkzeug sonst noch ablegt.
+
+    The tool builds its own output name with a hardcoded extension. Rather than recomputing
+    it — which is how this broke — decrypt inside a scratch directory and take whatever
+    .cia is not the input.
     """
     ziel = _cache_name(pfad)
     if os.path.isfile(ziel) and os.path.getsize(ziel) > 0:
         os.utime(ziel, None)
         return ziel, ""
     os.makedirs(ENTSCHL_CACHE, exist_ok=True)
-    teil = ziel + ".part"
-    erzeugt = os.path.splitext(teil)[0] + "-decrypted" + os.path.splitext(teil)[1]
+
+    import shutil, tempfile
+    arbeit = tempfile.mkdtemp(prefix="cia-", dir=ENTSCHL_CACHE)
     try:
-        import shutil
-        shutil.copyfile(pfad, teil)
-        r = subprocess.run([sys.executable, ENTSCHL_WERKZEUG_CIA, teil],
+        eingabe = os.path.join(arbeit, "eingabe.cia")
+        shutil.copyfile(pfad, eingabe)
+        r = subprocess.run([sys.executable, ENTSCHL_WERKZEUG_CIA, eingabe],
                            capture_output=True, text=True, timeout=3600)
-        if r.returncode != 0 or not os.path.isfile(erzeugt):
-            raise RuntimeError((r.stderr or r.stdout or "")[-300:] or "keine Ausgabedatei")
-        os.replace(erzeugt, ziel)
+        if r.returncode != 0:
+            raise RuntimeError((r.stderr or r.stdout or "")[-300:] or "Werkzeug scheiterte")
+        aus = [f for f in os.listdir(arbeit)
+               if f.lower().endswith(".cia") and f != "eingabe.cia"]
+        if not aus:
+            raise RuntimeError("das Werkzeug hat keine Ausgabedatei hinterlassen")
+        # `os.replace` statt `shutil.move`: atomar, solange beides im selben Dateisystem
+        # liegt — und das Arbeitsverzeichnis liegt bewusst IM Zwischenspeicher.
+        os.replace(os.path.join(arbeit, aus[0]), ziel)
     except Exception as e:
         return "", f"CIA-Entschluesselung fehlgeschlagen / CIA decryption failed: {e}"
     finally:
-        for rest in (teil, erzeugt):
-            try: os.remove(rest)
-            except OSError: pass
+        shutil.rmtree(arbeit, ignore_errors=True)
     _cache_aufraeumen(schonen=ziel)
     return ziel, ""
 
