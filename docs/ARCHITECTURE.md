@@ -62,6 +62,20 @@ eigenem Zielordner, damit Radarr/Sonarr davon nichts sehen.
    Filesystem-Watcher erkennt die neue Datei; optional meldet Romseerr die
    Verfügbarkeit per Discord.
 
+> **Wer RomM unter Unraid betreibt: die Vorlage ist die Wahrheit, nicht der laufende
+> Container.** Alles, was am laufenden Container gesetzt wird und nicht in der
+> Docker-Vorlage steht, ist beim nächsten Neuanlegen weg — und zwar lautlos. Das hat hier
+> zweimal zugeschlagen: erst bei den Metadaten-Schlüsseln, dann bei `SCAN_TIMEOUT` (#317).
+>
+> Besonders unangenehm ist genau dieser Wert: Die Vorgabe liegt unter 24 Stunden, ein
+> vollständiger Scan einer großen Bibliothek dauert länger — und **ein Scan, der ins
+> Zeitlimit läuft, sieht aus wie einer, der fertig ist.** RomM meldet keinen Abschluss,
+> es hört nur auf zu arbeiten.
+>
+> *On Unraid the template is the truth, not the running container: anything set past it is
+> gone at the next recreate, silently. A scan that hits its timeout looks exactly like a
+> scan that finished.*
+
 ## Konfiguration (Auszug)
 
 Alle Werte über `.env` (siehe `.env.example`). Im **Full-Stack-Compose** zeigen
