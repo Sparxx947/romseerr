@@ -671,7 +671,7 @@ def variant_rank(v, prefs):
 
 # RAM-Abbild des Bibliotheks-Index (schnelles in_library): per = {slug: {norm,…}},
 # all = alle norms plattformübergreifend, slugs = vorhandene Plattform-Ordner, ts = Bauzeit.
-LIB = {"per": {}, "all": set(), "slugs": set(), "ts": 0}
+LIB = {"per": {}, "all": set(), "slugs": set(), "ts": 0, "failed": {}}
 LIB_LOCK = threading.Lock()
 
 # ---------- SQLite: persistenter Bibliotheks-Index ----------
@@ -989,6 +989,32 @@ def slug_folders(slug):
     return [slug] + sorted(f for f, z in FOLDER_ALIASES.items() if z == slug)
 
 
+INDEX_FEHLER_ZEIGEN = 10   # so viele Plattformnamen stehen in der Schlussmeldung
+
+def _index_fehlertext(fehler):
+    """Zusatz fuer die Schlussmeldung des Indexlaufs. Ohne Fehler: leer. (#381)
+
+    Die Zeile mit der Titelzahl ist die, die gelesen wird — im Containerprotokoll, in
+    der Fehlersuche, beim Vergleich zweier Laeufe. Steht dort nichts, ist eine Zahl,
+    die stillschweigend Plattformen auslaesst, glaubwuerdiger als sie sein darf.
+    LEER BLEIBEN IST TEIL DER SACHE: Eine Warnung, die immer dasteht, wird nicht gelesen.
+
+    Gedeckelt, weil eine komplett nicht gemountete Freigabe sonst alle ~600 Namen in
+    eine Zeile schriebe — die ZAHL ist dann die Auskunft, nicht die Liste.
+
+    EN: the title-count line is the one people actually read; a total that silently
+    omits platforms must not stand there alone. Capped — with the share unmounted the
+    count is the information, not six hundred names.
+    """
+    if not fehler: return ""
+    namen = sorted(fehler)
+    kopf = ", ".join(f"{s} ({fehler[s]})" for s in namen[:INDEX_FEHLER_ZEIGEN])
+    rest = len(namen) - INDEX_FEHLER_ZEIGEN
+    if rest > 0: kopf += f", … (+{rest} weitere)"
+    wort = "Plattform" if len(namen) == 1 else "Plattformen"
+    return f" — {len(namen)} {wort} NICHT gelesen: {kopf}"
+
+
 def build_index():
     """Bibliotheks-Index aus dem Dateisystem neu aufbauen (ROMS/<slug>/…, 2 Ebenen tief),
     in LIB (RAM) ablegen UND in SQLite persistieren. Läuft beim allerersten Start und
@@ -998,6 +1024,10 @@ def build_index():
     # Dateien desselben Titels gewinnt der KUERZESTE: `Turrican.d64` ist als
     # Ueberschrift brauchbar, `Turrican (1990)(Rainbow Arts)[cr ABC][t +3].d64` nicht.
     namen = {}
+    # Plattformen, deren Ordner NICHT gelesen werden konnte -> Fehlerart (#381).
+    # Eine solche Plattform traegt null Titel bei und war bis hierher nicht von einer
+    # wirklich leeren zu unterscheiden.
+    fehler = {}
     try:
         for ordner in os.listdir(ROMS):
             p = os.path.join(ROMS, ordner)
@@ -1017,8 +1047,28 @@ def build_index():
             # Mehrere Ordner koennen auf denselben Slug zeigen (cps1, cps2 -> arcade).
             # setdefault statt Zuweisung, sonst ueberschreibt der zweite den ersten.
             s = per.setdefault(slug, set())
+            # WARUM `onerror` UND NICHT NUR DER `except`-ZWEIG UNTEN (#381):
+            # `os.walk` WIRFT bei einem Lesefehler nichts. Ohne `onerror` ruft es
+            # niemanden und liefert fuer den betroffenen Ordner einfach nichts —
+            # der `except` unten wurde bei genau diesem Fall nie betreten. Rechte-,
+            # Mount-, Symlink- und E/A-Fehler laufen allesamt hier durch.
+            #
+            # Live nachgemessen: `/roms/pico8` steht auf `drwx-w----`, der Container
+            # darf schreiben, aber nicht lesen. 13.176 Titel wurden als 0 verbucht,
+            # vier Indexlaeufe in Folge meldeten dieselbe Zahl ohne ein Wort dazu.
+            #
+            # EN: os.walk raises NOTHING on a read error — without onerror it silently
+            # yields nothing, so the except below never fired for the very cases that
+            # matter (permissions, unreadable mounts, broken symlinks, I/O errors).
+            def _lesefehler(err, _slug=slug):
+                # Erster Fehler je Plattform genuegt; ein gesperrter Baum wuerde sonst
+                # dieselbe Meldung hundertfach schreiben.
+                if _slug not in fehler:
+                    fehler[_slug] = type(err).__name__
+                    log(f"Index: Plattform {_slug} nicht vollstaendig gelesen: "
+                        f"{type(err).__name__}: {err}")
             try:
-                for root, dirs, files in os.walk(p):
+                for root, dirs, files in os.walk(p, onerror=_lesefehler):
                     for fn in files:
                         n = norm(fn)
                         if not n: continue
@@ -1033,14 +1083,20 @@ def build_index():
                     # nur zwei Ebenen tief laufen (Performance)
                     if root != p and os.path.relpath(root, p).count(os.sep) >= 1:
                         dirs[:] = []
-            except Exception: pass
+            except Exception as e:
+                # Netz fuer alles, was NICHT ueber `onerror` laeuft. Frueher `pass` —
+                # und damit die einzige Stelle, an der ein Fehler ganz verschwand.
+                fehler.setdefault(slug, type(e).__name__)
+                log(f"Index: Plattform {slug} abgebrochen: {type(e).__name__}: {e}")
     except Exception as e:
         log(f"Index-Fehler: {e}")
     ts = time.time()
     with LIB_LOCK:
         LIB["per"], LIB["all"], LIB["slugs"], LIB["ts"] = per, allset, slugs, ts
+        LIB["failed"] = fehler
     save_index_to_db(per, allset, slugs, ts, namen)   # persistieren -> schneller Neustart
-    log(f"Bibliotheks-Index: {len(slugs)} Plattformen, {len(allset)} Titel (in DB gesichert)")
+    log(f"Bibliotheks-Index: {len(slugs)} Plattformen, {len(allset)} Titel "
+        f"(in DB gesichert){_index_fehlertext(fehler)}")
     refresh_coverage_counts()   # Abdeckung folgt der Bibliothek, wird nicht je Request gerechnet (#78)
 
 # ---------- Abdeckung je Plattform (#78) ----------
@@ -4796,7 +4852,12 @@ def health():
     eine schreibgeschützte Datenbank besteht die mühelos. (#216)"""
     st = storage_state()
     return jsonify({"ok":True,"lib_titles":len(LIB['all']),"jobs":len(JOBS),
-                    "storage":"rw" if st["ok"] else "ro"})
+                    "storage":"rw" if st["ok"] else "ro",
+                    # Plattformen, die beim letzten Indexlauf nicht lesbar waren (#381).
+                    # Ohne dieses Feld ist `lib_titles` eine Zahl ohne Vorbehalt: eine
+                    # teilweise gelesene Bibliothek sieht von aussen aus wie eine kleine.
+                    "lib_failed":len(LIB.get('failed') or {}),
+                    "lib_failed_platforms":sorted(LIB.get('failed') or {})})
 
 # ---------- Betriebsmetriken (Prometheus) ----------
 # /health beantwortet nur „läuft der Prozess". Die interessanten Ausfälle hier sind leise:
@@ -6320,7 +6381,10 @@ OPENAPI = {
     "paths": {
         # --- System ---
         "/health": {"get": _op("Liveness-Probe (Titelzahl, Jobs) samt Speicherzustand "
-                               "(storage: rw/ro — ro heißt: es wird nichts gespeichert)", "System", _PUB)},
+                               "(storage: rw/ro — ro heißt: es wird nichts gespeichert) und "
+                               "lib_failed/lib_failed_platforms: Plattformordner, die beim letzten "
+                               "Indexlauf nicht lesbar waren — über 0 ist lib_titles unvollständig",
+                               "System", _PUB)},
         "/api/version": {"get": _op("Laufende Version, Commit und Bauzeitpunkt (optional Update-Abgleich)", "System", _PUB,
             params=[_qp("check", "1 = zusätzlich gegen den Release-Feed prüfen (latest, update_available)")])},
         "/metrics": {"get": _op("Betriebsmetriken im Prometheus-Textformat (Auth wie API)", "System",

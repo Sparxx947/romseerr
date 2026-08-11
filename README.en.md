@@ -408,6 +408,20 @@ workflows. That is why v1.1.0-beta.1 shipped without an image.
 > `"storage": "ro"` in `/health`, a startup warning and a notice in the interface. Check
 > with `docker exec romseerr id`, fix with `chown -R 1000 ./config`.
 
+> **`/roms` must be READABLE for that same uid — every platform folder individually.**
+> A folder the container may not enter contributes **zero titles**. That used to look
+> exactly like an empty platform: here one folder sat at `drwx-w----` (the group could
+> write but not read it) and 13,176 titles went missing with nothing saying so anywhere.
+> The index run now names it:
+>
+> ```
+> Bibliotheks-Index: 598 Plattformen, 128177 Titel (in DB gesichert) — 1 Plattform NICHT gelesen: pico8 (PermissionError)
+> ```
+>
+> and `/health` carries it as `lib_failed` plus `lib_failed_platforms`. Anything above `0`
+> means **`lib_titles` is incomplete**. Check with
+> `docker exec romseerr ls /roms/<folder>`, fix with `chmod 755 /path/to/<folder>`.
+
 ---
 
 ## First run

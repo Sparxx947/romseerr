@@ -416,6 +416,20 @@ Der Container läuft **non-root** und bringt einen **Healthcheck** auf `/health`
 > Startwarnung und einem Hinweis in der Oberfläche. Prüfen: `docker exec romseerr id`,
 > setzen: `chown -R 1000 ./config`.
 
+> **`/roms` muss für dieselbe uid LESBAR sein — auch jeder Plattformordner einzeln.**
+> Ein Ordner, den der Container nicht betreten darf, trägt **null Titel** bei. Das sah
+> früher aus wie eine leere Plattform; hier lag ein Ordner auf `drwx-w----` (die Gruppe
+> durfte schreiben, aber nicht lesen) und 13.176 Titel fehlten, ohne dass irgendwo etwas
+> stand. Der Indexlauf nennt so etwas jetzt beim Namen:
+>
+> ```
+> Bibliotheks-Index: 598 Plattformen, 128177 Titel (in DB gesichert) — 1 Plattform NICHT gelesen: pico8 (PermissionError)
+> ```
+>
+> und `/health` führt es als `lib_failed` samt `lib_failed_platforms`. Ein Wert über `0`
+> heißt: **`lib_titles` ist unvollständig.** Prüfen mit
+> `docker exec romseerr ls /roms/<ordner>`, setzen mit `chmod 755 /pfad/zu/<ordner>`.
+
 ---
 
 ## Ersteinrichtung
