@@ -80,11 +80,11 @@ paths:
       tags:
       - System
       responses:
-        '401': &id003
-          description: nicht angemeldet / not authenticated
         '200':
           description: text/plain; version=0.0.4
-      security: &id002
+        '401': &id002
+          description: nicht angemeldet / not authenticated
+      security: &id003
       - cookieAuth: []
       - apiKeyHeader: []
       - apiKeyQuery: []
@@ -156,7 +156,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
   /login:
     get:
       summary: Login-Seite (HTML)
@@ -231,7 +232,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/forgot:
     post:
       summary: Passwort-Reset per E-Mail anstoßen (generische Antwort)
@@ -278,10 +280,10 @@ paths:
       tags:
       - Search
       responses:
-        '401': *id003
         '200':
           description: Trefferliste
-      security: *id002
+        '401': *id002
+      security: *id003
       parameters:
       - name: q
         in: query
@@ -303,7 +305,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/coverage/status:
     get:
       summary: Fortschritt eines laufenden Katalogabrufs
@@ -312,7 +315,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/catalog/status:
     get:
       summary: 'Filehoster-Katalogquellen: Stand, Anzahl, Fehler'
@@ -321,20 +325,22 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/catalog/refresh:
     post:
       summary: Katalogquellen sofort neu holen
       tags:
       - Admin
       responses:
-        '403': &id004
-          description: fehlende Berechtigung / missing permission
         '200':
           description: gestartet
+        '403': &id004
+          description: fehlende Berechtigung / missing permission
         '400':
           description: keine Quelle hinterlegt
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/ra/status:
     get:
       summary: 'RetroAchievements: indizierte Plattformen, Set-Zahl, Stand, nicht zugeordnete Slugs'
@@ -343,35 +349,38 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/ra/refresh:
     post:
       summary: 'RetroAchievements: Set-Listen je Konsole neu holen (Hintergrundlauf)'
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: gestartet
+        '403': *id004
         '400':
           description: kein API-Key hinterlegt
         '409':
           description: Lauf bereits aktiv
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/coverage/refresh:
     post:
       summary: Katalog-Momentaufnahme neu holen (Hintergrundlauf)
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: gestartet
+        '403': *id004
         '400':
           description: keine Katalogquelle / IGDB nicht konfiguriert
         '409':
           description: Lauf bereits aktiv
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -389,7 +398,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
       parameters:
       - name: slug
         in: path
@@ -423,7 +433,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/library/{slug}/titles:
     get:
       summary: Vorhandene Titel einer Plattform (paginiert, filterbar)
@@ -432,7 +443,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
       parameters:
       - name: slug
         in: path
@@ -466,7 +478,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/discover/rows:
     get:
       summary: Startseiten-Reihen (beliebt je Konsole + je Genre)
@@ -475,7 +488,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/detail:
     get:
       summary: Detaildaten inkl. IGDB (Wertung, Screenshots, Ähnliches) + Dateien
@@ -484,7 +498,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
       parameters:
       - name: source
         in: query
@@ -510,12 +525,13 @@ paths:
       tags:
       - Search
       responses:
-        '403': *id004
         '200':
           description: playable + Grund/URL
+        '403': *id004
         '400':
           description: kein Titel
-      security: *id002
+        '401': *id002
+      security: *id003
       parameters:
       - name: title
         in: query
@@ -534,9 +550,14 @@ paths:
       summary: Ist der Titel streambar (Plattform ohne Browser-Kern)?
       tags:
       - Search
-      responses: &id005
+      responses:
+        '200':
+          description: OK
         '403': *id004
-      security: *id002
+        '400':
+          description: kein Titel angegeben / no title given
+        '401': *id002
+      security: *id003
       parameters:
       - name: title
         in: query
@@ -556,12 +577,13 @@ paths:
       tags:
       - Requests
       responses:
-        '403': *id004
         '200':
           description: gestartet
+        '403': *id004
         '409':
           description: Platz belegt
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -580,61 +602,69 @@ paths:
       tags:
       - Requests
       responses:
-        '403': *id004
         '200':
           description: freigegeben
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/stream/status:
     get:
       summary: Zustand des Einzelplatzes
       tags:
       - Requests
-      responses: *id005
-      security: *id002
+      responses:
+        '200':
+          description: OK
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/stream/emulators:
     get:
       summary: 'Emulatoren auf dem Streaming-Host: Stand, Quelle, laufende Aktualisierung'
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: Liste + Update-Zustand
+        '403': *id004
         '400':
           description: kein Start-Dienst hinterlegt
         '502':
           description: Start-Dienst nicht erreichbar
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/stream/emulators/catalog:
     get:
       summary: Installierbare und installierte Emulatoren des Streaming-Hosts
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: Katalog
+        '403': *id004
         '400':
           description: kein Start-Dienst hinterlegt
         '502':
           description: Start-Dienst nicht erreichbar
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/stream/emulators/install:
     post:
       summary: Einen Emulator auf dem Streaming-Host installieren
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: gestartet
+        '403': *id004
         '400':
           description: kein Start-Dienst / unzulaessiger Name
         '404':
           description: nicht im Katalog
         '409':
           description: laeuft bereits
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -651,14 +681,15 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: Zustand je Plattform
+        '403': *id004
         '400':
           description: kein Start-Dienst hinterlegt
         '502':
           description: Start-Dienst nicht erreichbar
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/stream/firmware/upload:
     post:
       summary: Eine BIOS-/Firmware-Datei zum Streaming-Host durchreichen (multipart, Feld 'file'). Romseerr
@@ -666,16 +697,17 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: eingespielt
+        '403': *id004
         '400':
           description: keine Datei / unzulaessige Plattform oder Name
         '413':
           description: zu gross
         '502':
           description: Start-Dienst nicht erreichbar
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/stream/firmware/vendor:
     post:
       summary: Firmware beim Hersteller holen. Nur PS3 - Sony veroeffentlicht seine Systemsoftware selbst;
@@ -683,16 +715,17 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: gestartet
+        '403': *id004
         '400':
           description: kein Start-Dienst / keine Herstellerquelle
         '409':
           description: laeuft bereits
         '502':
           description: Start-Dienst nicht erreichbar
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -711,14 +744,15 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: zurueckgesetzt
+        '403': *id004
         '400':
           description: kein Start-Dienst / unzulaessiger Name
         '502':
           description: Start-Dienst nicht erreichbar
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -735,14 +769,15 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: gestartet
+        '403': *id004
         '409':
           description: laeuft bereits
         '502':
           description: Start-Dienst nicht erreichbar
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/cover:
     get:
       summary: Cover-URL zu einem Titel (lazy, via IGDB)
@@ -751,7 +786,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
       parameters:
       - name: title
         in: query
@@ -767,17 +803,18 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/download:
     post:
       summary: ROM anfragen/herunterladen (Auto-Freigabe oder pending)
       tags:
       - Requests
       responses:
-        '401': *id003
         '200':
           description: Job angelegt
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -792,26 +829,27 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/favourites:
     get:
       summary: Favoriten des angemeldeten Nutzers
       tags:
       - User
       responses:
-        '401': *id003
         '200':
           description: Liste
-      security: *id002
+        '401': *id002
+      security: *id003
     post:
       summary: Titel zu den Favoriten hinzufügen
       tags:
       - User
       responses:
-        '401': *id003
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -828,10 +866,10 @@ paths:
       tags:
       - User
       responses:
-        '401': *id003
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -846,10 +884,10 @@ paths:
       tags:
       - User
       responses:
-        '401': *id003
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
       parameters:
       - name: title
         in: query
@@ -863,10 +901,10 @@ paths:
       tags:
       - User
       responses:
-        '401': *id003
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -883,10 +921,10 @@ paths:
       tags:
       - User
       responses:
-        '401': *id003
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -904,12 +942,13 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: Liste mit `available` je Plattform
+        '403': *id004
         '400':
           description: RomM nicht konfiguriert
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/jd/probe:
     post:
       summary: 'Die JDownloader-Uebergabe ausprobieren: eine wirkungslose `.crawljob` ablegen und pruefen,
@@ -917,10 +956,11 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: Ergebnis mit `reason` und `fix`
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/usenet/check:
     get:
       summary: Den Usenet-Weg stufenweise durchmessen, ohne etwas zu laden (Suche, SAB-Kategorie, Warteschlange,
@@ -928,10 +968,11 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/logos:
     get:
       summary: Welche Logos der Betreiber hinterlegt hat (Dateinamen ohne Endung). Im Repo liegt bewusst
@@ -965,16 +1006,17 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
     post:
       summary: Titel auf die Wunschliste setzen (Auto-Download, sobald verfügbar)
       tags:
       - Requests
       responses:
-        '401': *id003
         '200':
           description: vorgemerkt
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -993,12 +1035,13 @@ paths:
       tags:
       - Requests
       responses:
-        '403': *id004
         '200':
           description: Vorschau bzw. Ergebnis
+        '403': *id004
         '413':
           description: Liste zu groß
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -1029,17 +1072,18 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/wishlist/remove:
     post:
       summary: Titel von der Wunschliste entfernen
       tags:
       - Requests
       responses:
-        '401': *id003
         '200':
           description: entfernt
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -1058,10 +1102,11 @@ paths:
       tags:
       - Requests
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
       parameters:
       - name: jid
         in: path
@@ -1075,10 +1120,11 @@ paths:
       tags:
       - Requests
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
       parameters:
       - name: jid
         in: path
@@ -1093,14 +1139,15 @@ paths:
       tags:
       - Requests
       responses:
-        '403': *id004
         '200':
           description: eingestellt
+        '403': *id004
         '400':
           description: falscher Zustand
         '409':
           description: alle Quellen versucht
-      security: *id002
+        '401': *id002
+      security: *id003
       parameters:
       - name: jid
         in: path
@@ -1114,14 +1161,15 @@ paths:
       tags:
       - Requests
       responses:
-        '403': *id004
         '200':
           description: entfernt
+        '403': *id004
         '400':
           description: Anfrage laeuft noch
         '404':
           description: unbekannt
-      security: *id002
+        '401': *id002
+      security: *id003
       parameters:
       - name: jid
         in: path
@@ -1134,14 +1182,15 @@ paths:
       tags:
       - Requests
       responses:
-        '403': *id004
         '200':
           description: angestossen
+        '403': *id004
         '400':
           description: falscher Zustand
         '404':
           description: unbekannt oder Dateien weg
-      security: *id002
+        '401': *id002
+      security: *id003
       parameters:
       - name: jid
         in: path
@@ -1155,32 +1204,35 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/leftovers/remove:
     post:
       summary: 'Liegengebliebene Downloads entfernen — einzeln per `jid` oder alle per `all: true`'
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
+        '403': *id004
         '404':
           description: nicht gefunden
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/jobs/clear-finished:
     post:
       summary: Abgeschlossene Anfragen entfernen
       tags:
       - Requests
       responses:
-        '403': *id004
         '200':
           description: entfernt
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/issues:
     get:
       summary: 'Problemmeldungen (eigene; Admin: alle)'
@@ -1189,7 +1241,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
     post:
       summary: Problem melden
       tags:
@@ -1197,7 +1250,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -1220,12 +1274,13 @@ paths:
       tags:
       - Issues
       responses:
-        '403': *id004
         '200':
           description: OK
+        '403': *id004
         '400':
           description: leer
-      security: *id002
+        '401': *id002
+      security: *id003
       parameters:
       - name: iid
         in: path
@@ -1249,10 +1304,11 @@ paths:
       tags:
       - Issues
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
       parameters:
       - name: iid
         in: path
@@ -1266,10 +1322,11 @@ paths:
       tags:
       - Issues
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
       parameters:
       - name: iid
         in: path
@@ -1285,18 +1342,19 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
     post:
       summary: Nachricht an einen Nutzer senden
       tags:
       - Messages
       responses:
-        '401': *id003
         '200':
           description: gesendet
+        '401': *id002
         '400':
           description: leer/Empfänger
-      security: *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -1318,7 +1376,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -1335,7 +1394,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
     post:
       summary: Profil ändern (Name, E-Mail, Sprache, Design, Avatar, persönl. Webhook)
       tags:
@@ -1343,7 +1403,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -1383,7 +1444,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -1405,7 +1467,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -1422,7 +1485,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/push/subscribe:
     post:
       summary: Push-Abo speichern
@@ -1431,7 +1495,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -1448,7 +1513,8 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -1465,26 +1531,29 @@ paths:
       responses:
         '200':
           description: OK
-      security: *id002
+        '401': *id002
+      security: *id003
   /api/users:
     get:
       summary: Benutzer auflisten
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: Liste
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
     post:
       summary: Benutzer anlegen
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -1513,10 +1582,11 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
       parameters:
       - name: u
         in: path
@@ -1543,10 +1613,11 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
       parameters:
       - name: u
         in: path
@@ -1560,19 +1631,21 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
     post:
       summary: Einstellungen speichern
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -1585,33 +1658,36 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/export:
     get:
       summary: Konfiguration exportieren (ohne Geheimnisse)
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: versioniertes JSON-Dokument
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
     post:
       summary: Konfiguration exportieren, Geheimnisse optional mit Passphrase verschlüsselt
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: versioniertes JSON-Dokument
+        '403': *id004
         '400':
           description: Passphrase zu kurz
         '501':
           description: Verschlüsselung nicht verfügbar
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -1632,12 +1708,13 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: übernommen
+        '403': *id004
         '400':
           description: Schema/Modus/Passphrase ungültig
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -1664,31 +1741,34 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: key->value
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/settings/tls:
     get:
       summary: HTTPS/TLS-Status (CN, Ablauf, Port)
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
     post:
       summary: TLS-Zertifikat + Schlüssel hinterlegen (Neustart nötig)
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: gespeichert
+        '403': *id004
         '400':
           description: ungültig
-      security: *id002
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -1711,39 +1791,43 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/settings/notify-test:
     post:
       summary: Benachrichtigungs-Agenten testen
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/blocklist:
     get:
       summary: Sperrliste lesen
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
     post:
       summary: Sperrliste setzen
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
       requestBody:
         content:
           application/json:
@@ -1760,10 +1844,11 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/config/warnings:
     get:
       summary: Konfigurationsprobleme, die einen ganzen Weg lahmlegen (JDownloader-Übergabe live, Erreichbarkeit
@@ -1771,30 +1856,33 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/maillog:
     get:
       summary: Mail-Versand-Protokoll
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/logs:
     get:
       summary: Anwendungs-Log (letzte Zeilen)
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
       parameters:
       - name: n
         in: query
@@ -1808,50 +1896,55 @@ paths:
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/admin/cache/clear:
     post:
       summary: IGDB-/Discover-Cache leeren
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/admin/reindex:
     post:
       summary: Bibliotheks-Index neu aufbauen (Hintergrund)
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/apikey:
     get:
       summary: API-Key anzeigen
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: OK
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/apikey/regenerate:
     post:
       summary: API-Key neu erzeugen
       tags:
       - Admin
       responses:
-        '403': *id004
         '200':
           description: neuer Key
-      security: *id002
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/openapi.json:
     get:
       summary: Diese OpenAPI-Spezifikation

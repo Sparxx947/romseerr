@@ -411,6 +411,11 @@ Jede Ansicht hat eine Adresse, und ein Titel auch:
 | `#/title/<quelle>/<ref>?v=…&t=…&p=…` | Detailfenster über der Ansicht `v` |
 | `#/settings/<bereich>/<unterseite>` | z. B. `#/settings/notif/telegram` |
 
+**Die Oberfläche wird gepackt ausgeliefert.** Skripte, Stilvorlagen und SVG werden beim
+Start einmal komprimiert und liegen fertig im Speicher — 245 KB werden so zu 79 KB,
+**68 % weniger**, ohne Rechenaufwand je Anfrage. Zusammen mit den inhaltsgehashten URLs
+(`immutable`) lädt ein wiederkehrender Browser gar nichts nach.
+
 Die Menüpunkte sind **echte Verweise**: Sie stehen in der Tab-Reihenfolge, lassen sich mit
 der Tastatur bedienen und in einem neuen Tab öffnen. Der aktive trägt `aria-current`,
 damit auch ein Vorleser weiß, wo man ist.
@@ -558,6 +563,12 @@ curl -H "X-Api-Key: $KEY" http://<host>:8770/api/jobs
 ```
 
 Der Schlüssel wird unter *Einstellungen → Allgemein* erzeugt und kann dort rotiert werden.
+
+**Die Spezifikation nennt auch die Fehlerfälle.** Jede Operation, die eine Anmeldung
+verlangt, dokumentiert **401**, jede rechtegebundene zusätzlich **403** — vorher stand dort
+nur der Erfolgsfall, und wer sich einen Client daraus erzeugte, behandelte den häufigsten
+Fehler überhaupt nicht. Ein Test vergleicht die Spezifikation gegen den laufenden Server,
+damit sie nicht wieder auseinanderlaufen.
 
 ---
 

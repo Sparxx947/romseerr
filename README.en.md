@@ -409,6 +409,10 @@ Every view has an address, and so does a title:
 | `#/title/<source>/<ref>?v=…&t=…&p=…` | detail dialog on top of view `v` |
 | `#/settings/<section>/<subpage>` | e.g. `#/settings/notif/telegram` |
 
+**The interface is served compressed.** Scripts, stylesheets and SVG are compressed once
+at startup and kept ready in memory — 245 KB become 79 KB, **68 % less**, at no per-request
+cost. Together with the content-hashed `immutable` URLs a returning browser fetches nothing.
+
 The sidebar entries are **real links**: they sit in the tab order, work from the
 keyboard and can be opened in a new tab. The active one carries `aria-current`, so a
 screen reader knows where you are.
@@ -548,6 +552,11 @@ Programmatic access via an **API key** (header `X-Api-Key` or `?apikey=`), admin
 ```bash
 curl -H "X-Api-Key: $KEY" http://<host>:8770/api/jobs
 ```
+
+**The spec names the failure cases too.** Every operation requiring authentication
+documents **401**, and permission-bound ones **403** — previously only the success case
+was listed, so a client generated from it did not handle the most common error at all.
+A test compares the spec against the running server so the two cannot drift apart again.
 
 The key is generated under *Settings → General* and can be rotated there.
 

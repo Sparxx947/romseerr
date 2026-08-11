@@ -3311,9 +3311,53 @@ def load_assets():
             except OSError as e:
                 log(f"Asset-Lesefehler {rel}: {e}"); continue
             ext = os.path.splitext(fn)[1].lower()
+            mime = ASSET_MIME.get(ext, "application/octet-stream")
             _ASSETS[rel] = {"hash": hashlib.sha256(body).hexdigest()[:12], "body": body,
-                            "mime": ASSET_MIME.get(ext, "application/octet-stream")}
+                            "mime": mime, "gz": _gzip_wenn_lohnend(body, mime)}
     return len(_ASSETS)
+
+# Ab welcher Groesse lohnt Komprimierung? Darunter kostet der gzip-Kopf mehr, als der
+# Inhalt spart. 1 KiB ist die uebliche Grenze.
+GZIP_MIN = 1024
+
+def _gzip_wenn_lohnend(body, mime):
+    """Vorkomprimierte Fassung — oder None, wenn sie nichts bringt. (#323)
+
+    WARUM BEIM LADEN UND NICHT JE ANFRAGE: Die Dateien liegen im Image und aendern sich
+    zur Laufzeit nicht. Einmal komprimieren kostet beim Start Millisekunden; je Anfrage zu
+    komprimieren kostet dieselbe Arbeit immer wieder fuer dasselbe Ergebnis.
+
+    WARUM MTIME=0: Ohne das traegt der gzip-Kopf einen Zeitstempel, und dieselbe Datei
+    ergaebe bei jedem Start andere Bytes. Das ist bei inhaltsgehashten URLs unschoen und
+    macht Vergleiche im Test unmoeglich.
+
+    WARUM NICHT ALLES: Bilder, Schriften und wasm sind bereits komprimiert; sie durch gzip
+    zu schicken macht sie im Zweifel groesser. Deshalb nur Text, und nur wenn das Ergebnis
+    tatsaechlich kleiner ist — gemessen, nicht angenommen.
+
+    Compressed once at load: the files ship in the image and never change at runtime.
+    mtime=0 keeps the bytes stable across restarts. Only text, and only when the result is
+    actually smaller — measured, not assumed.
+    """
+    if len(body) < GZIP_MIN:
+        return None
+    # Der MIME-Typ traegt Parameter (`application/javascript; charset=utf-8`). Ein
+    # Vergleich auf Gleichheit geht daran vorbei — und zwar lautlos: `text/css` kam ueber
+    # das Praefix trotzdem durch, `application/javascript` nicht. Genau das grosse Buendel,
+    # um das es hier geht, blieb dadurch unkomprimiert.
+    # The MIME type carries parameters; comparing for equality silently missed exactly the
+    # large bundle this is about, while text/* slipped through via the prefix.
+    typ = mime.split(";")[0].strip().lower()
+    if not (typ.startswith("text/") or typ in (
+            "application/javascript", "application/json", "image/svg+xml",
+            "application/manifest+json", "application/xml")):
+        return None
+    import gzip as _gzip, io
+    puffer = io.BytesIO()
+    with _gzip.GzipFile(fileobj=puffer, mode="wb", compresslevel=9, mtime=0) as f:
+        f.write(body)
+    gz = puffer.getvalue()
+    return gz if len(gz) < len(body) else None
 
 def asset_url(rel):
     """Inhaltsgehashte URL. Der Hash steht im PFAD (nicht als Query), damit die Antwort
@@ -3340,8 +3384,17 @@ def serve_asset(h, rel):
     a = _ASSETS.get(rel)
     if not a or a["hash"] != h:
         return Response("not found", status=404, mimetype="text/plain")
-    return Response(a["body"], mimetype=a["mime"],
-                    headers={"Cache-Control": "public, max-age=31536000, immutable"})
+    kopf = {"Cache-Control": "public, max-age=31536000, immutable"}
+    # `Vary: Accept-Encoding` ist Pflicht, sobald zwei Fassungen unter DERSELBEN URL
+    # ausgeliefert werden: Ohne den Kopf reicht ein Proxy die gepackte Fassung an einen
+    # Client weiter, der kein gzip kann. Zusammen mit `immutable` waere das ein Jahr lang
+    # kaputt. / Two representations under one URL require Vary; with immutable, getting
+    # this wrong would be broken for a year.
+    kopf["Vary"] = "Accept-Encoding"
+    if a["gz"] and "gzip" in request.headers.get("Accept-Encoding", ""):
+        kopf["Content-Encoding"] = "gzip"
+        return Response(a["gz"], mimetype=a["mime"], headers=kopf)
+    return Response(a["body"], mimetype=a["mime"], headers=kopf)
 
 load_assets()   # beim Import, damit auch Tests und der WSGI-Betrieb ohne __main__ funktionieren
 
@@ -5549,9 +5602,33 @@ _SEC = [{"cookieAuth": []}, {"apiKeyHeader": []}, {"apiKeyQuery": []}]   # Sessi
 _PUB = []                                                               # kein Auth (öffentlich)
 
 def _op(summary, tag, security=None, params=None, body=None, responses=None):
-    o = {"summary": summary, "tags": [tag],
-         "responses": responses or {"200": {"description": "OK"}}}
-    o["security"] = _SEC if security is None else security
+    """Eine Operation der Spezifikation.
+
+    ZWEI DINGE PASSIEREN HIER AUTOMATISCH, weil sie sonst an 43 Stellen einzeln stehen
+    muessten und genau deshalb gefehlt haben (#328):
+
+    1. **200 geht nie verloren.** Frueher ERSETZTE ein `responses=`-Argument die Vorgabe.
+       Wer nur einen Fehlerfall ergaenzen wollte (`responses=_R_PERM`), loeschte damit
+       stillschweigend den Erfolgsfall — `/api/stream/status` dokumentierte am Ende nur
+       403 und keine einzige gelungene Antwort.
+    2. **401 wird ergaenzt, sobald die Operation nicht oeffentlich ist.** `login_required`
+       gibt fuer `/api/`-Pfade 401 zurueck; das stand in seinem Docstring und in keiner
+       Operation. Wer einen Client aus der Spezifikation erzeugt, behandelte damit den
+       haeufigsten Fehlerfall ueberhaupt nicht.
+
+    Ausdruecklich uebergebene Werte gewinnen — die Automatik ergaenzt nur, was fehlt.
+
+    Two things happen automatically because doing them by hand at 43 call sites is exactly
+    why they were missing: the 200 is never dropped by a `responses=` argument, and 401 is
+    added for every non-public operation. Explicit values still win.
+    """
+    antworten = {"200": {"description": "OK"}}
+    antworten.update(responses or {})
+    sicherheit = _SEC if security is None else security
+    if sicherheit:
+        antworten.setdefault("401", _R_AUTH["401"])
+    o = {"summary": summary, "tags": [tag], "responses": antworten}
+    o["security"] = sicherheit
     if params: o["parameters"] = params
     if body: o["requestBody"] = {"content": {"application/json": {"schema": body}}}
     return o
@@ -5662,7 +5739,8 @@ OPENAPI = {
             responses={**_R_PERM, "200": {"description": "playable + Grund/URL"},
                        "400": {"description": "kein Titel"}})},
         "/api/stream": {"get": _op("Ist der Titel streambar (Plattform ohne Browser-Kern)?", "Search",
-            params=[_qp("title", "Titel"), _qp("platform", "Plattform-Slug")], responses=_R_PERM)},
+            params=[_qp("title", "Titel"), _qp("platform", "Plattform-Slug")],
+            responses={**_R_PERM, "400": {"description": "kein Titel angegeben / no title given"}})},
         "/api/stream/start": {"post": _op("Einzelplatz belegen und Titel auf dem Streaming-Host starten", "Requests",
             body={"type": "object", "required": ["title"],
                   "properties": {"title": {"type": "string"}, "platform": {"type": "string"}}},
