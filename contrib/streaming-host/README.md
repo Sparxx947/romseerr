@@ -238,6 +238,34 @@ ermitteln lässt: **RPCS3** (keine Release-Dateien auf GitHub, offizieller Direk
 weist automatisierte Abrufe ab) und der **Switch-Emulator** (bewusst ohne eingebaute
 Adresse). Romseerr zeigt sie als „URL nötig".
 
+### Aktualisieren — einzeln, und mit einem Weg zurück
+
+**Jeder Emulator lässt sich für sich aktualisieren** (`⟳` in der Liste), zusätzlich zum
+Sammelknopf. Ein Sammellauf lädt hunderte Megabyte für Emulatoren, die niemand benutzt,
+und wer eine Regression sucht, will genau einen Schritt tun können.
+
+Der Sammellauf erfasst dabei alles, was **installiert ist** — nicht nur, was über einen
+`INSTALL_*`-Schalter eingeschaltet wurde. Vorher übersprang er jeden Emulator, der über
+die Oberfläche kam, und meldete trotzdem Erfolg: Die Antwort lautete „gestartet", die
+Fassung blieb unverändert.
+
+**Der Rückweg reicht drei Fassungen weit.** Beim Aktualisieren rückt die abgelöste Fassung
+auf Platz 1, die übrigen rutschen nach, die älteste fällt heraus. `↩` geht **einen Schritt**
+zurück und ist wiederholbar; die Zahl daneben sagt, wie weit noch. Die zurückgesetzte
+Fassung wird dabei verworfen — man geht ja zurück, *weil* sie kaputt ist.
+
+Vorher gab es genau eine Fassung, und der Rückweg *tauschte* current und alt: zweimal
+gedrückt war man wieder am Anfang. Schlimmer war der wahrscheinliche Fall — ein Update auf
+eine bereits kaputte Fassung überschrieb die letzte gute, und ein defekter Emulator fällt
+oft erst beim übernächsten Start auf.
+
+Die `.url`-Marke wandert mit ihrer Fassung. Das ist kein Detail: Sie ist es, wogegen die
+automatische Aktualisierung vergleicht — eine zurückgeholte Fassung ohne ihre Marke würde
+beim nächsten Lauf sofort wieder auf die kaputte gehoben.
+
+Die Zahl der aufgehobenen Fassungen steht in `EMU_GENERATIONEN` (Vorgabe `3`, `0` schaltet
+das Aufheben ab). Jede kostet den vollen Platz des Emulators — hier 80 bis 400 MB.
+
 ## Was tatsächlich getestet ist
 
 „Installiert" ist nicht „läuft". Diese Tabelle sagt, was **mit einem echten Titel

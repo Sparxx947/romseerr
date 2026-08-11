@@ -57,6 +57,47 @@ DESK
 # <ordner>.url — sie enthält bei praktisch allen Projekten die Versionsnummer und ist
 # damit der einfachste verlässliche Vergleich. Ein Prüfsummen-Abgleich wäre genauer,
 # würde aber bei jedem Lauf die ganze Datei ziehen.
+# Wie viele vorige Fassungen aufgehoben werden. Drei ist die Vorgabe aus #338; jede
+# kostet den vollen Platz des Emulators (AppImages hier: 80-400 MB), deshalb einstellbar.
+# EMU_GENERATIONEN=0 schaltet das Aufheben ganz ab.
+GENERATIONEN=${EMU_GENERATIONEN:-3}
+
+generationen_schieben() {  # <ordner>  — aktuelle Fassung nach .alt1, Rest weiterruecken
+  local dir="$1" i
+  [ "$GENERATIONEN" -ge 1 ] 2>/dev/null || { rm -rf "$EMU/$dir"; return 0; }
+
+  # Altbestand aus der Zeit mit nur einer Generation uebernehmen, sonst laege eine
+  # brauchbare Fassung unerreichbar daneben. / Migrate the single-generation layout.
+  [ -d "$EMU/$dir.alt" ] && [ ! -d "$EMU/$dir.alt1" ] && mv "$EMU/$dir.alt" "$EMU/$dir.alt1"
+  [ -f "$EMU/$dir.url.alt" ] && [ ! -f "$EMU/$dir.url.alt1" ] && mv "$EMU/$dir.url.alt" "$EMU/$dir.url.alt1"
+
+  rm -rf "$EMU/$dir.alt$GENERATIONEN"
+  rm -f  "$EMU/$dir.url.alt$GENERATIONEN"
+  i=$((GENERATIONEN - 1))
+  while [ "$i" -ge 1 ]; do
+    [ -d "$EMU/$dir.alt$i" ] && mv "$EMU/$dir.alt$i" "$EMU/$dir.alt$((i+1))"
+    [ -f "$EMU/$dir.url.alt$i" ] && mv "$EMU/$dir.url.alt$i" "$EMU/$dir.url.alt$((i+1))"
+    i=$((i - 1))
+  done
+  if [ -d "$EMU/$dir" ]; then
+    mv "$EMU/$dir" "$EMU/$dir.alt1"
+    # Die Marke MUSS mitwandern. Sie ist es, wogegen die automatische Aktualisierung
+    # vergleicht — eine zurueckgeholte Fassung ohne ihre Marke wuerde beim naechsten Lauf
+    # sofort wieder „aktualisiert", also auf die kaputte Fassung gehoben.
+    # The .url marker must travel with its build: the auto-update compares against it.
+    [ -f "$EMU/$dir.url" ] && mv "$EMU/$dir.url" "$EMU/$dir.url.alt1"
+  fi
+}
+
+generationen_zaehlen() {  # <ordner> -> Anzahl aufgehobener Fassungen
+  local dir="$1" i=1 n=0
+  while [ "$i" -le "${GENERATIONEN:-3}" ]; do
+    [ -x "$EMU/$dir.alt$i/AppRun" ] && n=$((n + 1))
+    i=$((i + 1))
+  done
+  echo "$n"
+}
+
 install_appimage() {  # install_appimage <name> <ordner> <system> <url>
   local name="$1" dir="$2" sys="$3" url="$4"
   local marker="$EMU/$dir.url" have=""
@@ -119,17 +160,22 @@ install_appimage() {  # install_appimage <name> <ordner> <system> <url>
     echo "[emulators] $name: Entpackziel ist ein Symlink — abgebrochen / symlinked target"
     rm -f "$EMU/$dir.neu"; return 1
   fi
-  # Die VORIGE Fassung wird aufgehoben, nicht geloescht: ein Update kann eine
-  # Regression bringen, und dann will man ohne Netz und ohne Suchen zurueck.
-  # Genau eine Generation — mehr waere Speicherverschwendung.
-  # The previous build is kept, not deleted: an update can regress, and then you
-  # want to go back without network access and without hunting for a version.
-  rm -rf "$EMU/$dir.alt"
-  if [ -d "$EMU/$dir" ]; then
-    mv "$EMU/$dir" "$EMU/$dir.alt"
-    [ -f "$marker" ] && cp "$marker" "$EMU/$dir.url.alt"
-  fi
-  mv "$EMU/$dir.neu" "$EMU/$dir"
+  # Vorige Fassungen werden aufgehoben, nicht geloescht: ein Update kann eine Regression
+  # bringen, und dann will man ohne Netz und ohne Suchen zurueck.
+  #
+  # WARUM MEHRERE (#338): Frueher war es genau eine, und `rollback` TAUSCHTE current und
+  # alt. Zweimal zurueck landete damit wieder am Anfang — es gab keinen zweiten Schritt.
+  # Schlimmer: Wird ein Update auf eine bereits kaputte Fassung gelegt, ueberschreibt es
+  # die letzte gute. Genau der wahrscheinliche Fall, denn ein defekter Emulator faellt oft
+  # erst beim uebernaechsten Start auf.
+  #
+  # Es ist ein Ring: .alt1 ist die zuletzt abgeloeste, .alt<N> die aelteste. Beim
+  # Installieren rutscht alles eine Stelle weiter, die aelteste faellt heraus.
+  #
+  # Kept generations form a ring: .alt1 is the most recently replaced build, .alt<N> the
+  # oldest. Previously there was one, and rollback swapped rather than stepped, so pressing
+  # it twice returned to the start.
+  generationen_schieben "$dir"
   printf '%s' "$url" > "$marker"
   desktop "$name" "$sys" "$EMU/$dir/AppRun"
   echo "[emulators] $name: bereit / ready"
@@ -152,17 +198,36 @@ from_release() {  # <schalter> <name> <ordner> <system> <api-url> <regex>
 }
 
 # Zurueck zur vorigen Fassung. Wird vom Start-Dienst aufgerufen (Romseerr-Knopf).
-rollback() {  # rollback <ordner>
-  local dir="$1"
-  [ -x "$EMU/$dir.alt/AppRun" ] || { echo "[emulators] $dir: keine vorige Fassung / none kept"; return 1; }
-  rm -rf "$EMU/$dir.zurueck"
-  mv "$EMU/$dir" "$EMU/$dir.zurueck" 2>/dev/null
-  mv "$EMU/$dir.alt" "$EMU/$dir"
-  mv "$EMU/$dir.zurueck" "$EMU/$dir.alt" 2>/dev/null
-  [ -f "$EMU/$dir.url" ] && mv "$EMU/$dir.url" "$EMU/$dir.url.zurueck"
-  [ -f "$EMU/$dir.url.alt" ] && mv "$EMU/$dir.url.alt" "$EMU/$dir.url"
-  [ -f "$EMU/$dir.url.zurueck" ] && mv "$EMU/$dir.url.zurueck" "$EMU/$dir.url.alt"
-  echo "[emulators] $dir: auf die vorige Fassung zurueckgesetzt / rolled back"
+rollback() {  # rollback <ordner>  — EINEN Schritt zurueck, wiederholbar
+  local dir="$1" i
+
+  # Altbestand mit nur einer Generation uebernehmen (#338).
+  [ -d "$EMU/$dir.alt" ] && [ ! -d "$EMU/$dir.alt1" ] && mv "$EMU/$dir.alt" "$EMU/$dir.alt1"
+  [ -f "$EMU/$dir.url.alt" ] && [ ! -f "$EMU/$dir.url.alt1" ] && mv "$EMU/$dir.url.alt" "$EMU/$dir.url.alt1"
+
+  [ -x "$EMU/$dir.alt1/AppRun" ] || {
+    echo "[emulators] $dir: keine vorige Fassung / none kept"; return 1; }
+
+  # WARUM DIE AKTUELLE FASSUNG WEGGEWORFEN WIRD: Wer zurueckgeht, tut das, WEIL die
+  # aktuelle kaputt ist. Sie aufzuheben hiesse, sie an Position 1 zu legen — und der
+  # naechste Rueckschritt landete wieder bei ihr. Genau dieses Hin und Her war der
+  # Fehler der alten Fassung. Nach vorne fuehrt statt dessen ein Update.
+  # The current build is discarded: you roll back because it is broken, and keeping it at
+  # position 1 is what made the previous implementation toggle instead of step back.
+  rm -rf "$EMU/$dir"
+  rm -f  "$EMU/$dir.url"
+  mv "$EMU/$dir.alt1" "$EMU/$dir"
+  [ -f "$EMU/$dir.url.alt1" ] && mv "$EMU/$dir.url.alt1" "$EMU/$dir.url"
+
+  # Der Rest rueckt nach, damit ein weiterer Rueckschritt die naechstaeltere findet.
+  i=2
+  while [ "$i" -le "${GENERATIONEN:-3}" ]; do
+    [ -d "$EMU/$dir.alt$i" ] && mv "$EMU/$dir.alt$i" "$EMU/$dir.alt$((i-1))"
+    [ -f "$EMU/$dir.url.alt$i" ] && mv "$EMU/$dir.url.alt$i" "$EMU/$dir.url.alt$((i-1))"
+    i=$((i + 1))
+  done
+  echo "[emulators] $dir: eine Fassung zurueck, $(generationen_zaehlen "$dir") weitere vorhanden"
+  echo "[emulators] $dir: stepped back one build, $(generationen_zaehlen "$dir") more available"
 }
 
 # Aufruf als "20-emulators --rollback <ordner>" -> nur zuruecksetzen, nichts holen.
@@ -303,15 +368,19 @@ if [ "${1:-}" = "--catalog" ]; then
     name=$(feld "$zeile" 1); dir=$(feld "$zeile" 2); sys=$(feld "$zeile" 3); art=$(feld "$zeile" 4)
     inst=false; installiert "$dir" && inst=true
     ver=""; [ -f "$EMU/$dir.url" ] && ver=$(basename "$(cat "$EMU/$dir.url")")
-    prev=""; [ -f "$EMU/$dir.url.alt" ] && prev=$(basename "$(cat "$EMU/$dir.url.alt")")
-    rb=false; [ -x "$EMU/$dir.alt/AppRun" ] && rb=true
+    prev=""; [ -f "$EMU/$dir.url.alt1" ] && prev=$(basename "$(cat "$EMU/$dir.url.alt1")")
+    [ -z "$prev" ] && [ -f "$EMU/$dir.url.alt" ] && prev=$(basename "$(cat "$EMU/$dir.url.alt")")
+    # Wie viele Fassungen liegen zurueck? Frueher ein Ja/Nein, weil es nur eine gab.
+    # Die Oberflaeche soll zeigen koennen, wie weit man zurueckkann (#338).
+    keep=$(generationen_zaehlen "$dir")
+    rb=false; [ "$keep" -gt 0 ] && rb=true
     braucht=false
     [ "$art" = url ] && [ -z "$(quelle_von "$zeile")" ] && braucht=true
     [ "$art" = switch ] && [ -z "$(quelle_von "$zeile")" ] && braucht=true
     [ $erste -eq 0 ] && echo ","
     erste=0
-    printf '  {"name":"%s","dir":"%s","system":"%s","installed":%s,"version":"%s","previous":"%s","can_rollback":%s,"needs_url":%s}' \
-      "$name" "$dir" "$sys" "$inst" "$ver" "$prev" "$rb" "$braucht"
+    printf '  {"name":"%s","dir":"%s","system":"%s","installed":%s,"version":"%s","previous":"%s","can_rollback":%s,"kept":%s,"needs_url":%s}' \
+      "$name" "$dir" "$sys" "$inst" "$ver" "$prev" "$rb" "$keep" "$braucht"
   done
   echo; echo "]"
   exit 0
@@ -338,7 +407,18 @@ for zeile in "${KATALOG[@]}"; do
   # dieselbe Variable, ohne dass irgendetwas als Code ausgewertet wird.
   # Indirect expansion instead of eval: same lookup, nothing evaluated as code.
   an="${!schalter:-false}"
-  [ "$an" = "true" ] || continue
+  # WARUM NICHT NUR DER SCHALTER (#313): Der Schalter sagt „installiere das beim Start".
+  # Wer einen Emulator ueber die Oberflaeche installiert hat, hat ihn nicht gesetzt — und
+  # genau das sind hier alle. Ein Aktualisierungslauf uebersprang sie deshalb vollstaendig
+  # und meldete trotzdem Erfolg: `/update` sagte „gestartet", die Fassung blieb, wie sie war.
+  #
+  # Die Regel lautet jetzt: einschalten heisst installieren, installiert sein heisst
+  # aktualisieren. Beides zusammen ist das, was ein Nutzer unter „aktualisieren" versteht.
+  # The switch means "install this at boot". Anything installed through the interface never
+  # sets it, so an update run skipped all of them while reporting success.
+  if [ "$an" != "true" ]; then
+    installiert "$(feld "$zeile" 2)" || continue
+  fi
   eintrag_installieren "$zeile"
 done
 

@@ -6069,3 +6069,52 @@ def test_every_navigation_entry_has_exactly_one_icon():
     assert len(eintraege) == 7, f"{len(eintraege)} Menuepunkte gefunden, erwartet 7"
     ohne = [e[:40] for e in eintraege if e.count("class=navsym") != 1]
     assert not ohne, "Menuepunkte ohne genau ein Symbol-Span: " + "; ".join(ohne)
+
+
+def test_the_emulator_script_keeps_more_than_one_generation():
+    """Der Rueckweg reicht mehr als eine Fassung weit, und die Marke wandert mit. (#338)
+
+    Vorher gab es genau eine (`.alt`), und `rollback` TAUSCHTE aktuelle und vorige Fassung:
+    zweimal zurueck landete wieder am Anfang. Schlimmer war der wahrscheinliche Fall — ein
+    Update auf eine bereits kaputte Fassung ueberschrieb die letzte gute.
+
+    Geprueft wird die Struktur des Skripts, nicht sein Lauf: Es laeuft nur IM Container,
+    und die Ringlogik wurde dort gegen ein nachgebautes Verzeichnis gemessen (vier
+    Installationen, drei Rueckschritte, drei verschiedene Fassungen).
+
+    Die `.url`-Marke ist der Punkt, an dem es still schiefgehen kann: Sie ist es, wogegen
+    die automatische Aktualisierung vergleicht. Eine zurueckgeholte Fassung ohne ihre Marke
+    wuerde beim naechsten Lauf sofort wieder auf die kaputte gehoben.
+    """
+    pfad = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "contrib", "streaming-host", "init", "20-emulators")
+    with open(pfad, encoding="utf-8") as f:
+        skript = f.read()
+
+    assert "GENERATIONEN=${EMU_GENERATIONEN:-3}" in skript, \
+        "die Zahl der aufgehobenen Fassungen ist nicht einstellbar"
+    assert "generationen_schieben" in skript and "generationen_zaehlen" in skript
+    # Der alte Tausch darf nicht zurueckkommen — er ist der Fehler, um den es ging.
+    assert "$dir.zurueck" not in skript, "rollback tauscht wieder, statt zurueckzugehen"
+    # Altbestand mit nur einer Generation muss uebernommen werden.
+    assert '$dir.alt" ] && [ ! -d "$EMU/$dir.alt1"' in skript, \
+        "der Altbestand aus der Ein-Generationen-Zeit wird nicht uebernommen"
+    # Die Marke wandert mit der Fassung.
+    assert '$dir.url.alt1"' in skript, "die .url-Marke wandert nicht mit"
+
+
+def test_an_update_run_covers_installed_emulators(appmod):
+    """Ein Aktualisierungslauf erfasst, was installiert IST — nicht nur, was eingeschaltet
+    ist. (#313)
+
+    Der Schalter `INSTALL_*` heisst „installiere das beim Start". Wer einen Emulator ueber
+    die Oberflaeche installiert hat, setzt ihn nicht — und das sind hier alle. Der Lauf
+    uebersprang sie vollstaendig und meldete trotzdem Erfolg: `/update` antwortete
+    „gestartet", die Fassung blieb unveraendert.
+    """
+    pfad = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "contrib", "streaming-host", "init", "20-emulators")
+    with open(pfad, encoding="utf-8") as f:
+        skript = f.read()
+    assert 'installiert "$(feld "$zeile" 2)" || continue' in skript, \
+        "installierte Emulatoren werden beim Sammellauf wieder uebersprungen"

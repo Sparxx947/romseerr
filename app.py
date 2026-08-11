@@ -3989,14 +3989,27 @@ def api_stream_emulators():
 @app.route("/api/stream/emulators/update", methods=["POST"])
 @perm_required("manage_settings")
 def api_stream_emulators_update():
-    """Aktualisierung der Emulatoren auf dem Streaming-Host anstossen. Der Lauf
-    dauert Minuten (hunderte Megabyte), deshalb antwortet der Dienst sofort und der
-    Fortschritt wird ueber /api/stream/emulators abgefragt."""
+    """Aktualisierung der Emulatoren auf dem Streaming-Host anstossen.
+
+    Ohne `name` laufen alle, mit `name` genau einer (#338). Einzeln ist der Normalfall:
+    Ein Sammellauf laedt hunderte Megabyte fuer Emulatoren, die niemand benutzt, und wer
+    eine Regression sucht, will genau einen Schritt tun koennen.
+
+    Der Lauf dauert Minuten, deshalb antwortet der Dienst sofort; der Fortschritt kommt
+    ueber /api/stream/emulators.
+
+    Without `name` all emulators run, with `name` exactly one.
+    """
     conf = stream_cfg()
     if not conf["launch"]:
         return jsonify({"ok": False, "reason": "no_launcher"}), 400
+    name = ((request.get_json(silent=True) or {}).get("name") or "").strip()
+    if name and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,31}", name):
+        return jsonify({"ok": False, "reason": "bad_name"}), 400
     url = conf["launch"].split("?")[0].rsplit("/", 1)[0] + "/update"
     q = conf["launch"].split("?", 1)[1] if "?" in conf["launch"] else ""
+    if name:
+        q = (q + "&" if q else "") + "name=" + urllib.parse.quote(name)
     try:
         r = safe_post(url + (("?" + q) if q else ""), timeout=20)
         if r.status_code == 409:

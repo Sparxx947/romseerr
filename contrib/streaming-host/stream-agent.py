@@ -615,6 +615,18 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/update":
             if _update["running"]:
                 return self._reply(409, {"ok": False, "msg": "laeuft bereits / already running"})
+            # Mit `?name=<ordner>` genau EINEN Emulator aktualisieren, ohne die anderen
+            # anzufassen (#338). Der Weg dorthin ist derselbe wie beim Installieren:
+            # `20-emulators --only <ordner>` laedt, was sich geaendert hat, und laesst den
+            # Rest in Ruhe — installieren und aktualisieren sind dort dieselbe Handlung.
+            # `?name=<dir>` updates exactly one emulator; the script's --only path already
+            # treats installing and updating as the same operation.
+            ziel = (q.get("name") or [""])[0].strip()
+            if ziel:
+                if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,31}", ziel):
+                    return self._reply(400, {"ok": False, "msg": "ungueltiger Name / bad name"})
+                threading.Thread(target=run_install, args=(ziel,), daemon=True).start()
+                return self._reply(200, {"ok": True, "msg": f"gestartet / started: {ziel}"})
             threading.Thread(target=run_update, daemon=True).start()
             return self._reply(200, {"ok": True, "msg": "gestartet / started"})
         if u.path == "/install":
