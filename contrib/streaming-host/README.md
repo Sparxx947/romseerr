@@ -280,7 +280,7 @@ Controller im Spiel gedrückt.
 | Wii | Dolphin | ✅ | ✅ | (⁠—⁠) | Controller nicht eigens geprüft — gleicher Emulator und gleiche Belegung wie GameCube |
 | PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
 | Switch | Eden | ✅ | ✅ | (⁠—⁠) | Controller nicht eigens geprüft |
-| Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | erst seit der Entschlüsselung (#354/#356); Controller nicht eigens geprüft |
+| Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | erst seit der Entschlüsselung (#354/#356); Vollbild an den Pixeln gemessen (#316); Controller nicht eigens geprüft |
 | Dreamcast | Flycast | — | — | — | keine Titel in der Bibliothek, nichts zu testen |
 | Xbox | xemu | ✅ | ✅ | ✅ | braucht **COMPLEX 4627 + MCPX 1.0** — Retail-BIOS bleiben schwarz |
 | Wii U | Cemu | — | — | — | keine Titel in der Bibliothek |
@@ -389,6 +389,18 @@ stecken vollständig im Kopieren** und wachsen mit der Abbildgröße — bei ein
 Titels ist sofort da, solange die Kopie im Zwischenspeicher liegt.
 
 Eine frühere Fassung dieser Zeile schätzte „einige Minuten" pauschal. Das war geraten.
+
+**Vollbild: den INHALT messen, nicht den Rahmen.** Der Fenstertrick vergrößert die
+X-Fensterhülle; ob der Emulator seinen Zeichenbereich mitwachsen lässt, steht damit nicht
+fest — bei xemu tut er es nicht (#300). Die Fenstergeometrie meldet in beiden Fällen
+1920x1080. Belastbar ist nur die Messung am Bild: `xwd` aufnehmen, in Graustufen wandeln
+und den nicht-schwarzen Bereich bestimmen. Für Azahar und Eden nachgemessen — beide füllen.
+**Mehrfach messen**: Eine Aufnahme 12 Sekunden nach dem Start traf einen Ladebildschirm und
+zeigte 78 % der Breite; drei Proben danach zeigten 100 %.
+
+*Measure the content, not the frame: the window trick resizes the X window, and the
+geometry reads 1920x1080 either way. Sample repeatedly — a loading screen looks like a
+rendering bug.*
 
 > **NDecrypt hilft hier nicht.** Es ist der erste Suchtreffer, akzeptiert `aes_keys.txt`,
 > meldet jede Partition als entschlüsselt — und lässt die Datei **byteweise unverändert**.
@@ -1130,7 +1142,7 @@ pressed in-game.
 | Wii | Dolphin | ✅ | ✅ | (⁠—⁠) | controller not checked separately — same emulator and same mapping as GameCube |
 | PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
 | Switch | Eden | ✅ | ✅ | (⁠—⁠) | controller not checked separately |
-| Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | only since decryption (#354/#356); controller not separately checked |
+| Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | only since decryption (#354/#356); fullscreen measured at the pixels (#316); controller not separately checked |
 | Dreamcast | Flycast | — | — | — | no titles in the library, nothing to test |
 | Xbox | xemu | ✅ | ✅ | ✅ | needs **COMPLEX 4627 + MCPX 1.0** — retail BIOS stays black |
 | Wii U | Cemu | — | — | — | no titles in the library |
