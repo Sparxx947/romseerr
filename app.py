@@ -3123,6 +3123,49 @@ def plattform_aus_bibliothek(title):
     return "?" if treffer else ""
 
 
+_3DS_ABBILD = (".3ds", ".cci")
+
+def dreids_startbar(pfad):
+    """-> (startbar, grund) fuer eine 3DS-Datei. Alles andere gilt als startbar. (#299)
+
+    WARUM DAS HIER STEHT UND NICHT NUR IM AGENTEN: Der Agent weist beim Start ab — da hat
+    der Nutzer schon geklickt, einen Platz belegt und wartet auf ein Bild, das nie kommt.
+    Romseerr hat den Dateipfad und kann dieselbe Frage VORHER beantworten. Die Absage
+    gehoert dorthin, wo die Zusage stand.
+
+    WIE: Ein `.3ds`/`.cci` ist ein NCSD-Abbild. Bei 0x100 steht `NCSD`, die erste Partition
+    beginnt bei 0x4000 mit `NCCH` bei 0x4100. Ab 0x4188 liegen acht Flag-Bytes; Bit 2 von
+    Flag 7 (0x04) ist `NoCrypto` — gesetzt heisst unverschluesselt und damit spielbar.
+
+    Im Zweifel WIRD durchgelassen: Ein Abbild ohne NCSD-Kopf ist nicht beurteilbar, und
+    eine falsche Absage ist hier teurer als ein Fehlversuch. Von 1249 gemessenen Abbildern
+    war genau eines nicht beurteilbar.
+
+    The agent refuses at launch — by then the user has clicked, taken a seat and is waiting
+    for a picture that never comes. Romseerr has the path and can answer the same question
+    first. When in doubt it passes: a wrong refusal costs more than a failed attempt.
+    """
+    endung = os.path.splitext(pfad)[1].lower()
+    if endung == ".cia":
+        # Keine Frage der Verschluesselung: CIAs sind Installationspakete. Azahar sagt es
+        # selbst — "CIA must be installed before usage".
+        return False, "cia_not_bootable"
+    if endung not in _3DS_ABBILD:
+        return True, ""
+    try:
+        with open(pfad, "rb") as f:
+            f.seek(0x100)
+            if f.read(4) != b"NCSD": return True, ""
+            f.seek(0x4100)
+            if f.read(4) != b"NCCH": return True, ""
+            f.seek(0x4188)
+            flags = f.read(8)
+    except OSError:
+        return True, ""
+    if len(flags) < 8 or flags[7] & 0x04:
+        return True, ""
+    return False, "encrypted"
+
 def stream_info(title, slug, user=""):
     """Ist der Titel streambar — und wenn nein, warum nicht? Antwortet immer mit Grund."""
     slug = resolve_slug(slug) if slug else ""
@@ -3147,6 +3190,12 @@ def stream_info(title, slug, user=""):
     path = stream_find_file(title, slug)
     if not path:
         return {"streamable": False, "reason": "not_in_library", "platform": slug}
+    if slug == "3ds":
+        # Vor der Platzvergabe fragen, nicht danach: Ein belegter Platz fuer einen Titel,
+        # der ohnehin nicht startet, nimmt ihn jemandem weg, der spielen koennte. (#299)
+        startbar, grund = dreids_startbar(path)
+        if not startbar:
+            return {"streamable": False, "reason": grund, "platform": slug, "path": path}
     # Besetzt ist erst, wenn KEIN Platz mehr frei ist — nicht schon, wenn einer belegt
     # ist. Genau das war die Einschraenkung des Einzelplatzes. (#137)
     platz = stream_freier_platz(user)

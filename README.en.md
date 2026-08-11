@@ -200,6 +200,13 @@ that is the normal case and complete as it stands, not a fallback.
   would otherwise look like an update. Launching an update on its own gets you nothing
   but `Error while loading ROM!` — indistinguishable from the outside from an emulator
   that cannot run the platform at all.
+  **3DS: the refusal comes before the promise.** An encrypted image and a `.cia` both fail
+  to boot — for different reasons, and both are stated **before** a seat is taken.
+  Previously Romseerr said "streamable", the user clicked, took a seat and waited for a
+  picture that never arrived. *Encrypted* applies to this title as it is; *`.cia`* applies
+  to the format, always — installation packages never boot directly, decrypted or not. When
+  in doubt it passes: an image without a readable NCSD header cannot be judged, and a wrong
+  refusal costs more than a failed attempt.
 - ▶ **Play in the browser**: if the title exists in RomM and the platform has an EmulatorJS
   core, a button on the detail view opens RomM's built-in player. Romseerr emulates nothing
   itself. **PS2, GameCube, Wii, Dreamcast and Switch never show the button** — no core exists

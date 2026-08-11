@@ -6383,3 +6383,70 @@ def test_german_is_inlined_as_the_fallback():
     assert "i18nLaden" in js, "es gibt keinen Lader fuer die uebrigen Sprachen"
     # Der Start muss auf die Sprache warten, sonst zeichnet die Seite erst deutsch.
     assert "i18nLaden(LANG).then(" in js, "der Start wartet nicht auf die Sprache"
+
+
+# --- 3DS: die Absage kommt vor der Zusage (#299) -----------------------------------
+
+def _3ds_datei(tmp_path, name, verschluesselt):
+    """Ein minimales NCSD-Abbild mit gesetztem oder fehlendem NoCrypto-Bit."""
+    p = tmp_path / name
+    b = bytearray(0x4200)
+    b[0x100:0x104] = b"NCSD"
+    b[0x4100:0x4104] = b"NCCH"
+    b[0x4188 + 7] = 0x00 if verschluesselt else 0x04     # Bit 2 = NoCrypto
+    p.write_bytes(bytes(b))
+    return str(p)
+
+
+def test_an_encrypted_3ds_image_is_refused_before_a_seat_is_taken(appmod, tmp_path):
+    """Ein verschluesseltes Abbild wird abgelehnt, bevor ein Platz vergeben wird. (#299)
+
+    Bisher meldete Romseerr „streambar", der Nutzer klickte, belegte einen Platz — und
+    erst der Agent wies ab. Das kostet zweierlei: den Platz, den in der Zeit jemand
+    anderes haette nutzen koennen, und das Vertrauen in die Zusage.
+
+    Im Zweifel wird durchgelassen: Ein Abbild ohne NCSD-Kopf ist nicht beurteilbar, und
+    eine falsche Absage ist teurer als ein Fehlversuch.
+    """
+    verschl = _3ds_datei(tmp_path, "Titel (Germany).3ds", True)
+    klar = _3ds_datei(tmp_path, "Anderer Titel.3ds", False)
+    kein_ncsd = tmp_path / "Kaputt.3ds"
+    kein_ncsd.write_bytes(b"\x00" * 4096)
+
+    assert appmod.dreids_startbar(verschl) == (False, "encrypted")
+    assert appmod.dreids_startbar(klar) == (True, "")
+    assert appmod.dreids_startbar(str(kein_ncsd))[0] is True, \
+        "ein nicht beurteilbares Abbild darf nicht abgewiesen werden"
+
+
+def test_a_cia_is_refused_with_its_own_reason(appmod, tmp_path):
+    """`.cia` scheitert aus einem ANDEREN Grund als Verschluesselung. (#299)
+
+    CIAs sind Installationspakete und starten grundsaetzlich nicht direkt — auch
+    entschluesselt nicht. Beides in einen Topf zu werfen fuehrt zu der falschen
+    Schlussfolgerung, Entschluesseln wuerde helfen.
+    """
+    p = tmp_path / "Titel.cia"
+    p.write_bytes(b"\x00" * 64)
+    startbar, grund = appmod.dreids_startbar(str(p))
+    assert startbar is False
+    assert grund == "cia_not_bootable", "CIA und Verschluesselung sind nicht dasselbe"
+
+
+def test_both_refusal_reasons_have_a_text_in_all_five_languages():
+    """Beide Gruende haben einen eigenen Text — sonst raet der Nutzer. (#299)
+
+    Ein blosses „geht nicht" laesst offen, ob es am Titel, am Dienst oder am Nutzer liegt.
+    Bei `encrypted` ist die Antwort „dieser Titel, so wie er vorliegt"; bei `cia` ist es
+    „dieses Format, immer".
+    """
+    import re
+    with open(os.path.join(REPO, "static", "js", "index.js"), encoding="utf-8") as f:
+        js = f.read()
+    m = re.search(r"const STREAM_GRUND=\{(.*?)\};", js, re.S)
+    assert m, "STREAM_GRUND fehlt"
+    for grund, schluessel in (("encrypted", "stream_encrypted"),
+                              ("cia_not_bootable", "stream_cia")):
+        assert f"{grund}:'{schluessel}'" in m.group(1).replace("\n", "").replace(" ", ""), \
+            f"{grund} ist keinem Text zugeordnet"
+        assert i18n_hat(schluessel) == 5, f"{schluessel} fehlt in einer Sprache"

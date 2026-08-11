@@ -363,5 +363,7 @@
  "push_unsupported": "Push indisponible (HTTPS requis)",
  "push_denied": "Permission refusée",
  "push_on": "Push activé ✓",
- "push_off": "Push désactivé"
+ "push_off": "Push désactivé",
+ "stream_encrypted": "Cette image est chiffrée — l’émulateur ne lit que des dumps déchiffrés.",
+ "stream_cia": "Les fichiers CIA sont des paquets d’installation et ne démarrent pas directement."
 }
