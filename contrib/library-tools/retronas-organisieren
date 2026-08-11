@@ -434,7 +434,30 @@ def dateien_zaehlen(pfad):
     return n
 
 
-def alle_umbauen(wurzel, trocken, ueberspringen):
+def stand_laden(stand_datei):
+    """Fruehere Fortschrittsdatei lesen -> (erledigte Plattformen, war_unterbrochen).
+
+    WARUM DAS NOETIG WURDE (#371): Die Datei wurde geschrieben und NIE gelesen. Ein Lauf
+    ueber diese Bibliothek dauert ueber 19 Stunden; stirbt er, fing er wieder bei der
+    ersten Plattform an. Der einzige Rueckweg war `--ausser` mit einer von Hand aus den
+    Protokollen zusammengesuchten Liste — ausgerechnet in dem Moment, in dem gerade ein
+    Auftrag abgestuerzt ist.
+
+    Ein FERTIGER Lauf zaehlt nicht als Wiederaufsetzpunkt: Wer nach dem Ende erneut
+    startet, will neu bauen, nicht nichts tun.
+    """
+    try:
+        with open(stand_datei, encoding="utf-8") as f:
+            alt = json.load(f)
+    except (OSError, ValueError):
+        return set(), False
+    if alt.get("fertig"):
+        return set(), False
+    erledigt = {e.get("plattform") for e in alt.get("erledigt") or [] if e.get("plattform")}
+    return erledigt, bool(erledigt or alt.get("aktuell"))
+
+
+def alle_umbauen(wurzel, trocken, ueberspringen, neu_anfangen=False):
     """Jede Plattform mit Inhalt, KLEINSTE ZUERST.
 
     Die Reihenfolge ist Absicht: die kleinen sind in Minuten durch, und wenn die
@@ -447,21 +470,46 @@ def alle_umbauen(wurzel, trocken, ueberspringen):
     stand_datei = os.path.join(wurzel, ".umbau", "fortschritt.json")
     os.makedirs(os.path.dirname(stand_datei), exist_ok=True)
 
+    frueher, unterbrochen = (set(), False) if neu_anfangen else stand_laden(stand_datei)
+    if unterbrochen:
+        # LAUT SAGEN, was uebersprungen wird. Ein Wiederaufsetzen, das stillschweigend
+        # weniger tut als verlangt, ist derselbe Fehler in Gruen.
+        print(f"  Fortsetzung: {len(frueher)} Plattformen sind laut "
+              f"{os.path.basename(stand_datei)} schon durch und werden uebersprungen.")
+        print("  Alles neu bauen: --neu")
+
     kandidaten = []
     for e in sorted(os.listdir(wurzel)):
         p = os.path.join(wurzel, e)
         if not os.path.isdir(p) or e.startswith("."):
             continue
-        if e in ueberspringen:
+        if e in ueberspringen or e in frueher:
             continue
         n = dateien_zaehlen(p)
         if n:
             kandidaten.append((n, e))
     kandidaten.sort()
 
+    # Die beim Abbruch LAUFENDE Plattform steht nicht in `erledigt` und ist damit wieder
+    # dabei. Absicht: Mitten in einer Plattform wieder aufzusetzen braeuchte einen Stand je
+    # Eintrag; der Durchlauf ist dagegen weitgehend wiederholbar — was schon die richtige
+    # Form hat, wird ohnehin nicht angefasst. Der Preis ist ein erneuter Durchgang, nicht
+    # doppelte Arbeit.
     gesamt = sum(n for n, _e in kandidaten)
+    # Die frueheren Eintraege MITNEHMEN. Sonst kennt ein zweiter Abbruch nur die
+    # Plattformen des zweiten Laufs, und der dritte faengt wieder bei den ersten an —
+    # der Fehler waere nur eine Runde weiter gewandert.
+    vorher = []
+    if frueher:
+        try:
+            with open(stand_datei, encoding="utf-8") as f:
+                vorher = json.load(f).get("erledigt") or []
+        except (OSError, ValueError):
+            vorher = []
+
     stand = {"start": time.time(), "gesamt_dateien": gesamt,
-             "plattformen_gesamt": len(kandidaten), "erledigt": [],
+             "plattformen_gesamt": len(kandidaten) + len(frueher),
+             "erledigt": vorher,
              "aktuell": None, "fertig": False, "offen_dateien": gesamt}
 
     def sichern():
@@ -505,6 +553,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("plattform", nargs="?", help="Ordnername unter <wurzel>")
+    p.add_argument("--neu", action="store_true",
+                   help="von vorn beginnen statt fortzusetzen (verwirft den Fortschritt)")
     p.add_argument("--alle", action="store_true",
                    help="alle Plattformen mit Inhalt, kleinste zuerst")
     p.add_argument("--ausser", default="",
@@ -518,7 +568,7 @@ def main():
         return zurueck(a.zurueck)
     if a.alle:
         ueber = {x.strip() for x in a.ausser.split(",") if x.strip()}
-        return alle_umbauen(a.wurzel, a.trocken, ueber)
+        return alle_umbauen(a.wurzel, a.trocken, ueber, a.neu)
     if not a.plattform:
         p.error("Plattform fehlt")
 

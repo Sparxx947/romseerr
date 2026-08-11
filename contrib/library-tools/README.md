@@ -70,7 +70,28 @@ retronas-organisieren --alle /roms
 
 # Zurück: das Protokoll Schritt für Schritt rückwärts
 retronas-organisieren --zurueck /roms/.umbau/c64-20260810-134827.jsonl
+
+# Nach einem Abbruch: derselbe Befehl setzt fort, wo er aufgehört hat
+retronas-organisieren --alle /roms
+
+# Doch von vorn
+retronas-organisieren --alle --neu /roms
 ```
+
+**Ein abgebrochener Lauf fängt nicht von vorn an.** `<roms>/.umbau/fortschritt.json` hält
+fest, welche Plattformen durch sind; ein erneuter Aufruf überspringt sie und sagt beim
+Start, wie viele das sind. Das ist keine Kosmetik: Ein voller Lauf dauert hier über 19
+Stunden, und `amiga` allein sind 440.564 Dateien — nach einem Absturz alles zu wiederholen
+kostet einen Tag.
+
+Zwei Feinheiten:
+
+- **Die beim Abbruch laufende Plattform wird wiederholt.** Mitten in ihr aufzusetzen
+  bräuchte einen Stand je Eintrag; der Durchlauf ist dagegen weitgehend wiederholbar — was
+  schon die richtige Form hat, wird nicht angefasst. Der Preis ist ein Durchgang, keine
+  doppelte Arbeit.
+- **Ein abgeschlossener Lauf ist kein Wiederaufsetzpunkt.** Wer nach dem Ende erneut
+  startet, will neu bauen, nicht nichts tun.
 
 Der `Mixed`-Ordner — eine Sammelablage ohne Plattformzuordnung — wird getrennt aufgelöst:
 
@@ -160,7 +181,19 @@ retronas-organisieren --trocken /roms c64      # preview, nothing is moved
 retronas-organisieren /roms c64                # do it, every step logged
 retronas-organisieren --alle /roms             # everything, smallest platform first
 retronas-organisieren --zurueck /roms/.umbau/c64-….jsonl   # step back through the log
+retronas-organisieren --alle /roms             # after an abort: resumes where it stopped
+retronas-organisieren --alle --neu /roms       # start over regardless
 ```
+
+**An aborted run does not start from scratch.** `<roms>/.umbau/fortschritt.json` records
+which platforms are done; a later invocation skips them and says how many at startup. A
+full pass here takes over 19 hours and `amiga` alone is 440,564 files — repeating all of it
+after a crash costs a day.
+
+Two details: the platform that was **running** when the abort happened is redone, because
+resuming inside one would need per-entry state while a pass is largely repeatable; and a
+**finished** run is not a resume point, since starting again after the end means rebuild,
+not do nothing.
 
 The `Mixed` folder — a holding area with no platform — is resolved separately:
 

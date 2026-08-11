@@ -179,3 +179,61 @@ def test_the_file_limit_separates_a_game_from_a_collection(org, tmp_path):
         (viel / f"Grosse Sammlung (Disk {i}).d64").write_bytes(b"x" * 16)
     assert org.ist_spielordner(str(viel), "c64") is False, \
         "40 Dateien desselben Namens sind eine Sammlung, kein Spiel"
+
+
+# --- #371: Wiederaufsetzen nach einem Abbruch ---------------------------------------
+
+def _stand(tmp_path, erledigt, fertig=False, aktuell=None):
+    import json
+    d = tmp_path / ".umbau"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "fortschritt.json").write_text(json.dumps({
+        "erledigt": [{"plattform": p, "dateien": 1} for p in erledigt],
+        "fertig": fertig, "aktuell": aktuell}), encoding="utf-8")
+    return str(d / "fortschritt.json")
+
+
+def test_an_interrupted_run_resumes_where_it_stopped(org, tmp_path):
+    """Nach einem Abbruch werden die fertigen Plattformen uebersprungen. (#371)
+
+    WARUM DAS ZAEHLT: Ein voller Lauf ueber diese Bibliothek dauert ueber 19 Stunden.
+    Starb er, fing er bei der ERSTEN Plattform wieder an — die Fortschrittsdatei wurde
+    geschrieben und nie gelesen. Der einzige Rueckweg war `--ausser` mit einer von Hand
+    aus den Protokollen zusammengesuchten Liste, ausgerechnet direkt nach einem Absturz.
+    """
+    pfad = _stand(tmp_path, ["nes", "gb"], fertig=False, aktuell={"plattform": "snes"})
+    erledigt, unterbrochen = org.stand_laden(pfad)
+    assert erledigt == {"nes", "gb"}
+    assert unterbrochen is True
+
+
+def test_the_platform_that_was_running_is_done_again(org, tmp_path):
+    """Die beim Abbruch LAUFENDE Plattform steht nicht in `erledigt` — sie kommt wieder dran.
+
+    Absicht, kein Versehen: Mitten in einer Plattform wieder aufzusetzen braeuchte einen
+    Stand je Eintrag. Der Durchlauf ist dagegen weitgehend wiederholbar — was schon die
+    richtige Form hat, wird nicht angefasst. Der Preis ist ein Durchgang, keine doppelte
+    Arbeit.
+    """
+    pfad = _stand(tmp_path, ["nes"], aktuell={"plattform": "snes"})
+    erledigt, _ = org.stand_laden(pfad)
+    assert "snes" not in erledigt
+
+
+def test_a_finished_run_is_not_a_resume_point(org, tmp_path):
+    """Ein abgeschlossener Lauf setzt NICHT fort. (#371)
+
+    Wer nach dem Ende erneut startet, will neu bauen — nicht nichts tun. Ohne diese
+    Unterscheidung waere der zweite Aufruf still wirkungslos, und das sieht aus wie Erfolg.
+    """
+    pfad = _stand(tmp_path, ["nes", "gb", "snes"], fertig=True)
+    erledigt, unterbrochen = org.stand_laden(pfad)
+    assert erledigt == set() and unterbrochen is False
+
+
+def test_a_missing_or_broken_progress_file_starts_from_the_beginning(org, tmp_path):
+    """Ohne lesbare Datei wird von vorn begonnen — nicht geraten. (#371)"""
+    assert org.stand_laden(str(tmp_path / "gibtsnicht.json")) == (set(), False)
+    kaputt = tmp_path / "kaputt.json"
+    kaputt.write_text("{kein json", encoding="utf-8")
+    assert org.stand_laden(str(kaputt)) == (set(), False)
