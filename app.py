@@ -155,9 +155,31 @@ TLS_KEY       = os.path.join(TLS_DIR, "key.pem")
 # Die obigen Konstanten sind nur noch die DEFAULTS aus der Umgebung. Zur Laufzeit werden
 # Verbindungswerte über cfg("key") gelesen: erst settings["connections"] (Admin-Oberfläche),
 # sonst der Env-Default. So ist alles über die Einstellungsseite konfigurierbar.
+# Proxy fuer den EIGENEN Download (#346). Leer = direkt.
+#
+# WARUM DAS UEBERHAUPT NOETIG IST: Bei `source: archive` laedt Romseerr SELBST, mit `aria2c`
+# im eigenen Container — es reicht die Datei nicht an SABnzbd oder JDownloader weiter.
+# Deren VPN-Konfiguration wirkt hier also nicht. Gemessen lief dieser Weg unter derselben
+# Adresse wie der Anschluss, waehrend Usenet und Torrent laengst durch einen Tunnel gingen.
+#
+# WARUM EIN PROXY UND NICHT EINE VPN-NETZWERKKARTE: Romseerr veroeffentlicht eine
+# Oberflaeche. Haengt man den Container in die Netzwerk-Namensraum eines VPN-Containers,
+# ist die Oberflaeche nur noch ueber dessen Portfreigaben erreichbar — eine viel groessere
+# Aenderung mit mehr Wegen, sie falsch zu machen. Der Proxy betrifft nur den Download.
+#
+# FAIL-CLOSED: Ist ein Proxy gesetzt und nicht erreichbar, SCHEITERT der Download. Er faellt
+# NICHT auf den direkten Weg zurueck. Ein VPN, das im Fehlerfall offen faellt, ist
+# schlimmer als keins — es laedt zu der Annahme ein, geschuetzt zu sein.
+#
+# Romseerr downloads Archive.org files itself with aria2c, so the download clients' VPN
+# does not apply. A proxy covers just that path; a VPN network namespace would also move
+# the web interface. Fail-closed by construction: a dead proxy fails the download.
+DL_PROXY = os.environ.get("DL_PROXY", "")
+
 _ENV_CONN = {"sab_url": SAB_URL, "sab_apikey": SAB_APIKEY, "sab_cat": SAB_CAT,
              "prow_url": PROW_URL, "prow_apikey": PROW_KEY, "prow_cats": PROW_CATS,
              "igdb_id": IGDB_ID, "igdb_secret": IGDB_SECRET,
+             "dl_proxy": DL_PROXY,
              "romm_url": ROMM_URL, "romm_user": ROMM_USER, "romm_pass": ROMM_PASS,
              # JDownloader: drei verschiedene SICHTEN auf dieselbe Uebergabe —
              # jd_watch/jd_out sieht Romseerr, jd_dl_base sieht JDownloader. (#83)
@@ -2556,8 +2578,16 @@ def worker_download():
                     os.makedirs(dst, exist_ok=True)
                     inp = os.path.join(dst, ".urls")
                     with open(inp, "w") as f: f.write("\n".join(direct))
-                    rc = subprocess.run(["aria2c","-x8","-s8","-j4","--auto-file-renaming=false",
-                                         "--continue=true","--max-tries=3","-d",dst,"-i",inp],
+                    befehl = ["aria2c","-x8","-s8","-j4","--auto-file-renaming=false",
+                              "--continue=true","--max-tries=3","-d",dst,"-i",inp]
+                    # Der Proxy gilt fuer ALLE Protokolle (`--all-proxy`), nicht nur http:
+                    # Archive.org liefert ueber https, und ein nur fuer http gesetzter
+                    # Proxy waere genau der Fall, der aussieht wie Schutz und keiner ist.
+                    # All protocols, not just http: archive.org serves over https, and a
+                    # proxy set for http alone looks like protection and is none.
+                    if cfg("dl_proxy"):
+                        befehl += [f"--all-proxy={cfg('dl_proxy')}"]
+                    rc = subprocess.run(befehl,
                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
                     try: os.remove(inp)
                     except OSError: pass
@@ -6424,6 +6454,37 @@ def check_config():
     jd = jd_check(anlegen=True)
     if not jd["ok"]:
         log(f"Konfig-WARNUNG: JDownloader-Uebergabe — {jd['info']}")
+    # --- Wirkt der Download-Proxy wirklich? (#346) --------------------------------
+    # Nicht „ist er erreichbar" — sondern: kommt der Verkehr unter einer ANDEREN Adresse
+    # heraus? Ein Proxy, der still auf den direkten Weg zurueckfaellt, ist erreichbar und
+    # nutzlos zugleich, und genau das sieht man ihm nicht an.
+    #
+    # Die Adressen selbst werden NICHT protokolliert. Sie gehoeren niemandem ausser dem
+    # Betreiber, und ein Logfile wandert schneller in einen Fehlerbericht als einem lieb
+    # ist. Verglichen wird, gemeldet wird nur das Ergebnis des Vergleichs.
+    #
+    # Not "is it reachable" but "does traffic leave under a different address": a proxy
+    # that silently falls back is reachable and useless at the same time. The addresses are
+    # deliberately never logged — only the result of the comparison.
+    if cfg("dl_proxy"):
+        try:
+            direkt = requests.get("https://api.ipify.org", timeout=6).text.strip()
+            ueber = requests.get("https://api.ipify.org", timeout=10,
+                                 proxies={"http": cfg("dl_proxy"),
+                                          "https": cfg("dl_proxy")}).text.strip()
+            if not ueber:
+                warn("dlproxy", "Download-Proxy liefert keine Antwort — Downloads werden scheitern.")
+            elif ueber == direkt:
+                warn("dlproxy", "Download-Proxy ist erreichbar, aendert aber die "
+                                "Austrittsadresse NICHT — der Verkehr laeuft ungeschuetzt.")
+            else:
+                log("Download-Proxy wirkt: Austrittsadresse unterscheidet sich.")
+        except Exception as e:
+            # Fail-closed: Ein gesetzter, aber unbrauchbarer Proxy laesst die Downloads
+            # scheitern — das ist gewollt. Die Warnung sagt nur, warum.
+            warn("dlproxy", f"Download-Proxy nicht nutzbar ({err_kind(e)}) — "
+                            "Downloads ueber diesen Weg werden scheitern.")
+
     if not (cfg("prow_url") and cfg("prow_apikey")):
         log("Konfig: Prowlarr nicht gesetzt — Usenet-Suche aus.")
     elif not reach(cfg("prow_url")):

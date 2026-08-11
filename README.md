@@ -668,6 +668,33 @@ the data before going back.*
 
 ---
 
+
+### Downloads über einen Tunnel
+
+Bei Usenet und Filehostern übergibt Romseerr an SABnzbd bzw. JDownloader — dort entscheidet
+deren Netzwerk, wie der Verkehr hinausgeht. **Bei Archive.org lädt Romseerr selbst**, mit
+`aria2c` im eigenen Container. Die VPN-Konfiguration der Download-Clients wirkt auf diesen
+Weg also **nicht**.
+
+`DL_PROXY` (oder *Einstellungen → Verbindungen*) legt einen Proxy für genau diesen Weg fest,
+etwa den HTTP-Proxy eines VPN-Containers:
+
+```
+DL_PROXY=http://gluetun:8888
+```
+
+Der Proxy gilt für **alle** Protokolle. Nur für `http` gesetzt wäre er wirkungslos — die
+Dateien kommen über `https`, und das sähe wie Schutz aus, ohne einer zu sein.
+
+**Fail-closed:** Ist ein Proxy gesetzt und nicht nutzbar, **scheitert der Download**. Es
+gibt keinen Rückfall auf den direkten Weg. Ein Tunnel, der im Fehlerfall offen fällt, ist
+schlechter als keiner — er lädt zu der Annahme ein, geschützt zu sein.
+
+Beim Start wird geprüft, ob der Proxy die **Austrittsadresse tatsächlich ändert**, nicht nur,
+ob er antwortet: Ein Proxy, der still direkt weiterleitet, ist erreichbar und nutzlos
+zugleich. Das Ergebnis steht in den Startwarnungen; die Adressen selbst werden **nicht**
+protokolliert.
+
 ## Sicherheit
 
 - **Session-Cookie** signiert, `HttpOnly`, `SameSite=Strict`; `Secure` via `ROMSEERR_HTTPS=1`.

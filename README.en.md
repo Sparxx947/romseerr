@@ -591,6 +591,31 @@ The key is generated under *Settings → General* and can be rotated there.
 
 ---
 
+
+### Downloads through a tunnel
+
+For usenet and filehosters Romseerr hands off to SABnzbd or JDownloader, and their network
+decides how traffic leaves. **For Archive.org, Romseerr downloads itself** with `aria2c` in
+its own container, so the download clients' VPN configuration does **not** apply to that path.
+
+`DL_PROXY` (or *Settings → Connections*) sets a proxy for exactly that path — for example the
+HTTP proxy of a VPN container:
+
+```
+DL_PROXY=http://gluetun:8888
+```
+
+It applies to **all** protocols. Set for `http` alone it would do nothing: the files arrive
+over `https`, and that would look like protection without being any.
+
+**Fail-closed:** if a proxy is configured and unusable, **the download fails**. There is no
+fallback to the direct route. A tunnel that fails open is worse than none — it invites the
+assumption of protection that is no longer there.
+
+At startup Romseerr checks that the proxy **actually changes the exit address**, not merely
+that it answers: a proxy that quietly forwards directly is reachable and useless at the same
+time. The result appears in the startup warnings; the addresses themselves are **not** logged.
+
 ## Security
 
 - **Session cookie** signed, `HttpOnly`, `SameSite=Strict`; `Secure` via `ROMSEERR_HTTPS=1`.
