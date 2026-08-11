@@ -75,9 +75,11 @@ VERTRAGS_PRUEFUNGEN = schemathesis.checks.CHECKS.get_by_names([
 ])
 
 
-# Bekannte Lücken der Spezifikation, festgehalten in #328. Sie stehen namentlich hier und
-# nicht als pauschales „Fehler erlaubt", damit jede weitere Abweichung sofort rot wird.
-BEKANNT_LUECKENHAFT = {"/api/stream", "/api/stream/status"}
+# Bekannte Lücken der Spezifikation. Die Menge ist LEER, seit #328 behoben ist — sie
+# bleibt als Ort stehen, an dem eine neue Lücke namentlich landet, statt als pauschales
+# „Fehler erlaubt". Wer hier etwas einträgt, schuldet ein Issue dazu.
+# Empty since #328; kept as the place where a new gap is named rather than waved through.
+BEKANNT_LUECKENHAFT = set()
 
 
 @schema_lazy.parametrize()
@@ -90,7 +92,6 @@ def test_antworten_halten_die_spezifikation_ein(case, sitzung):
     case.call_and_validate(cookies=sitzung, checks=VERTRAGS_PRUEFUNGEN)
 
 
-@pytest.mark.xfail(strict=True, reason="#328: 401 fehlt bei 43 Operationen")
 def test_401_ist_dokumentiert(live_server):
     """Wer unangemeldet an einen `/api/`-Endpunkt klopft, bekommt 401 — das gehört in die
     Spezifikation.
@@ -105,12 +106,19 @@ def test_401_ist_dokumentiert(live_server):
     r = requests.get(f"{live_server}/api/jobs", timeout=10)
     assert r.status_code == 401, f"unerwartet: {r.status_code}"
 
+    # WAS „GESCHUETZT" HEISST: Nicht jeder Pfad unter /api/ verlangt eine Anmeldung.
+    # `/api/version`, `/api/openapi.json`, `/api/docs`, `/api/auth/status` und
+    # `/api/logos` sind absichtlich oeffentlich und tragen deshalb ein LEERES
+    # `security` — sie koennen gar kein 401 liefern. Die erste Fassung dieser Pruefung
+    # zaehlte sie mit und meldete auch nach der Reparatur noch fuenf Verstoesse.
+    # A path under /api/ is not automatically protected; the public ones carry an empty
+    # `security` and cannot answer 401. The first version of this check counted them.
     geschuetzt = [
         pfad for pfad, ops in spez["paths"].items()
         if pfad.startswith("/api/")
         for m, op in ops.items()
-        if m == "get" and "401" not in (op.get("responses") or {})
-        and "200" in (op.get("responses") or {})
+        if m == "get" and op.get("security")          # leer = oeffentlich
+        and "401" not in (op.get("responses") or {})
     ]
     assert not geschuetzt, (
         f"{len(geschuetzt)} GET-Operationen antworten mit 401, dokumentieren es aber nicht: "

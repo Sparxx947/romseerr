@@ -37,8 +37,6 @@ def test_assets_werden_lange_zwischengespeichert(live_server):
         assert "immutable" in cc and "max-age" in cc, f"{p}: Cache-Control ist {cc!r}"
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="#323: statische Dateien werden unkomprimiert ausgeliefert")
 def test_grosse_textdateien_werden_komprimiert(live_server):
     """Wer gzip anbietet, soll gzip bekommen.
 
