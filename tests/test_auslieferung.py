@@ -53,3 +53,38 @@ def test_grosse_textdateien_werden_komprimiert(live_server):
         if not r.headers.get("Content-Encoding"):
             ungepackt.append(f"{p} ({roh} Bytes)")
     assert not ungepackt, "unkomprimiert ausgeliefert: " + ", ".join(ungepackt)
+
+
+def test_every_served_asset_type_has_a_real_content_type(live_server, servermod):
+    """Keine ausgelieferte Datei faellt auf `application/octet-stream` zurueck. (#350)
+
+    WARUM DAS MEHR IST ALS EINE FORMALIE: Der Inhaltstyp entscheidet auch ueber die
+    Vorkomprimierung — sie packt nur Text. Eine Datei ohne Eintrag in `ASSET_MIME` faellt
+    also gleich doppelt durch: falscher Typ UND unkomprimiert.
+
+    Gemessener Fall: Die Sprachdateien gingen mit 17.106 statt 6.704 Bytes ueber die
+    Leitung, weil `.json` fehlte. Aufgefallen ist es erst beim Nachmessen am laufenden
+    Dienst — im Pull Request stand da bereits, es sei abgedeckt.
+
+    The content type also decides pre-compression, which only packs text. A missing entry
+    costs twice: wrong type and no compression.
+    """
+    ohne = sorted({rel for rel, a in servermod._ASSETS.items()
+                   if a["mime"] == "application/octet-stream"})
+    assert not ohne, ("Dateien ohne eigenen Inhaltstyp (und damit ohne Komprimierung): "
+                      + ", ".join(ohne[:8]) + (" …" if len(ohne) > 8 else ""))
+
+
+def test_the_language_files_are_compressed(live_server, servermod):
+    """Die Sprachdateien werden gepackt ausgeliefert. (#350)
+
+    Sie sind der Grund, warum es die Aufteilung gibt — sie ungepackt zu schicken haette
+    einen guten Teil des Gewinns wieder aufgezehrt.
+    """
+    sprachen = [rel for rel in servermod._ASSETS if rel.startswith("i18n/")]
+    assert len(sprachen) == 5, f"unerwartet: {sprachen}"
+    for rel in sprachen:
+        a = servermod._ASSETS[rel]
+        assert a["gz"], f"{rel} wird nicht komprimiert"
+        assert len(a["gz"]) < len(a["body"]) * 0.6, \
+            f"{rel}: nur {100 - 100 * len(a['gz']) // len(a['body'])} % gespart"
