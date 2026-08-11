@@ -6169,3 +6169,67 @@ def test_the_env_template_contains_no_values():
     assert not befuellt, ("In .env.example stehen Werte, wo keine hingehoeren — "
                           "der Geheimnis-Scan sieht hier nicht mehr hin: "
                           + "; ".join(befuellt))
+
+
+# --- Wachhund fuer haengende Auftraege (#340) --------------------------------------
+
+def test_a_slow_but_growing_download_is_never_aborted(appmod, tmp_path, monkeypatch):
+    """Ein langsamer, aber wachsender Download bleibt unangetastet. (#340)
+
+    DIESER FALL ENTSCHEIDET, ob die Pruefung ueberlebt. `aria2c` laeuft hier synchron und
+    ohne Zwischenmeldung — ein Wachhund, der auf Meldungen achtet, wuerde einen 40-GB-Lauf
+    nach Stunden abbrechen, obwohl er einwandfrei arbeitet. Und eine Pruefung, die
+    arbeitende Downloads abwuergt, ist binnen einer Woche abgeschaltet; dann steht die
+    Regel schlechter da als ohne sie.
+
+    Geprueft wird deshalb, dass die Bytes im Arbeitsverzeichnis zaehlen — nicht die Zeit
+    seit der letzten Meldung.
+    """
+    ordner = tmp_path / "romseerr_j1"
+    ordner.mkdir()
+    monkeypatch.setattr(appmod, "STAGING", str(tmp_path))
+    monkeypatch.setattr(appmod, "SAB_DONE", "")
+    monkeypatch.setattr(appmod, "jd_out_dir", lambda: "")
+
+    (ordner / "teil.bin").write_bytes(b"x" * 1000)
+    erst = appmod.job_arbeitsbytes("j1")
+    (ordner / "teil.bin").write_bytes(b"x" * 5000)      # der Download waechst
+    zweit = appmod.job_arbeitsbytes("j1")
+
+    assert erst == 1000 and zweit == 5000, f"Bytes werden nicht erkannt: {erst}, {zweit}"
+    assert zweit != erst, "Wachstum muss sichtbar sein, sonst kann der Wachhund nicht unterscheiden"
+
+
+def test_the_watchdog_measures_bytes_not_message_age(appmod):
+    """Die Grenzen gelten je Zustand und sind grosszuegig. (#340)
+
+    Ein Import, der eine Stunde keine Datei mehr angefasst hat, ist keiner mehr. Ein
+    Download darf laenger brauchen — deshalb zwei verschiedene Grenzen statt einer.
+    """
+    g = appmod.WACHHUND_GRENZEN
+    assert set(g) == {"downloading", "importing"}, \
+        "`pending`/`queued` duerfen NICHT ueberwacht werden — die warten zu Recht"
+    assert g["downloading"] >= 4 * 3600, "zu knapp fuer einen grossen Download"
+    assert g["importing"] >= 3600, "zu knapp fuer ein grosses Archiv"
+    assert g["downloading"] > g["importing"], \
+        "ein Download darf laenger dauern als ein Import"
+
+
+def test_state_changes_carry_a_machine_readable_timestamp(appmod):
+    """`set_state` schreibt einen Zeitpunkt, mit dem sich rechnen laesst. (#340)
+
+    `updated` ist eine Uhrzeit OHNE Datum. Ueber Mitternacht laeuft sie rueckwaerts, und
+    jede Altersrechnung darauf ist falsch — im Zweifel um 23 Stunden.
+    """
+    import time as _t
+    vorher = list(appmod.JOBS)
+    try:
+        appmod.JOBS[:] = [{"id": "wd1", "title": "T", "state": "queued"}]
+        appmod.set_state("wd1", msg="test")
+        j = appmod.JOBS[0]
+        assert isinstance(j.get("ts"), float), "kein maschinenlesbarer Zeitstempel"
+        assert abs(j["ts"] - _t.time()) < 10
+        assert ":" in j.get("updated", ""), "die menschenlesbare Uhrzeit fehlt jetzt"
+    finally:
+        appmod.JOBS[:] = vorher
+        appmod.save_jobs()
