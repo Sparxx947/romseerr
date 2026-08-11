@@ -6718,3 +6718,72 @@ def test_the_inlined_german_table_covers_every_key_any_language_has():
     assert not fehlend, (
         "diese Schluessel wuerden deutschen Nutzern als BEZEICHNER erscheinen: "
         + json.dumps(fehlend, ensure_ascii=False)[:400])
+# --- #367: „Mixed" ist keine Plattform ----------------------------------------------
+
+def test_an_unknown_platform_stays_empty_instead_of_becoming_a_name(appmod):
+    """`resolve_slug("")` darf keinen Plattformnamen erfinden. (#367)
+
+    WARUM DAS DIE URSACHE WAR: Der Rueckgabewert lief weiter bis
+    `os.makedirs(ROMS/<slug>)`. Aus dem Platzhalter „Mixed" wurde also ein ORDNER, aus dem
+    Ordner ein Eintrag im Index und daraus ein System in der Ansicht. Ein Titel ohne
+    erkennbare Plattform war damit nicht unbeschriftet, sondern mit einer Plattform
+    beschriftet, die es nicht gibt — und genau so sah ein Nutzer Mario-Titel als „mixed".
+    """
+    assert appmod.resolve_slug("") == "", "unbekannt bleibt unbekannt"
+    assert appmod.resolve_slug(None) == ""
+
+
+def test_no_code_path_writes_the_word_mixed_as_a_platform(appmod):
+    """Nirgends im Quelltext darf „Mixed" als Plattformwert entstehen. (#367)
+
+    Eine Ratsche: Der Wert war an ZWEI Stellen fest verdrahtet, und die zweite fiel erst
+    auf, als die erste behoben war. Ein Test, der nur `resolve_slug` prueft, haette die
+    andere durchgelassen.
+    """
+    import ast
+    baum = ast.parse(open(os.path.join(REPO, "app.py"), encoding="utf-8").read())
+
+    # Ueber den SYNTAXBAUM, nicht ueber Textsuche: Eine Zeilensuche traf die eigene
+    # Begruendung im Docstring und haette den Test unbrauchbar gemacht — genau die Sorte
+    # Fehlalarm, die man nach zwei Wochen abschaltet.
+    docstrings = set()
+    for k in ast.walk(baum):
+        if isinstance(k, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            erst = (k.body or [None])[0]
+            if isinstance(erst, ast.Expr) and isinstance(erst.value, ast.Constant):
+                docstrings.add(id(erst.value))
+
+    # Der Eintrag in IGNORE_FOLDERS ist das GEGENTEIL: Er sorgt dafuer, dass ein
+    # vorhandener Ordner dieses Namens NICHT als Plattform gilt.
+    erlaubt = set()
+    for k in ast.walk(baum):
+        if isinstance(k, ast.Assign) and any(
+                getattr(z, "id", "") == "IGNORE_FOLDERS" for z in k.targets):
+            erlaubt = {id(x) for x in ast.walk(k.value) if isinstance(x, ast.Constant)}
+
+    verdaechtig = [f"Zeile {k.lineno}" for k in ast.walk(baum)
+                   if isinstance(k, ast.Constant) and k.value == "Mixed"
+                   and id(k) not in docstrings and id(k) not in erlaubt]
+    assert not verdaechtig, "„Mixed\" wird noch als Wert erzeugt: " + ", ".join(verdaechtig)
+
+
+def test_an_existing_mixed_folder_is_not_a_platform(appmod):
+    """Ein vorhandener `Mixed`-Ordner bleibt liegen, gilt aber nicht als System. (#367)
+
+    Er wird NICHT geloescht — RetroNAS legt ihn ebenfalls an, und es liegen echte Dateien
+    darin. Er zaehlt nur nicht mehr als Plattform.
+    """
+    assert "Mixed" in appmod.IGNORE_FOLDERS
+    assert appmod.folder_slug("Mixed") == "", "Mixed darf keinen Plattform-Slug ergeben"
+    assert appmod.folder_slug("snes") == "snes", "echte Plattformen bleiben unberuehrt"
+
+
+def test_an_import_without_a_platform_lands_in_a_hidden_holding_folder(appmod):
+    """Ohne Plattform geht die Datei in eine Ablage, die keine Plattform ist. (#367)
+
+    Der fuehrende Punkt ist die ganze Mechanik: `build_index` ueberspringt solche Ordner
+    seit #321. Die Datei ist da und auffindbar — sie taucht nur nirgends als System auf.
+    """
+    assert appmod.UNSORTIERT.startswith("."), \
+        "ohne fuehrenden Punkt waere die Ablage wieder eine Plattform"
+    assert appmod.folder_slug(appmod.UNSORTIERT) in ("", appmod.UNSORTIERT)

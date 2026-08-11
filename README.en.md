@@ -227,6 +227,14 @@ that is the normal case and complete as it stands, not a fallback.
   title.* Of 20 3DS titles Hasheous matched 15 by checksum — the best rate in the whole
   library, and replacing the files would throw those metadata away. The cache has a cap
   (`DECRYPT_3DS_CACHE_GB`, default 50) and evicts least-recently-used.
+- 🗂 **What is not a platform does not become one.** When a title's platform cannot be
+  determined it stays **empty** — Romseerr invents no name. It used to say `Mixed`, and
+  because that value flowed all the way to creating the target folder, Romseerr **created**
+  the platform it was standing in for: first the folder, then the index entry, then a system
+  in the view. A title with no recognisable platform was not unlabelled but labelled with a
+  platform that does not exist. Downloads without a platform now go to `.unsortiert`; the
+  leading dot is enough to keep it from ever becoming a system. An **existing** `Mixed`
+  folder is left alone — it simply no longer counts as a platform.
 - ▶ **Play in the browser**: if the title exists in RomM and the platform has an EmulatorJS
   core, a button on the detail view opens RomM's built-in player. Romseerr emulates nothing
   itself. **PS2, GameCube, Wii, Dreamcast and Switch never show the button** — no core exists
