@@ -1952,6 +1952,33 @@ def test_agent_url_derivation(appmod):
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+# --- Uebersetzungen: EINE Quelle fuer alle Pruefungen (#350) ------------------------
+# Die Tabellen lagen bis #350 in `index.js`; jede Pruefung suchte sie dort mit einem
+# eigenen Muster. Beim Auslagern in JSON fielen deshalb sieben Tests auf einmal um —
+# nicht weil etwas kaputt war, sondern weil sieben Stellen dasselbe wussten.
+# Jetzt weiss es eine.
+#
+# Seven checks each grepped index.js with their own pattern; moving the tables broke all
+# seven at once. One helper now knows where they live.
+
+def sprachtabellen():
+    """{sprache: {schluessel: text}} — aus `static/i18n/*.json`."""
+    import json
+    ordner = os.path.join(REPO, "static", "i18n")
+    aus = {}
+    for datei in sorted(os.listdir(ordner)):
+        if datei.endswith(".json"):
+            with open(os.path.join(ordner, datei), encoding="utf-8") as f:
+                aus[datei[:-5]] = json.load(f)
+    return aus
+
+
+def i18n_hat(schluessel):
+    """In wie vielen Sprachen gibt es den Schluessel mit nicht-leerem Text?"""
+    return sum(1 for t in sprachtabellen().values() if str(t.get(schluessel, "")).strip())
+
+
+
 def _workflow(name):
     import yaml
     p = os.path.join(REPO, ".github", "workflows", name)
@@ -2759,7 +2786,7 @@ def test_firmware_panel_names_the_not_installed_state():
     aus wie ohne Befund. (#162)"""
     js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
     assert "p.needs_install&&!p.installed" in js, "der Zustand wird nicht abgefragt"
-    assert js.count("fw_notinstalled:") >= 5, "Text fehlt in mindestens einer Sprache"
+    assert i18n_hat("fw_notinstalled") == 5, "Text fehlt in mindestens einer Sprache"
 
 
 def test_dolphin_is_an_appimage_not_a_distribution_package():
@@ -3544,7 +3571,7 @@ def test_the_empty_requests_page_says_which_kind_of_empty():
     assert "alle.length&&(JOBGRP||window.jobFilter)" in fn, \
         "der Unterschied hängt nicht am tatsächlichen Bestand"
     for key in ("flt_active", "flt_done", "flt_denied", "flt_failed", "flt_leer"):
-        assert js.count(key + ":'") == 5, f"{key} fehlt in einer Sprache"
+        assert i18n_hat(key) == 5, f"{key} fehlt in einer Sprache"
 
 
 def test_no_logo_files_are_shipped_and_the_name_still_shows(appmod, client, tmp_path, monkeypatch):
@@ -3681,11 +3708,11 @@ def test_the_blocklist_describes_what_it_actually_does():
     assert "re.search" not in fn and "re.match" not in fn, "es ist doch eine Regex geworden"
 
     js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
-    i = js.index("bl_hint:'")
-    text = js[i:js.index("',", i)]
+    # Der Text steht seit #350 in den Sprachdateien, nicht mehr im Skript.
+    text = sprachtabellen()["de"]["bl_hint"]
     for begriff in ("Teilstring", "Regex", "Titel", "laufenden", "alle Nutzer"):
         assert begriff in text, f"die Beschreibung sagt nichts zu: {begriff}"
-    assert js.count("bl_hint:'") == 5, "die Beschreibung fehlt in einer Sprache"
+    assert i18n_hat("bl_hint") == 5, "die Beschreibung fehlt in einer Sprache"
     sec = js[js.index("async function secBlocklist("):]
     sec = sec[:sec.index("\nfunction ", 1)]
     assert "t('bl_hint')" in sec, "die Beschreibung steht nicht im Bereich"
@@ -4335,12 +4362,9 @@ def test_every_stream_reason_has_a_text(appmod):
     # Und die referenzierten i18n-Schlüssel muss es in ALLEN Sprachen geben, sonst steht
     # dort der nackte Schlüssel.
     schluessel = set(re.findall(r":\s*'([a-z_]+)'", m.group(1)))
-    for sprache in ("de", "en", "fr", "es", "it"):
-        blockm = re.search(sprache + r":\{(.*?)\n\s*[a-z]{2}:\{", js, re.S) or \
-                 re.search(sprache + r":\{(.*)", js, re.S)
-        block = blockm.group(1)
+    for sprache, tabelle in sprachtabellen().items():
         for k in schluessel:
-            assert re.search(r"\b" + k + r":", block), f"{k} fehlt in {sprache}"
+            assert str(tabelle.get(k, "")).strip(), f"{k} fehlt in {sprache}"
 
 
 def test_ambiguous_platform_offers_the_candidates(appmod, monkeypatch):
@@ -5104,7 +5128,7 @@ def test_the_second_seat_is_reachable_from_the_interface():
     # auf, wenn jemand die Sprache umstellt und dort der Schlüsselname steht.
     for schluessel in ("stream_url2_l", "stream_launch2_l", "stream_seat2_hint",
                        "stream_seats"):
-        assert js.count(f"{schluessel}:'") == 5, \
+        assert i18n_hat(schluessel) == 5, \
             f"{schluessel} fehlt in einer der fünf Sprachen"
     # Die Platzanzeige darf bei mehreren Plätzen nicht mehr "Einzelplatz" behaupten.
     assert "d.seats||1)>1" in js.replace(" ", ""), "Platzanzeige nicht von der Zahl abhängig"
@@ -5934,7 +5958,7 @@ def test_category_group_keys_exist_in_all_five_languages(appmod):
         js = f.read()
     fehlend = []
     for k in sorted(schluessel):
-        n = len(re.findall(rf"\b{re.escape(k)}\s*:", js))
+        n = i18n_hat(k)
         if n != 5:
             fehlend.append(f"{k}: {n}x statt 5")
     assert not fehlend, "Uebersetzungen unvollstaendig: " + "; ".join(fehlend)
@@ -6041,7 +6065,7 @@ def test_navigation_labels_carry_no_icon_and_exist_in_all_languages():
 
     unvollstaendig, mit_symbol = [], []
     for k in sorted(benutzt):
-        werte = re.findall(rf"{k}:'([^']*)'", js)
+        werte = [t[k] for t in sprachtabellen().values() if k in t]
         if len(werte) != 5:
             unvollstaendig.append(f"{k}: {len(werte)}x statt 5")
         for w in werte:
@@ -6298,3 +6322,64 @@ def test_a_configured_proxy_is_verified_at_startup(appmod):
     assert "log(f\"Download-Proxy" not in quelle.replace(
         'log("Download-Proxy wirkt: Austrittsadresse unterscheidet sich.")', ""), \
         "es sieht so aus, als wuerde eine Adresse protokolliert"
+
+
+def test_every_translation_key_exists_in_all_five_languages():
+    """Jeder Schluessel existiert in ALLEN fuenf Sprachen. (#350)
+
+    Die bisherige Pruefung sah nur `nav_*` und `lib_grp_*` an. Beim Auslagern der Tabelle
+    kam heraus, was sie nicht sah: **fuenf Schluessel der Bibliotheksansicht fehlten in
+    Franzoesisch, Spanisch und Italienisch** — `lib_hint`, `lib_titles`, `lib_owned`,
+    `lib_none`, `lib_empty`. Dieselbe Unterlassung wie zuvor bei `nav_library`, nur an
+    einer Stelle, auf die niemand geschaut hat.
+
+    Eine Pruefung, die nur einen Namensraum abdeckt, findet genau dort nichts.
+
+    The previous check looked at `nav_*` and `lib_grp_*` only, and missed five keys of the
+    library view absent from three languages — the same omission as `nav_library`, one
+    namespace over.
+    """
+    import json
+    wurzel = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ordner = os.path.join(wurzel, "static", "i18n")
+    sprachen = {}
+    for datei in sorted(os.listdir(ordner)):
+        if not datei.endswith(".json"):
+            continue
+        with open(os.path.join(ordner, datei), encoding="utf-8") as f:
+            sprachen[datei[:-5]] = json.load(f)
+
+    assert set(sprachen) == {"de", "en", "fr", "es", "it"}, \
+        f"unerwartete Sprachdateien: {sorted(sprachen)}"
+
+    alle = set()
+    for t in sprachen.values():
+        alle |= set(t)
+    assert len(alle) > 300, "verdaechtig wenige Schluessel — Pruefung waere wertlos"
+
+    fehlend = {l: sorted(alle - set(t)) for l, t in sprachen.items() if alle - set(t)}
+    assert not fehlend, "Uebersetzungen fehlen: " + "; ".join(
+        f"{l}: {', '.join(k[:6])}{' …' if len(k) > 6 else ''}" for l, k in fehlend.items())
+
+    # Leere Werte sind so schlimm wie fehlende — die Oberflaeche zeigt dann nichts.
+    leer = {l: [k for k, v in t.items() if not str(v).strip()] for l, t in sprachen.items()}
+    leer = {l: k for l, k in leer.items() if k}
+    assert not leer, f"leere Uebersetzungen: {leer}"
+
+
+def test_german_is_inlined_as_the_fallback():
+    """Deutsch steht IM Skript, die uebrigen werden geholt. (#350)
+
+    `t()` faellt auf `I18N.de` zurueck. Waere auch Deutsch nur geholt, zeigte die
+    Oberflaeche bei einem fehlgeschlagenen Abruf nackte Schluessel statt Text — ein
+    Ausfall, der wie ein Programmfehler aussieht und keiner ist.
+    """
+    wurzel = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(wurzel, "static", "js", "index.js"), encoding="utf-8") as f:
+        js = f.read()
+    assert "const I18N={de:" in js, "Deutsch ist nicht mehr eingebettet"
+    for l in ("en", "fr", "es", "it"):
+        assert f"const I18N={{{l}:" not in js, f"{l} sollte ausgelagert sein"
+    assert "i18nLaden" in js, "es gibt keinen Lader fuer die uebrigen Sprachen"
+    # Der Start muss auf die Sprache warten, sonst zeichnet die Seite erst deutsch.
+    assert "i18nLaden(LANG).then(" in js, "der Start wartet nicht auf die Sprache"
