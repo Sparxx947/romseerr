@@ -6544,3 +6544,38 @@ def test_a_cia_stays_refused_even_when_the_host_can_decrypt(appmod, tmp_path, mo
 
     d = appmod.stream_info("Titel", "3ds")
     assert d["streamable"] is False and d["reason"] == "cia_not_bootable"
+
+
+# --- #356: die Fehlerklasse „ausgeliefert und wirkungslos" --------------------------
+
+def test_the_3ds_decrypt_url_names_a_file_that_upstream_actually_has():
+    """Der Dateiname in der Quell-URL muss einer sein, den es gibt. (#356)
+
+    WARUM DAS EINE PRUEFUNG WERT IST: Die erste Fassung zeigte auf `decrypt.py`; das
+    Repository hat `decrypt_3ds.py` und `decrypt_cia.py`. Der Name war geraten. Das Skript
+    bricht bei einem Fehlschlag ABSICHTLICH mit `exit 0` ab, damit der Container startet —
+    also war die Faehigkeit einfach nicht da, ohne dass irgendwo etwas rot wurde.
+    Ausgeliefert und wirkungslos ist der teuerste Zustand: Er sieht aus wie fertig.
+    """
+    pfad = os.path.join(REPO, "contrib/streaming-host/init/23-3ds-entschluesseln")
+    text = open(pfad, encoding="utf-8").read()
+    m = re.search(r"DECRYPT_3DS_URL:-(\S+?)\}", text)
+    assert m, "keine Vorgabe-URL gefunden"
+    assert os.path.basename(m.group(1)) in ("decrypt_3ds.py", "decrypt_cia.py"), \
+        f"{m.group(1)} nennt eine Datei, die es im Repository nicht gibt"
+
+
+def test_the_3ds_setup_does_not_gate_on_a_file_the_tool_never_reads():
+    """Keine Sperre auf `boot9.bin` — das Werkzeug oeffnet die Datei nie. (#356)
+
+    Es traegt die vier Retail-KeyX fest im Quelltext. Die Sperre prueft eine Voraussetzung,
+    die es nicht gibt — und lag zusaetzlich VOR `25-firmware`, das die Datei erst hinlegt.
+    Zwei Fehler ergaenzten sich so zu einem dritten: Sie konnte auf einem frischen
+    Container nie zutreffen.
+    """
+    pfad = os.path.join(REPO, "contrib/streaming-host/init/23-3ds-entschluesseln")
+    for nr, zeile in enumerate(open(pfad, encoding="utf-8"), 1):
+        if zeile.lstrip().startswith("#"):
+            continue
+        assert "boot9" not in zeile, \
+            f"Zeile {nr} macht die Einrichtung von boot9.bin abhaengig: {zeile.strip()}"

@@ -11,9 +11,14 @@
 # Bibliothek waren 1.248 verschluesselt — ohne diesen Schritt ist die Plattform leer.
 #
 # WARUM DIESES WERKZEUG: NDecrypt — der erste Suchtreffer — lief durch, meldete Erfolg und
-# liess die Datei BYTE-IDENTISCH. 3DS-Decrypt (Python + pycryptodome) leitet die Schluessel
-# aus `boot9.bin` selbst ab und braucht keine `aes_keys.txt`; nachgemessen: `NoCrypto`-Flag
-# gesetzt, Daten veraendert, Azahar startet den Titel.
+# liess die Datei BYTE-IDENTISCH. 3DS-Decrypt (Python + pycryptodome) traegt die vier
+# Retail-KeyX FEST im Quelltext und braucht deshalb WEDER `aes_keys.txt` NOCH `boot9.bin`.
+# An einem echten Titel dieser Bibliothek nachgemessen (128 MB): 0,07 s, Pruefsumme
+# geaendert, `NoCrypto`-Flag von 0x00 auf 0x04. Entschluesselt werden nur Kopf- und
+# ExeFS-Bereiche, nicht das ganze Abbild — die Kosten stecken im Kopieren, nicht hier.
+#
+# ROMs mit DEV-Schluesseln entschluesselt es nicht; dafuer waeren die auskommentierten
+# Werte im Skript einzusetzen. In dieser Bibliothek kam kein solcher Fall vor.
 #
 # An init script rather than a manual pip install: a running-container install lasts until
 # the next image update, and its loss is silent. Azahar does not decrypt by itself, and
@@ -21,15 +26,18 @@
 set -uo pipefail
 
 WERKZEUG=/config/tools/3ds-decrypt
-QUELLE=${DECRYPT_3DS_URL:-https://raw.githubusercontent.com/aszuraz/3DS-Decrypt/main/decrypt.py}
+QUELLE=${DECRYPT_3DS_URL:-https://raw.githubusercontent.com/aszuraz/3DS-Decrypt/main/decrypt_3ds.py}
 
-# Ohne Schluesselmaterial ist das Werkzeug nutzlos — dann lieber gar nicht erst so tun.
-SCHLUESSEL=/config/.local/share/azahar-emu/sysdata/boot9.bin
-if [ ! -s "$SCHLUESSEL" ]; then
-  echo "[3ds] boot9.bin fehlt — Entschluesselung wird NICHT eingerichtet"
-  echo "[3ds] boot9.bin missing — decryption not set up"
-  exit 0
-fi
+# KEINE Sperre auf `boot9.bin`: Die erste Fassung dieses Skripts pruefte darauf, weil die
+# Beschreibung des Werkzeugs es nahelegte. Der Quelltext sagt etwas anderes — die Schluessel
+# stehen fest darin, `boot9.bin` wird nie geoeffnet. Die Sperre pruefte eine Voraussetzung,
+# die es nicht gibt, und lag zudem VOR `25-firmware`, das die Datei erst hinlegt: Sie konnte
+# auf einem frischen Container nie zutreffen. Azahar selbst braucht die Firmware sehr wohl,
+# aber dafuer ist `25-firmware` zustaendig. (#356)
+#
+# No boot9.bin gate: the tool carries the retail keys in its source and never opens that
+# file. The gate tested a precondition that does not exist, and ran before the script that
+# places the file.
 
 mkdir -p "$(dirname "$WERKZEUG")"
 
