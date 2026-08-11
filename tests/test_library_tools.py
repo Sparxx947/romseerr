@@ -237,3 +237,181 @@ def test_a_missing_or_broken_progress_file_starts_from_the_beginning(org, tmp_pa
     kaputt = tmp_path / "kaputt.json"
     kaputt.write_text("{kein json", encoding="utf-8")
     assert org.stand_laden(str(kaputt)) == (set(), False)
+
+
+# --- #397: eine abgestuerzte Plattform gilt nicht als erledigt ----------------------
+
+def _bibliothek(tmp_path, *plattformen):
+    """Eine Wurzel mit je einer Datei je Plattform — genug, damit sie als Kandidat zaehlt."""
+    for p in plattformen:
+        d = tmp_path / p
+        d.mkdir()
+        (d / f"{p}.rom").write_bytes(b"x" * 8)
+    return str(tmp_path)
+
+
+def _lauf(org, monkeypatch, wurzel, scheitert_an=()):
+    """`alle_umbauen` mit einem `umbauen`, das an bestimmten Plattformen scheitert.
+
+    Der echte Umbau ist Dateisystemarbeit; hier geht es einzig um die Buchfuehrung
+    darueber, was fertig wurde.
+    """
+    import json
+
+    def umbauen(_wurzel, plattform, _trocken, _prot):
+        if plattform in scheitert_an:
+            raise RuntimeError(f"kein freier Name fuer VERSION.NFO ({plattform})")
+        return 0
+
+    monkeypatch.setattr(org, "umbauen", umbauen)
+    org.alle_umbauen(wurzel, False, set())
+    with open(os.path.join(wurzel, ".umbau", "fortschritt.json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
+def test_a_platform_that_crashed_is_not_recorded_as_done(org, tmp_path, monkeypatch):
+    """Eine Plattform, die mit einer Ausnahme endete, steht NICHT in `erledigt`. (#397)
+
+    WARUM DAS ZAEHLT: Seit #372 ist `erledigt` die Wiederaufsetzliste. Der volle Lauf vom
+    2026-08-11 meldete `ALLE 74 PLATTFORMEN FERTIG`, obwohl `c64` (RuntimeError) und
+    `amiga` (UnicodeEncodeError) abgestuerzt waren — beide standen trotzdem in `erledigt`.
+    Ein Fortsetzen haette damit ausgerechnet die zwei uebersprungen, die nicht fertig sind.
+    """
+    wurzel = _bibliothek(tmp_path, "gb", "c64", "amiga")
+    stand = _lauf(org, monkeypatch, wurzel, scheitert_an={"c64", "amiga"})
+
+    fertige = {e["plattform"] for e in stand["erledigt"]}
+    assert fertige == {"gb"}, f"abgestuerzte Plattformen gelten als erledigt: {fertige}"
+    assert {e["plattform"] for e in stand.get("fehlgeschlagen") or []} == {"c64", "amiga"}
+
+
+def test_a_run_with_failures_is_not_a_finished_run(org, tmp_path, monkeypatch):
+    """Bleibt eine Plattform mit Fehler zurueck, ist der Lauf nicht `fertig`. (#397)
+
+    `fertig: true` schaltet den Wiederaufsetzpunkt ab (`stand_laden`). Stuende es nach
+    einem Lauf mit Fehlern da, muesste man die zwei Plattformen wieder von Hand ueber
+    `--ausser` zusammensuchen — genau das, was #371 abschaffen sollte.
+    """
+    wurzel = _bibliothek(tmp_path, "gb", "c64")
+    stand = _lauf(org, monkeypatch, wurzel, scheitert_an={"c64"})
+    assert stand["fertig"] is False
+
+    erledigt, unterbrochen = org.stand_laden(
+        os.path.join(wurzel, ".umbau", "fortschritt.json"))
+    assert erledigt == {"gb"} and unterbrochen is True, \
+        "die abgestuerzte Plattform kommt beim Fortsetzen nicht wieder dran"
+
+
+def test_a_run_without_failures_is_still_marked_finished(org, tmp_path, monkeypatch):
+    """Gegenprobe: ohne Fehler bleibt es beim alten Verhalten. (#397)"""
+    wurzel = _bibliothek(tmp_path, "gb", "nes")
+    stand = _lauf(org, monkeypatch, wurzel)
+    assert stand["fertig"] is True
+    assert {e["plattform"] for e in stand["erledigt"]} == {"gb", "nes"}
+    assert not stand.get("fehlgeschlagen")
+
+
+def test_the_closing_summary_names_the_failures(org, tmp_path, monkeypatch, capsys):
+    """Die Schlussmeldung nennt die Fehlschlaege, nicht nur die Zahl der Fertigen. (#397)
+
+    Der Fehler stand im Protokoll — zwei Zeilen ueber `ALLE 74 PLATTFORMEN FERTIG`, in
+    einer Datei mit 1.194 Zeilen. Wer auf die Schlussmeldung schaut, sah nur Erfolg.
+    """
+    wurzel = _bibliothek(tmp_path, "gb", "c64", "amiga")
+    _lauf(org, monkeypatch, wurzel, scheitert_an={"c64", "amiga"})
+    kopf = [z for z in capsys.readouterr().out.splitlines() if "===" in z][-1]
+    assert "ALLE" not in kopf, f"die Schlussmeldung meldet vollen Erfolg: {kopf!r}"
+    assert "c64" in kopf and "amiga" in kopf, \
+        f"die Schlussmeldung verschweigt, welche Plattformen scheiterten: {kopf!r}"
+
+
+# --- #397: Kollisionsnamen gehen nicht aus -------------------------------------------
+
+def test_more_than_ten_thousand_identical_names_still_get_a_place(org, monkeypatch):
+    """Der zehntausendste gleichnamige Eintrag bekommt einen Platz. (#397)
+
+    NACHGEMESSEN, nicht angenommen: Unter `c64` liegen 9.999 Dateien `VERSION (i).NFO`,
+    hoechster Index 9999 — genau die Obergrenze der frueheren Suche (`range(2, 10000)`).
+    Der Lauf starb dort mit `RuntimeError: kein freier Name fuer VERSION.NFO`. Die Grenze
+    beschraenkte nicht die Suche, sondern die Bibliothek.
+    """
+    org._freier_name_start.clear()
+    belegt = {"VERSION.NFO"} | {f"VERSION ({i}).NFO" for i in range(2, 12000)}
+    monkeypatch.setattr(org.os.path, "exists",
+                        lambda p: os.path.basename(p) in belegt)
+    ziel = org.freier_name("/roms/c64", "VERSION.NFO")
+    assert os.path.basename(ziel) == "VERSION (12000).NFO"
+
+
+def test_the_search_for_a_free_name_does_not_get_quadratically_slower(org, tmp_path):
+    """Die Suche faengt dort an, wo sie zuletzt aufhoerte — nicht jedes Mal bei 2. (#397)
+
+    Fuer den n-ten gleichnamigen Eintrag pruefte die alte Fassung n Namen; ueber 9.999
+    Dateien sind das rund 50 Millionen Anfragen ans Dateisystem, jede auf dem Array. Das
+    ist derselbe Fehler wie die Obergrenze, nur als Laufzeit statt als Ausnahme.
+    """
+    org._freier_name_start.clear()
+    ordner = tmp_path / "c64"
+    ordner.mkdir()
+    n = 0
+    echtes_exists = os.path.exists
+
+    def zaehlend(p):
+        nonlocal n
+        n += 1
+        return echtes_exists(p)
+
+    import unittest.mock
+    with unittest.mock.patch.object(org.os.path, "exists", zaehlend):
+        for _ in range(200):
+            open(org.freier_name(str(ordner), "VERSION.NFO"), "w").close()
+    assert n < 3 * 200, f"{n} Dateisystemanfragen fuer 200 Namen — die Suche laeuft neu an"
+
+
+# --- #397: Dateinamen, die kein gueltiges UTF-8 sind ----------------------------------
+
+# `\udce0` ist Pythons Ersatzzeichen fuer das Byte 0xE0 — so liest `os.listdir` einen
+# Namen, der in keiner UTF-8-Fassung existiert. Unter `amiga` liegen 21 solcher Namen
+# (nachgezaehlt), alle aus `MUI38/MUI/Locale/Catalogs` — `catal\xe0`, `espa\xf1ol`.
+UNGUELTIG = "catal\udce0.catalog"
+
+
+def test_a_filename_that_is_not_valid_utf8_can_be_logged(org, tmp_path):
+    """Ein Name mit ungueltigem Byte bricht das Protokoll nicht ab. (#397)
+
+    Der `amiga`-Lauf starb an `UnicodeEncodeError: '\\udce0' surrogates not allowed` —
+    beim SCHREIBEN der Protokollzeile. Das Protokoll ist der einzige Rueckweg; scheitert
+    es, ist nicht nur die Plattform hin, sondern auch der Weg zurueck.
+    """
+    prot = org.Protokoll(str(tmp_path / ".umbau" / "p.jsonl"), False)
+    try:
+        prot.schreiben("verschoben", von=f"/roms/amiga/Bigpack/{UNGUELTIG}",
+                       nach=f"/roms/amiga/{UNGUELTIG}")
+    finally:
+        prot.zu()
+    assert os.path.getsize(tmp_path / ".umbau" / "p.jsonl") > 0
+
+
+def test_such_a_file_survives_the_whole_way_back(org, tmp_path, capsys):
+    """Und `--zurueck` legt genau diesen Namen wieder zurueck. (#397)
+
+    Ein Protokoll, das sich nicht mehr lesen laesst, ist so wertlos wie keins.
+    """
+    von = tmp_path / "sammlung"
+    von.mkdir()
+    quelle = von / UNGUELTIG
+    quelle.write_bytes(b"inhalt")
+    ziel = tmp_path / UNGUELTIG
+
+    pfad = str(tmp_path / ".umbau" / "p.jsonl")
+    prot = org.Protokoll(pfad, False)
+    try:
+        os.replace(str(quelle), str(ziel))
+        prot.schreiben("verschoben", von=str(quelle), nach=str(ziel))
+    finally:
+        prot.zu()
+
+    org.zurueck(pfad)
+    capsys.readouterr()
+    assert quelle.exists() and not ziel.exists(), \
+        "der Rueckweg findet den Namen nicht wieder"
