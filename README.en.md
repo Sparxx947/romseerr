@@ -643,6 +643,12 @@ time. The result appears in the startup warnings; the addresses themselves are *
 - **API key** compared in constant time.
 - **No secrets in the repo** — `.gitignore` excludes `.env`, `config/` and `*.db*`; CI runs
   **Gitleaks**, **Trivy**, **Bandit** and **CodeQL**.
+  Two details that otherwise go wrong quietly: on `push` and `pull_request` Gitleaks sees
+  **only the new commits** — the full history is scanned by the weekly run alone. And a
+  **scheduled run always starts on the default branch**, here the release branch `main`,
+  so it would report on a tree nobody runs. The schedule therefore checks out `dev`
+  explicitly (`SCAN_REF` in `security.yml`). Without it the weekly run stayed permanently
+  red over false positives that had long been fixed.
 
 ---
 
