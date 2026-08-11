@@ -227,6 +227,13 @@ that is the normal case and complete as it stands, not a fallback.
   title.* Of 20 3DS titles Hasheous matched 15 by checksum — the best rate in the whole
   library, and replacing the files would throw those metadata away. The cache has a cap
   (`DECRYPT_3DS_CACHE_GB`, default 50) and evicts least-recently-used.
+- 🔑 **An Archive.org account via key pair, not a password.** Under *Settings →
+  Connections → Archive.org* Romseerr takes the access and secret key from
+  `archive.org/account/s3.php` and sends them as a header (`Authorization: LOW …`). It is
+  revocable on its own, has no session to expire quietly overnight, and the account
+  password is never involved. With keys present the padlock on restricted hits disappears,
+  because they are downloadable. **Without** keys a restricted title is refused immediately
+  with a reason rather than queued.
 - 🔒 **Restricted Archive.org items say so beforehand.** Some items sit in the `loggedin`
   collection and need an account; without one the download answers **HTTP 401**. Such hits
   stay visible — they exist — but carry a padlock. Previously this only surfaced after the

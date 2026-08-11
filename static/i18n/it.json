@@ -370,5 +370,6 @@
  "stream_cia_update": "Questo è un aggiornamento, non un gioco — appartiene a un altro titolo e non si avvia nemmeno installato.",
  "stream_cia_dlc": "Questo è un contenuto aggiuntivo (DLC), non un gioco a sé.",
  "stream_cia_broken": "Questo CIA non è leggibile — l'intestazione del titolo manca o è danneggiata.",
- "needs_ia_login": "richiede un account"
+ "needs_ia_login": "richiede un account",
+ "ia_hint": "Alcuni elementi di Archive.org sono nella raccolta `loggedin` e richiedono un account — senza, il download risponde HTTP 401. Qui non va una password ma la coppia di chiavi da archive.org/account/s3.php."
 }

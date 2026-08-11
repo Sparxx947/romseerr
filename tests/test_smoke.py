@@ -7018,3 +7018,60 @@ def test_the_search_actually_asks_for_the_collection_field(appmod, monkeypatch):
     appmod.search_archive("egal")
     assert "collection" in gesehen.get("url", ""), \
         "die Suche fordert das Sammlungsfeld nicht an"
+
+
+# --- #384: Archive.org-Schluessel ----------------------------------------------------
+
+def test_the_archive_secret_never_reaches_a_log_line(appmod, monkeypatch, capsys):
+    """Das Geheimnis darf in KEINER Protokollzeile stehen. (#384)
+
+    WARUM DAS EIN EIGENER TEST IST: Romseerrs Log-Zeilen werden in Issues und Berichte
+    kopiert, und dieses Repository ist oeffentlich. Ein Geheimnis, das ins Protokoll
+    gelangt, gelangt damit nach draussen — und ist danach nicht zurueckzuholen, auch nicht
+    durch Loeschen des Kommentars.
+    """
+    monkeypatch.setattr(appmod, "cfg", lambda k, d="": {
+        "ia_access": "ZUGRIFF123", "ia_secret": "GEHEIMNIS456"}.get(k, d))
+    kopf = appmod.ia_kopfzeile()
+    assert kopf and "GEHEIMNIS456" in kopf[1], "die Kopfzeile muss den Schluessel tragen"
+
+    appmod.log("irgendeine Meldung")
+    appmod.log(f"Fehler: {appmod.aria_fehler(24)}")
+    ausgabe = capsys.readouterr().out
+    assert "GEHEIMNIS456" not in ausgabe, "das Geheimnis steht im Protokoll"
+    assert "ZUGRIFF123" not in ausgabe
+
+
+def test_without_both_keys_nothing_is_sent(appmod, monkeypatch):
+    """Ein halbes Schluesselpaar ist kein Schluesselpaar. (#384)
+
+    Ein einzeln gesetzter Wert wuerde eine kaputte Kopfzeile erzeugen — und die Quelle
+    antwortet darauf mit demselben 401 wie ohne, nur schwerer zu deuten.
+    """
+    for a, g in (("", ""), ("nur-zugriff", ""), ("", "nur-geheim")):
+        monkeypatch.setattr(appmod, "cfg",
+                            lambda k, d="", a=a, g=g: {"ia_access": a, "ia_secret": g}.get(k, d))
+        assert appmod.ia_kopfzeile() == [], f"({a!r}, {g!r}) darf keine Kopfzeile ergeben"
+        assert appmod.ia_bereit() is False
+
+
+def test_a_restricted_hit_loses_its_padlock_once_keys_exist(appmod, monkeypatch):
+    """Mit Schluesseln ist der Titel ladbar — dann ist das Schloss falsch. (#384)
+
+    Die Sperre haengt am KONTO, nicht am Titel. Ein Schloss, das bleibt, obwohl der
+    Download geht, ist genau die Sorte Falschauskunft, gegen die #382 gebaut wurde.
+    """
+    class Antwort:
+        ok = True
+        @staticmethod
+        def json():
+            return {"response": {"docs": [{"identifier": "x", "title": "T", "item_size": 1,
+                                           "collection": ["loggedin"]}]}}
+    monkeypatch.setattr(appmod.requests, "get", lambda *a, **k: Antwort())
+
+    monkeypatch.setattr(appmod, "cfg", lambda k, d="": "")
+    assert appmod.search_archive("q")[0]["restricted"] is True
+
+    monkeypatch.setattr(appmod, "cfg", lambda k, d="": {
+        "ia_access": "a", "ia_secret": "g"}.get(k, d))
+    assert appmod.search_archive("q")[0]["restricted"] is False
