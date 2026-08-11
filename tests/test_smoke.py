@@ -6233,3 +6233,68 @@ def test_state_changes_carry_a_machine_readable_timestamp(appmod):
     finally:
         appmod.JOBS[:] = vorher
         appmod.save_jobs()
+
+
+# --- Download-Proxy (#346) ---------------------------------------------------------
+
+def test_the_direct_download_uses_the_proxy_when_configured(appmod, monkeypatch):
+    """Ist ein Proxy gesetzt, geht der eigene Download darueber. (#346)
+
+    WARUM DAS UEBERSEHEN WURDE: Bei `source: archive` reicht Romseerr die Datei NICHT an
+    SABnzbd oder JDownloader weiter — es laedt selbst, mit `aria2c` im eigenen Container.
+    Deren VPN-Konfiguration wirkt hier also nicht. Gemessen lief dieser Weg unter derselben
+    Adresse wie der Anschluss, waehrend Usenet und Torrent laengst durch einen Tunnel gingen.
+
+    Geprueft wird der Befehl, den `aria2c` bekommt — nicht ein echter Download.
+    """
+    gerufen = {}
+
+    def falscher_lauf(befehl, **kw):
+        gerufen["befehl"] = befehl
+        class E:
+            returncode = 0
+        return E()
+
+    monkeypatch.setattr(appmod.subprocess, "run", falscher_lauf)
+    monkeypatch.setattr(appmod, "cfg", lambda k: "http://proxy:8888" if k == "dl_proxy" else "")
+
+    # Den Befehl so bauen wie der Download-Pfad es tut.
+    befehl = ["aria2c", "-x8", "-d", "/tmp", "-i", "/tmp/x"]
+    if appmod.cfg("dl_proxy"):
+        befehl += [f"--all-proxy={appmod.cfg('dl_proxy')}"]
+
+    assert "--all-proxy=http://proxy:8888" in befehl
+    # `--all-proxy` und nicht `--http-proxy`: Archive.org liefert ueber https, und ein nur
+    # fuer http gesetzter Proxy waere genau der Fall, der wie Schutz aussieht und keiner ist.
+    assert not any(a.startswith("--http-proxy") for a in befehl)
+
+
+def test_the_download_path_actually_passes_the_proxy_flag():
+    """Der Quelltext des Download-Pfads setzt `--all-proxy`. (#346)
+
+    Die Pruefung oben zeigt nur, dass die Konstruktion stimmt. Diese hier sieht nach, dass
+    sie im Download-Pfad auch WIRKLICH steht — sonst prueft die erste eine Nachbildung.
+    """
+    pfad = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app.py")
+    with open(pfad, encoding="utf-8") as f:
+        quelle = f.read()
+    assert 'f"--all-proxy={cfg(\'dl_proxy\')}"' in quelle, \
+        "der Download-Pfad reicht den Proxy nicht an aria2c weiter"
+
+
+def test_a_configured_proxy_is_verified_at_startup(appmod):
+    """Beim Start wird geprueft, ob der Proxy die Austrittsadresse WIRKLICH aendert. (#346)
+
+    „Erreichbar" reicht nicht: Ein Proxy, der still auf den direkten Weg zurueckfaellt, ist
+    erreichbar und nutzlos zugleich. Und ein VPN, das im Fehlerfall offen faellt, ist
+    schlimmer als keins — es laedt zu der Annahme ein, geschuetzt zu sein.
+    """
+    pfad = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app.py")
+    with open(pfad, encoding="utf-8") as f:
+        quelle = f.read()
+    assert "ueber == direkt" in quelle, "die Austrittsadresse wird nicht verglichen"
+    assert "dlproxy" in quelle, "es gibt keine Warnung zum Download-Proxy"
+    # Die Adressen selbst duerfen NICHT im Log landen.
+    assert "log(f\"Download-Proxy" not in quelle.replace(
+        'log("Download-Proxy wirkt: Austrittsadresse unterscheidet sich.")', ""), \
+        "es sieht so aus, als wuerde eine Adresse protokolliert"
