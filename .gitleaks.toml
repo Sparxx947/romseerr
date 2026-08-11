@@ -1,0 +1,34 @@
+# Gitleaks-Konfiguration. / Gitleaks configuration.
+#
+# WARUM ES DIESE DATEI GIBT (#343): Der Scan lief bei `push` und `pull_request` immer
+# gruen und schlug beim ersten Lauf ueber die VOLLE Historie fehl — mit zwei Funden in
+# `.env.example`, die keine sind: `SAB_APIKEY=` und `PROWLARR_APIKEY=`, beide LEER. Die
+# Datei ist die Vorlage, die man nach `.env` kopiert; leere Platzhalter sind ihr Zweck.
+#
+# Das eigentliche Problem war nicht der Fehlalarm, sondern was er sichtbar machte: Je nach
+# Ausloeser scannte die Pruefung unterschiedlich tief, und die Historie war nie an der
+# Reihe. Ein Geheimnis, das VOR Einfuehrung der Pruefung committet wurde, waere nie
+# gefunden worden.
+#
+# The scan passed on push and pull_request and failed the first time it looked at the full
+# history — on empty placeholders. The real finding was the depth, not the false positive.
+
+[extend]
+useDefault = true
+
+[[rules]]
+  # Die Vorlagendatei enthaelt ausschliesslich leere Zuweisungen. Ausgenommen wird der
+  # PFAD, nicht der einzelne Fingerabdruck: Ein echter Schluessel in einer ANDEREN Datei
+  # soll weiterhin auffallen, und Fingerabdruecke veralten bei jedem Rebase.
+  # The path is allowlisted, not the individual fingerprints: a real key in a different
+  # file must still be caught, and fingerprints go stale on every rebase.
+  id = "generic-api-key"
+  description = "Generic API Key"
+  regex = '''(?i)(?:key|api|token|secret|passwd|password)(?:[0-9a-z\-_\t .]{0,20})(?:[\s|']|[\s|"]){0,3}(?:=|>|:{1,3}=|\|\|:|<=|=>|:)(?:'|\"|\s|=|\x60){0,5}([0-9a-z\-_.=]{10,150})(?:['|\"|\n|\r|\s|\x60|;]|$)'''
+  keywords = ["key", "api", "token", "secret", "passwd", "password"]
+  [rules.allowlist]
+    paths = ['''^\.env\.example$''']
+
+[allowlist]
+  description = "Vorlagendateien ohne Werte / template files without values"
+  paths = ['''^\.env\.example$''']

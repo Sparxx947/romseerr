@@ -58,9 +58,16 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           fetch-depth: 0
+      # WARUM DIE KONFIGURATION AUSDRUECKLICH GESETZT WIRD: Die Action liest `.gitleaks.toml`
+      # nicht in jedem Fall von selbst. Ohne den Verweis liefe der Standardsatz weiter und
+      # die Ausnahme fuer `.env.example` waere wirkungslos — was man erst am naechsten
+      # roten Wochenlauf merkt, also frueherstens in einer Woche. (#343)
+      # Set explicitly: without it the default ruleset stays in force and the allowlist
+      # would do nothing, which only shows up on the next weekly run.
       - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: ${{ github.workspace }}/.gitleaks.toml
 
   dependency-review:
     # Blockiert PRs, die Abhängigkeiten mit bekannten Schwachstellen einführen.
