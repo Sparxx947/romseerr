@@ -453,6 +453,14 @@ title is already there is useful, it just should not have to be *read*.
 
 ### Requests
 
+**A restart aborts work in progress — visibly.** Downloading and importing need a running
+process; if the container is replaced mid-way, that thread is gone. Such jobs are moved to
+**error** on the next start, with a message asking for the request to be repeated. Before,
+they stayed on "importing": the title counted as requested for ever, could not be requested
+again, and its half-finished folder was protected from cleanup. Pending and queued requests
+are left alone — those survive a restart perfectly well.
+
+
 Above the list are five filters with **counts** — *all*, *active*, *done*, *denied*,
 *failed* — plus the user filter when there is more than one account; the two combine. The
 page therefore states what it holds without being clicked through.

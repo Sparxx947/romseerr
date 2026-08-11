@@ -5967,3 +5967,48 @@ def test_similar_games_are_filtered_to_supported_platforms(appmod, monkeypatch):
 
     titel = [g["title"] for g in appmod.igdb_similar_games("Fable")]
     assert titel == ["Chrono Trigger"], f"unerwartet: {titel}"
+
+
+# --- Auftraege nach einem Neustart (#336) ------------------------------------------
+
+def test_in_flight_jobs_are_cleared_after_a_restart(appmod):
+    """Ein Neustart mitten im Import laesst keinen Auftrag im Nirgendwo zurueck. (#336)
+
+    Gemessener Anlass: Nach vier gewoehnlichen Deployments stand ein Import 11,5 Stunden
+    auf `importing`, bei leerem Staging. Der Arbeitsfaden war weg, der Zustand blieb.
+
+    Das kostet mehr als einen toten Auftrag: `importing` steht in OFFENE_ZUSTAENDE, also
+    galt der Titel als „bereits angefragt" und war nicht erneut anforderbar — und sein
+    Rest-Ordner war vor dem Aufraeumen geschuetzt (#244).
+
+    `pending` und `queued` bleiben unangetastet: Die warten auf eine Entscheidung bzw. auf
+    die Warteschlange und ueberstehen einen Neustart einwandfrei.
+    """
+    vorher = list(appmod.JOBS)
+    try:
+        appmod.JOBS[:] = [
+            {"id": "j1", "title": "Little Big Planet", "state": "importing"},
+            {"id": "j2", "title": "Irgendwas",        "state": "downloading"},
+            {"id": "j3", "title": "Wartet auf Freigabe", "state": "pending"},
+            {"id": "j4", "title": "In der Schlange",  "state": "queued"},
+            {"id": "j5", "title": "Fertig",           "state": "done"},
+        ]
+        betroffen = appmod.jobs_nach_neustart_aufraeumen()
+
+        zustand = {j["id"]: j["state"] for j in appmod.JOBS}
+        assert zustand["j1"] == "error", "der haengende Import wurde nicht aufgeraeumt"
+        assert zustand["j2"] == "error", "ein unterbrochener Download bleibt haengen"
+        assert zustand["j3"] == "pending", "eine wartende Freigabe wurde faelschlich abgebrochen"
+        assert zustand["j4"] == "queued", "ein Auftrag in der Schlange wurde abgebrochen"
+        assert zustand["j5"] == "done"
+        assert set(betroffen) == {"j1", "j2"}
+
+        # Die Meldung muss sagen, was zu tun ist — ein blosses „error" hilft niemandem.
+        meldung = next(j for j in appmod.JOBS if j["id"] == "j1").get("msg", "")
+        assert "Neustart" in meldung and "erneut" in meldung
+
+        # Und der Titel muss wieder anfragbar sein: genau das war vorher blockiert.
+        assert "error" not in appmod.OFFENE_ZUSTAENDE
+    finally:
+        appmod.JOBS[:] = vorher
+        appmod.save_jobs()

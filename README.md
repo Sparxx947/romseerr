@@ -458,6 +458,15 @@ werden müssen.
 
 ### Anfragen
 
+**Ein Neustart bricht laufende Vorgänge ab — sichtbar.** Download und Import brauchen
+einen laufenden Prozess; wird der Container mitten darin ersetzt, ist der Arbeitsfaden
+weg. Solche Aufträge werden beim nächsten Start auf **Fehler** gesetzt, mit dem Hinweis,
+die Anfrage zu wiederholen. Vorher blieben sie auf „importiere" stehen: der Titel galt
+dauerhaft als angefragt, ließ sich nicht erneut anfordern, und sein halbfertiger Ordner
+war vor dem Aufräumen geschützt. Wartende und eingereihte Anfragen bleiben unberührt —
+die überstehen einen Neustart einwandfrei.
+
+
 Über der Liste stehen fünf Filter mit **Zahlen** — *Alle*, *aktiv*, *erledigt*,
 *abgelehnt*, *fehlgeschlagen* —, und bei mehreren Nutzern zusätzlich der Nutzerfilter;
 beide greifen zusammen. Die Seite sagt damit, was sie enthält, ohne dass man sie

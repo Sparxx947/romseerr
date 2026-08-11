@@ -1820,6 +1820,48 @@ def load_jobs():
             JOBS = [json.loads(d) for (d,) in c.execute("SELECT data FROM jobs ORDER BY seq")]
     except Exception as e:
         log(f"Job-Laden-Fehler: {e}"); JOBS = []
+# Zustaende, die einen laufenden Prozess VORAUSSETZEN. Sie ueberleben einen Neustart
+# nicht: Der Arbeitsfaden, der sie gesetzt hat, ist dann weg, und niemand setzt sie je
+# weiter. `pending`/`queued` sind hier bewusst NICHT dabei — die warten auf eine
+# Entscheidung bzw. auf die Warteschlange und sind nach einem Neustart voellig in Ordnung.
+FLUECHTIGE_ZUSTAENDE = ("downloading", "importing")
+
+def jobs_nach_neustart_aufraeumen():
+    """Auftraege einsammeln, die ein Neustart mitten in der Arbeit erwischt hat. (#336)
+
+    WARUM DAS NOETIG IST — gemessen, nicht befuerchtet: Nach vier gewoehnlichen
+    Deployments an einem Tag stand ein Import 11,5 Stunden auf `importing`, mit leerem
+    Staging. Nichts entpackte mehr etwas; der Zustand war nur noch eine Behauptung.
+
+    WARUM DAS MEHR ALS EINEN TOTEN AUFTRAG KOSTET: `importing` steht in
+    OFFENE_ZUSTAENDE. Damit gilt der Titel als „bereits angefragt" und laesst sich nicht
+    erneut anfordern, UND sein Rest-Ordner ist vor dem Aufraeumen geschuetzt (#244) —
+    beides mit einem Zustand, der nie endet.
+
+    WARUM `error` UND NICHT ERNEUT IN DIE WARTESCHLANGE: Was der Import schon getan hat,
+    weiss niemand mehr — halb entpackte Dateien koennen im Zielordner liegen. Ein blinder
+    zweiter Lauf wuerde darauf aufsetzen. `error` mit klarer Meldung gibt die Entscheidung
+    an den Menschen zurueck, und der Titel ist sofort wieder anfragbar.
+
+    States that require a running thread cannot survive a restart: the thread is gone and
+    nobody advances them. They are moved to `error` rather than re-queued, because what a
+    half-finished import already wrote is unknown, and a blind second run would build on it.
+    """
+    with JOBS_LOCK:
+        betroffen = [(j["id"], str(j.get("title") or "")[:40]) for j in JOBS
+                     if j.get("state") in FLUECHTIGE_ZUSTAENDE]
+    # Ausserhalb des Locks: `set_state` nimmt es selbst. Und ueber `set_state` statt per
+    # Hand, damit der Zeitstempel dieselbe Form hat wie ueberall sonst — eine zweite
+    # Schreibweise faellt erst auf, wenn jemand die Liste sortiert.
+    for jid, _titel in betroffen:
+        set_state(jid, state="error",
+                  msg="durch Neustart unterbrochen — bitte erneut anfragen / "
+                      "interrupted by a restart, please request again")
+    if betroffen:
+        log(f"Neustart-Aufraeumen: {len(betroffen)} Auftrag/Auftraege abgebrochen — "
+            + "; ".join(f"{jid} {t}" for jid, t in betroffen))
+    return [jid for jid, _ in betroffen]
+
 def save_jobs():
     try:
         with DB_LOCK, closing(db_conn()) as c, c:
@@ -6284,7 +6326,7 @@ def check_config():
 if __name__ == "__main__":
     os.makedirs(STAGING, exist_ok=True)
     geheimnisse_absichern()      # vor allem anderen: Rechte am Schluesselmaterial (#256)
-    db_init(); load_jobs()
+    db_init(); load_jobs(); jobs_nach_neustart_aufraeumen()
     if load_index_from_db():
         log(f"Bibliotheks-Index aus DB geladen: {len(LIB['slugs'])} Plattformen, {len(LIB['all'])} Titel")
         threading.Thread(target=build_index, daemon=True).start()   # im Hintergrund auffrischen
