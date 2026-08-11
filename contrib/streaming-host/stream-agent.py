@@ -386,6 +386,56 @@ _3DS_ENDUNGEN = (".3ds", ".cci")
 ENTSCHL_WERKZEUG = "/config/tools/3ds-decrypt"
 ENTSCHL_CACHE = os.environ.get("DECRYPT_3DS_CACHE", "/config/3ds-entschluesselt")
 ENTSCHL_DECKEL = int(os.environ.get("DECRYPT_3DS_CACHE_GB", "50")) * 1024 ** 3
+ENTSCHL_WERKZEUG_CIA = "/config/tools/3ds-decrypt-cia"
+AZAHAR = "/config/emulators/azahar/AppRun"
+# Wohin Azahar installierte Titel legt. Der Pfad ist fest: die beiden Nullenketten sind die
+# id0/id1 der emulierten SD-Karte und werden von Azahar nicht variiert.
+AZAHAR_SDMC = ("/config/.local/share/azahar-emu/sdmc/Nintendo 3DS/"
+               "00000000000000000000000000000000/00000000000000000000000000000000/title")
+
+# Kategorien der 3DS-Titel-ID (obere 32 Bit). Nur diese beiden starten; alles andere ist
+# Zubehoer zu einem anderen Titel. Am Bestand nachgemessen: von 25 CIAs sind 13 Updates und
+# 2 DLC — der DATEINAME lag dabei in zwei Faellen daneben, die Titel-ID nie. (#315)
+CIA_STARTBAR = {0x00040000, 0x00040002}          # Anwendung, Demo
+CIA_ZUBEHOER = {0x0004000E: "update", 0x0004008C: "dlc"}
+
+_SIG_LAENGE = {0x00010000: (0x200, 0x3C), 0x00010001: (0x100, 0x3C), 0x00010002: (0x3C, 0x40),
+               0x00010003: (0x200, 0x3C), 0x00010004: (0x100, 0x3C), 0x00010005: (0x3C, 0x40)}
+
+
+def cia_titel_id(pfad):
+    """-> (titel_id, fehler). Liest die Titel-ID aus der TMD einer CIA.
+
+    WARUM NICHT AM DATEINAMEN: `... - Update 11 ...` und `(DLC)` stehen oft, aber nicht
+    immer im Namen — und zweimal stand etwas anderes drin, als die Datei enthaelt. Die
+    Titel-ID ist die einzige Quelle, die nicht von der Sorgfalt des Packers abhaengt.
+
+    Der Aufbau: CIA-Kopf, dann Zertifikatskette, Ticket, TMD — jeder Abschnitt auf 64 Byte
+    ausgerichtet. In der TMD folgt hinter Signaturtyp, Signatur und Auffuellung der Kopf,
+    dessen Titel-ID bei 0x4C steht.
+    """
+    import struct
+    try:
+        with open(pfad, "rb") as f:
+            kopf = f.read(0x8000)
+    except OSError as e:
+        return 0, str(e)
+    if len(kopf) < 0x2020:
+        return 0, "Datei zu kurz fuer einen CIA-Kopf"
+    try:
+        hs, _typ, _ver, certs, tickets, _tmds = struct.unpack_from("<IHHIII", kopf, 0)
+        aus = lambda n: (n + 63) // 64 * 64
+        off = aus(hs) + aus(certs) + aus(tickets)
+        sigtyp = struct.unpack_from(">I", kopf, off)[0]
+        if sigtyp not in _SIG_LAENGE:
+            return 0, f"unbekannter Signaturtyp 0x{sigtyp:08X}"
+        laenge, fuell = _SIG_LAENGE[sigtyp]
+        tmd = off + 4 + laenge + fuell
+        if tmd + 0x54 > len(kopf):
+            return 0, "TMD liegt ausserhalb des gelesenen Bereichs"
+        return struct.unpack_from(">Q", kopf, tmd + 0x4C)[0], ""
+    except (struct.error, IndexError) as e:
+        return 0, f"CIA-Kopf nicht lesbar: {e}"
 
 def entschluesselung_moeglich():
     """Kann dieser Host ueberhaupt entschluesseln? Ohne Werkzeug ODER Bibliothek: nein."""
@@ -472,6 +522,110 @@ def _3ds_entschluesseln(pfad):
     _cache_aufraeumen(schonen=ziel)
     return ziel, ""
 
+def cia_installierbar():
+    """Kann dieser Host CIAs installieren? Braucht Entschluesselung UND Azahar."""
+    return (entschluesselung_moeglich()
+            and os.path.isfile(ENTSCHL_WERKZEUG_CIA)
+            and os.path.isfile(AZAHAR))
+
+
+def _cia_installiert(titel):
+    """-> Pfad des installierten Titels oder "". Sucht die Inhaltsdatei auf der SD-Karte.
+
+    WARUM DAS ZUERST GEPRUEFT WIRD: Eine Installation ist DAUERHAFT — anders als der
+    Zwischenspeicher der Abbilder aendert sie Azahars SD-Karte. Ein zweiter Start desselben
+    Titels darf deshalb weder entschluesseln noch installieren, sondern nur starten.
+    """
+    ordner = os.path.join(AZAHAR_SDMC, f"{titel >> 32:08x}", f"{titel & 0xFFFFFFFF:08x}",
+                          "content")
+    try:
+        apps = sorted(d for d in os.listdir(ordner) if d.lower().endswith(".app"))
+    except OSError:
+        return ""
+    # Die erste Inhaltsdatei ist der ausfuehrbare Teil; weitere sind Zusatzinhalte.
+    return os.path.join(ordner, apps[0]) if apps else ""
+
+
+def _cia_entschluesseln(pfad):
+    """-> (ziel, fehler). Wie die Abbild-Variante, aber das Werkzeug schreibt eine NEUE Datei.
+
+    Der Unterschied ist der Grund fuer eine eigene Funktion: `decrypt_3ds.py` arbeitet
+    in-place, `decrypt_cia.py` legt `<name>-decrypted.cia` daneben. Waere die Abbild-Logik
+    wiederverwendet worden, haette sie die UNVERAENDERTE Kopie in den Zwischenspeicher
+    gelegt — und Azahar haette sie mit derselben Meldung abgelehnt wie das Original.
+    """
+    ziel = _cache_name(pfad)
+    if os.path.isfile(ziel) and os.path.getsize(ziel) > 0:
+        os.utime(ziel, None)
+        return ziel, ""
+    os.makedirs(ENTSCHL_CACHE, exist_ok=True)
+    teil = ziel + ".part"
+    erzeugt = os.path.splitext(teil)[0] + "-decrypted" + os.path.splitext(teil)[1]
+    try:
+        import shutil
+        shutil.copyfile(pfad, teil)
+        r = subprocess.run([sys.executable, ENTSCHL_WERKZEUG_CIA, teil],
+                           capture_output=True, text=True, timeout=3600)
+        if r.returncode != 0 or not os.path.isfile(erzeugt):
+            raise RuntimeError((r.stderr or r.stdout or "")[-300:] or "keine Ausgabedatei")
+        os.replace(erzeugt, ziel)
+    except Exception as e:
+        return "", f"CIA-Entschluesselung fehlgeschlagen / CIA decryption failed: {e}"
+    finally:
+        for rest in (teil, erzeugt):
+            try: os.remove(rest)
+            except OSError: pass
+    _cache_aufraeumen(schonen=ziel)
+    return ziel, ""
+
+
+def cia_bereitstellen(pfad):
+    """-> (startpfad, fehler). Entschluesselt, installiert und nennt den startbaren Pfad.
+
+    Reihenfolge mit Bedacht: erst nachsehen, ob der Titel schon installiert ist. Sonst
+    kostete jeder Start eine volle Kopie und eine Installation fuer nichts.
+    """
+    titel, fehler = cia_titel_id(pfad)
+    if fehler:
+        return "", f"cia_unreadable: {fehler}"
+    kategorie = titel >> 32
+    if kategorie in CIA_ZUBEHOER:
+        # Update und DLC gehoeren zu einem anderen Titel. Sie zu installieren waere
+        # sinnvoll, sie zu STARTEN nie — deshalb ist das hier eine Absage, keine Panne.
+        return "", CIA_ZUBEHOER[kategorie]
+    if kategorie not in CIA_STARTBAR:
+        return "", "cia_not_bootable"
+
+    schon = _cia_installiert(titel)
+    if schon:
+        print(f"[3ds] CIA bereits installiert: {titel:016X}", flush=True)
+        return schon, ""
+
+    if not cia_installierbar():
+        return "", "cia_not_bootable"
+
+    print(f"[3ds] entschluessele und installiere {os.path.basename(pfad)}", flush=True)
+    klar, fehler = _cia_entschluesseln(pfad)
+    if fehler:
+        return "", fehler
+    umgebung = dict(os.environ, HOME="/config")
+    try:
+        r = subprocess.run([AZAHAR, "--install", klar], env=umgebung,
+                           capture_output=True, text=True, timeout=1800)
+    except Exception as e:
+        return "", f"cia_install_failed: {e}"
+    if "successfully" not in (r.stdout + r.stderr).lower():
+        return "", "cia_install_failed: " + (r.stdout + r.stderr).strip()[-200:]
+
+    start = _cia_installiert(titel)
+    if not start:
+        # Installation gemeldet, aber nichts auffindbar: lieber absagen als einen Pfad
+        # raten. Ein geratener Pfad startet den falschen Titel oder gar nichts.
+        return "", "cia_install_failed: installiert, aber kein Inhalt gefunden"
+    print(f"[3ds] installiert, starte {titel:016X}", flush=True)
+    return start, ""
+
+
 def _3ds_spielbar(pfad):
     """-> (spielbar, grund). Nur fuer 3DS-Abbilder; alles andere gilt als spielbar."""
     endung = os.path.splitext(pfad)[1].lower()
@@ -556,9 +710,15 @@ def launch(path, platform, rel="", region=""):
                 return False, fehler
             real = ziel
             print(f"[3ds] entschluesselt, starte {os.path.basename(real)}", flush=True)
+        elif not spielbar and os.path.splitext(real)[1].lower() == ".cia":
+            # Eine CIA startet nie DIREKT — aber sie laesst sich installieren, und danach
+            # startet der installierte Titel. Was dabei absagt, ist nicht die Datei,
+            # sondern ihre Art: Updates und DLC gehoeren zu einem anderen Titel. (#315)
+            start, fehler = cia_bereitstellen(real)
+            if fehler:
+                return False, fehler
+            real = start
         elif not spielbar:
-            # `.cia` bleibt eine Absage: Installationspakete starten nie direkt, auch
-            # entschluesselt nicht. Entschluesseln wuerde daran nichts aendern.
             return False, grund
 
     # Ein Titel ist nicht immer eine Datei. Eine PS3-Disc ist ein ORDNER mit
@@ -875,6 +1035,7 @@ class Handler(BaseHTTPRequestHandler):
                                    # Ohne diese Auskunft muesste es raten — und raten
                                    # hiesse entweder falsch absagen oder falsch versprechen.
                                    "can_decrypt_3ds": entschluesselung_moeglich(),
+                                   "can_install_cia": cia_installierbar(),
                                    "update_running": _update["running"]})
 
     def log_message(self, *_a):

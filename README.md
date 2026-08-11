@@ -212,6 +212,15 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   die Absage dann in eine Zusage mit angekündigter Wartezeit (`will_decrypt`); antwortet
   der Host nicht, bleibt es bei der Absage — eine Zusage, die er nicht halten kann, fiele
   erst nach dem Belegen eines Platzes auf.
+  **`.cia` wird installiert statt abgewiesen.** Eine CIA startet nie direkt — aber Azahar
+  kann sie installieren, und danach startet der installierte Titel. Was wirklich
+  entscheidet, ist die **Art des Pakets**, und die steht in der Titel-ID, nicht im
+  Dateinamen: Von 25 CIAs dieser Bibliothek sind 13 Updates und 2 DLC, die auch installiert
+  nie starten; bei zweien log der Dateiname, die Titel-ID nie. Romseerr sagt deshalb je nach
+  Art unterschiedlich ab (`cia_update`, `cia_dlc`) — und nur dann zu, wenn der Host laut
+  `can_install_cia` auch installieren kann. Anders als beim Abbild wird eine **unlesbare
+  CIA abgewiesen** statt durchgelassen: Eine CIA muss eine Titelkopfstruktur haben, ihr
+  Fehlen ist ein Defekt und kein Sonderfall.
   **Warum daneben und nicht an Ort und Stelle:** *das verschlüsselte Original ist es, was
   den Titel identifizierbar macht.* Von 20 3DS-Titeln erkannte Hasheous 15 an ihrer
   Prüfsumme — die beste Quote der ganzen Bibliothek, und mit ihr fielen die Metadaten weg,

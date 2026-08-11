@@ -27,6 +27,11 @@ set -uo pipefail
 
 WERKZEUG=/config/tools/3ds-decrypt
 QUELLE=${DECRYPT_3DS_URL:-https://raw.githubusercontent.com/aszuraz/3DS-Decrypt/main/decrypt_3ds.py}
+# Zweites Werkzeug fuer `.cia` (#315). Azahar blockt eine verschluesselte CIA genauso wie
+# ein verschluesseltes Abbild — `Blocked unauthorized encrypted CIA installation` — und das
+# Gegenstueck liegt im selben Repository.
+WERKZEUG_CIA=/config/tools/3ds-decrypt-cia
+QUELLE_CIA=${DECRYPT_CIA_URL:-https://raw.githubusercontent.com/aszuraz/3DS-Decrypt/main/decrypt_cia.py}
 
 # KEINE Sperre auf `boot9.bin`: Die erste Fassung dieses Skripts pruefte darauf, weil die
 # Beschreibung des Werkzeugs es nahelegte. Der Quelltext sagt etwas anderes — die Schluessel
@@ -51,23 +56,34 @@ if ! python3 -c "import Crypto" >/dev/null 2>&1; then
     || { echo "[3ds] pycryptodome liess sich nicht installieren / install failed"; exit 0; }
 fi
 
-if [ ! -s "$WERKZEUG" ]; then
-  echo "[3ds] hole Entschluesselungswerkzeug / fetching decryption tool"
-  if ! curl -fsSL --max-time 60 -o "$WERKZEUG.part" "$QUELLE"; then
-    echo "[3ds] Download fehlgeschlagen — Entschluesselung bleibt aus / download failed"
-    rm -f "$WERKZEUG.part"
-    exit 0
+hole() {
+  # $1 Zielpfad, $2 Quelle. Erst nach erfolgreichem Download an seinen Platz: ein halb
+  # geladenes Skript waere vorhanden und kaputt, und das ist schlechter als abwesend.
+  [ -s "$1" ] && return 0
+  echo "[3ds] hole $(basename "$1") / fetching $(basename "$1")"
+  if ! curl -fsSL --max-time 60 -o "$1.part" "$2"; then
+    echo "[3ds] Download fehlgeschlagen: $(basename "$1") / download failed"
+    rm -f "$1.part"
+    return 1
   fi
-  # Erst nach erfolgreichem Download an seinen Platz: ein halb geladenes Skript waere
-  # vorhanden und kaputt, und das ist schlechter als abwesend.
-  mv "$WERKZEUG.part" "$WERKZEUG"
-fi
+  mv "$1.part" "$1"
+}
 
-chmod +x "$WERKZEUG" 2>/dev/null || true
+hole "$WERKZEUG" "$QUELLE" || exit 0
+# Die CIA-Seite darf fehlen, ohne die Abbild-Seite mitzureissen: Verschluesselte `.3ds`
+# sind 1.248 von 1.249 Titeln, `.cia` sind 25. Ein Fehlschlag hier kostet zehn Titel,
+# keine Plattform.
+hole "$WERKZEUG_CIA" "$QUELLE_CIA" || true
+
+chmod +x "$WERKZEUG" "$WERKZEUG_CIA" 2>/dev/null || true
 chown -R "${PUID:-1000}:${PGID:-1000}" /config/tools 2>/dev/null || true
 
 if python3 -c "import Crypto" >/dev/null 2>&1 && [ -s "$WERKZEUG" ]; then
-  echo "[3ds] Entschluesselung bereit / decryption ready"
+  if [ -s "$WERKZEUG_CIA" ]; then
+    echo "[3ds] Entschluesselung bereit, mit CIA / decryption ready, CIA included"
+  else
+    echo "[3ds] Entschluesselung bereit, OHNE CIA / decryption ready, without CIA"
+  fi
 else
   echo "[3ds] Entschluesselung NICHT bereit / decryption NOT ready"
 fi

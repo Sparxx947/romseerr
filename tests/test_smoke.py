@@ -6398,6 +6398,31 @@ def _3ds_datei(tmp_path, name, verschluesselt):
     return str(p)
 
 
+def _cia_datei(tmp_path, name, titel_id):
+    """Eine minimale, aber ECHTE CIA: Kopf, Zertifikatskette, Ticket, TMD mit Titel-ID.
+
+    WARUM NICHT EINFACH 64 NULLBYTES: Genau das taten die beiden Vorgaengertests — und sie
+    prueften damit nur den Fehlerpfad, waehrend sie behaupteten, die Absage fuer CIAs zu
+    pruefen. Solange jede CIA abgewiesen wurde, fiel das nicht auf. Seit #315 haengt die
+    Antwort an der Titel-ID, und eine Attrappe ohne TMD kann sie nicht liefern.
+    """
+    import struct
+    hs, certs, tickets = 0x2020, 0x40, 0x40
+    aus = lambda n: (n + 63) // 64 * 64
+    kopf = bytearray(struct.pack("<IHHIIIIQ", hs, 0, 0, certs, tickets, 0x208, 0, 0))
+    kopf += b"\x00" * (aus(hs) - len(kopf))
+    kopf += b"\x00" * aus(certs)
+    kopf += b"\x00" * aus(tickets)
+    tmd = bytearray(struct.pack(">I", 0x00010004))     # RSA_2048_SHA256
+    tmd += b"\x00" * (0x100 + 0x3C)                    # Signatur + Auffuellung
+    kopf_tmd = bytearray(b"\x00" * 0x54)
+    struct.pack_into(">Q", kopf_tmd, 0x4C, titel_id)
+    tmd += kopf_tmd
+    p = tmp_path / name
+    p.write_bytes(bytes(kopf + tmd))
+    return str(p)
+
+
 def test_an_encrypted_3ds_image_is_refused_before_a_seat_is_taken(appmod, tmp_path):
     """Ein verschluesseltes Abbild wird abgelehnt, bevor ein Platz vergeben wird. (#299)
 
@@ -6422,15 +6447,26 @@ def test_an_encrypted_3ds_image_is_refused_before_a_seat_is_taken(appmod, tmp_pa
 def test_a_cia_is_refused_with_its_own_reason(appmod, tmp_path):
     """`.cia` scheitert aus einem ANDEREN Grund als Verschluesselung. (#299)
 
-    CIAs sind Installationspakete und starten grundsaetzlich nicht direkt — auch
-    entschluesselt nicht. Beides in einen Topf zu werfen fuehrt zu der falschen
-    Schlussfolgerung, Entschluesseln wuerde helfen.
+    CIAs starten nicht direkt — auch entschluesselt nicht. Beides in einen Topf zu werfen
+    fuehrt zu der falschen Schlussfolgerung, Entschluesseln wuerde helfen.
+
+    Seit #315 ist der Grund GENAUER: Eine kaputte Datei ohne lesbare TMD heisst
+    `cia_unreadable`, nicht „nicht startbar". Und anders als beim Abbild wird hier NICHT im
+    Zweifel durchgelassen — eine CIA muss eine TMD haben, ihr Fehlen ist ein Defekt und
+    kein Sonderfall.
     """
-    p = tmp_path / "Titel.cia"
-    p.write_bytes(b"\x00" * 64)
-    startbar, grund = appmod.dreids_startbar(str(p))
-    assert startbar is False
-    assert grund == "cia_not_bootable", "CIA und Verschluesselung sind nicht dasselbe"
+    kaputt = tmp_path / "Kaputt.cia"
+    kaputt.write_bytes(b"\x00" * 64)
+    assert appmod.dreids_startbar(str(kaputt)) == (False, "cia_unreadable")
+
+    # Und die Faelle, die es wirklich gibt — nach TITEL-ID, nicht nach Dateiname:
+    assert appmod.dreids_startbar(
+        _cia_datei(tmp_path, "Update.cia", 0x0004000E00123400)) == (False, "cia_update")
+    assert appmod.dreids_startbar(
+        _cia_datei(tmp_path, "Zusatz.cia", 0x0004008C00123400)) == (False, "cia_dlc")
+    assert appmod.dreids_startbar(
+        _cia_datei(tmp_path, "Spiel.cia", 0x0004000000123400)) == (True, ""), \
+        "eine Anwendung ist installierbar und danach startbar (#315)"
 
 
 def test_both_refusal_reasons_have_a_text_in_all_five_languages():
@@ -6535,15 +6571,15 @@ def test_a_cia_stays_refused_even_when_the_host_can_decrypt(appmod, tmp_path, mo
     direkt — entschluesselt genauso wenig. NUR `encrypted` ist ein Zwischenschritt, und
     diese Unterscheidung muss die Weiche in `stream_info` treffen.
     """
-    cia = tmp_path / "Titel.cia"
-    cia.write_bytes(b"\x00" * 64)
+    cia = _cia_datei(tmp_path, "Update 11.cia", 0x0004000E00123400)
     monkeypatch.setattr(appmod, "stream_cfg", lambda: {"url": "http://host", "launch": ""})
-    monkeypatch.setattr(appmod, "stream_find_file", lambda t, s: str(cia))
+    monkeypatch.setattr(appmod, "stream_find_file", lambda t, s: cia)
     monkeypatch.setattr(appmod, "_agent_url", lambda p: "http://host/" + p)
     monkeypatch.setattr(appmod, "host_kann_entschluesseln", lambda: True)
 
     d = appmod.stream_info("Titel", "3ds")
-    assert d["streamable"] is False and d["reason"] == "cia_not_bootable"
+    assert d["streamable"] is False and d["reason"] == "cia_update", \
+        "ein Update gehoert zu einem anderen Titel und startet auch installiert nie"
 
 
 # --- #356: die Fehlerklasse „ausgeliefert und wirkungslos" --------------------------
@@ -6579,3 +6615,106 @@ def test_the_3ds_setup_does_not_gate_on_a_file_the_tool_never_reads():
             continue
         assert "boot9" not in zeile, \
             f"Zeile {nr} macht die Einrichtung von boot9.bin abhaengig: {zeile.strip()}"
+
+
+def test_a_bootable_cia_is_only_promised_when_the_host_can_install(appmod, tmp_path, monkeypatch):
+    """Eine startbare CIA ist nur dann eine Zusage, wenn der Host sie installieren kann. (#315)
+
+    Sonst waere es dieselbe Luege wie vor #299: Der Nutzer klickt, belegt einen Platz, und
+    erst der Agent sagt ab. Dass die DATEI startbar ist, genuegt nicht — es muss auch
+    jemanden geben, der sie installiert.
+    """
+    spiel = _cia_datei(tmp_path, "Spiel.cia", 0x0004000000123400)
+    monkeypatch.setattr(appmod, "stream_cfg", lambda: {"url": "http://host", "launch": ""})
+    monkeypatch.setattr(appmod, "stream_find_file", lambda t, s: spiel)
+    monkeypatch.setattr(appmod, "_agent_url", lambda p: "http://host/" + p)
+    monkeypatch.setattr(appmod, "host_kann_entschluesseln", lambda: True)
+
+    monkeypatch.setattr(appmod, "host_kann_cia_installieren", lambda: False)
+    d = appmod.stream_info("Spiel", "3ds")
+    assert d["streamable"] is False and d["reason"] == "cia_not_bootable"
+
+    monkeypatch.setattr(appmod, "host_kann_cia_installieren", lambda: True)
+    d = appmod.stream_info("Spiel", "3ds")
+    assert d["streamable"] is not False, "mit installationsfaehigem Host keine Absage"
+    assert d.get("will_decrypt") is True, \
+        "Entschluesseln und Installieren dauert — das gehoert angekuendigt"
+
+
+def test_the_two_host_capabilities_come_from_one_request(appmod, monkeypatch):
+    """Beide Faehigkeiten stammen aus EINER Abfrage. (#315)
+
+    Zwei getrennte Abfragen waeren zwei HTTP-Anfragen pro Titelaufruf — und sie koennten
+    auseinanderlaufen, wenn der Host zwischen ihnen neu startet.
+    """
+    rufe = {"n": 0}
+
+    class Antwort:
+        ok = True
+        @staticmethod
+        def json():
+            rufe["n"] += 1
+            return {"can_decrypt_3ds": True, "can_install_cia": True}
+
+    appmod._HOST_KANN.update({"wert": None, "bis": 0.0})
+    monkeypatch.setattr(appmod, "_agent_url", lambda p: "http://host/" + p)
+    monkeypatch.setattr(appmod, "safe_get", lambda *a, **k: Antwort())
+
+    assert appmod.host_kann_entschluesseln() is True
+    assert appmod.host_kann_cia_installieren() is True
+    assert rufe["n"] == 1, "beide Fragen muessen aus derselben Antwort kommen"
+
+
+def test_the_agent_reads_the_same_title_id_as_romseerr(tmp_path):
+    """Agent und Romseerr muessen dieselbe Titel-ID lesen. (#315)
+
+    Zwei Leser derselben Struktur sind eine Stelle, an der spaeter genau eine angepasst
+    wird. Solange es sie gibt, muessen sie nachweislich uebereinstimmen — sonst sagt
+    Romseerr zu, was der Agent ablehnt.
+    """
+    import importlib.util
+    pfad = os.path.join(REPO, "contrib", "streaming-host", "stream-agent.py")
+    spec = importlib.util.spec_from_file_location("stream_agent_tid", pfad)
+    agent = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(agent)
+
+    import app as appmod
+    for kategorie in (0x00040000, 0x00040002, 0x0004000E, 0x0004008C):
+        tid = (kategorie << 32) | 0x00123400
+        datei = _cia_datei(tmp_path, f"T{kategorie:08X}.cia", tid)
+        assert agent.cia_titel_id(datei)[0] == appmod.cia_titel_id(datei)[0] == tid, \
+            f"Agent und Romseerr lesen 0x{kategorie:08X} verschieden"
+
+
+def test_the_inlined_german_table_covers_every_key_any_language_has():
+    """Die EINGEBETTETE deutsche Tabelle muss jeden Schluessel kennen. (#364)
+
+    WARUM DAS NICHT DASSELBE IST WIE `de.json`: Seit #350 ist Deutsch fest in `index.js`
+    eingebettet, die anderen vier werden als JSON nachgeladen. `de.json` steht NICHT in der
+    Karte am `<body>`, und `i18nLaden()` kehrt fuer Deutsch sofort zurueck — die Datei wird
+    also nie gelesen. Sie ist die Quelle fuer Uebersetzer und sonst nichts.
+
+    Fehlt ein Schluessel in der eingebetteten Tabelle, greift der Rueckfall
+    `I18N.de[k] || k` — und der Nutzer sieht den KEY. Genau das ist passiert: #354 legte
+    `stream_encrypted` und `stream_cia` in alle fuenf JSON-Dateien und nicht in die
+    eingebettete Tabelle. Vier Sprachen bekamen einen Satz, Deutsch einen Bezeichner. Die
+    damaligen Tests prueften die Sprachdateien — und die waren vollstaendig.
+
+    Since #350 German is inlined and the other four are fetched. de.json is never fetched,
+    so a key missing from the inlined table falls back to the key itself — visible only to
+    German users.
+    """
+    import json
+    quelle = open(os.path.join(REPO, "static", "js", "index.js"), encoding="utf-8").read()
+    m = re.search(r"const I18N=\{de:(\{.*?\})\};", quelle, re.S)
+    assert m, "eingebettete deutsche Tabelle nicht gefunden"
+    eingebettet = set(json.loads(m.group(1)))
+
+    fehlend = {}
+    for sprache, tabelle in sprachtabellen().items():
+        luecke = sorted(set(tabelle) - eingebettet)
+        if luecke:
+            fehlend[sprache] = luecke
+    assert not fehlend, (
+        "diese Schluessel wuerden deutschen Nutzern als BEZEICHNER erscheinen: "
+        + json.dumps(fehlend, ensure_ascii=False)[:400])

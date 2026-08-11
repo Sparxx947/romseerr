@@ -3137,18 +3137,90 @@ def host_kann_entschluesseln():
     beseitigt hat. Und warum nicht immer absagen: Dann waere die Faehigkeit umsonst gebaut.
     Deshalb wird gefragt.
     """
+    return host_faehigkeiten().get("can_decrypt_3ds", False)
+
+
+def host_kann_cia_installieren():
+    """-> True/False. Ohne Antwort gilt „kann nicht" — aus demselben Grund wie oben. (#315)"""
+    return host_faehigkeiten().get("can_install_cia", False)
+
+
+def host_faehigkeiten():
+    """-> dict der gemeldeten Faehigkeiten. Bei Unerreichbarkeit leer, also alles False."""
     if _HOST_KANN["wert"] is not None and time.time() < _HOST_KANN["bis"]:
         return _HOST_KANN["wert"]
-    wert = False
+    wert = {}
     url = _agent_url("status")
     if url:
         try:
             r = safe_get(url, timeout=6)
-            wert = bool(r.ok and (r.json() or {}).get("can_decrypt_3ds"))
+            if r.ok:
+                antwort = r.json() or {}
+                wert = {k: bool(antwort.get(k))
+                        for k in ("can_decrypt_3ds", "can_install_cia")}
         except Exception:
-            wert = False
+            wert = {}
     _HOST_KANN.update({"wert": wert, "bis": time.time() + 60})
     return wert
+
+# Kategorien der 3DS-Titel-ID (obere 32 Bit). Nur diese beiden starten; alles andere ist
+# Zubehoer zu einem anderen Titel und startet auch installiert nicht. Am Bestand gemessen:
+# von 25 CIAs sind 13 Updates und 2 DLC — bei zweien log der Dateiname, die Titel-ID nie.
+_CIA_STARTBAR = {0x00040000, 0x00040002}          # Anwendung, Demo
+_CIA_ZUBEHOER = {0x0004000E: "cia_update", 0x0004008C: "cia_dlc"}
+_CIA_SIG = {0x00010000: (0x200, 0x3C), 0x00010001: (0x100, 0x3C), 0x00010002: (0x3C, 0x40),
+            0x00010003: (0x200, 0x3C), 0x00010004: (0x100, 0x3C), 0x00010005: (0x3C, 0x40)}
+
+
+def cia_titel_id(pfad):
+    """-> (titel_id, fehler). Liest die Titel-ID aus der TMD einer CIA.
+
+    Aufbau: CIA-Kopf, Zertifikatskette, Ticket, TMD — jeder Abschnitt auf 64 Byte
+    ausgerichtet. In der TMD folgt hinter Signaturtyp, Signatur und Auffuellung der Kopf mit
+    der Titel-ID bei 0x4C.
+    """
+    import struct
+    try:
+        with open(pfad, "rb") as f:
+            kopf = f.read(0x8000)
+    except OSError as e:
+        return 0, str(e)
+    if len(kopf) < 0x2020:
+        return 0, "zu kurz"
+    try:
+        hs, _t, _v, certs, tickets, _tmds = struct.unpack_from("<IHHIII", kopf, 0)
+        aus = lambda n: (n + 63) // 64 * 64
+        off = aus(hs) + aus(certs) + aus(tickets)
+        sigtyp = struct.unpack_from(">I", kopf, off)[0]
+        if sigtyp not in _CIA_SIG:
+            return 0, f"unbekannter Signaturtyp 0x{sigtyp:08X}"
+        laenge, fuell = _CIA_SIG[sigtyp]
+        tmd = off + 4 + laenge + fuell
+        if tmd + 0x54 > len(kopf):
+            return 0, "TMD ausserhalb des Kopfes"
+        return struct.unpack_from(">Q", kopf, tmd + 0x4C)[0], ""
+    except (struct.error, IndexError) as e:
+        return 0, f"nicht lesbar: {e}"
+
+
+def _cia_startbar(pfad):
+    """-> (startbar, grund) fuer eine `.cia`.
+
+    HIER GILT DAS GEGENTEIL VOM ABBILD: Bei `.3ds` wird im Zweifel durchgelassen, weil ein
+    fehlender NCSD-Kopf eine zulaessige Abweichung sein kann. Eine CIA MUSS eine TMD haben —
+    ist sie nicht lesbar, ist die Datei kaputt, und der Agent sagt ohnehin ab. Durchlassen
+    kostete dann nur den Platz, den #299 gerade eingespart hat.
+    """
+    titel, fehler = cia_titel_id(pfad)
+    if fehler:
+        return False, "cia_unreadable"
+    kategorie = titel >> 32
+    if kategorie in _CIA_ZUBEHOER:
+        return False, _CIA_ZUBEHOER[kategorie]
+    if kategorie in _CIA_STARTBAR:
+        return True, ""
+    return False, "cia_not_bootable"
+
 
 def dreids_startbar(pfad):
     """-> (startbar, grund) fuer eine 3DS-Datei. Alles andere gilt als startbar. (#299)
@@ -3172,9 +3244,10 @@ def dreids_startbar(pfad):
     """
     endung = os.path.splitext(pfad)[1].lower()
     if endung == ".cia":
-        # Keine Frage der Verschluesselung: CIAs sind Installationspakete. Azahar sagt es
-        # selbst — "CIA must be installed before usage".
-        return False, "cia_not_bootable"
+        # Eine CIA startet nie DIREKT, aber sie laesst sich installieren — danach startet
+        # der installierte Titel. Was wirklich entscheidet, ist die ART des Pakets, und die
+        # steht in der Titel-ID, nicht im Dateinamen. (#315)
+        return _cia_startbar(pfad)
     if endung not in _3DS_ABBILD:
         return True, ""
     try:
@@ -3227,6 +3300,13 @@ def stream_info(title, slug, user=""):
         if not startbar and grund == "encrypted" and host_kann_entschluesseln():
             entschluesselt_erst = True
             startbar, grund = True, ""
+        if startbar and path.lower().endswith(".cia") and not host_kann_cia_installieren():
+            # Eine startbare CIA ist nur dann eine Zusage, wenn der Host sie auch
+            # installieren kann. Sonst waere es dieselbe Luege wie vor #299 — sie flöge
+            # erst auf, nachdem ein Platz belegt ist. (#315)
+            startbar, grund = False, "cia_not_bootable"
+        elif startbar and path.lower().endswith(".cia"):
+            entschluesselt_erst = True     # Installation dauert, das gehoert angekuendigt
         if not startbar:
             return {"streamable": False, "reason": grund, "platform": slug, "path": path}
     # Besetzt ist erst, wenn KEIN Platz mehr frei ist — nicht schon, wenn einer belegt
