@@ -656,6 +656,13 @@ python scripts/build_openapi.py   # generate docs/openapi.yaml from the OPENAPI 
 
 ---
 
+Two tools under [`contrib/library-tools/`](contrib/library-tools/) reshape a library so
+that **RomM, Romseerr and RetroNAS see the same thing**. They solve a problem every
+installation with this combination has: RomM counts every first-level entry as one game,
+Romseerr counts every file two levels deep. On a real library that was **75 against
+23,802** for the same console.
+
+
 ## Project layout
 
 ```

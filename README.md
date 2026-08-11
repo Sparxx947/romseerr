@@ -765,6 +765,13 @@ neuesten Stand** braucht, nimmt `dev`. Einzelheiten samt Release-Ablauf:
 
 ---
 
+Die Bibliothek so umbauen, dass **RomM, Romseerr und RetroNAS dasselbe sehen**, leisten
+zwei Werkzeuge unter [`contrib/library-tools/`](contrib/library-tools/). Sie lösen ein
+Problem, das jede Anlage mit dieser Kombination hat: RomM zählt jeden Eintrag der ersten
+Ebene als ein Spiel, Romseerr jede Datei zwei Ebenen tief. An einer echten Bibliothek
+ergab das **75 gegen 23.802** für dieselbe Konsole.
+
+
 ## Projektaufbau
 
 ```
