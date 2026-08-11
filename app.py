@@ -1862,6 +1862,91 @@ def jobs_nach_neustart_aufraeumen():
             + "; ".join(f"{jid} {t}" for jid, t in betroffen))
     return [jid for jid, _ in betroffen]
 
+# --- Wachhund fuer haengende Auftraege (#340) --------------------------------------
+#
+# Der Neustart-Aufraeumer oben faengt genau EINEN Fall: Der Prozess ist gestorben. Ein
+# Arbeitsfaden, der LEBT aber nicht vorankommt, sieht von aussen genauso aus — nur dass
+# kein Neustart kommt, der ihn einsammelt. Ein Entpacken auf voller Platte, ein Abruf
+# ohne Zeitlimit, ein Faden hinter einer Sperre: alles laeuft, nichts bewegt sich.
+#
+# WARUM NICHT NACH ALTER: Ein grosser Download DARF Stunden brauchen. `aria2c` laeuft hier
+# synchron und ohne Zwischenmeldung — ein Wachhund, der auf Meldungen achtet, wuerde genau
+# die gesunden Faelle abwuergen. Und eine Pruefung, die arbeitende Downloads abbricht, ist
+# binnen einer Woche abgeschaltet; dann steht die Regel schlechter da als ohne sie.
+#
+# Gemessen wird deshalb ECHTER Fortschritt: die Bytes im Arbeitsverzeichnis des Auftrags.
+# Waechst die Zahl, passiert etwas — unabhaengig davon, ob jemand eine Meldung schreibt.
+#
+# Age is the wrong criterion: a large download legitimately takes hours, and aria2c runs
+# synchronously without progress messages. Real progress is measured instead — bytes in the
+# job's working directory.
+
+# Wie lange darf ein Zustand OHNE Fortschritt bleiben, bevor er als haengend gilt?
+# Grosszuegig gewaehlt: Der Preis eines zu frueh abgebrochenen Downloads ist hoeher als
+# der eines spaeter erkannten Haengers.
+WACHHUND_GRENZEN = {
+    "downloading": int(os.environ.get("ROMSEERR_MAX_STILL_DOWNLOAD", 6 * 3600)),
+    "importing":   int(os.environ.get("ROMSEERR_MAX_STILL_IMPORT", 2 * 3600)),
+}
+WACHHUND_TAKT = int(os.environ.get("ROMSEERR_WACHHUND_TAKT", 300))
+
+def job_arbeitsbytes(jid):
+    """Bytes im Arbeitsverzeichnis eines Auftrags — ueber alle Ablagen hinweg.
+
+    Gibt 0 zurueck, wenn nichts (mehr) da ist. Das ist KEIN Hinweis auf einen Haenger:
+    zwischen Download und Import liegt ein Moment, in dem der Ordner verschoben wird.
+    Deshalb entscheidet allein, ob sich die Zahl VERAENDERT — in beide Richtungen.
+    """
+    gesamt = 0
+    for basis in (STAGING, SAB_DONE, jd_out_dir()):
+        if not basis or not os.path.isdir(basis):
+            continue
+        pfad = os.path.join(basis, f"romseerr_{jid}")
+        if not os.path.isdir(pfad):
+            continue
+        for wurzel, _d, dateien in os.walk(pfad):
+            for fn in dateien:
+                try:
+                    gesamt += os.path.getsize(os.path.join(wurzel, fn))
+                except OSError:
+                    pass
+    return gesamt
+
+def worker_wachhund():
+    """Auftraege abbrechen, die leben, aber seit zu langer Zeit nicht vorankommen."""
+    letzte = {}          # jid -> (bytes, zeitpunkt der letzten Veraenderung)
+    while True:
+        time.sleep(WACHHUND_TAKT)
+        try:
+            with JOBS_LOCK:
+                offen = [(j["id"], j.get("state"), float(j.get("ts") or 0))
+                         for j in JOBS if j.get("state") in WACHHUND_GRENZEN]
+            jetzt = time.time()
+            aktiv = set()
+            for jid, zustand, ts in offen:
+                aktiv.add(jid)
+                groesse = job_arbeitsbytes(jid)
+                alt_groesse, seit = letzte.get(jid, (None, jetzt))
+                if alt_groesse is None or groesse != alt_groesse:
+                    letzte[jid] = (groesse, jetzt)      # es bewegt sich
+                    continue
+                # Auch eine Zustandsmeldung zaehlt als Lebenszeichen — sie kommt bei
+                # Usenet-Downloads im Prozentschritt, wo die Bytes woanders liegen.
+                bewegung = max(seit, ts)
+                grenze = WACHHUND_GRENZEN[zustand]
+                if jetzt - bewegung > grenze:
+                    std = grenze // 3600
+                    set_state(jid, state="error",
+                              msg=(f"seit ueber {std} h kein Fortschritt — abgebrochen / "
+                                   f"no progress for over {std} h, aborted"))
+                    log(f"Wachhund: Auftrag {jid} in '{zustand}' seit "
+                        f"{int((jetzt - bewegung) / 60)} min ohne Fortschritt — abgebrochen")
+                    letzte.pop(jid, None)
+            for jid in [k for k in letzte if k not in aktiv]:
+                letzte.pop(jid, None)
+        except Exception as e:
+            log(f"Wachhund-Fehler: {e}")
+
 def save_jobs():
     try:
         with DB_LOCK, closing(db_conn()) as c, c:
@@ -1874,7 +1959,15 @@ def set_state(jid, **kw):
     """Felder eines Jobs aktualisieren (z. B. state=…, msg=…) und persistieren."""
     with JOBS_LOCK:
         for j in JOBS:
-            if j["id"]==jid: j.update(kw); j["updated"]=datetime.now().strftime("%H:%M:%S")
+            if j["id"]==jid:
+                j.update(kw)
+                j["updated"] = datetime.now().strftime("%H:%M:%S")
+                # `updated` ist eine Uhrzeit OHNE Datum — zum Anzeigen gedacht und fuer
+                # jede Altersrechnung untauglich (ueber Mitternacht laeuft sie rueckwaerts).
+                # `ts` ist der maschinenlesbare Zeitpunkt daneben. (#340)
+                # `updated` is a time of day without a date: fine to display, useless for
+                # measuring age. `ts` is the machine-readable one.
+                j["ts"] = time.time()
         save_jobs()
 
 def new_job(item, user="", approved=True):
@@ -6352,6 +6445,7 @@ if __name__ == "__main__":
     threading.Thread(target=worker_wishlist, daemon=True).start()
     threading.Thread(target=worker_catalog, daemon=True).start()
     threading.Thread(target=worker_leftovers, daemon=True).start()
+    threading.Thread(target=worker_wachhund, daemon=True).start()   # (#340)
     # Optionaler HTTPS-Listener (eigener Port), wenn ein Zertifikat hinterlegt & aktiviert ist.
     def _start_https():
         info = tls_info()

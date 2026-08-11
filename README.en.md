@@ -453,6 +453,13 @@ title is already there is useful, it just should not have to be *read*.
 
 ### Requests
 
+**Work that stops progressing is aborted.** A thread that is *alive* but stuck — an
+unpack on a full disk, a fetch without a timeout — looks from the outside exactly like one
+that is working. **Real progress** is measured instead: the bytes in the job's working
+directory, not the time since the last message. A large download may take hours and is left
+alone as long as the file grows. Limits: 6 h without progress while downloading, 2 h while
+importing (`ROMSEERR_MAX_STILL_DOWNLOAD`, `ROMSEERR_MAX_STILL_IMPORT`).
+
 **A restart aborts work in progress — visibly.** Downloading and importing need a running
 process; if the container is replaced mid-way, that thread is gone. Such jobs are moved to
 **error** on the next start, with a message asking for the request to be repeated. Before,

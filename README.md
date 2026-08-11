@@ -458,6 +458,14 @@ werden müssen.
 
 ### Anfragen
 
+**Ein Vorgang, der nicht mehr vorankommt, wird abgebrochen.** Ein Arbeitsfaden, der
+*lebt*, aber steht — ein Entpacken auf voller Platte, ein Abruf ohne Zeitlimit — sieht von
+außen aus wie einer, der arbeitet. Gemessen wird deshalb **echter Fortschritt**: die Bytes
+im Arbeitsverzeichnis des Auftrags, nicht die Zeit seit der letzten Meldung. Ein großer
+Download darf Stunden brauchen und wird dabei nicht angetastet, solange die Datei wächst.
+Grenzen: 6 h ohne Fortschritt beim Download, 2 h beim Import
+(`ROMSEERR_MAX_STILL_DOWNLOAD`, `ROMSEERR_MAX_STILL_IMPORT`).
+
 **Ein Neustart bricht laufende Vorgänge ab — sichtbar.** Download und Import brauchen
 einen laufenden Prozess; wird der Container mitten darin ersetzt, ist der Arbeitsfaden
 weg. Solche Aufträge werden beim nächsten Start auf **Fehler** gesetzt, mit dem Hinweis,
