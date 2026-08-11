@@ -330,6 +330,31 @@ docker run --rm -v /pfad/zu/3DS-Decrypt:/tool:ro -v /pfad/zu/roms:/arbeit \
 
 Danach ist das `NoCrypto`-Flag gesetzt und Azahar startet den Titel mit Namen im Fenster.
 
+**Der Host macht das inzwischen selbst.** `init/23-3ds-entschluesseln` legt
+`pycryptodome` und das Werkzeug nach `/config/tools/3ds-decrypt` — aber **nur, wenn
+`boot9.bin` vorliegt**; ohne Schlüsselmaterial richtet es gar nichts erst ein, statt eine
+Fähigkeit vorzutäuschen. Beim Start eines verschlüsselten Titels entschlüsselt der Agent
+**in einen Zwischenspeicher daneben** und startet die Kopie:
+
+| Schalter | Vorgabe | Bedeutung |
+|---|---|---|
+| `DECRYPT_3DS_CACHE` | `/config/3ds-entschluesselt` | wohin die entschlüsselten Kopien gehen |
+| `DECRYPT_3DS_CACHE_GB` | `50` | Deckel; darüber wird nach letzter Nutzung verdrängt |
+| `DECRYPT_3DS_URL` | GitHub-raw | woher das Werkzeug kommt |
+
+`/status` meldet die Fähigkeit als `can_decrypt_3ds`. Romseerr fragt sie ab und sagt einen
+verschlüsselten Titel **nicht mehr ab**, sondern kündigt die Wartezeit an.
+
+**Warum daneben und nicht an Ort und Stelle:** Das verschlüsselte Original ist es, was den
+Titel identifizierbar macht — von 20 3DS-Titeln erkannte Hasheous **15** an ihrer
+Prüfsumme, die beste Quote der ganzen Bibliothek. Würde man die Dateien ersetzen, wären
+diese Metadaten weg. Der Deckel ist da, weil sonst nach und nach die ganze Plattform
+doppelt läge; entschlüsselt wird nur, was auch gestartet wird.
+
+Der erste Start eines Titels dauert dadurch **einige Minuten** — er ist ein Kopiervorgang
+plus Entschlüsselung über die volle Abbildgröße. Jeder weitere Start desselben Titels ist
+sofort da, solange die Kopie im Zwischenspeicher liegt.
+
 > **NDecrypt hilft hier nicht.** Es ist der erste Suchtreffer, akzeptiert `aes_keys.txt`,
 > meldet jede Partition als entschlüsselt — und lässt die Datei **byteweise unverändert**.
 > Wer ihm glaubt, legt den Fall fälschlich als „nicht behebbar" ab. **Nachmessen:**
@@ -1120,6 +1145,31 @@ window_detail plain text; for "dialog" the dialog's title
 
 So an encrypted 3DS ROM yields `window: "dialog"` and `window_detail: "App Encrypted"` —
 the very information that previously sat on the emulator's own screen and reached nobody.
+
+**The host now decrypts by itself.** `init/23-3ds-entschluesseln` installs `pycryptodome`
+and places the tool in `/config/tools/3ds-decrypt` — but **only when `boot9.bin` is
+present**; without key material it sets nothing up rather than pretend a capability. On
+launching an encrypted title the agent decrypts **into a cache alongside** and starts the
+copy:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `DECRYPT_3DS_CACHE` | `/config/3ds-entschluesselt` | where decrypted copies go |
+| `DECRYPT_3DS_CACHE_GB` | `50` | cap; above it, least-recently-used copies are evicted |
+| `DECRYPT_3DS_URL` | GitHub raw | where the tool comes from |
+
+`/status` reports the capability as `can_decrypt_3ds`. Romseerr asks for it and no longer
+refuses an encrypted title, announcing the wait instead.
+
+**Why alongside rather than in place:** the encrypted original is what identifies the
+title — of 20 3DS titles Hasheous matched **15** by checksum, the best rate in the whole
+library. Replacing the files would throw those metadata away. The cap exists because the
+platform would otherwise end up stored twice; only what is actually launched gets
+decrypted.
+
+The first launch of a title therefore takes **several minutes** — a copy plus decryption
+over the full image size. Every later launch of the same title is immediate, as long as
+the copy is still in the cache.
 
 Dialogs are recognised by window type `_NET_WM_WINDOW_TYPE_DIALOG` rather than by known
 error strings, since a string list would be wrong in every new emulator release. This

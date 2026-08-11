@@ -203,6 +203,20 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   starten Installationspakete nicht direkt. Im Zweifel wird durchgelassen: ein Abbild ohne
   lesbaren NCSD-Kopf ist nicht beurteilbar, und eine falsche Absage kostet mehr als ein
   Fehlversuch.
+  **Verschlüsselt ist kein Endzustand mehr, wenn der Host entschlüsseln kann.** Azahar
+  spielt nur entschlüsselte Dumps und entschlüsselt nicht selbst; von 1.249 gemessenen
+  Abbildern dieser Bibliothek waren 1.248 verschlüsselt — ohne diesen Schritt bleibt die
+  Plattform leer. Der Streaming-Host bringt das Werkzeug deshalb selbst mit
+  (`init/23-3ds-entschluesseln`, nur wenn `boot9.bin` vorliegt) und entschlüsselt **beim
+  Start, in einen Zwischenspeicher daneben**. Romseerr fragt die Fähigkeit ab und wandelt
+  die Absage dann in eine Zusage mit angekündigter Wartezeit (`will_decrypt`); antwortet
+  der Host nicht, bleibt es bei der Absage — eine Zusage, die er nicht halten kann, fiele
+  erst nach dem Belegen eines Platzes auf.
+  **Warum daneben und nicht an Ort und Stelle:** *das verschlüsselte Original ist es, was
+  den Titel identifizierbar macht.* Von 20 3DS-Titeln erkannte Hasheous 15 an ihrer
+  Prüfsumme — die beste Quote der ganzen Bibliothek, und mit ihr fielen die Metadaten weg,
+  würde man die Dateien ersetzen. Der Zwischenspeicher hat einen Deckel
+  (`DECRYPT_3DS_CACHE_GB`, Standard 50) und verdrängt nach letzter Nutzung.
   **Ton und Gamepad brauchen dort HTTPS** — über HTTP verweigert der Browser die
   WebCodecs-API, und beides bleibt still, ohne dass ein Fehler erscheint.
   Liegen zu einem Titel **mehrere Dateien** vor — Basisspiel, Update, DLC —, wählt
