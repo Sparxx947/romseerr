@@ -7264,3 +7264,44 @@ def test_no_extension_silently_merged_with_its_neighbour(appmod):
             verdaechtig.append(f"{name}: {treffer.group(0)[:40]!r}")
     assert not verdaechtig, ("hier fehlt ein Komma, die Eintraege verschmelzen still: "
                              + "; ".join(verdaechtig))
+def test_platform_detection_covers_the_common_spellings(appmod):
+    """Jede Plattform wird in MEHREREN gebraeuchlichen Schreibweisen erkannt. (#393)
+
+    Jedes Muster war aus EINER Schreibweise geschrieben — der, die dem Autor einfiel.
+    Gemessen an realistischen Release-Namen hatten 7 von 18 Plattformen Luecken. Die
+    teuerste: `\\bvita\\b` traf `PSVita` nie, weil zwischen `S` und `V` keine Wortgrenze
+    steht — und das ist die haeufigste Schreibweise ueberhaupt.
+
+    Ein Treffer ohne erkannte Plattform verschwindet nicht, er rutscht seit #375 ans Ende
+    einer gefilterten Liste. Sichtbar im Prinzip, unsichtbar in der Praxis.
+    """
+    PROBEN = {
+        "psvita":  ["Spiel PSVita", "Spiel PS Vita", "Spiel [PSV]", "Spiel (PlayStation Vita)"],
+        "wiiu":    ["Spiel WiiU", "Spiel Wii U", "Spiel [WUP]", "Spiel WUX"],
+        "switch":  ["Spiel NSW", "Spiel Switch", "Spiel [NSP]", "Spiel XCI"],
+        "ngc":     ["Spiel GameCube", "Spiel NGC", "Spiel GCN"],
+        "xbox":    ["Spiel Xbox", "Spiel XBE"],
+        "xbox360": ["Spiel Xbox 360", "Spiel X360"],
+        "ps3":     ["Spiel PS3", "Spiel PlayStation 3"],
+        "psp":     ["Spiel PSP", "Spiel PlayStation Portable"],
+        "3ds":     ["Spiel 3DS", "Spiel [3DS]"],
+    }
+    fehl = []
+    for slug, titel in PROBEN.items():
+        for t in titel:
+            erkannt = appmod.guess_platform(t)
+            if erkannt != slug:
+                fehl.append(f"{t!r} -> {erkannt or '—'} (erwartet {slug})")
+    assert not fehl, "nicht erkannte Schreibweisen:\n  " + "\n  ".join(fehl)
+
+
+def test_an_ambiguous_abbreviation_is_not_guessed(appmod):
+    """Zweideutige Kuerzel werden NICHT zugeordnet. (#393)
+
+    `DC` fehlt bewusst: DC Comics, Director's Cut, Digital Copy. Dieselbe Regel wie in den
+    Bibliothekswerkzeugen — eine falsche Zuordnung kostet mehr als eine ausgelassene, weil
+    der Titel danach unter der falschen Konsole liegt und niemandem auffaellt, waehrend ein
+    unzugeordneter sichtbar bleibt.
+    """
+    assert appmod.guess_platform("Batman DC Collection") != "dreamcast"
+    assert appmod.guess_platform("Spiel Directors Cut DC") != "dreamcast"
