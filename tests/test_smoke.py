@@ -5786,7 +5786,6 @@ def _routen_und_ansichten():
     return routen, ansichten
 
 
-@pytest.mark.xfail(strict=True, reason="#320: `lib` wird angezeigt, steht aber nicht in ROUTEN")
 def test_every_view_has_a_route():
     """Jede Ansicht, die `zeige()` kennt, braucht einen Eintrag in ROUTEN. (#320)
 
