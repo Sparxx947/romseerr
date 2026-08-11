@@ -7103,3 +7103,101 @@ def test_no_connection_tab_reports_a_status_that_cannot_change(appmod):
             fest.append(f"{name} (da:{da}, an:{an})")
     assert not fest, ("diese Reiter melden einen Zustand, der sich nie aendert: "
                       + ", ".join(fest))
+
+
+# --- #388: die Naht zwischen Agent und Entschluesselungswerkzeug ----------------------
+
+def _agent_modul():
+    """`stream-agent.py` als Modul laden (kein `.py`-Import moeglich)."""
+    import importlib.util
+    pfad = os.path.join(REPO, "contrib", "streaming-host", "stream-agent.py")
+    spec = importlib.util.spec_from_file_location("stream_agent_cia", pfad)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def _falsches_werkzeug(tmp_path, verhalten):
+    """Ein nachgebautes `decrypt_cia.py`. Baut den Namen wie das ECHTE — feste Endung.
+
+    WARUM NACHGEBAUT: Das echte Werkzeug braucht pycryptodome und laeuft auf dem
+    Streaming-Host. Geprueft werden soll hier nicht die Kryptografie, sondern die NAHT —
+    und genau dort lag der Fehler: Die Entschluesselung lief durch, der Agent fand die
+    Datei nicht und meldete Misserfolg.
+    """
+    w = tmp_path / "werkzeug.py"
+    w.write_text(
+        "import os, shutil, sys\n"
+        "ein = sys.argv[1]\n"
+        f"verhalten = {verhalten!r}\n"
+        "if verhalten == 'normal':\n"
+        # exakt wie im Original: Endung fest auf .cia, unabhaengig von der Eingabe
+        "    aus = os.path.splitext(ein)[0] + '-decrypted.cia'\n"
+        "    shutil.copyfile(ein, aus)\n"
+        "elif verhalten == 'anderer_name':\n"
+        # Ein Name, den NIEMAND aus der Eingabe herleiten kann. Genau das trennt „findet
+        # die Ausgabe" von „raet ihren Namen richtig".
+        "    shutil.copyfile(ein, os.path.join(os.path.dirname(ein), 'fertig-xyz.cia'))\n"
+        "elif verhalten == 'nichts':\n"
+        "    pass\n"
+        "print('Done')\n", encoding="utf-8")
+    return str(w)
+
+
+def test_the_decrypted_cia_is_found_whatever_the_tool_names_it(tmp_path, monkeypatch):
+    """Der Agent findet die Ausgabe, ohne ihren Namen nachzurechnen. (#388)
+
+    Der Fehler: `decrypt_cia.py` haengt IMMER `-decrypted.cia` an, der Agent erwartete die
+    Endung der Eingabe. Bei der atomaren `.part`-Datei gingen beide auseinander — die
+    Entschluesselung lief durch, 342 MB lagen korrekt da, und der Start scheiterte mit
+    „keine Ausgabedatei".
+    """
+    agent = _agent_modul()
+    quelle = tmp_path / "Titel.cia"
+    quelle.write_bytes(b"\x00" * 64)
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(agent, "ENTSCHL_CACHE", str(cache))
+    monkeypatch.setattr(agent, "ENTSCHL_WERKZEUG_CIA", _falsches_werkzeug(tmp_path, "normal"))
+    monkeypatch.setattr(agent, "_cache_aufraeumen", lambda schonen="": None)
+
+    ziel, fehler = agent._cia_entschluesseln(str(quelle))
+    assert not fehler, f"unerwarteter Fehler: {fehler}"
+    assert os.path.isfile(ziel) and os.path.getsize(ziel) == 64
+
+    # UND der Fall, der den alten Weg wirklich bricht: ein Ausgabename, den man aus der
+    # Eingabe NICHT herleiten kann. Mit einer sauberen `.cia` als Eingabe waere die
+    # Nachrechnung zufaellig richtig gewesen — dieser Test war ohne diesen Teil
+    # gegenstandslos, was die Gegenprobe gezeigt hat.
+    os.remove(ziel)
+    monkeypatch.setattr(agent, "ENTSCHL_WERKZEUG_CIA",
+                        _falsches_werkzeug(tmp_path, "anderer_name"))
+    ziel2, fehler2 = agent._cia_entschluesseln(str(quelle))
+    assert not fehler2, f"Ausgabe mit unerwartetem Namen nicht gefunden: {fehler2}"
+    assert os.path.isfile(ziel2)
+
+
+def test_nothing_is_left_behind_in_the_cache(tmp_path, monkeypatch):
+    """Weder Erfolg noch Fehlschlag hinterlassen Reste. (#388)
+
+    Der alte Weg loeschte zwei Namen, von denen keiner die echte Ausgabe war: Bei jedem
+    Versuch blieben Hunderte Megabyte liegen — und zaehlten gegen den Deckel des
+    Zwischenspeichers, ohne je benutzt zu werden.
+    """
+    agent = _agent_modul()
+    quelle = tmp_path / "Titel.cia"
+    quelle.write_bytes(b"\x00" * 64)
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(agent, "ENTSCHL_CACHE", str(cache))
+    monkeypatch.setattr(agent, "_cache_aufraeumen", lambda schonen="": None)
+
+    monkeypatch.setattr(agent, "ENTSCHL_WERKZEUG_CIA", _falsches_werkzeug(tmp_path, "normal"))
+    ziel, _ = agent._cia_entschluesseln(str(quelle))
+    assert sorted(os.listdir(cache)) == [os.path.basename(ziel)], \
+        f"nach dem Erfolg liegt mehr im Zwischenspeicher: {os.listdir(cache)}"
+
+    os.remove(ziel)
+    monkeypatch.setattr(agent, "ENTSCHL_WERKZEUG_CIA", _falsches_werkzeug(tmp_path, "nichts"))
+    ziel2, fehler = agent._cia_entschluesseln(str(quelle))
+    assert fehler and not ziel2, "ein Werkzeug ohne Ausgabe muss einen Fehler ergeben"
+    assert os.listdir(cache) == [], \
+        f"nach dem Fehlschlag bleibt etwas liegen: {os.listdir(cache)}"
