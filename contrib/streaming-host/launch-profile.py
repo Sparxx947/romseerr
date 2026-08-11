@@ -841,6 +841,10 @@ PROFILE = {
                   "geprueft": True},
     "cemu":      {"system": "Wii U",         "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
+    # vollbild=None ist hier NACHGEMESSEN, nicht angenommen (#316): Der Fenstertrick
+    # genuegt, der gezeichnete Bereich waechst mit. Gemessen am laufenden Emulator ueber
+    # die Pixel, nicht ueber die Fenstergeometrie — die meldet den Rahmen, nicht den
+    # Inhalt, und genau daran ist der Fall bei xemu lange unbemerkt geblieben.
     "azahar":    {"system": "3DS",           "controller": azahar_apply,
                   "bios": None, "vollbild": None,
                   "geprueft": False},
