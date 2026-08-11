@@ -6118,3 +6118,54 @@ def test_an_update_run_covers_installed_emulators(appmod):
         skript = f.read()
     assert 'installiert "$(feld "$zeile" 2)" || continue' in skript, \
         "installierte Emulatoren werden beim Sammellauf wieder uebersprungen"
+
+
+def test_the_env_template_contains_no_values():
+    """In `.env.example` steht KEIN einziger Wert. (#343)
+
+    WARUM DAS EIN TEST IST UND NICHT NUR EINE GEPFLOGENHEIT: Der Geheimnis-Scan nimmt
+    diese Datei von der Pruefung aus. Das ist richtig — sie besteht aus leeren
+    Platzhaltern, und die Regel `generic-api-key` zieht ueber den Zeilenumbruch hinweg den
+    Wert der NAECHSTEN Zeile heran: Gefunden wurde `PROWLARR_CATS=1000` als „Geheimnis"
+    des leeren `PROWLARR_APIKEY=`.
+
+    Eine Ausnahme schafft aber eine blinde Stelle: Ein echter Schluessel, der versehentlich
+    hier landet, faellt dem Scanner nicht mehr auf. Diese Pruefung schliesst genau diese
+    Luecke — und zwar praeziser als eine Regex, weil sie nicht raet, was ein Geheimnis ist,
+    sondern verlangt, dass ueberhaupt nichts zugewiesen wird.
+
+    The secret scan allowlists this file, which creates a blind spot: a real key pasted here
+    would no longer be flagged. This closes it more precisely than a regex could, by
+    requiring that nothing is assigned at all.
+    """
+    pfad = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        ".env.example")
+    with open(pfad, encoding="utf-8") as f:
+        zeilen = f.read().splitlines()
+
+    # WELCHE SCHLUESSEL GEMEINT SIND: Nicht „alles ausser einer Liste harmloser Namen" —
+    # das waere eine Ausschlussliste, die bei jedem neuen Pfad-Eintrag waechst und genau
+    # dann versagt, wenn jemand sie zu ergaenzen vergisst. Adressen, Pfade, Ports und
+    # Schalter GEHOEREN in eine Vorlage und tragen dort zu Recht Werte.
+    #
+    # Stattdessen die kurze, stabile Liste dessen, was in einer Vorlage NIE einen Wert
+    # haben darf. Sie muss nicht mitwachsen: Ein neues Geheimnis heisst mit grosser
+    # Sicherheit wieder …KEY, …SECRET, …TOKEN oder …PASS.
+    #
+    # An include list, not an exclude list: paths, ports and switches belong in a template
+    # and legitimately carry values. This list does not need to grow.
+    GEHEIM = ("KEY", "SECRET", "TOKEN", "PASS", "PASSWORD", "CREDENTIAL", "PRIVATE")
+    befuellt = []
+    for n, z in enumerate(zeilen, 1):
+        z = z.split("#", 1)[0].strip()
+        if not z or "=" not in z:
+            continue
+        schluessel, wert = z.split("=", 1)
+        if not wert.strip():
+            continue
+        if not any(g in schluessel.upper() for g in GEHEIM):
+            continue
+        befuellt.append(f"Zeile {n}: {schluessel}=…")
+    assert not befuellt, ("In .env.example stehen Werte, wo keine hingehoeren — "
+                          "der Geheimnis-Scan sieht hier nicht mehr hin: "
+                          + "; ".join(befuellt))
