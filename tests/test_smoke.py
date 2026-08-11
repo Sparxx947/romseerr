@@ -6450,3 +6450,97 @@ def test_both_refusal_reasons_have_a_text_in_all_five_languages():
         assert f"{grund}:'{schluessel}'" in m.group(1).replace("\n", "").replace(" ", ""), \
             f"{grund} ist keinem Text zugeordnet"
         assert i18n_hat(schluessel) == 5, f"{schluessel} fehlt in einer Sprache"
+
+
+# --- #354: Verschluesselt ist kein Endzustand, wenn der Host entschluesseln kann ------
+
+def test_the_host_capability_is_asked_and_briefly_remembered(appmod, monkeypatch):
+    """Die Faehigkeit wird beim Host erfragt — und fuer kurze Zeit gemerkt. (#354)
+
+    WARUM GEMERKT: Die Frage stellt sich bei jedem Titelaufruf; die Antwort aendert sich
+    hoechstens beim Neustart des Hosts. Ohne Zwischenspeicher waere es eine HTTP-Anfrage
+    pro Suchtreffer — genau die Art von Last, die eine Oberflaeche traege macht.
+    """
+    rufe = {"n": 0}
+
+    class Antwort:
+        ok = True
+        @staticmethod
+        def json():
+            rufe["n"] += 1
+            return {"can_decrypt_3ds": True}
+
+    appmod._HOST_KANN.update({"wert": None, "bis": 0.0})
+    monkeypatch.setattr(appmod, "_agent_url", lambda p: "http://host/" + p)
+    monkeypatch.setattr(appmod, "safe_get", lambda *a, **k: Antwort())
+
+    assert appmod.host_kann_entschluesseln() is True
+    assert appmod.host_kann_entschluesseln() is True
+    assert rufe["n"] == 1, "die zweite Frage muss aus dem Zwischenspeicher kommen"
+
+
+def test_an_unreachable_host_means_no_decryption(appmod, monkeypatch):
+    """Antwortet der Host nicht, gilt „kann nicht" — nicht „kann". (#354)
+
+    Die vorsichtige Antwort ist hier die richtige: Eine Zusage, die der Host nicht halten
+    kann, faellt erst NACH dem Belegen eines Platzes auf. Genau diesen Zustand hat #299
+    beseitigt, und er darf nicht ueber die Hintertuer zurueckkommen.
+    """
+    def platzt(*a, **k):
+        raise OSError("kein Kontakt")
+
+    appmod._HOST_KANN.update({"wert": None, "bis": 0.0})
+    monkeypatch.setattr(appmod, "_agent_url", lambda p: "http://host/" + p)
+    monkeypatch.setattr(appmod, "safe_get", platzt)
+    assert appmod.host_kann_entschluesseln() is False
+
+
+def test_no_agent_configured_means_no_decryption(appmod, monkeypatch):
+    """Ohne eingerichteten Host wird gar nicht erst gefragt. (#354)"""
+    appmod._HOST_KANN.update({"wert": None, "bis": 0.0})
+    monkeypatch.setattr(appmod, "_agent_url", lambda p: "")
+    monkeypatch.setattr(appmod, "safe_get", lambda *a, **k: 1 / 0)   # darf nie laufen
+    assert appmod.host_kann_entschluesseln() is False
+
+
+def test_an_encrypted_title_is_no_longer_refused_when_the_host_can_decrypt(appmod, tmp_path, monkeypatch):
+    """Das eigentliche Verhalten von #354: aus der Absage wird eine Zusage mit Wartezeit.
+
+    WARUM AN `stream_info` UND NICHT AN `dreids_startbar`: Die Datei ist unveraendert
+    verschluesselt — das Urteil ueber die DATEI bleibt gleich. Was sich aendert, ist die
+    Antwort an den Nutzer, und die faellt in `stream_info`. Eine Gegenprobe an
+    `dreids_startbar` blieb gruen, obwohl die Weiche komplett ausgehebelt war.
+    """
+    verschl = _3ds_datei(tmp_path, "Verschluesselter Titel.3ds", True)
+    monkeypatch.setattr(appmod, "stream_cfg", lambda: {"url": "http://host", "launch": ""})
+    monkeypatch.setattr(appmod, "stream_find_file", lambda t, s: verschl)
+    monkeypatch.setattr(appmod, "_agent_url", lambda p: "http://host/" + p)
+
+    monkeypatch.setattr(appmod, "host_kann_entschluesseln", lambda: False)
+    d = appmod.stream_info("Verschluesselter Titel", "3ds")
+    assert d["streamable"] is False and d["reason"] == "encrypted"
+
+    monkeypatch.setattr(appmod, "host_kann_entschluesseln", lambda: True)
+    d = appmod.stream_info("Verschluesselter Titel", "3ds")
+    assert d["streamable"] is not False, "mit entschluesselungsfaehigem Host keine Absage"
+    assert d.get("reason") != "encrypted"
+    assert d.get("will_decrypt") is True, \
+        "die Wartezeit muss angekuendigt sein — ein stiller Start von Minuten sieht aus wie ein Haenger"
+
+
+def test_a_cia_stays_refused_even_when_the_host_can_decrypt(appmod, tmp_path, monkeypatch):
+    """`.cia` bleibt eine Absage, auch bei entschluesselungsfaehigem Host. (#354)
+
+    Der Unterschied ist inhaltlich, nicht technisch: Ein Installationspaket startet nicht
+    direkt — entschluesselt genauso wenig. NUR `encrypted` ist ein Zwischenschritt, und
+    diese Unterscheidung muss die Weiche in `stream_info` treffen.
+    """
+    cia = tmp_path / "Titel.cia"
+    cia.write_bytes(b"\x00" * 64)
+    monkeypatch.setattr(appmod, "stream_cfg", lambda: {"url": "http://host", "launch": ""})
+    monkeypatch.setattr(appmod, "stream_find_file", lambda t, s: str(cia))
+    monkeypatch.setattr(appmod, "_agent_url", lambda p: "http://host/" + p)
+    monkeypatch.setattr(appmod, "host_kann_entschluesseln", lambda: True)
+
+    d = appmod.stream_info("Titel", "3ds")
+    assert d["streamable"] is False and d["reason"] == "cia_not_bootable"

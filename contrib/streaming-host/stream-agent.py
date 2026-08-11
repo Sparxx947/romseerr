@@ -366,6 +366,112 @@ def start_umgebung(platform):
 _3DS_ENDUNGEN = (".3ds", ".cci")
 
 
+# --- 3DS: auf Anforderung entschluesseln (#354) -------------------------------------
+#
+# WOHIN, UND WARUM NICHT AN ORT UND STELLE: Das VERSCHLUESSELTE Original ist es, was den
+# Titel identifizierbar macht. Gemessen: 3DS hat mit 15 von 20 Hasheous-Treffern die beste
+# Erkennungsquote dieser Bibliothek — `dos`, `gba`, `nds` und `gbc` haben je null. Hasheous
+# gleicht Pruefsummen gegen Dump-Datenbanken ab, und die fuehren 3DS-Titel verschluesselt.
+# Am Original zu schreiben aendert jede Pruefsumme und wirft genau diese Treffer weg.
+#
+# Der Zwischenspeicher liegt AUSSERHALB der Bibliothek: laege er darin, indexierte RomM die
+# Kopien als zusaetzliche Titel, und das Umbau-Werkzeug faende sie beim naechsten Lauf.
+#
+# Die oft genannten 397 GB sind ein Phantom — sie unterstellen, alles werde entschluesselt.
+# Auf Anforderung heisst: nur was gestartet wird. Der Deckel unten fasst ein Dutzend Titel.
+#
+# The encrypted original is what identifies the title: 3DS has the best match rate in this
+# library, and those matches are on the encrypted bytes. The cache lives outside the library
+# so RomM does not index the copies.
+ENTSCHL_WERKZEUG = "/config/tools/3ds-decrypt"
+ENTSCHL_CACHE = os.environ.get("DECRYPT_3DS_CACHE", "/config/3ds-entschluesselt")
+ENTSCHL_DECKEL = int(os.environ.get("DECRYPT_3DS_CACHE_GB", "50")) * 1024 ** 3
+
+def entschluesselung_moeglich():
+    """Kann dieser Host ueberhaupt entschluesseln? Ohne Werkzeug ODER Bibliothek: nein."""
+    if not os.path.isfile(ENTSCHL_WERKZEUG):
+        return False
+    try:
+        subprocess.run([sys.executable, "-c", "import Crypto"], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
+        return True
+    except Exception:
+        return False
+
+def _cache_name(pfad):
+    """Schluessel aus Pfad, Groesse und Aenderungszeit.
+
+    Die beiden letzten muessen mit hinein: Wird ein Original ersetzt — ein besserer Dump,
+    eine andere Region —, verfaellt der Eintrag von selbst. Nur der Pfad wuerde still die
+    alte Fassung weiterstarten, und das faellt niemandem auf.
+    """
+    import hashlib
+    try:
+        st = os.stat(pfad)
+        kennung = f"{pfad}|{st.st_size}|{int(st.st_mtime)}"
+    except OSError:
+        kennung = pfad
+    kurz = hashlib.sha256(kennung.encode()).hexdigest()[:16]
+    return os.path.join(ENTSCHL_CACHE, kurz + os.path.splitext(pfad)[1].lower())
+
+def _cache_aufraeumen(schonen=""):
+    """Ueber dem Deckel: aelteste Zugriffe zuerst loeschen.
+
+    Der gerade erzeugte Eintrag wird geschont — ihn wegzuwerfen, bevor er benutzt wurde,
+    waere die teuerste aller Reihenfolgen.
+    """
+    try:
+        eintraege = []
+        for f in os.listdir(ENTSCHL_CACHE):
+            p = os.path.join(ENTSCHL_CACHE, f)
+            if os.path.isfile(p) and p != schonen and not p.endswith(".part"):
+                st = os.stat(p)
+                eintraege.append((st.st_atime, st.st_size, p))
+        gesamt = sum(g for _a, g, _p in eintraege)
+        try:
+            gesamt += os.path.getsize(schonen) if schonen else 0
+        except OSError:
+            pass
+        eintraege.sort()
+        while gesamt > ENTSCHL_DECKEL and eintraege:
+            _a, groesse, pfad = eintraege.pop(0)
+            try:
+                os.remove(pfad); gesamt -= groesse
+                print(f"[3ds] Zwischenspeicher: {os.path.basename(pfad)} verdraengt", flush=True)
+            except OSError:
+                break
+    except OSError:
+        pass
+
+def _3ds_entschluesseln(pfad):
+    """-> (ziel, fehler). Entschluesselt nach Bedarf; ein Treffer im Zwischenspeicher
+    wird sofort zurueckgegeben.
+
+    ATOMAR: Es wird nach `.part` geschrieben und erst bei Erfolg umbenannt. Ein
+    abgebrochener Lauf darf nichts hinterlassen, was spaeter fuer einen guten Dump gehalten
+    wird — eine halb entschluesselte Datei sieht wie ein Abbild aus und startet nur nicht.
+    """
+    ziel = _cache_name(pfad)
+    if os.path.isfile(ziel) and os.path.getsize(ziel) > 0:
+        os.utime(ziel, None)              # Zugriffszeit auffrischen, fuer die Verdraengung
+        return ziel, ""
+    os.makedirs(ENTSCHL_CACHE, exist_ok=True)
+    teil = ziel + ".part"
+    try:
+        import shutil
+        shutil.copyfile(pfad, teil)       # das Werkzeug arbeitet in-place auf seiner Kopie
+        r = subprocess.run([sys.executable, ENTSCHL_WERKZEUG, teil],
+                           capture_output=True, text=True, timeout=3600)
+        if r.returncode != 0:
+            raise RuntimeError((r.stderr or r.stdout or "")[-300:] or "unbekannter Fehler")
+        os.replace(teil, ziel)
+    except Exception as e:
+        try: os.remove(teil)
+        except OSError: pass
+        return "", f"Entschluesselung fehlgeschlagen / decryption failed: {e}"
+    _cache_aufraeumen(schonen=ziel)
+    return ziel, ""
+
 def _3ds_spielbar(pfad):
     """-> (spielbar, grund). Nur fuer 3DS-Abbilder; alles andere gilt als spielbar."""
     endung = os.path.splitext(pfad)[1].lower()
@@ -438,7 +544,21 @@ def launch(path, platform, rel="", region=""):
     # spielen — das jetzt zu sagen ist ehrlicher als ein Stream, der leer aufgeht.
     if platform == "3ds" and os.path.isfile(real):
         spielbar, grund = _3ds_spielbar(real)
-        if not spielbar:
+        if not spielbar and grund.startswith("Das Abbild ist VERSCHLUESSELT"):
+            # Verschluesselt ist kein Endzustand mehr, sondern ein Zwischenschritt (#354).
+            # Das Original bleibt unangetastet — es ist das, was den Titel identifizierbar
+            # macht; entschluesselt wird in einen Zwischenspeicher daneben.
+            if not entschluesselung_moeglich():
+                return False, grund
+            print(f"[3ds] entschluessele {os.path.basename(real)} — das dauert einige Minuten", flush=True)
+            ziel, fehler = _3ds_entschluesseln(real)
+            if fehler:
+                return False, fehler
+            real = ziel
+            print(f"[3ds] entschluesselt, starte {os.path.basename(real)}", flush=True)
+        elif not spielbar:
+            # `.cia` bleibt eine Absage: Installationspakete starten nie direkt, auch
+            # entschluesselt nicht. Entschluesseln wuerde daran nichts aendern.
             return False, grund
 
     # Ein Titel ist nicht immer eine Datei. Eine PS3-Disc ist ein ORDNER mit
@@ -750,7 +870,12 @@ class Handler(BaseHTTPRequestHandler):
                                  "file": os.path.basename(_current["path"]) if _current["path"] else "",
                                  "platforms": sorted(k for k, v in EMULATORS.items() if v),
                                  "emulators": installed_emulators(),
-                                 "update_running": _update["running"]})
+                                 # Damit Romseerr weiss, ob ein verschluesselter 3DS-Titel eine
+                                   # Absage wert ist oder nur eine Wartezeit (#354).
+                                   # Ohne diese Auskunft muesste es raten — und raten
+                                   # hiesse entweder falsch absagen oder falsch versprechen.
+                                   "can_decrypt_3ds": entschluesselung_moeglich(),
+                                   "update_running": _update["running"]})
 
     def log_message(self, *_a):
         pass   # keine Zugriffsprotokolle auf stderr

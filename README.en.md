@@ -207,6 +207,18 @@ that is the normal case and complete as it stands, not a fallback.
   to the format, always — installation packages never boot directly, decrypted or not. When
   in doubt it passes: an image without a readable NCSD header cannot be judged, and a wrong
   refusal costs more than a failed attempt.
+  **Encrypted is no longer a dead end when the host can decrypt.** Azahar only plays
+  decrypted dumps and does not decrypt by itself; 1,248 of 1,249 measured images in this
+  library were encrypted — without this step the platform stays empty. The streaming host
+  therefore ships the tool itself (`init/23-3ds-entschluesseln`, only when `boot9.bin` is
+  present) and decrypts **at launch, into a cache alongside**. Romseerr asks for the
+  capability and turns the refusal into a promise with an announced wait (`will_decrypt`);
+  if the host does not answer, the refusal stands — a promise it cannot keep would only
+  surface after a seat has been taken.
+  **Why alongside rather than in place:** *the encrypted original is what identifies the
+  title.* Of 20 3DS titles Hasheous matched 15 by checksum — the best rate in the whole
+  library, and replacing the files would throw those metadata away. The cache has a cap
+  (`DECRYPT_3DS_CACHE_GB`, default 50) and evicts least-recently-used.
 - ▶ **Play in the browser**: if the title exists in RomM and the platform has an EmulatorJS
   core, a button on the detail view opens RomM's built-in player. Romseerr emulates nothing
   itself. **PS2, GameCube, Wii, Dreamcast and Switch never show the button** — no core exists

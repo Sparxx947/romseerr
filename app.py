@@ -3124,6 +3124,31 @@ def plattform_aus_bibliothek(title):
 
 
 _3DS_ABBILD = (".3ds", ".cci")
+# Kann der Host entschluesseln? Kurz gemerkt (60 s): Die Frage stellt sich bei jedem
+# Titelaufruf, die Antwort aendert sich hoechstens nach einem Neustart des Hosts. Ohne
+# Zwischenspeicher waere es eine HTTP-Anfrage pro Suchtreffer.
+_HOST_KANN = {"wert": None, "bis": 0.0}
+
+def host_kann_entschluesseln():
+    """-> True/False. Bei Unerreichbarkeit: False — dann gilt die vorsichtige Antwort.
+
+    WARUM NICHT EINFACH IMMER DURCHLASSEN: Kann der Host es nicht, waere die Zusage eine
+    Luege, die erst nach dem Belegen eines Platzes auffliegt — genau der Zustand, den #299
+    beseitigt hat. Und warum nicht immer absagen: Dann waere die Faehigkeit umsonst gebaut.
+    Deshalb wird gefragt.
+    """
+    if _HOST_KANN["wert"] is not None and time.time() < _HOST_KANN["bis"]:
+        return _HOST_KANN["wert"]
+    wert = False
+    url = _agent_url("status")
+    if url:
+        try:
+            r = safe_get(url, timeout=6)
+            wert = bool(r.ok and (r.json() or {}).get("can_decrypt_3ds"))
+        except Exception:
+            wert = False
+    _HOST_KANN.update({"wert": wert, "bis": time.time() + 60})
+    return wert
 
 def dreids_startbar(pfad):
     """-> (startbar, grund) fuer eine 3DS-Datei. Alles andere gilt als startbar. (#299)
@@ -3190,10 +3215,18 @@ def stream_info(title, slug, user=""):
     path = stream_find_file(title, slug)
     if not path:
         return {"streamable": False, "reason": "not_in_library", "platform": slug}
+    entschluesselt_erst = False
     if slug == "3ds":
         # Vor der Platzvergabe fragen, nicht danach: Ein belegter Platz fuer einen Titel,
         # der ohnehin nicht startet, nimmt ihn jemandem weg, der spielen koennte. (#299)
         startbar, grund = dreids_startbar(path)
+        # Verschluesselt ist KEINE Absage mehr, wenn der Host entschluesseln kann — es
+        # dauert dann nur. Der Vermerk reist mit, damit die Oberflaeche die Wartezeit
+        # ankuendigen kann; ein stiller Start von mehreren Minuten sieht sonst aus wie
+        # ein Haenger, und genau dagegen gibt es #288. (#354)
+        if not startbar and grund == "encrypted" and host_kann_entschluesseln():
+            entschluesselt_erst = True
+            startbar, grund = True, ""
         if not startbar:
             return {"streamable": False, "reason": grund, "platform": slug, "path": path}
     # Besetzt ist erst, wenn KEIN Platz mehr frei ist — nicht schon, wenn einer belegt
@@ -3211,6 +3244,7 @@ def stream_info(title, slug, user=""):
                 "seats": len(seats), "seats_free": 0,
                 "url": conf["url"]}
     return {"streamable": True, "platform": slug, "path": path, "reason": "",
+            "will_decrypt": entschluesselt_erst,
             "busy_with": "", "busy_user": "",
             "seat": platz, "seats": len(seats),
             "seats_free": len(seats) - len(belegt) + (1 if platz in belegt else 0),

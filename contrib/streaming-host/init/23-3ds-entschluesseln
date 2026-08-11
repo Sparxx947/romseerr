@@ -1,0 +1,65 @@
+#!/bin/bash
+# 3DS-Entschluesselung bereitstellen: pycryptodome und das Entschluesselungswerkzeug.
+#
+# WARUM ALS INIT-SKRIPT UND NICHT VON HAND (#354): Ein `pip install` in einen laufenden
+# Container haelt bis zum naechsten Abbild-Update. Danach waere die Faehigkeit weg — und
+# zwar still: Der Start eines verschluesselten Titels scheiterte wieder, ohne dass jemand
+# den Zusammenhang zum Update sieht. Alles, was der Host koennen soll, gehoert hierher.
+#
+# WARUM UEBERHAUPT: Azahar spielt nur entschluesselte Dumps und entschluesselt NICHT selbst
+# (azahar-emu/azahar#2207, "closed as not planned"). Von 1.249 gemessenen Abbildern dieser
+# Bibliothek waren 1.248 verschluesselt — ohne diesen Schritt ist die Plattform leer.
+#
+# WARUM DIESES WERKZEUG: NDecrypt — der erste Suchtreffer — lief durch, meldete Erfolg und
+# liess die Datei BYTE-IDENTISCH. 3DS-Decrypt (Python + pycryptodome) leitet die Schluessel
+# aus `boot9.bin` selbst ab und braucht keine `aes_keys.txt`; nachgemessen: `NoCrypto`-Flag
+# gesetzt, Daten veraendert, Azahar startet den Titel.
+#
+# An init script rather than a manual pip install: a running-container install lasts until
+# the next image update, and its loss is silent. Azahar does not decrypt by itself, and
+# 1,248 of 1,249 measured images in this library are encrypted.
+set -uo pipefail
+
+WERKZEUG=/config/tools/3ds-decrypt
+QUELLE=${DECRYPT_3DS_URL:-https://raw.githubusercontent.com/aszuraz/3DS-Decrypt/main/decrypt.py}
+
+# Ohne Schluesselmaterial ist das Werkzeug nutzlos — dann lieber gar nicht erst so tun.
+SCHLUESSEL=/config/.local/share/azahar-emu/sysdata/boot9.bin
+if [ ! -s "$SCHLUESSEL" ]; then
+  echo "[3ds] boot9.bin fehlt — Entschluesselung wird NICHT eingerichtet"
+  echo "[3ds] boot9.bin missing — decryption not set up"
+  exit 0
+fi
+
+mkdir -p "$(dirname "$WERKZEUG")"
+
+# pycryptodome: nur installieren, wenn es fehlt. `--break-system-packages` ist noetig, weil
+# das Abbild eine verwaltete Umgebung mitbringt; ein venv waere hier eine zweite Python-
+# Installation fuer eine einzige Bibliothek.
+if ! python3 -c "import Crypto" >/dev/null 2>&1; then
+  echo "[3ds] installiere pycryptodome / installing pycryptodome"
+  pip install --quiet --no-cache-dir --break-system-packages pycryptodome 2>/dev/null \
+    || pip install --quiet --no-cache-dir pycryptodome 2>/dev/null \
+    || { echo "[3ds] pycryptodome liess sich nicht installieren / install failed"; exit 0; }
+fi
+
+if [ ! -s "$WERKZEUG" ]; then
+  echo "[3ds] hole Entschluesselungswerkzeug / fetching decryption tool"
+  if ! curl -fsSL --max-time 60 -o "$WERKZEUG.part" "$QUELLE"; then
+    echo "[3ds] Download fehlgeschlagen — Entschluesselung bleibt aus / download failed"
+    rm -f "$WERKZEUG.part"
+    exit 0
+  fi
+  # Erst nach erfolgreichem Download an seinen Platz: ein halb geladenes Skript waere
+  # vorhanden und kaputt, und das ist schlechter als abwesend.
+  mv "$WERKZEUG.part" "$WERKZEUG"
+fi
+
+chmod +x "$WERKZEUG" 2>/dev/null || true
+chown -R "${PUID:-1000}:${PGID:-1000}" /config/tools 2>/dev/null || true
+
+if python3 -c "import Crypto" >/dev/null 2>&1 && [ -s "$WERKZEUG" ]; then
+  echo "[3ds] Entschluesselung bereit / decryption ready"
+else
+  echo "[3ds] Entschluesselung NICHT bereit / decryption NOT ready"
+fi
