@@ -60,6 +60,42 @@ EMULATORS = {
     "psvita":    os.environ.get("EMU_VITA", ""),
 }
 
+
+def fehlende_plattformen():
+    """-> Plattformen, fuer die KEIN startbarer Emulator dasteht. (#440)
+
+    WOZU: `platforms` nennt, was da ist. Was fehlt, stand nirgends — und genau das war der
+    teure Zustand. Am 2026-08-12 fehlten `ps2` und `ps3` seit einem Tag in dieser Liste,
+    weil ein Emulator-Update sein eigenes Verzeichnis nach `.alt1` geraeumt und den neuen
+    Baum als `.neu` liegen gelassen hatte. Romseerr meldete daraufhin `not_supported`, der
+    Streamen-Knopf erschien nicht, und nichts sagte, dass hier etwas WEG ist statt nie
+    dagewesen zu sein.
+
+    Zwei Faelle werden gemeldet:
+
+    - kein Startbefehl gesetzt (`30-agent` setzt ihn nur, wenn `AppRun` existiert)
+    - Befehl gesetzt, aber sein `AppRun` ist inzwischen weg — das faengt den Fall, dass
+      zwischen Agentenstart und jetzt etwas verschwunden ist
+
+    Ein Fehlen ist NICHT automatisch ein Fehler: Wer keinen PS2-Emulator installiert hat,
+    soll deswegen nichts Rotes sehen. Die Auskunft ist eine Tatsache, kein Alarm — sie
+    macht nur den Unterschied zwischen „nicht eingerichtet" und „abhanden gekommen"
+    ueberhaupt sichtbar.
+
+    EN: `platforms` says what is there; nothing said what is missing, and that was the
+    expensive part. Reported as a fact, not an alarm — not everyone installs every emulator.
+    """
+    fehlt = []
+    for slug, cmd in EMULATORS.items():
+        if not cmd:
+            fehlt.append(slug)
+            continue
+        pfade = [t for t in shlex.split(cmd)
+                 if t.startswith("/") and t.endswith("AppRun")]
+        if pfade and not os.access(pfade[0], os.X_OK):
+            fehlt.append(slug)
+    return sorted(fehlt)
+
 # `window` haelt fest, ob nach dem Start wirklich ein Spielfenster erschien (#288):
 #   "" (leer)      noch nichts gestartet
 #   "pending"      Start laeuft, das Fenster wird noch erwartet
@@ -1163,6 +1199,8 @@ class Handler(BaseHTTPRequestHandler):
                                  "window_detail": _current["window_detail"],
                                  "file": os.path.basename(_current["path"]) if _current["path"] else "",
                                  "platforms": sorted(k for k, v in EMULATORS.items() if v),
+                                 # Was NICHT geht, ist so wichtig wie was geht (#440).
+                                 "platforms_missing": fehlende_plattformen(),
                                  "emulators": installed_emulators(),
                                  # Damit Romseerr weiss, ob ein verschluesselter 3DS-Titel eine
                                    # Absage wert ist oder nur eine Wartezeit (#354).
@@ -1182,4 +1220,13 @@ if __name__ == "__main__":
                  "laeuft nicht ungeschuetzt. / refusing to run without a token.")
     print(f"stream-agent auf :{PORT}, Bibliothek {ROMS}, "
           f"Plattformen: {', '.join(sorted(k for k, v in EMULATORS.items() if v))}", flush=True)
+    # DAS FEHLEN AUCH SAGEN (#440). Die Zeile darueber nennt seit jeher nur, was da ist —
+    # und so stand ein Tag lang nirgends, dass `ps2` und `ps3` abhanden gekommen waren.
+    # Wer das Protokoll liest, soll den Unterschied zwischen „nie eingerichtet" und
+    # „verschwunden" sehen koennen, ohne die Liste im Kopf zu vergleichen.
+    fehlt = fehlende_plattformen()
+    if fehlt:
+        print(f"stream-agent: OHNE Emulator: {', '.join(fehlt)} "
+              f"— kein Startbefehl oder AppRun fehlt / no launcher configured or AppRun gone",
+              flush=True)
     HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()  # nosec B104 - Container-Dienst

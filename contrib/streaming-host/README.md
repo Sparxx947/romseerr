@@ -219,6 +219,56 @@ startet xemu auch ohne Konfigurationsdatei und ohne `eeprom.bin`, das es sich se
 anlegt. Der anfängliche `Failed to load BIOS '(null)'` war ein Folgefehler der
 fehlenden Platte.
 
+## Ein Update darf den Emulator nicht löschen
+
+`installiere()` entpackt nach `<name>.neu` und ruft dann `generationen_schieben`, das die
+bisherige Fassung nach `.alt1` räumt. **Ohne die abschließende Umbenennung `.neu` → `<name>`
+ist ein Update eine Löschung** — genau das war bis 2026-08-12 der Fall.
+
+Die Folge war unsichtbar: `init/30-agent` setzt `EMU_<PLATTFORM>` nur, wenn
+`<name>/AppRun` existiert. Fehlt das Verzeichnis, entsteht die Variable nicht, und die
+**ganze Plattform** fällt aus der Liste des Agenten. Gemessen: `ps2` und `ps3` fehlten einen
+Tag lang, während 17 PS3-Titel in der Bibliothek lagen. Kein Fehler, kein Fenster, keine
+fehlende Datei — der Streamen-Knopf erschien einfach nicht mehr.
+
+Merkregel: **Wer zuletzt aktualisiert wurde, war der Kaputte.**
+
+`/status` nennt deshalb jetzt auch `platforms_missing`, und der Agent schreibt es beim Start
+ins Protokoll. Ein Fehlen ist kein Alarm — wer keinen PS2-Emulator installiert, soll nichts
+Rotes sehen. Es macht nur den Unterschied zwischen „nicht eingerichtet" und „abhanden
+gekommen" überhaupt sichtbar.
+
+*Without the final rename an update deletes the emulator it was meant to update, and the
+platform silently disappears from the agent. `/status` now also reports what is missing.*
+
+## Entpackte AppImages brauchen `APPDIR` und `APPIMAGE`
+
+`linuxdeploy` erzeugt bei manchen Emulatoren ein `AppRun.wrapped`, das das Programm **nur**
+startet, wenn `$APPIMAGE` gesetzt ist:
+
+```sh
+if [ "${APPIMAGE}" != "" ]; then "${APPDIR}/usr/bin/Vita3K" $@ ; fi
+```
+
+Diese Variable setzt die AppImage-Laufzeit, wenn das Abbild sich selbst startet. Hier läuft
+aber der **entpackte Baum** — dann ist sie leer, der Zweig wird übersprungen, und der Prozess
+endet mit **Exit 0 und ohne jede Ausgabe**:
+
+```
+$ timeout 20 /config/emulators/vita3k/AppRun > out 2> err
+exit=0    stdout: 0 Bytes    stderr: 0 Bytes
+```
+
+Das war das „öffnet kein Fenster" — und es sah nach einem defekten Emulator aus statt nach
+einer Verpackungslücke. Mit gesetzten Variablen startet Vita3K normal.
+
+Betroffen sind **vita3k, cemu und rpcs3**. Gesetzt wird es über den Helfer `apprun()` für
+**alle** Emulatoren: `APPDIR` auf den entpackten Baum zu zeigen ist ohnehin richtig, und drei
+Sonderfälle wären die Sorte Wissen, die beim nächsten neuen Emulator fehlt.
+
+*Some extracted AppImages only run when `$APPIMAGE` is set and otherwise exit 0 with no
+output at all. Set for every emulator rather than for the three known ones.*
+
 ## Controller: eine Kennung, acht Geräte
 
 Alle acht Joystick-Geräte im Container sind **identisch** — `bus=0003 vendor=045e

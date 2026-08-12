@@ -183,6 +183,22 @@ install_appimage() {  # install_appimage <name> <ordner> <system> <url>
   # oldest. Previously there was one, and rollback swapped rather than stepped, so pressing
   # it twice returned to the start.
   generationen_schieben "$dir"
+  # DIE NEUE FASSUNG AN IHREN PLATZ. Ohne diese Zeile war ein Update eine LOESCHUNG:
+  # `generationen_schieben` raeumt die bisherige Fassung nach `.alt1`, und der frisch
+  # entpackte Baum blieb als `$dir.neu` liegen. Danach gab es `$dir` nicht mehr —
+  # `30-agent` setzt seine `EMU_*`-Variable aber nur, wenn `$dir/AppRun` existiert, also
+  # verschwand die ganze PLATTFORM aus dem Agenten. Lautlos: kein Fehler, kein Fenster,
+  # keine fehlende Datei, nach der jemand gesucht haette.
+  #
+  # Gemessen am 2026-08-12: `ps2` und `ps3` fehlten seit dem 11.08. 10:22 in
+  # `/status`, waehrend 17 PS3-Titel in der Bibliothek lagen. Beide waren an dem Tag
+  # aktualisiert worden — und genau das war die Ursache. (#440)
+  #
+  # EN: without this line an update was a deletion. The previous build moves to .alt1 and
+  # the new tree stayed at $dir.neu, so $dir was gone and 30-agent dropped the platform.
+  mv "$EMU/$dir.neu" "$EMU/$dir" || {
+    echo "[emulators] $name: konnte $dir.neu nicht an seinen Platz schieben / rename failed"
+    return 1; }
   printf '%s' "$url" > "$marker"
   desktop "$name" "$sys" "$EMU/$dir/AppRun"
   echo "[emulators] $name: bereit / ready"

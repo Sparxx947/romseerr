@@ -112,7 +112,31 @@ EMU=/config/emulators
 STREAM_AGENT_TOKEN="$(cat "$TOKFILE")"; export STREAM_AGENT_TOKEN
 export STREAM_AGENT_PORT="${AGENT_PORT:-8901}"
 export STREAM_ROMS=/roms
-[ -x "$EMU/pcsx2/AppRun" ]     && export EMU_PS2="$VGL $EMU/pcsx2/AppRun -- %s"
+# ENTPACKTE APPIMAGES BRAUCHEN IHRE EIGENEN VARIABLEN. (#440)
+#
+# `linuxdeploy` erzeugt bei manchen Emulatoren ein `AppRun.wrapped`, das das Programm NUR
+# startet, wenn `$APPIMAGE` gesetzt ist:
+#
+#     if [ "${APPIMAGE}" != "" ]; then "${APPDIR}/usr/bin/Vita3K" $@ ; fi
+#
+# Die Variable setzt die AppImage-Laufzeit, wenn das Abbild sich selbst startet. Wir starten
+# aber den ENTPACKTEN Baum — dann ist sie leer, der Zweig wird uebersprungen, und der Prozess
+# endet mit **Exit 0 und ohne jede Ausgabe**. Genau das war das „oeffnet kein Fenster" aus
+# #136, und es sah nach einem defekten Emulator aus statt nach einer Verpackungsluecke.
+#
+# Betroffen sind vita3k, cemu und rpcs3. Gesetzt wird es fuer ALLE, nicht nur fuer die drei:
+# `APPDIR` auf den entpackten Baum zu zeigen ist das, was die Laufzeit ohnehin taete — es ist
+# also richtig und nicht bloss harmlos. Vier Sonderfaelle waeren die Sorte Wissen, die beim
+# naechsten neuen Emulator fehlt.
+#
+# EN: some extracted AppImages only run when $APPIMAGE is set — otherwise they exit 0 with no
+# output at all. Set for every emulator rather than for the three known ones.
+apprun() {   # <ordner> -> Kommando-Praefix bis einschliesslich AppRun
+  printf 'env APPDIR=%s/%s APPIMAGE=%s/%s/AppRun %s %s/%s/AppRun' \
+         "$EMU" "$1" "$EMU" "$1" "$VGL" "$EMU" "$1"
+}
+
+[ -x "$EMU/pcsx2/AppRun" ]     && EMU_PS2="$(apprun pcsx2) -- %s" && export EMU_PS2
 # NUR die AppImage. Der frueher hier stehende Rueckfall auf /usr/games/dolphin-emu
 # ist bewusst entfernt: das apt-Paket startet, legt seine Konfiguration an und oeffnet
 # NIE ein Fenster (#165). Ein Rueckfall auf etwas, das nachweislich nicht funktioniert,
@@ -120,19 +144,19 @@ export STREAM_ROMS=/roms
 # stummes "Knopf da, nichts passiert".
 # Only the AppImage: falling back to something that provably does not work turns a
 # clear "not installed" into a silent "button there, nothing happens".
-[ -x "$EMU/dolphin/AppRun" ]   && export EMU_GC="$VGL $EMU/dolphin/AppRun -b -e %s"
-[ -x "$EMU/switchemu/AppRun" ] && export EMU_SWITCH="$VGL $EMU/switchemu/AppRun -f -g %s"
-[ -x "$EMU/flycast/AppRun" ]   && export EMU_DC="$VGL $EMU/flycast/AppRun %s"
+[ -x "$EMU/dolphin/AppRun" ]   && EMU_GC="$(apprun dolphin) -b -e %s" && export EMU_GC
+[ -x "$EMU/switchemu/AppRun" ] && EMU_SWITCH="$(apprun switchemu) -f -g %s" && export EMU_SWITCH
+[ -x "$EMU/flycast/AppRun" ]   && EMU_DC="$(apprun flycast) %s" && export EMU_DC
 # `-batch` startet den Titel ohne Umweg ueber die Bibliotheksoberflaeche und beendet
 # DuckStation beim Herunterfahren des Spiels — sonst bliebe ein Fenster stehen, das aus
 # der Ferne niemand schliesst. / EN: -batch boots straight into the title and exits with
 # it, instead of leaving a window nobody can close remotely.
-[ -x "$EMU/duckstation/AppRun" ] && export EMU_PSX="$VGL $EMU/duckstation/AppRun -batch -fullscreen %s"
-[ -x "$EMU/xemu/AppRun" ]      && export EMU_XBOX="$VGL $EMU/xemu/AppRun -dvd_path %s"
-[ -x "$EMU/cemu/AppRun" ]      && export EMU_WIIU="$VGL $EMU/cemu/AppRun -g %s"
-[ -x "$EMU/azahar/AppRun" ]    && export EMU_3DS="$VGL $EMU/azahar/AppRun %s"
-[ -x "$EMU/vita3k/AppRun" ]    && export EMU_VITA="$VGL $EMU/vita3k/AppRun -r %s"
-[ -x "$EMU/rpcs3/AppRun" ]     && export EMU_PS3="$VGL $EMU/rpcs3/AppRun --no-gui %s"
+[ -x "$EMU/duckstation/AppRun" ] && EMU_PSX="$(apprun duckstation) -batch -fullscreen %s" && export EMU_PSX
+[ -x "$EMU/xemu/AppRun" ]      && EMU_XBOX="$(apprun xemu) -dvd_path %s" && export EMU_XBOX
+[ -x "$EMU/cemu/AppRun" ]      && EMU_WIIU="$(apprun cemu) -g %s" && export EMU_WIIU
+[ -x "$EMU/azahar/AppRun" ]    && EMU_3DS="$(apprun azahar) %s" && export EMU_3DS
+[ -x "$EMU/vita3k/AppRun" ]    && EMU_VITA="$(apprun vita3k) -r %s" && export EMU_VITA
+[ -x "$EMU/rpcs3/AppRun" ]     && EMU_PS3="$(apprun rpcs3) --no-gui %s" && export EMU_PS3
 
 pkill -f stream-agent.py 2>/dev/null || true
 # Aus dem eingehaengten Repo starten, nicht aus /config: was laeuft, ist damit
