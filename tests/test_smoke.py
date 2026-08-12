@@ -8401,3 +8401,116 @@ def test_no_markdown_table_row_stands_outside_its_table():
     assert not verdaechtig, (
         "diese Tabellenzeilen haengen an einem Absatz und werden als Text mit Pipes "
         f"gerendert: {json.dumps(verdaechtig, ensure_ascii=False)[:600]}")
+
+
+# --- #422: der Inhalt entscheidet, nicht der Dateiname ------------------------------
+
+def test_a_cia_named_3ds_is_judged_as_a_cia(appmod, tmp_path):
+    """Eine CIA, die `.3ds` heisst, wird als CIA beurteilt. (#422/#318)
+
+    DER ECHTE FALL: In der Bibliothek liegt `eShop-3DS-0010 - Save Data Transfer Tool
+    (World) (eShop).3ds`, 2.676.992 Bytes — und es ist eine CIA. Gelesen aus der Datei:
+    Kopfgroesse `0x2020`, Zertifikatskette `0x0a00`, Ticket `0x350`, TMD `0xb34`, und bei
+    0x100 steht kein `NCSD`.
+
+    Vorher entschied die Endung. Die Datei nahm also den NCSD-Weg, scheiterte an der
+    Kennung und landete im Zweig „nicht beurteilbar, also durchlassen" — sie wurde als
+    STARTBAR angeboten. Der Nutzer klickt, belegt einen Platz und wartet auf ein Bild, das
+    nie kommt. Genau das soll `dreids_startbar` verhindern.
+
+    Von 1249 Abbildern war es das einzige. Die Zahl in #318 stimmte, der Schluss „nicht
+    beurteilbar" nicht: Der Inhalt sagt eindeutig, was die Datei ist — nur der Name luegt.
+
+    EN: a CIA with a .3ds name took the image path, failed the NCSD check and fell into the
+    deliberate "pass when in doubt" branch. It was offered as bootable.
+    """
+    # Ein Update-Paket — als CIA erkannt muss es mit GRUND abgelehnt werden.
+    getarnt = _cia_datei(tmp_path, "Save Data Transfer Tool.3ds", 0x0004000E00000000)
+    startbar, grund = appmod.dreids_startbar(getarnt)
+    assert not startbar, "eine getarnte CIA wird immer noch als startbar durchgelassen"
+    assert grund == "cia_update", f"als CIA erkannt, aber falsch eingeordnet: {grund!r}"
+
+    # Und eine Anwendungs-CIA bleibt startbar, egal wie sie heisst.
+    app_cia = _cia_datei(tmp_path, "Irgendein Spiel.3ds", 0x0004000000000000)
+    assert appmod.dreids_startbar(app_cia) == (True, "")
+
+
+def test_an_image_named_cia_is_not_refused_as_unreadable(appmod, tmp_path):
+    """Die Gegenrichtung: ein NCSD-Abbild mit `.cia` im Namen. (#422)
+
+    WARUM DIESE HAELFTE WICHTIGER IST ALS DIE ERSTE: Eine CIA muss eine TMD haben, deshalb
+    wird eine unlesbare CIA ABGEWIESEN. Ein Abbild, das faelschlich `.cia` heisst, hat
+    keine — es wuerde also als `cia_unreadable` abgelehnt, obwohl es einwandfrei spielbar
+    ist. Eine falsche ABSAGE ist hier der teure Fehler; genau deshalb steht in
+    `dreids_startbar` „im Zweifel durchlassen".
+
+    Ein Fix, der nur die erste Richtung beachtet, verschiebt das Problem also nur.
+
+    EN: a wrong refusal is the expensive error here. An NCSD image misnamed .cia would be
+    rejected as unreadable although it plays fine.
+    """
+    abbild = _3ds_datei(tmp_path, "Mario Kart 7.cia", verschluesselt=False)
+    startbar, grund = appmod.dreids_startbar(abbild)
+    assert startbar, f"ein spielbares Abbild wurde abgelehnt: {grund!r}"
+
+
+def test_a_file_that_identifies_as_nothing_still_passes(appmod, tmp_path):
+    """Die Regel „im Zweifel durchlassen" bleibt unangetastet. (#422/#299)
+
+    Der Fix fuegt WISSEN hinzu, keine Absagen. Was sich weder als CIA noch als NCSD zu
+    erkennen gibt, geht weiterhin durch — sonst haette ich unter dem Vorwand einer
+    Erkennung die Grundregel umgedreht, und jede kuenftige Abweichung waere eine Absage
+    statt eines Fehlversuchs.
+
+    Diese Pruefung ist der Waechter GEGEN meinen eigenen Fix.
+
+    EN: this guard exists against the fix itself — sniffing must add knowledge, not turn
+    the "pass when in doubt" rule around.
+    """
+    fremd = tmp_path / "irgendwas.3ds"
+    fremd.write_bytes(b"\xde\xad\xbe\xef" * 4096)
+    assert appmod.dreids_startbar(str(fremd)) == (True, "")
+
+    assert appmod.dreids_art(str(fremd)) == "", "eine Vermutung statt eines Befundes"
+    assert appmod.dreids_art(str(tmp_path / "gibtsnicht.3ds")) == ""
+
+
+def test_the_agent_reads_the_same_format_as_romseerr(appmod, tmp_path):
+    """Beide Seiten muessen dieselbe Datei gleich einordnen. (#422)
+
+    WARUM DAS EINE EIGENE PRUEFUNG BRAUCHT: `dreids_art` in `app.py` und `_3ds_art` im
+    Agenten sind zwei Kopien derselben Regel. Laufen sie auseinander, sagt Romseerr zu und
+    der Agent ab — der Nutzer klickt, belegt einen Platz und bekommt eine Absage, die
+    Romseerr eine Sekunde vorher ausgeschlossen hatte. Das ist der unangenehmste Zustand:
+    zwei Aussagen, beide fuer sich stimmig, die sich widersprechen.
+
+    Der Fix fuer #422 musste deshalb auf BEIDEN Seiten passieren. Diese Pruefung haelt sie
+    zusammen, statt sich darauf zu verlassen, dass jemand daran denkt.
+
+    EN: the rule exists twice. If the copies drift, Romseerr promises and the agent refuses
+    a second later. This holds them together instead of relying on someone remembering.
+    """
+    import importlib.util
+    pfad = os.path.join(REPO, "contrib", "streaming-host", "stream-agent.py")
+    os.environ["STREAM_AGENT_TOKEN"] = "testtoken"
+    os.environ["STREAM_ROMS"] = appmod.ROMS
+    spec = importlib.util.spec_from_file_location("stream_agent_422", pfad)
+    agent = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(agent)
+
+    faelle = [
+        (_cia_datei(tmp_path, "getarnte.3ds", 0x0004000000000000), ".cia"),
+        (_cia_datei(tmp_path, "ehrliche.cia", 0x0004000000000000), ".cia"),
+        (_3ds_datei(tmp_path, "abbild.cia", verschluesselt=False), ".3ds"),
+        (_3ds_datei(tmp_path, "abbild.3ds", verschluesselt=False), ".3ds"),
+    ]
+    for datei, erwartet in faelle:
+        a, b = appmod.dreids_art(datei), agent._3ds_art(datei)
+        assert a == b == erwartet, (
+            f"{os.path.basename(datei)}: Romseerr sagt {a!r}, der Agent {b!r}, "
+            f"erwartet {erwartet!r}")
+
+    # Und die Unentschieden-Regel gilt auf beiden Seiten gleich.
+    fremd = tmp_path / "fremd.3ds"
+    fremd.write_bytes(b"\x00" * 4096)
+    assert appmod.dreids_art(str(fremd)) == agent._3ds_art(str(fremd)) == ""

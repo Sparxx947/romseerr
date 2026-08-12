@@ -208,6 +208,14 @@ that is the normal case and complete as it stands, not a fallback.
   to the format, always — installation packages never boot directly, decrypted or not. When
   in doubt it passes: an image without a readable NCSD header cannot be judged, and a wrong
   refusal costs more than a failed attempt.
+  **What a file is comes from its content, not its name.** This library holds a "Save Data
+  Transfer Tool" named `.3ds` that **is** a `.cia`: header size `0x2020`, certificate chain,
+  ticket, TMD, and no `NCSD` at `0x100`. Judged by extension it fell straight into the
+  "cannot be judged, so pass" rule and was offered as bootable. It was the only one of 1,249
+  images — the count was right, the conclusion was not. The header now decides, in **both**
+  directions: an image misnamed `.cia` would otherwise be refused as an unreadable CIA
+  although it runs fine, and a wrong refusal is the expensive error here. Anything that
+  identifies as neither still passes: the check adds knowledge, not refusals.
   **Encrypted is no longer a dead end when the host can decrypt.** Azahar only plays
   decrypted dumps and does not decrypt by itself; 1,248 of 1,249 measured images in this
   library were encrypted — without this step the platform stays empty. The streaming host

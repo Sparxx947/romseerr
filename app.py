@@ -3579,6 +3579,40 @@ def _cia_startbar(pfad):
     return False, "cia_not_bootable"
 
 
+def dreids_art(pfad):
+    """-> ".cia", ".3ds" oder "" — was die Datei WIRKLICH ist, unabhaengig vom Namen. (#422)
+
+    Zwei Kennungen, beide am Anfang und beide eindeutig genug, um danach zu handeln:
+
+    - **CIA**: Das erste Feld ist die Kopfgroesse, und die betraegt bei jeder CIA `0x2020`.
+      Ein NCSD-Abbild hat an derselben Stelle die ersten Bytes seiner Signatur; dass die
+      zufaellig `20 20 00 00` lauten, ist bei 2^32 Moeglichkeiten kein Risiko, das eine
+      Fallunterscheidung wert waere.
+    - **NCSD**: die Kennung `NCSD` bei 0x100.
+
+    GIBT IM ZWEIFEL "" ZURUECK, nicht eine Vermutung. Der Aufrufer faellt dann auf die
+    Endung zurueck — also auf genau das Verhalten von vorher. Eine unlesbare Datei aendert
+    damit nichts, statt eine Absage auszuloesen.
+
+    EN: returns what the file actually is. A CIA always starts with header size 0x2020; an
+    NCSD image carries `NCSD` at 0x100. Returns "" when neither matches, so the caller falls
+    back to the extension — the previous behaviour.
+    """
+    import struct
+    try:
+        with open(pfad, "rb") as f:
+            kopf = f.read(4)
+            f.seek(0x100)
+            kennung = f.read(4)
+    except OSError:
+        return ""
+    if len(kopf) == 4 and struct.unpack("<I", kopf)[0] == 0x2020:
+        return ".cia"
+    if kennung == b"NCSD":
+        return ".3ds"
+    return ""
+
+
 def dreids_startbar(pfad):
     """-> (startbar, grund) fuer eine 3DS-Datei. Alles andere gilt als startbar. (#299)
 
@@ -3599,13 +3633,28 @@ def dreids_startbar(pfad):
     for a picture that never comes. Romseerr has the path and can answer the same question
     first. When in doubt it passes: a wrong refusal costs more than a failed attempt.
     """
-    endung = os.path.splitext(pfad)[1].lower()
-    if endung == ".cia":
+    # DER INHALT SCHLAEGT DEN NAMEN. (#422)
+    #
+    # Vorher entschied allein die Endung. In der Bibliothek liegt ein „Save Data Transfer
+    # Tool", das `.3ds` heisst und eine CIA IST. Es fiel damit durch die NCSD-Pruefung in den
+    # Zweig „nicht beurteilbar, also durchlassen" — und wurde als startbar angeboten. Der
+    # Nutzer klickt, belegt einen Platz und wartet auf ein Bild, das nie kommt. Genau das
+    # soll diese Funktion verhindern.
+    #
+    # Die Regel „im Zweifel durchlassen" bleibt richtig und bleibt stehen. Falsch war nur
+    # die Annahme, diese Datei sei zweifelhaft: Ihr Inhalt sagt eindeutig, was sie ist, und
+    # nur ihr Name luegt. Die Schnueffelei fuegt also Wissen hinzu, keine Absagen — was sich
+    # nicht erkennen laesst, geht weiterhin durch.
+    #
+    # EN: content beats the name. Sniffing adds knowledge, not refusals; anything that
+    # identifies as nothing still passes.
+    art = dreids_art(pfad) or os.path.splitext(pfad)[1].lower()
+    if art == ".cia":
         # Eine CIA startet nie DIREKT, aber sie laesst sich installieren — danach startet
         # der installierte Titel. Was wirklich entscheidet, ist die ART des Pakets, und die
         # steht in der Titel-ID, nicht im Dateinamen. (#315)
         return _cia_startbar(pfad)
-    if endung not in _3DS_ABBILD:
+    if art not in _3DS_ABBILD:
         return True, ""
     try:
         with open(pfad, "rb") as f:
