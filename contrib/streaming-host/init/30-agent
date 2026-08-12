@@ -136,7 +136,7 @@ apprun() {   # <ordner> -> Kommando-Praefix bis einschliesslich AppRun
          "$EMU" "$1" "$EMU" "$1" "$VGL" "$EMU" "$1"
 }
 
-[ -x "$EMU/pcsx2/AppRun" ]     && export EMU_PS2="$(apprun pcsx2) -- %s"
+[ -x "$EMU/pcsx2/AppRun" ]     && EMU_PS2="$(apprun pcsx2) -- %s" && export EMU_PS2
 # NUR die AppImage. Der frueher hier stehende Rueckfall auf /usr/games/dolphin-emu
 # ist bewusst entfernt: das apt-Paket startet, legt seine Konfiguration an und oeffnet
 # NIE ein Fenster (#165). Ein Rueckfall auf etwas, das nachweislich nicht funktioniert,
@@ -144,19 +144,19 @@ apprun() {   # <ordner> -> Kommando-Praefix bis einschliesslich AppRun
 # stummes "Knopf da, nichts passiert".
 # Only the AppImage: falling back to something that provably does not work turns a
 # clear "not installed" into a silent "button there, nothing happens".
-[ -x "$EMU/dolphin/AppRun" ]   && export EMU_GC="$(apprun dolphin) -b -e %s"
-[ -x "$EMU/switchemu/AppRun" ] && export EMU_SWITCH="$(apprun switchemu) -f -g %s"
-[ -x "$EMU/flycast/AppRun" ]   && export EMU_DC="$(apprun flycast) %s"
+[ -x "$EMU/dolphin/AppRun" ]   && EMU_GC="$(apprun dolphin) -b -e %s" && export EMU_GC
+[ -x "$EMU/switchemu/AppRun" ] && EMU_SWITCH="$(apprun switchemu) -f -g %s" && export EMU_SWITCH
+[ -x "$EMU/flycast/AppRun" ]   && EMU_DC="$(apprun flycast) %s" && export EMU_DC
 # `-batch` startet den Titel ohne Umweg ueber die Bibliotheksoberflaeche und beendet
 # DuckStation beim Herunterfahren des Spiels — sonst bliebe ein Fenster stehen, das aus
 # der Ferne niemand schliesst. / EN: -batch boots straight into the title and exits with
 # it, instead of leaving a window nobody can close remotely.
-[ -x "$EMU/duckstation/AppRun" ] && export EMU_PSX="$(apprun duckstation) -batch -fullscreen %s"
-[ -x "$EMU/xemu/AppRun" ]      && export EMU_XBOX="$(apprun xemu) -dvd_path %s"
-[ -x "$EMU/cemu/AppRun" ]      && export EMU_WIIU="$(apprun cemu) -g %s"
-[ -x "$EMU/azahar/AppRun" ]    && export EMU_3DS="$(apprun azahar) %s"
-[ -x "$EMU/vita3k/AppRun" ]    && export EMU_VITA="$(apprun vita3k) -r %s"
-[ -x "$EMU/rpcs3/AppRun" ]     && export EMU_PS3="$(apprun rpcs3) --no-gui %s"
+[ -x "$EMU/duckstation/AppRun" ] && EMU_PSX="$(apprun duckstation) -batch -fullscreen %s" && export EMU_PSX
+[ -x "$EMU/xemu/AppRun" ]      && EMU_XBOX="$(apprun xemu) -dvd_path %s" && export EMU_XBOX
+[ -x "$EMU/cemu/AppRun" ]      && EMU_WIIU="$(apprun cemu) -g %s" && export EMU_WIIU
+[ -x "$EMU/azahar/AppRun" ]    && EMU_3DS="$(apprun azahar) %s" && export EMU_3DS
+[ -x "$EMU/vita3k/AppRun" ]    && EMU_VITA="$(apprun vita3k) -r %s" && export EMU_VITA
+[ -x "$EMU/rpcs3/AppRun" ]     && EMU_PS3="$(apprun rpcs3) --no-gui %s" && export EMU_PS3
 
 pkill -f stream-agent.py 2>/dev/null || true
 # Aus dem eingehaengten Repo starten, nicht aus /config: was laeuft, ist damit

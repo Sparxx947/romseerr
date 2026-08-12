@@ -2823,8 +2823,12 @@ def test_nothing_falls_back_to_the_apt_dolphin():
     #
     # Was zaehlt: EMU_GC wird GENAU EINMAL gesetzt, aus dem entpackten AppImage unter
     # $EMU/dolphin — und aus nichts anderem.
+    # `EMU_GC=` statt `export EMU_GC=`: Seit SC2155 (declare-and-assign) stehen Zuweisung
+    # und Export getrennt — `EMU_GC="…" && export EMU_GC`. Auf die Exportform zu pruefen
+    # traf danach nichts mehr. Zum zweiten Mal an dieser Zeile: was zaehlt, ist die
+    # Zuweisung, nicht ihre Schreibweise.
     setzungen = [z.strip() for z in agent.splitlines()
-                 if "export EMU_GC=" in z and not z.strip().startswith("#")]
+                 if "EMU_GC=" in z and not z.strip().startswith("#")]
     assert len(setzungen) == 1, f"EMU_GC wird {len(setzungen)}-mal gesetzt: {setzungen}"
     assert "$EMU/dolphin/AppRun" in setzungen[0] or "apprun dolphin" in setzungen[0], \
         f"Dolphin kommt nicht mehr aus dem entpackten AppImage: {setzungen[0]}"
