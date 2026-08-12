@@ -312,6 +312,23 @@ def _stop_locked():
             p.wait(timeout=8)
         except subprocess.TimeoutExpired:
             p.kill()
+            # NACH `kill()` MUSS GEWARTET WERDEN. Sonst bleibt das Kind als ZOMBIE
+            # stehen — tot, aber nie abgeholt — und zwar fuer die ganze Laufzeit des
+            # Dienstes, ein Eintrag je beendeter Sitzung. Eden verlaesst SIGTERM nicht
+            # binnen 8 s, nimmt also immer diesen Zweig.
+            #
+            # DAS KOSTET MEHR ALS EINEN EINTRAG IN DER PROZESSTABELLE: `ps` zeigt einen
+            # Zombie mit demselben Namen und weiterlaufender Zeit wie einen lebenden
+            # Prozess. Genau daran ist die Diagnose zu #428 zweimal falsch abgebogen —
+            # „laeuft noch" statt „ist tot und nicht abgeholt". Ein Aufraeumfehler, der
+            # die naechste Fehlersuche in die Irre schickt, ist teurer als er aussieht.
+            #
+            # Ohne Zeitgrenze: SIGKILL laesst sich nicht abfangen, das Warten kann also
+            # nicht haengen.
+            # EN: reap after kill(). Otherwise the child lingers as a zombie for the
+            # service's lifetime, and `ps` shows it exactly like a running process — which
+            # is how the diagnosis for #428 went wrong twice.
+            p.wait()
     _current.update({"proc": None, "platform": "", "path": "",
                      "window": "", "window_detail": ""})
 
