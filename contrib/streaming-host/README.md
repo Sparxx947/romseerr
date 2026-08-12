@@ -23,7 +23,7 @@ nur die Landkarte, damit man weiß, wo man nachsieht.
 | Datei | Wozu |
 |---|---|
 | `docker-compose.yml` | der Stack: Selkies-Desktop, Start-Dienst, optional `acme` (certbot) und `seat2` |
-| `stream-agent.py` | der **Start-Dienst**, den Romseerr aufruft: `/status`, Titel öffnen, 3DS entschlüsseln, CIA installieren |
+| `stream-agent.py` | der **Start-Dienst**, den Romseerr aufruft: `/status`, Titel öffnen, 3DS entschlüsseln, CIA installieren, PS-Vita-Titelkennung auflösen |
 | `launch-profile.py` | **Startprofil je Emulator**: Controller-Belegung und regionsrichtiges BIOS. Eine Zuordnung je Emulator genügt für alle Pads, weil Browser und Selkies bereits auf ein Xbox-Pad normieren |
 | `emu-setup` | einen Emulator **ohne Spiel** öffnen, um Tasten zu belegen — mit derselben Umgebung wie ein Spielstart. Vom Desktop oder über SSH gestartet sieht er das Pad überhaupt nicht |
 | `selkies-uinput-bridge.py` | die **uinput-Brücke**: macht aus dem virtuellen Pad ein Gerät, das die Emulatoren finden |
@@ -50,7 +50,7 @@ Every file carries a bilingual header explaining why it exists; this table is on
 | File | Purpose |
 |---|---|
 | `docker-compose.yml` | the stack: Selkies desktop, launch service, optional `acme` and `seat2` |
-| `stream-agent.py` | the **launch service** Romseerr calls: `/status`, opening titles, 3DS decryption, CIA install |
+| `stream-agent.py` | the **launch service** Romseerr calls: `/status`, opening titles, 3DS decryption, CIA install, resolving the PS Vita title id |
 | `launch-profile.py` | **per-emulator launch profile**: controller mapping and region-correct BIOS. One mapping per emulator covers every pad, because the browser and Selkies already normalise to an Xbox pad |
 | `emu-setup` | open an emulator **without a game** to bind keys, with the same environment a launch gets. Started from the desktop or over SSH it cannot see the pad at all |
 | `selkies-uinput-bridge.py` | the **uinput bridge**: turns the virtual pad into a device emulators can find |
@@ -441,7 +441,7 @@ Controller im Spiel gedrückt.
 | Dreamcast | Flycast | ✅ | ✅ | ✅ | Vollbild und **Vulkan** in der Startzeile, an den Pixeln gemessen (#304); Bild, Ton und Controller von einem Menschen in Fatal Fury bestätigt — Flycast belegt die Pads selbst, als einziger Emulator hier |
 | Xbox | xemu | ✅ | ✅ | ✅ | braucht **COMPLEX 4627 + MCPX 1.0** — Retail-BIOS bleiben schwarz |
 | Wii U | Cemu | — | — | — | Titel vorhanden seit #452/#455 — noch nicht gestartet |
-| PS Vita | Vita3K | — | — | — | Titel vorhanden seit #452/#455; Vollbild und Vulkan stehen in der Konfiguration (#304) — noch nicht gestartet |
+| PS Vita | Vita3K | — | — | — | Titel vorhanden seit #452/#455; Vollbild und Vulkan stehen in der Konfiguration (#304); der Start übergibt seit #481 die **Titelkennung** statt des Pfades — noch nicht gestartet |
 
 Ein `—` heißt **ungeprüft**, nicht „defekt". Für Dreamcast, Wii U und PS Vita liegen
 seit #452/#455 Titel bereit; sie sind ungeprüft, weil noch niemand sie gestartet hat —
@@ -767,6 +767,44 @@ saves next to the other consoles. It needs a 512 KiB PS1 BIOS in
 matches by size because the filename varies. Note the trap: DuckStation opens a modal
 setup wizard on first run that nobody can see in a container, and every launch stalls
 behind it — the launch profile sets `SetupWizardIncomplete = false`.*
+
+## PS Vita (Vita3K): der Titel wird über seine **Kennung** gestartet
+
+PS Vita ist die einzige Plattform hier, bei der der Start-Dienst **nicht den Pfad**
+übergibt. Vita3K startet einen Titel über seine Titelkennung, und zwar nur, wenn er
+**installiert** ist. Die eigene Hilfe sagt es:
+
+```
+-r, --installed-path TEXT:{PCSF00024}   Path to the installed app to run
+```
+
+Die geschweifte Menge ist die Liste der installierten Titel — `-r` prüft dagegen. Mit
+einem Pfad endet der Start, bevor irgendein Fenster entsteht:
+
+```
+CLI parsing error: --installed-path: /roms/psvita/Gravity not in {PCSF00024}
+[E] [main]: Failed to initialise config                            (Exit 4)
+```
+
+Der Start-Dienst liest die Kennung deshalb aus `sce_sys/param.sfo` des Titelordners
+(`TITLE_ID`), sucht sie im Verzeichnis `ux0/app` von Vita3Ks Ablage — der Pfad steht als
+`pref-path` in dessen `config.yml` — und setzt **sie** in die Startzeile ein. Geraten
+wird nichts: der Ordner heißt `Gravity Rush (Europe).vpk`, die Kennung `PCSF00024`.
+
+**Was nicht installiert ist, wird abgesagt statt gestartet.** Ohne `-r` öffnet Vita3K
+seine Titelliste: der Start *gelingt*, der Stream zeigt einen Emulator, und nichts sagt,
+warum kein Spiel kommt. Die Absage nennt die Kennung, damit man in Vita3K nachsehen kann.
+**Installieren tut der Dienst nicht** — das ist ein Schritt in Vita3Ks eigener Oberfläche
+(*File ▸ Install*), zu erreichen über den Desktop-Eintrag.
+
+*EN: PS Vita is the one platform where the launch service does not pass a path. Vita3K
+launches an INSTALLED title by its title id (`-r/--installed-path`), and validates it
+against the set of installed ids — a path fails at CLI parsing with exit 4, before any
+window appears. The service reads `TITLE_ID` from the title folder's `sce_sys/param.sfo`,
+looks it up in `ux0/app` under Vita3K's `pref-path`, and substitutes that. Nothing is
+guessed from the folder name. A title that is not installed is refused rather than
+launched, because without `-r` Vita3K merely opens its title list: the launch succeeds
+and no game appears. Installing is a step in Vita3K's own GUI (File ▸ Install).*
 
 ## Zwei Plätze gleichzeitig (optional)
 
@@ -1344,7 +1382,7 @@ pressed in-game.
 | Dreamcast | Flycast | ✅ | ✅ | ✅ | fullscreen and **Vulkan** set on the launch line, measured at the pixels (#304); picture, sound and controller all confirmed by a human in Fatal Fury — Flycast maps the pads by itself, the only emulator here that does |
 | Xbox | xemu | ✅ | ✅ | ✅ | needs **COMPLEX 4627 + MCPX 1.0** — retail BIOS stays black |
 | Wii U | Cemu | — | — | — | a title is in the library since #452/#455 — not launched yet |
-| PS Vita | Vita3K | — | — | — | a title is in the library since #452/#455; fullscreen and Vulkan are set in the config (#304) — not launched yet |
+| PS Vita | Vita3K | — | — | — | a title is in the library since #452/#455; fullscreen and Vulkan are set in the config (#304); since #481 the launch passes the **title id** instead of the path — not launched yet |
 
 A `—` means **untested**, not "broken". Dreamcast, Wii U and PS Vita have had content since
 #452/#455; they are untested because nobody has launched them yet, not because there is

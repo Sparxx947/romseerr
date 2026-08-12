@@ -9536,3 +9536,189 @@ def test_the_vita_entry_checks_both_firmware_parts():
         f"Schritte: {ablagen}")
     assert any(a.rstrip('/').endswith("sa0") for a in ablagen), (
         f"das Font-Paket landet in `sa0`, das steht nicht in den Ablagen: {ablagen}")
+
+
+# --- #481: eine PS-Vita-Titelkennung ist kein Pfad ----------------------------------
+
+def _param_sfo(ziel, **werte):
+    """Schreibt ein `param.sfo` mit den gegebenen Zeichenketten-Feldern.
+
+    NACH DER ECHTEN DATEI GEBAUT, nicht erfunden: `sce_sys/param.sfo` von
+    „Gravity Rush (Europe).vpk" der Bibliothek hat den Kopf
+
+        00 50 53 46 | 01 01 00 00 | 24 01 00 00 | e0 01 00 00 | 11 00 00 00
+        Magie        Fassung       Schluessel-   Datentabelle   17 Eintraege
+                                   tabelle 0x124  0x1e0
+
+    und darin `TITLE_ID = 'PCSF00024'` als Format 0x0204 (UTF-8). Genau diesen Aufbau
+    erzeugt dieser Helfer — mit denselben Feldbreiten und derselben Ausrichtung.
+
+    EN: built from the real file's header, not invented.
+    """
+    import struct
+    namen = sorted(werte)
+    schluesseltabelle = b""
+    schluesselversatz = {}
+    for k in namen:
+        schluesselversatz[k] = len(schluesseltabelle)
+        schluesseltabelle += k.encode("utf-8") + b"\x00"
+    schluesseltabelle += b"\x00" * (-len(schluesseltabelle) % 4)
+
+    datentabelle = b""
+    datenversatz = {}
+    for k in namen:
+        roh = werte[k].encode("utf-8") + b"\x00"
+        datenversatz[k] = (len(datentabelle), len(roh))
+        datentabelle += roh + b"\x00" * (-len(roh) % 4)
+
+    kopflaenge = 0x14 + 16 * len(namen)
+    kopf = b"\x00PSF" + struct.pack("<IIII", 0x0101, kopflaenge,
+                                    kopflaenge + len(schluesseltabelle), len(namen))
+    for k in namen:
+        versatz, laenge = datenversatz[k]
+        kopf += struct.pack("<HHIII", schluesselversatz[k], 0x0204, laenge,
+                            laenge + (-laenge % 4), versatz)
+    os.makedirs(os.path.dirname(ziel), exist_ok=True)
+    with open(ziel, "wb") as f:
+        f.write(kopf + schluesseltabelle + datentabelle)
+
+
+def _vita_bibliothek(tmp_path, ordnername="Gravity Rush (Europe).vpk",
+                     titel_id="PCSF00024", installiert=("PCSF00024",)):
+    """Baut Bibliothek und Vita3K-Ablage so, wie sie auf dem Host gemessen wurden:
+
+        /roms/psvita/Gravity Rush (Europe).vpk/sce_sys/param.sfo   <- der Titel
+        …/Vita3K/ux0/app/PCSF00024/                                <- installiert
+    """
+    roms = tmp_path / "roms"
+    spiel = roms / "psvita" / ordnername
+    (spiel / "sce_sys").mkdir(parents=True)
+    _param_sfo(str(spiel / "sce_sys" / "param.sfo"),
+               TITLE="GRAVITY RUSH", TITLE_ID=titel_id, CATEGORY="gd")
+    (spiel / "eboot.bin").write_bytes(b"x")
+    pref = tmp_path / "Vita3K"
+    (pref / "ux0" / "app").mkdir(parents=True)
+    for tid in installiert:
+        (pref / "ux0" / "app" / tid).mkdir()
+    return roms, pref
+
+
+def _mitschrift_emulator(tmp_path, name="vita3k.sh"):
+    """Ein Emulator-Ersatz, der seine Argumentliste aufschreibt. -> (befehl, datei)
+
+    Kein Popen-Ersatz: der Agent soll den Prozess WIRKLICH starten, damit auch die
+    Argumentuebergabe geprueft wird und nicht nur der Programmtext.
+    """
+    datei = tmp_path / f"{name}.argv"
+    skript = tmp_path / name
+    skript.write_text('#!/bin/sh\nfor a in "$@"; do printf "%s\\n" "$a"; done > '
+                      f'"{datei}"\n')
+    skript.chmod(0o755)
+    return str(skript), datei
+
+
+def _argv(datei, proc, sekunden=10):
+    proc.wait(timeout=sekunden)
+    return datei.read_text().splitlines()
+
+
+def test_a_vita_title_is_launched_by_its_title_id(tmp_path):
+    """Vita3K bekommt die Kennung aus `param.sfo`, nicht den Pfad. (#481)
+
+    GEMESSEN am laufenden Host, bevor etwas geaendert wurde. Die Hilfe des Emulators
+    sagt, was `-r` will:
+
+        -r, --installed-path TEXT:{PCSF00024}   Path to the installed app to run
+
+    Die geschweifte Menge ist die Liste der INSTALLIERTEN Titel — `-r` nimmt eine
+    Kennung, keinen Pfad. Mit dem Pfad (als EIN argv-Element, ohne Shell):
+
+        CLI parsing error: --installed-path: /roms/psvita/Gravity not in {PCSF00024}
+        [E] [main]: Failed to initialise config          (Exit 4)
+
+    EN: `-r` takes an installed title id, not a path; the id lives in
+    `sce_sys/param.sfo`. Measured on the running host before the change.
+    """
+    roms, pref = _vita_bibliothek(tmp_path)
+    befehl, datei = _mitschrift_emulator(tmp_path)
+    m = _agent_module(roms, EMU_VITA=f"{befehl} -r %s", VITA_PREF=str(pref))
+    ok, msg = m.launch("", "psvita", "psvita/Gravity Rush (Europe).vpk")
+    assert ok, msg
+    argumente = _argv(datei, m._current["proc"])
+    m._stop_locked()
+    assert argumente == ["-r", "PCSF00024"], argumente
+    # Der Pfad darf NIRGENDS in der Argumentliste stehen — auch nicht zusaetzlich.
+    assert not any("Gravity Rush" in a for a in argumente), argumente
+
+
+def test_the_vita_title_id_comes_from_param_sfo_not_from_the_folder_name(tmp_path):
+    """Die Kennung wird gelesen, nicht aus dem Ordnernamen geraten. (#481)
+
+    Der Ordner heisst hier `PCSF99999 Gravity Rush` und die Datei sagt `PCSF00024` —
+    wer den Namen nimmt, faellt darauf herein. Auf dem Host ist der Unterschied real:
+    der Ordner heisst `Gravity Rush (Europe).vpk`, installiert ist `PCSF00024`.
+    """
+    roms, pref = _vita_bibliothek(tmp_path, ordnername="PCSF99999 Gravity Rush")
+    befehl, datei = _mitschrift_emulator(tmp_path)
+    m = _agent_module(roms, EMU_VITA=f"{befehl} -r %s", VITA_PREF=str(pref))
+    ok, msg = m.launch("", "psvita", "psvita/PCSF99999 Gravity Rush")
+    assert ok, msg
+    argumente = _argv(datei, m._current["proc"])
+    m._stop_locked()
+    assert argumente == ["-r", "PCSF00024"], argumente
+
+
+def test_a_vita_title_that_is_not_installed_is_refused_with_its_id(tmp_path):
+    """Nicht installiert heisst absagen — nicht eine leere Oberflaeche oeffnen. (#481)
+
+    Ohne `-r` oeffnet Vita3K seine Titelliste, und der Stream zeigt einen Emulator statt
+    eines Spiels: ein Start, der GELINGT und trotzdem nichts spielt. Die Absage nennt die
+    Kennung, weil man ohne sie nicht nachsehen kann, was fehlt.
+    """
+    roms, pref = _vita_bibliothek(tmp_path, installiert=())
+    befehl, datei = _mitschrift_emulator(tmp_path)
+    m = _agent_module(roms, EMU_VITA=f"{befehl} -r %s", VITA_PREF=str(pref))
+    ok, msg = m.launch("", "psvita", "psvita/Gravity Rush (Europe).vpk")
+    assert not ok, "ein nicht installierter Titel wurde gestartet"
+    assert "PCSF00024" in msg, msg
+    assert "nicht installiert" in msg and "not installed" in msg, msg
+    assert not datei.exists(), "der Emulator wurde trotz Absage gestartet"
+
+
+def test_the_vita_title_id_is_taken_from_the_listing_not_glued_to_a_path(tmp_path):
+    """Die Kennung wird im Listing GESUCHT, nicht an einen Pfad geheftet. (#481)
+
+    Sie stammt aus einer Datei der Bibliothek und ist damit eine Eingabe von aussen —
+    dieselbe Ueberlegung wie bei `_bibliothekspfad`. Wer sie mit `os.path.join` an
+    `ux0/app` klebt, prueft mit `isdir` einen Pfad, den die Eingabe mitgebaut hat.
+    """
+    roms, pref = _vita_bibliothek(tmp_path, titel_id="../app/PCSF00024")
+    m = _agent_module(roms, EMU_VITA="/bin/true -r %s", VITA_PREF=str(pref))
+    kennung, fehler = m.vita_startwert(str(roms / "psvita" / "Gravity Rush (Europe).vpk"))
+    assert not kennung and fehler, (kennung, fehler)
+
+    # Und ohne param.sfo gibt es nichts zu raten.
+    ohne = roms / "psvita" / "Kein Titel"
+    ohne.mkdir()
+    kennung, fehler = m.vita_startwert(str(ohne))
+    assert not kennung and "param.sfo" in fehler, (kennung, fehler)
+
+
+def test_other_platforms_still_get_the_path(tmp_path):
+    """Gegenprobe: nur PS Vita bekommt eine Kennung, alle anderen weiter den Pfad.
+
+    Diese Pruefung war vor der Aenderung gruen und muss es bleiben — sie faengt den Fall,
+    dass die Vita-Sonderbehandlung auf andere Plattformen ueberlaeuft. Ein PS3-Titel ist
+    ebenfalls ein ORDNER, geht also durch dieselbe Stelle.
+    """
+    roms = tmp_path / "roms"
+    spiel = roms / "ps3" / "Ein Spiel" / "PS3_GAME" / "USRDIR"
+    spiel.mkdir(parents=True)
+    (spiel / "EBOOT.BIN").write_bytes(b"x")
+    befehl, datei = _mitschrift_emulator(tmp_path, "rpcs3.sh")
+    m = _agent_module(roms, EMU_PS3=f"{befehl} --no-gui %s")
+    ok, msg = m.launch("", "ps3", "ps3/Ein Spiel")
+    assert ok, msg
+    argumente = _argv(datei, m._current["proc"])
+    m._stop_locked()
+    assert argumente[0] == "--no-gui" and argumente[1].endswith("EBOOT.BIN"), argumente
