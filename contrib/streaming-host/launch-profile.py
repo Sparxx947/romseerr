@@ -951,6 +951,19 @@ PROFILE = {
     "dolphin":   {"system": "GameCube/Wii",  "controller": dolphin_apply,
                   "bios": None, "vollbild": None,
                   "geprueft": True},
+    # NACHGEMESSEN am laufenden Host (2026-08-12, #304), nicht angenommen:
+    #   Bild    : Vollbild und Renderer stehen in der STARTZEILE (init/30-agent), nicht
+    #             hier — Flycast nimmt `-config SEKTION:schluessel=wert` entgegen, und
+    #             eine Konfigurationsdatei zu schreiben waere der umstaendlichere Weg.
+    #             Gemessen: 1920x1080 auf 0,0, bemalte Flaeche 100 %.
+    #   BIOS    : `dc_boot.bin` und `dc_flash.bin` liegen bereits richtig — nichts zu tun.
+    #   Dialog  : es gibt keinen Erstlaufdialog, Flycast bootet den Titel direkt
+    #             (`N[BOOT]: Game ID is [T7011D  50]`).
+    #   Gamepad : Flycast oeffnet alle vier virtuellen Pads von selbst und belegt sie
+    #             (`SDL: Opened joystick 0..3 on port 0..3` / `Resetting SDL gamepad to
+    #             default`). Es braucht also KEINE Zuordnung von uns — aber `geprueft`
+    #             bleibt False, bis ein Mensch im Spiel gedrueckt hat. Automatik ist eine
+    #             Annahme, kein Messwert. (#301)
     "flycast":   {"system": "Dreamcast",     "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
     # Fenster und Ton am laufenden Host bestaetigt (2026-08-10, #300) — es brauchte

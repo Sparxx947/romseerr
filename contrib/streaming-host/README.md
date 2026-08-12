@@ -438,13 +438,14 @@ Controller im Spiel gedrückt.
 | PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
 | Switch | Eden | ✅ | ✅ | (⁠—⁠) | Controller nicht eigens geprüft |
 | Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | erst seit der Entschlüsselung (#354/#356); Vollbild an den Pixeln gemessen (#316); Controller nicht eigens geprüft |
-| Dreamcast | Flycast | — | — | — | keine Titel in der Bibliothek, nichts zu testen |
+| Dreamcast | Flycast | ✅ | (⁠—⁠) | (⁠—⁠) | Vollbild und **Vulkan** in der Startzeile, an den Pixeln gemessen (#304); Ton und Controller nicht eigens geprüft |
 | Xbox | xemu | ✅ | ✅ | ✅ | braucht **COMPLEX 4627 + MCPX 1.0** — Retail-BIOS bleiben schwarz |
-| Wii U | Cemu | — | — | — | keine Titel in der Bibliothek |
-| PS Vita | Vita3K | — | — | — | keine Titel in der Bibliothek |
+| Wii U | Cemu | — | — | — | Titel vorhanden seit #452/#455 — noch nicht gestartet |
+| PS Vita | Vita3K | — | — | — | Titel vorhanden seit #452/#455 — noch nicht gestartet |
 
-Ein `—` heißt **ungeprüft**, nicht „defekt". Die vier unteren Zeilen sind ungeprüft,
-weil dort schlicht nichts liegt, was man starten könnte.
+Ein `—` heißt **ungeprüft**, nicht „defekt". Für Dreamcast, Wii U und PS Vita liegen
+seit #452/#455 Titel bereit; sie sind ungeprüft, weil noch niemand sie gestartet hat —
+nicht mehr, weil nichts da wäre.
 
 ### Zwei Fallen, die nach einem Defekt des Hosts aussehen
 
@@ -1300,13 +1301,14 @@ pressed in-game.
 | PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
 | Switch | Eden | ✅ | ✅ | (⁠—⁠) | controller not checked separately |
 | Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | only since decryption (#354/#356); fullscreen measured at the pixels (#316); controller not separately checked |
-| Dreamcast | Flycast | — | — | — | no titles in the library, nothing to test |
+| Dreamcast | Flycast | ✅ | (⁠—⁠) | (⁠—⁠) | fullscreen and **Vulkan** set on the launch line, measured at the pixels (#304); sound and controller not checked separately |
 | Xbox | xemu | ✅ | ✅ | ✅ | needs **COMPLEX 4627 + MCPX 1.0** — retail BIOS stays black |
-| Wii U | Cemu | — | — | — | no titles in the library |
-| PS Vita | Vita3K | — | — | — | no titles in the library |
+| Wii U | Cemu | — | — | — | a title is in the library since #452/#455 — not launched yet |
+| PS Vita | Vita3K | — | — | — | a title is in the library since #452/#455 — not launched yet |
 
-A `—` means **untested**, not "broken". The bottom four rows are untested because there
-is simply nothing there to start.
+A `—` means **untested**, not "broken". Dreamcast, Wii U and PS Vita have had content since
+#452/#455; they are untested because nobody has launched them yet, not because there is
+nothing to start.
 
 ### Two traps that look like a broken host
 
