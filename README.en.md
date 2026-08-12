@@ -32,6 +32,7 @@ into the library and notifies when they are available. The library is shared by 
 - [Notifications](#notifications)
 - [Designs & languages](#designs--languages)
 - [API](#api)
+- [Versions: updating, and going back](#versions-updating-and-going-back)
 - [Security](#security)
 - [HTTPS & PWA](#https--pwa)
 - [Development & tests](#development--tests)
@@ -684,6 +685,62 @@ was listed, so a client generated from it did not handle the most common error a
 A test compares the spec against the running server so the two cannot drift apart again.
 
 The key is generated under *Settings → General* and can be rotated there.
+
+---
+
+## Versions: updating, and going back
+
+Every release leaves **three** things behind. They name the same version and can do
+different things:
+
+| | for what | changeable |
+|---|---|---|
+| image `ghcr.io/sparxx947/romseerr:1.1.0-beta.1` | a container that **pulls** | no |
+| git tag `v1.1.0-beta.1` | a build **from source** | no — tags are immutable |
+| branch `release/v1.1.0-beta.1` | a build from source | **yes** — a backported fix goes here |
+
+All three come out of the same run: `release-please` creates the tag and the release, fast
+forwards `main`, opens the release branch and **builds the image**. That last step hangs off
+this workflow deliberately rather than off an `on: release` trigger — a release created by a
+bot with the default `GITHUB_TOKEN` triggers no further workflows, which is exactly why
+v1.1.0-beta.1 ended up without an image. `latest` is only applied to a version without a `-`
+in its name, so never to a pre-release.
+
+**Running a different version** means, for a pulling container, changing the image tag and
+nothing else.
+
+```yaml
+services:
+  romseerr:
+    image: ghcr.io/sparxx947/romseerr:1.0.0-beta.1   # instead of :1.1.0-beta.1
+```
+
+`latest` deliberately **never** points at a pre-release. Betas have to be named explicitly.
+
+**Building from source** — this is how the reference installation runs, and how the instance
+comes to a dependable answer about itself:
+
+```bash
+git checkout release/v1.1.0-beta.1        # or: git checkout v1.1.0-beta.1
+docker build -t romseerr:local \
+  --build-arg "ROMSEERR_COMMIT=$(git rev-parse --short HEAD)" \
+  --build-arg "ROMSEERR_BUILT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
+```
+
+**Without those two arguments** `/api/version` reports neither commit nor build time, and
+the question "is this running what the repository says?" is guesswork again — precisely the
+case that once cost a working day. Check after rolling out:
+
+```bash
+curl -s http://<host>:8770/api/version
+{"version":"1.1.0-beta.1","commit":"24a331e","built_at":"…","provenance":"build"}
+```
+
+If `provenance` reports anything other than `build`, it was built without those arguments.
+
+**What an older state does not promise:** it is reachable, **not guaranteed to run**.
+Dependencies may no longer resolve, and data that has already been migrated may not fit an
+older version any more. Back up the data before going back.
 
 ---
 

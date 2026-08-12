@@ -3008,6 +3008,79 @@ def test_the_readme_says_how_to_run_an_older_version():
     assert "nicht garantiert lauffähig" in r
 
 
+def test_the_english_readme_says_how_to_run_an_older_version():
+    """Derselbe Abschnitt, dieselbe Zusage — nur auf Englisch, wo er fehlte.
+
+    Der Test darueber prueft NUR README.md. Genau daran ist der Abschnitt vorbeigelaufen:
+    er stand ein halbes Jahr in der deutschen Datei und in der englischen nie. Wer nach
+    einem missratenen Update zurueckwill, braucht den Weg zurueck in seiner Sprache —
+    und das ist der Moment, in dem niemand uebersetzt. (#378)"""
+    r = open(os.path.join(REPO, "README.en.md"), encoding="utf-8").read()
+    assert "## Versions: updating, and going back" in r
+    for pflicht in ("ROMSEERR_COMMIT", "ROMSEERR_BUILT_AT", "release/v", "ghcr.io"):
+        assert pflicht in r, pflicht
+    # Der ehrliche Vorbehalt gehoert dazu, sonst liest sich das wie eine Zusage.
+    assert "not guaranteed to run" in r
+    # Und er muss im Inhaltsverzeichnis stehen, sonst findet ihn niemand.
+    assert "(#versions-updating-and-going-back)" in r
+
+
+def _readme_ueberschriften(datei, ebene):
+    """Ueberschriften genau EINER Ebene. `"## Foo".startswith("### ")` ist falsch und
+    `"### Foo".startswith("## ")` ebenso — das Leerzeichen trennt die Ebenen sauber."""
+    text = open(os.path.join(REPO, datei), encoding="utf-8").read()
+    return [z.rstrip() for z in text.splitlines() if z.startswith(ebene + " ")]
+
+
+# Zwei Abschnitte tragen BEIDE Sprachen in einem Stueck — sie richten sich an den, der am
+# Quellstand arbeitet, und der liest hier ohnehin beides. Sie haben deshalb bewusst kein
+# Gegenstueck in der englischen Datei. Die Ausnahme steht namentlich da, damit sie nicht
+# stillschweigend waechst: eine Zahl als Toleranz wuerde jede weitere Luecke schlucken.
+ZWEISPRACHIG_IN_EINEM_STUECK = (
+    "### Aus dem Quellstand bauen / building from source",
+    "### Zweige / branches",
+)
+
+
+def test_both_readmes_carry_the_same_sections():
+    """Ein ganzer `##`-Abschnitt fehlte in README.en.md, und nichts hat es gemerkt.
+
+    Gemessen zum Zeitpunkt des Fundes: 22 `##` deutsch gegen 21 englisch, 18 Eintraege im
+    Inhaltsverzeichnis gegen 17. Eine Luecke von genau einem Abschnitt — die Sorte Drift,
+    die ein Mensch beim Lesen nicht sieht, weil beide Dateien fuer sich stimmig wirken.
+    Der Test vergleicht deshalb den Aufbau, nicht den Text: Zahl der Abschnitte, Zahl der
+    Verzeichniseintraege, Zahl der Unterabschnitte. (#378)"""
+    de2 = _readme_ueberschriften("README.md", "##")
+    en2 = _readme_ueberschriften("README.en.md", "##")
+    assert len(de2) == len(en2), (
+        f"{len(de2)} deutsche `##`-Abschnitte gegen {len(en2)} englische — "
+        f"einer fehlt oder ist zu viel.\nDE: {de2}\nEN: {en2}"
+    )
+
+    def verzeichnis(datei):
+        text = open(os.path.join(REPO, datei), encoding="utf-8").read()
+        return re.findall(r"^- \[.+?\]\(#.+?\)$", text, re.MULTILINE)
+
+    de_toc, en_toc = verzeichnis("README.md"), verzeichnis("README.en.md")
+    assert len(de_toc) == len(en_toc), (
+        f"Inhaltsverzeichnis: {len(de_toc)} deutsche Eintraege gegen {len(en_toc)} "
+        f"englische.\nDE: {de_toc}\nEN: {en_toc}"
+    )
+
+    de3 = _readme_ueberschriften("README.md", "###")
+    en3 = _readme_ueberschriften("README.en.md", "###")
+    for ausnahme in ZWEISPRACHIG_IN_EINEM_STUECK:
+        assert ausnahme in de3, (
+            f"{ausnahme!r} steht nicht mehr in README.md — die Ausnahme meint einen "
+            "Abschnitt, den es nicht gibt, und deckt damit still eine echte Luecke."
+        )
+    erwartet = len(de3) - len(ZWEISPRACHIG_IN_EINEM_STUECK)
+    assert erwartet == len(en3), (
+        f"{len(de3)} deutsche `###`-Unterabschnitte minus {len(ZWEISPRACHIG_IN_EINEM_STUECK)} "
+        f"zweisprachige ergeben {erwartet}, englisch sind es {len(en3)}.\nDE: {de3}\nEN: {en3}"
+    )
+
+
 def test_the_release_pull_request_cannot_be_merged_by_accident():
     """Minuten nach v1.1.0-beta.1 stand der naechste Release-PR da — gruen, bereit,
     ungefragt. Ein Release soll aber aus einer Entscheidung entstehen und nicht aus
