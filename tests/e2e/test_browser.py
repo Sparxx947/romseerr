@@ -254,3 +254,111 @@ def test_eine_anfrage_fuehrt_zur_karte_des_spiels(seite, anfrage_vorhanden):
     offen = modal.is_visible() if modal.count() else False
     gesagt = (meldung.first.inner_text().strip() != "") if meldung.count() else False
     assert offen or gesagt, "der Klick tat nichts — weder Karte noch Meldung"
+
+
+def test_the_requests_list_is_not_rebuilt_when_nothing_changed(seite, anfrage_vorhanden):
+    """Eine unveraenderte Anfragenliste wird NICHT neu gezeichnet. (#419)
+
+    WOZU: Die Ansicht frischt alle 4 Sekunden auf und ersetzte dabei `#jobs` vollstaendig —
+    auch wenn sich nichts bewegt hat. Jede Ersetzung ist ein Fenster, in dem ein Klick ins
+    Leere geht: Die Zeile wird gerade abgehaengt, `onclick` laeuft nicht, und es passiert
+    NICHTS. Kein Fehler, keine Meldung. Zweimal klicken half.
+
+    WARUM DIESE PRUEFUNG UND NICHT DER KLICKTEST: Der Klicktest daneben faellt nur, wenn der
+    Klick zufaellig ins Fenster faellt — unter Last etwa jeder dritte Lauf, auf einer ruhigen
+    Maschine keiner von zwoelf. Gemessen: 0 von 12 rot mit Fix UND 0 von 12 ohne. Eine
+    Pruefung, die den Fehler nur manchmal sieht, beweist seine Abwesenheit nie.
+
+    Deshalb wird hier die EIGENSCHAFT geprueft statt der Symptomfall: Bleibt der Knoten
+    derselbe, gibt es das Fenster nicht mehr. Das ist deterministisch — der Test wartet
+    laenger als einen Auffrischtakt und sieht nach, ob dasselbe DOM-Element noch dasteht.
+
+    EN: the view replaced the whole list every 4 s even when nothing changed, and a click
+    landing in that window did nothing at all. The click test only catches it under load,
+    so this checks the property instead: the same node must survive a refresh cycle.
+    """
+    seite.goto(seite.url.split("#")[0] + "#/requests")
+    seite.wait_for_timeout(600)
+    zeile = seite.locator(".jobt").first
+    assert zeile.count() > 0, "keine Anfragezeile — die Fixture hat nichts angelegt"
+
+    # Den Knoten markieren. Ueberlebt die Markierung, ist es derselbe Knoten; wird die
+    # Liste neu gebaut, ist sie weg — `innerHTML=''` nimmt jedes Attribut mit.
+    zeile.evaluate("e => e.dataset.probe = 'x'")
+
+    # Laenger warten als EIN Auffrischtakt (4 s), damit mindestens einer stattgefunden hat.
+    seite.wait_for_timeout(5200)
+
+    ueberlebt = seite.evaluate(
+        "() => document.querySelectorAll('.jobt[data-probe=\"x\"]').length")
+    assert ueberlebt == 1, (
+        "die Anfragenliste wurde neu aufgebaut, obwohl sich nichts geaendert hat — "
+        "in genau diesem Moment geht ein Klick des Nutzers verloren")
+
+
+def test_the_requests_list_still_refreshes_when_something_changed(seite, servermod,
+                                                                  anfrage_vorhanden):
+    """Und trotzdem kommt eine neue Anfrage von selbst an. (#419)
+
+    DIE HAELFTE, OHNE DIE DER FIX WERTLOS WAERE: Man kann das Fenster aus #419 auch
+    schliessen, indem man gar nicht mehr auffrischt — die Pruefung daneben waere dann gruen
+    und die Ansicht kaputt. Sie zeigte einen Stand von vor zehn Minuten und niemand saehe
+    es, weil nichts fehlschlaegt.
+
+    Deshalb hier die Gegenrichtung: eine Anfrage wird server-seitig angelegt, ohne dass die
+    Seite irgendetwas davon erfaehrt, und muss von selbst erscheinen.
+
+    EN: the other half. The window could also be closed by never refreshing at all, which
+    would leave this green and the view stale. A job created server-side must still show up.
+    """
+    seite.goto(seite.url.split("#")[0] + "#/requests")
+    seite.wait_for_timeout(600)
+    vorher = seite.locator(".jobt").count()
+    assert vorher > 0, "keine Anfragezeile — die Fixture hat nichts angelegt"
+
+    servermod.new_job({"title": "Chrono Trigger", "source": "archive",
+                       "ref": "probe-419", "platform_slug": "snes", "size": 1},
+                      user="admin", approved=False)
+
+    # Kein reload, kein Klick: Die Ansicht muss das von allein merken.
+    seite.wait_for_timeout(5200)
+    nachher = seite.locator(".jobt").count()
+    assert nachher == vorher + 1, (
+        f"{vorher} Zeilen vorher, {nachher} nachher — eine neue Anfrage ist nicht von "
+        "selbst angekommen; die Ansicht friert ein statt zu aktualisieren")
+    assert seite.locator(".jobt", has_text="Chrono Trigger").count() == 1
+
+
+def test_switching_language_redraws_the_requests_list(seite, anfrage_vorhanden):
+    """Ein Sprachwechsel erreicht auch die Anfragenliste. (#419)
+
+    DIE REGRESSION, DIE DER FIX FAST GEBAUT HAETTE: `setLang()` zeichnet die Ansicht neu,
+    indem es `loadJobs()` aufruft. Der erste Entwurf von #419 verglich nur die DATEN — und
+    die aendern sich beim Sprachwechsel nicht. Die Liste waere als einzige Ansicht der
+    Oberflaeche in der alten Sprache stehen geblieben, ohne Fehler und ohne Hinweis.
+
+    Gefunden hat das kein Test, sondern das Nachlesen, wer `loadJobs` sonst noch ruft. Das
+    ist die Lehre: Wer eine Auffrischung an eine Bedingung knuepft, muss JEDEN Aufrufer
+    durchgehen — jeder von ihnen hatte einen Grund.
+
+    EN: setLang() re-renders through loadJobs(). Comparing only the data would have frozen
+    this one view in the previous language, silently.
+    """
+    seite.goto(seite.url.split("#")[0] + "#/requests")
+    seite.wait_for_timeout(600)
+    assert seite.locator(".jobt").count() > 0, "keine Anfragezeile — Fixture leer"
+
+    def gruppenleiste():
+        return seite.locator("#jobs .ssub").first.inner_text()
+
+    vorher = gruppenleiste()
+    seite.evaluate("setLang('en')")
+    seite.wait_for_timeout(900)
+    nachher = gruppenleiste()
+    assert nachher != vorher, (
+        f"die Anfragenliste steht nach dem Sprachwechsel unveraendert auf {vorher!r} — "
+        "sie wurde nicht neu gezeichnet")
+    assert "All" in nachher, f"unerwartete Beschriftung nach dem Wechsel: {nachher!r}"
+
+    seite.evaluate("setLang('de')")
+    seite.wait_for_timeout(900)

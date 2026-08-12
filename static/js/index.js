@@ -888,7 +888,35 @@ async function openJobDetail(titel, plattform, el){
   if(el){delete el.dataset.busy;el.style.opacity='';}
  }}
 let JOBGRP='';   // '' = alle; sonst aktiv|erledigt|fehler
+// Was zuletzt gezeichnet wurde. Nicht nur die Daten: Dieselben Anfragen ergeben unter einem
+// anderen FILTER eine andere Liste und in einer anderen SPRACHE andere Beschriftungen.
+//
+// Die Sprache gehoert ausdruecklich dazu. `setLang` ruft `loadJobs()` auf, um die Liste in
+// der neuen Sprache zu zeichnen — ein Vergleich nur ueber die Daten haette diesen Aufruf
+// verschluckt, und die Anfragenliste waere als einzige Ansicht in der alten Sprache stehen
+// geblieben. (#419)
+// EN: the key covers filter and language too; setLang() re-renders through this path, and
+// comparing data alone would have left this one view untranslated.
+let JOBSTAND='';
 async function loadJobs(){let r=await fetch('/api/jobs');let d=await r.json();let j=document.getElementById('jobs');
+ // NICHT NEU ZEICHNEN, WENN SICH NICHTS GEAENDERT HAT. (#419)
+ //
+ // Die Ansicht frischt alle 4 Sekunden auf und ersetzte dabei die ganze Liste — auch auf
+ // einer stillen Instanz, auf der sich nichts bewegt. Jede dieser Ersetzungen ist ein
+ // Fenster, in dem ein Klick ins Leere geht: Die Zeile, auf die der Nutzer zielt, wird
+ // gerade abgehaengt, `onclick` laeuft nicht, und es passiert NICHTS — keine Karte, keine
+ // Meldung, kein Fehler. Zweimal klicken half, aber das weiss niemand.
+ //
+ // Nebenwirkung derselben Ursache: `openJobDetail` schreibt „keine Karte" in die Zeile und
+ // loescht sie nach 4 Sekunden wieder. Das Auffrischen konnte sie nach einer wegwischen.
+ //
+ // Das Fenster ist damit nicht zu, aber es steht nur noch offen, wenn sich wirklich etwas
+ // bewegt hat — statt im Viersekundentakt fuer immer.
+ // EN: re-rendering the whole list every 4 s created a window where clicks hit a node being
+ // detached and silently did nothing. Skip the render when nothing changed.
+ let stand=JSON.stringify([d,window.jobFilter||'',JOBGRP,LANG]);
+ if(stand===JOBSTAND&&j.childElementCount)return;
+ JOBSTAND=stand;
  j.innerHTML='';
  let alle=d;
  // Zustand zuerst, Nutzer danach — so wird die Seite gelesen: „läuft noch was, ist was

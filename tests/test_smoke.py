@@ -3638,7 +3638,13 @@ def test_the_empty_requests_page_says_which_kind_of_empty():
     Aussagen. Vorher stand für beides derselbe Satz — mit Filtern wäre er schlicht
     falsch. (#201)"""
     js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
-    fn = js[js.index("async function loadJobs(){"):]
+    # NICHT AUF DIE EXAKTE SIGNATUR ANKERN. Der Anker lautete `async function loadJobs(){`
+    # und brach, sobald #419 der Funktion versuchsweise einen Parameter gab: `ValueError:
+    # substring not found`, ein Fehler ueber die Suche statt ueber die gepruefte Sache.
+    # Was hier zaehlt, sind die zwei verschiedenen Leertexte — nicht die Klammern.
+    m = re.search(r"async function loadJobs\([^)]*\)\s*\{", js)
+    assert m, "loadJobs ist nicht mehr auffindbar"
+    fn = js[m.start():]
     fn = fn[:fn.index("\nasync function ", 1)]
     assert "t('flt_leer')" in fn and "t('no_requests')" in fn, "es gibt nur einen Leertext"
     assert "alle.length&&(JOBGRP||window.jobFilter)" in fn, \
