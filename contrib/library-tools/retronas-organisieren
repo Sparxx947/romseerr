@@ -454,7 +454,7 @@ def umbauen(wurzel, plattform, trocken, protokoll):
         return 1
 
     z = {"entpackt": 0, "archiv_behalten": 0, "verschoben": 0, "spielordner": 0,
-         "dubletten": 0, "beiwerk": 0, "fehler": 0, "befreit": 0,
+         "dubletten": 0, "beiwerk": 0, "fehler": 0, "befreit": 0, "satz_verschont": 0,
          "beiwerk_gesammelt": 0}
     arcade = plattform in ARCHIV_BLEIBT
 
@@ -594,11 +594,41 @@ def umbauen(wurzel, plattform, trocken, protokoll):
     # ---- Schritt 3b: doppelte Dateien --------------------------------------
     # NUR bei bitgleichem Inhalt (SHA-256). Gleiche Namen sind kein Kriterium:
     # zwei Fassungen desselben Titels sind verschiedene Dateien.
+    #
+    # WAS EINE ABBILDLISTE NENNT, IST TABU. (#467)
+    #
+    # Bei CD-Titeln ist Spur 01 haeufig bei vielen Spielen BITGLEICH — eine leere
+    # Datenspur oder ein Kopierschutzhinweis. Diese Stelle hat daraufhin genau das getan,
+    # was sie sollte, und dabei Spiele zerstoert:
+    #
+    #   dublette_entfernt  turbografx-cd/Monster Lair (USA) (Track 01).bin
+    #                      gleich_wie  turbografx-cd/Valis II (USA) (Track 01).bin
+    #
+    # Zwei verschiedene Spiele. Danach nennt Monster Lairs `.cue` eine Datei, die es nicht
+    # mehr gibt. Unter `dc` sind so 375 Dateien geloescht worden, weshalb von 213 Titeln
+    # nur 13 aus dem Protokoll rekonstruierbar sind: der Rest ist weg, nicht verlegt.
+    #
+    # Bitgleichheit macht zwei Spuren NICHT austauschbar. Jeder Satz braucht sein eigenes
+    # Exemplar.
+    #
+    # EN: on CD titles track 01 is often bit-identical across many games, so deduplication
+    # took one game's track away and left it with another. Identical content does not make
+    # set members interchangeable.
+    gehoert_zu_satz = set()
+    for f in os.listdir(basis):
+        if os.path.splitext(f)[1].lower() in ABBILDLISTE:
+            for n in _abbild_verweise(os.path.join(basis, f)):
+                gehoert_zu_satz.add(os.path.basename(n).lower())
+
     nach_groesse = {}
     for f in os.listdir(basis):
         p = os.path.join(basis, f)
-        if os.path.isfile(p) and not ist_beiwerk(f):
-            nach_groesse.setdefault(os.path.getsize(p), []).append(p)
+        if not os.path.isfile(p) or ist_beiwerk(f):
+            continue
+        if f.lower() in gehoert_zu_satz:
+            z["satz_verschont"] += 1
+            continue
+        nach_groesse.setdefault(os.path.getsize(p), []).append(p)
     for groesse, gruppe in nach_groesse.items():
         if len(gruppe) < 2:
             continue                      # gleiche Groesse ist Vorbedingung
@@ -673,6 +703,11 @@ def umbauen(wurzel, plattform, trocken, protokoll):
     print(f"    auf Ebene 1 gehoben   : {z['verschoben']}")
     print(f"    davon Beiwerk         : {z['beiwerk']}")
     print(f"    Spielordner belassen  : {z['spielordner']}")
+    if z["satz_verschont"]:
+        # LAUT SAGEN, WARUM DIE ZAHL KLEINER IST. Ohne diese Zeile saehe der Lauf einfach
+        # nach „weniger Dubletten" aus, und niemand wuesste, dass hier eine Regel griff.
+        print(f"    Satzdateien verschont : {z['satz_verschont']}  (von Abbildlisten "
+              f"genannt, nie als Dublette geloescht — #467)")
     print(f"    Dubletten entfernt    : {z['dubletten']}")
     print(f"    Sammlungen aufgeloest : {z['befreit']}")
     print(f"    Beiwerk eingesammelt  : {z['beiwerk_gesammelt']}  (-> {BEIWERK_ORDNER}/)")
