@@ -23,6 +23,7 @@ niemandem mehr auf.
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -59,7 +60,48 @@ EMU_WORTE = ("winuae", "ccs64", "winvice", "visualboyadvance", "scummvm-",
              "mame32", "gens", "jenesis", "dgen", "emulator", "ages0")
 
 
-def plattform_fuer(name):
+# --- Zusammenhang statt Endung (#366) ---------------------------------------------
+#
+# WOZU: `.bin` bleibt bewusst unzugeordnet — die Endung liegt auf einem Dutzend Systemen,
+# und eine falsche Zuordnung kostet mehr als eine ausgelassene. Genau deshalb ordnete der
+# Sortierer unter `Mixed` von 707 Dateien GENAU EINE zu.
+#
+# Die 198 `.bin` dort sind aber nicht mehrdeutig, sie tragen ihre Herkunft im Namen:
+#
+#     Shark! Shark! (1982)(Mattel).bin                       16.384
+#     Mountain Madness - Super Pro Skiing (1987)(Intv Corp)  16.384
+#
+# Herausgeber + Jahr + Groesse zusammen sind eine Signatur. Die ENDUNG bleibt unzugeordnet;
+# was traegt, ist die Kombination. So bleibt der Grundsatz des Werkzeugs unangetastet.
+#
+# Publisher, year and size together are a signature; the extension stays unmapped.
+INTV_HERAUSGEBER = re.compile(
+    r"\((?:Mattel(?: Electronics)?|Intv Corp|INTV|Imagic|Activision|Coleco(?:-CBS)?|"
+    r"Parker Bros|Sears|Atarisoft|Interphase|Sunrise|American Videogame|Dextell|"
+    r"Nice Ideas|CTW|General Instruments|Realtime|Carol Shaw)\)", re.I)
+# Jahr, auch als Spanne: `(1982)`, `(1982-83)`, `(19xx)`.
+INTV_JAHR = re.compile(r"\((?:19|20)[0-9x]{2}(?:-[0-9]{2,4})?\)", re.I)
+# Groesse einer Intellivision-Kassette: 2 KB bis 64 KB.
+INTV_MAX = 64 * 1024
+
+# AUSSCHLUSS: Der Bestand kommt aus einem Satz „Mattel Intellivision & Aquarius" — beide
+# Systeme sind von Mattel, beide nutzen `.bin`, und ein Aquarius-Titel unter `intellivision`
+# faellt niemandem auf. Am Namen erkennbar ist nur ein einziger; mehr laesst sich mit dieser
+# Regel nicht trennen, und das steht so im PR. Wer es genauer braucht, muss die Dateien
+# oeffnen, nicht ihre Namen lesen.
+NICHT_INTV = re.compile(r"aquarius|radofin|\bfinney\b", re.I)
+
+
+def ist_intellivision(name, groesse):
+    """-> True, wenn Herausgeber, Jahr und Groesse zusammen auf Intellivision zeigen."""
+    if NICHT_INTV.search(name):
+        return False
+    return bool(INTV_HERAUSGEBER.search(name)
+                and INTV_JAHR.search(name)
+                and 0 < groesse <= INTV_MAX)
+
+
+def plattform_fuer(name, groesse=None):
     """-> Plattformordner oder None. None heisst: liegen lassen."""
     klein = name.lower()
     if any(w in klein for w in BIOS_WORTE):
@@ -69,7 +111,13 @@ def plattform_fuer(name):
     endung = os.path.splitext(name)[1].lower()
     if endung in KEIN_SPIEL_ENDUNG:
         return None
-    return ENDUNG_PLATTFORM.get(endung)
+    aus_endung = ENDUNG_PLATTFORM.get(endung)
+    if aus_endung:
+        return aus_endung
+    # Erst wenn die Endung nichts sagt, entscheidet der Zusammenhang.
+    if endung == ".bin" and groesse is not None and ist_intellivision(name, groesse):
+        return "intellivision"
+    return None
 
 
 def plattform_fuer_archiv(pfad):
@@ -136,7 +184,13 @@ def main():
     for wurzel, _dirs, dateien in os.walk(basis):
         for fn in dateien:
             quelle = os.path.join(wurzel, fn)
-            ziel_plat = plattform_fuer(fn) or plattform_fuer_archiv(quelle)
+            # Die Groesse gehoert zur Entscheidung (#366) — sie steht mit im Zusammenhang,
+            # der `.bin` erst zuordenbar macht.
+            try:
+                groesse = os.path.getsize(quelle)
+            except OSError:
+                groesse = None
+            ziel_plat = plattform_fuer(fn, groesse) or plattform_fuer_archiv(quelle)
             if not ziel_plat:
                 liegen.append(os.path.relpath(quelle, basis))
                 continue
