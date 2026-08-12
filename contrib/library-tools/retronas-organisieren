@@ -128,20 +128,117 @@ def ohne_marker(name):
     return _MARKER.sub("", stamm).strip().lower()
 
 
+# --- Abbild-Sets (Disc-Images) ---------------------------------------------------------
+#
+# WAS HIER SCHIEFGING (#462): Ein Dreamcast-Titel liegt als Ordner mit EINER kleinen
+# Textdatei und mehreren Spurdateien vor:
+#
+#     Bangai-O (PAL)(M3)/Bangai-O v1.001 (2000)(Virgin)(PAL)(M3)[!].gdi
+#     Bangai-O (PAL)(M3)/track01.bin   track02.raw   track03.bin
+#
+# `ist_spielordner` fragte, ob ALLE Dateien nach Abzug des Datentraeger-Markers denselben
+# Titel ergeben. Hier sind es vier verschiedene Staemme, also „Sammlung", also flachgelegt.
+# Die Spurnamen sind generisch, sie kollidierten und wurden zu `track01 (53).bin` — die
+# `.gdi` verweist aber weiter auf `track01.bin`. Ergebnis: ALLE 138 Titel zeigten auf
+# dieselbe Datei, gemessen am Emulator als tausende `W[GDROM]: Sector Read miss`.
+#
+# Die Marker-Regel ist fuer `Spiel (Disk 1).adf` richtig. Ein Abbild-Set kann sie
+# grundsaetzlich nicht sehen: Dort ist die Namensgleichheit nicht nur abwesend, sie ist
+# ABSICHTLICH abwesend — die Spuren heissen bei jedem Spiel gleich.
+#
+# Deshalb wird hier die STRUKTUR gelesen: Eine Abbildliste nennt ihre Dateien, und liegen
+# die daneben, ist der Ordner ein Spiel. Kein Namensvergleich, keine Heuristik.
+#
+# EN: a disc-image set is one game: a small text file names its track files and those files
+# sit next to it. The track names are generic on purpose, so no name-based rule can see it.
+ABBILDLISTE = {".gdi", ".cue", ".m3u"}
+
+_CUE_DATEI = re.compile(r'^\s*FILE\s+(?:"([^"]+)"|(\S+))', re.I | re.M)
+
+
+def _abbild_verweise(pfad):
+    """Dateinamen, die eine Abbildliste nennt. Leer, wenn sie sich nicht lesen laesst.
+
+    `.gdi`: erste Zeile ist die Spurzahl, danach je Spur
+            `<nr> <lba> <typ> <sektorgroesse> <datei> <offset>`. Der Dateiname kann
+            Leerzeichen enthalten, deshalb werden vier Felder vorne und eines hinten
+            abgezogen, statt auf Feld 5 zu zeigen.
+    `.cue`: `FILE "name" BINARY`, mit oder ohne Anfuehrungszeichen.
+    `.m3u`: je Zeile ein Verweis, `#` ist Kommentar.
+    """
+    endung = os.path.splitext(pfad)[1].lower()
+    try:
+        with open(pfad, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read(200_000)
+    except OSError:
+        return []
+    namen = []
+    if endung == ".gdi":
+        for zeile in text.splitlines()[1:]:
+            teile = zeile.split()
+            if len(teile) < 6:
+                continue
+            namen.append(" ".join(teile[4:-1]).strip('"'))
+    elif endung == ".cue":
+        namen = [(a or b) for a, b in _CUE_DATEI.findall(text)]
+    elif endung == ".m3u":
+        namen = [z.strip() for z in text.splitlines()
+                 if z.strip() and not z.lstrip().startswith("#")]
+    return [os.path.basename(n) for n in namen if n]
+
+
+def ist_abbild_set(pfad):
+    """-> True, wenn dieser Ordner EIN Abbild-Set ist. (#462)
+
+    Bedingungen, alle noetig:
+      * mindestens eine Abbildliste auf der obersten Ebene,
+      * ALLE Listen reduzieren sich nach Abzug des Datentraeger-Markers auf EINEN Titel —
+        so bleibt ein Mehrfach-Disc-Spiel ein Spiel und zwei verschiedene Titel im selben
+        Ordner bleiben eine Sammlung,
+      * jede genannte Datei liegt tatsaechlich daneben. Fehlt eine, ist der Ordner kaputt
+        oder unvollstaendig, und ihn als Einheit zu behandeln wuerde den Schaden festigen.
+    """
+    try:
+        eintraege = [e for e in os.scandir(pfad) if e.is_file()]
+    except OSError:
+        return False
+    listen = [e for e in eintraege
+              if os.path.splitext(e.name)[1].lower() in ABBILDLISTE]
+    if not listen:
+        return False
+    if len({ohne_marker(e.name) for e in listen}) != 1:
+        return False
+    vorhanden = {e.name.lower() for e in eintraege}
+    genannt = []
+    for e in listen:
+        verweise = _abbild_verweise(e.path)
+        if not verweise:
+            return False          # unlesbar oder leer — nicht raten
+        genannt.extend(verweise)
+    return all(n.lower() in vorhanden for n in genannt)
+
+
 def ist_spielordner(pfad, plattform):
     """-> True, wenn dieser Ordner EIN Spiel ist und nicht eine Sammlung.
 
-    Drei Wege fuehren dahin, in dieser Reihenfolge:
+    Vier Wege fuehren dahin, in dieser Reihenfolge:
       1. Die Plattform kennt nur Spielordner (DOS, PS3, ScummVM …).
-      2. Der Ordner hat wenige Dateien, die sich nach Abzug des
+      2. Der Ordner ist ein ABBILD-SET: eine `.gdi`/`.cue`/`.m3u` nennt Dateien, die
+         daneben liegen. (#462)
+      3. Der Ordner hat wenige Dateien, die sich nach Abzug des
          Datentraeger-Markers auf DENSELBEN Titel reduzieren — Multi-Disk-Spiel.
-      3. Sonst: Sammlung.
+      4. Sonst: Sammlung.
 
     Am Bestand geprueft: `Cassette 50 …(Side A)/(Side B)` ist ein Spiel,
     fuenf `VC Songs-Cartridge - …`-Demos sind es nicht, obwohl sie 22 Zeichen
     Namensanfang teilen.
     """
     if plattform in ORDNER_IST_SPIEL:
+        return True
+    # VOR der Dateizahl-Schranke: Ein Abbild-Set kann mehr als SPIEL_MAX_DATEIEN Spuren
+    # haben (gemessen: 38 bei `Bangai-O`), und dann waere es unter der alten Reihenfolge
+    # weiterhin eine „Sammlung". (#462)
+    if ist_abbild_set(pfad):
         return True
     dateien = []
     for wurzel, _d, fs in os.walk(pfad):

@@ -42,14 +42,46 @@ Ist ein Ordner **ein Spiel** oder **eine Sammlung**? Beide Fehlrichtungen kosten
 - Sammlung fälschlich als Spiel → Hunderte Titel bleiben unsichtbar
 - Multi-Disk-Spiel fälschlich als Sammlung → es zerfällt in Einzeldateien
 
-Drei Wege führen zur Antwort, in dieser Reihenfolge:
+Vier Wege führen zur Antwort, in dieser Reihenfolge:
 
 1. **Die Plattform kennt nur Spielordner.** Bei DOS, PS3, ScummVM, Wii und ähnlichen
    besteht ein Titel immer aus vielen Dateien. Dort taugt die Dateizahl nicht.
-2. **Wenige Dateien, die auf denselben Titel reduzieren.** Nach Abzug des
+2. **Der Ordner ist ein Abbild-Set.** Eine `.gdi`, `.cue` oder `.m3u` **nennt ihre
+   Dateien**, und die liegen daneben. Struktur, kein Namensvergleich.
+3. **Wenige Dateien, die auf denselben Titel reduzieren.** Nach Abzug des
    Datenträger-Markers — `(Disk 1)`, `(Side A)`, `[Disc 2]`, `(Tape 1 of 3)` — bleibt
    derselbe Name übrig. Das ist ein Multi-Disk-Spiel.
-3. **Sonst: Sammlung.**
+4. **Sonst: Sammlung.**
+
+#### Warum Abbild-Sets eine eigene Regel brauchen (#462)
+
+Ein Dreamcast-Titel sieht so aus:
+
+```
+Bangai-O (PAL)(M3)/Bangai-O v1.001 (2000)(Virgin)(PAL)(M3)[!].gdi
+Bangai-O (PAL)(M3)/track01.bin   track02.raw   track03.bin
+```
+
+Regel 3 fragt nach Namensgleichheit und findet vier verschiedene Stämme. Sie **kann** das
+nicht sehen, denn hier ist die Namensgleichheit nicht bloß abwesend, sie ist *absichtlich*
+abwesend: Die Spuren heißen bei jedem Spiel gleich.
+
+Ohne Regel 2 galt der Ordner als Sammlung und wurde flachgelegt. Die generischen Spurnamen
+kollidierten und wurden zu `track01 (53).bin` — während die `.gdi` weiterhin `track01.bin`
+nennt. **Alle 138 Dreamcast-Titel zeigten danach auf dieselbe Datei.** Am Emulator gemessen
+als tausende `W[GDROM]: Sector Read miss`; Flycast blieb im Dreamcast-BIOS stehen und lud
+nie ein Spiel.
+
+Drei Bedingungen, alle nötig — jede fängt einen eigenen Fehlschluss ab:
+
+| Bedingung | ohne sie |
+|---|---|
+| mindestens eine Abbildliste auf oberster Ebene | jeder Ordner wäre ein Spiel |
+| alle Listen reduzieren auf **einen** Titel | zwei verschiedene Spiele in einem Ordner würden verschmolzen |
+| jede genannte Datei liegt daneben | ein unvollständiger Ordner würde als heil durchgereicht |
+
+Die Prüfung steht **vor** der Dateizahl-Schranke: `Bangai-O` hatte 38 Dateien, die Schranke
+liegt bei 12. Dahinter wäre die Regel vorhanden und wirkungslos.
 
 **Der Datenträger-Marker ist das einzige verlässliche Zeichen.** Ein gemeinsamer
 Namensanfang genügt **nicht**: `VC Songs-Cartridge - Inventio-Pac` und
@@ -270,14 +302,46 @@ Is a folder **one game** or **a collection**? Both errors cost:
 - a collection taken for a game → hundreds of titles stay invisible
 - a multi-disk game taken for a collection → it falls apart into single files
 
-Three routes to the answer, in order:
+Four routes to the answer, in order:
 
 1. **The platform only ever has game folders.** For DOS, PS3, ScummVM, Wii and similar a
    title always consists of many files, so the file count is no criterion there.
-2. **Few files that reduce to the same title.** With the medium marker removed —
+2. **The folder is a disc-image set.** A `.gdi`, `.cue` or `.m3u` **names its files** and
+   those files sit next to it. Structure, not name comparison.
+3. **Few files that reduce to the same title.** With the medium marker removed —
    `(Disk 1)`, `(Side A)`, `[Disc 2]`, `(Tape 1 of 3)` — the same name remains. That is a
    multi-disk game.
-3. **Otherwise: a collection.**
+4. **Otherwise: a collection.**
+
+#### Why disc-image sets need their own rule (#462)
+
+A Dreamcast title looks like this:
+
+```
+Bangai-O (PAL)(M3)/Bangai-O v1.001 (2000)(Virgin)(PAL)(M3)[!].gdi
+Bangai-O (PAL)(M3)/track01.bin   track02.raw   track03.bin
+```
+
+Rule 3 asks for matching names and finds four distinct stems. It *cannot* see this case:
+the names do not merely fail to match, they are deliberately generic — every Dreamcast game
+names its tracks the same way.
+
+Without rule 2 the folder counted as a collection and was flattened. The generic track
+names collided and became `track01 (53).bin`, while the `.gdi` still says `track01.bin`.
+**All 138 Dreamcast titles then pointed at the same file.** Measured on the emulator as
+thousands of `W[GDROM]: Sector Read miss`; Flycast stopped at the Dreamcast BIOS and never
+loaded a game.
+
+Three conditions, all required — each catches a different wrong conclusion:
+
+| Condition | without it |
+|---|---|
+| at least one image list at the top level | every folder would be a game |
+| all lists reduce to **one** title | two different games in one folder would be merged |
+| every named file is present | an incomplete folder would pass as intact |
+
+The check runs **before** the file-count limit: `Bangai-O` had 38 files, the limit is 12.
+Behind it, the rule would be present and ineffective.
 
 **The medium marker is the only reliable signal.** A shared prefix is **not** enough:
 `VC Songs-Cartridge - Inventio-Pac` and `VC Songs-Cartridge - The Mad Boogy` share 22

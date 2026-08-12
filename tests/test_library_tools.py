@@ -121,6 +121,103 @@ def test_a_collection_is_not_one_game(org, tmp_path):
     assert org.ist_spielordner(str(d), "c64") is False
 
 
+def _dreamcast_titel(wurzel, name, spuren=("track01.bin", "track02.raw", "track03.bin")):
+    """Baut den GEMESSENEN Dreamcast-Aufbau nach — nicht einen erfundenen.
+
+    Vorlage ist `dc/Bangai-O (PAL)(M3)/` von der Anlage: eine `.gdi` mit dem Titelnamen,
+    daneben generisch benannte Spuren. Genau diese Kombination hat der alte Test nie
+    abgedeckt.
+    """
+    d = wurzel / name
+    d.mkdir()
+    zeilen = [str(len(spuren))]
+    for i, s in enumerate(spuren, 1):
+        zeilen.append(f"{i} {i * 600} 4 2352 {s} 0")
+        (d / s).write_bytes(b"x" * 32)
+    (d / f"{name}.gdi").write_text("\n".join(zeilen) + "\n", encoding="utf-8")
+    return d
+
+
+def test_a_disc_image_set_is_one_game(org, tmp_path):
+    """Eine `.gdi` samt ihrer Spuren ist EIN Spiel. (#462)
+
+    DER SCHADEN, DEN DIESER TEST VERHINDERT: Ohne ihn galt der Ordner als Sammlung und
+    wurde flachgelegt. Die Spurnamen sind bei JEDEM Dreamcast-Spiel dieselben, kollidierten
+    also und wurden zu `track01 (53).bin` — waehrend die `.gdi` weiter `track01.bin` nennt.
+    Alle 138 Titel zeigten danach auf dieselbe Datei; am Emulator gemessen als tausende
+    `W[GDROM]: Sector Read miss`, und Flycast blieb im BIOS stehen.
+
+    Die alte Regel KONNTE das nicht sehen: Sie vergleicht Namen, und hier ist die
+    Namensgleichheit absichtlich abwesend.
+    """
+    d = _dreamcast_titel(tmp_path, "Bangai-O v1.001 (2000)(Virgin)(PAL)(M3)[!]")
+    assert org.ist_spielordner(str(d), "dc") is True
+
+
+def test_a_disc_image_set_with_more_tracks_than_the_file_limit_is_still_one_game(org, tmp_path):
+    """Auch mit 38 Spuren. (#462)
+
+    `SPIEL_MAX_DATEIEN` ist 12, und `Bangai-O` hatte gemessen 38 Dateien. Stuende die
+    Abbild-Pruefung HINTER der Dateizahl-Schranke, waere der Ordner weiterhin eine
+    Sammlung — der Fix waere da und wirkungslos.
+    """
+    spuren = [f"track{i:02d}.raw" for i in range(1, 39)]
+    d = _dreamcast_titel(tmp_path, "Grosses Spiel", spuren=spuren)
+    assert len(list(d.iterdir())) > org.SPIEL_MAX_DATEIEN
+    assert org.ist_spielordner(str(d), "dc") is True
+
+
+def test_a_cue_sheet_names_its_own_bin(org, tmp_path):
+    """`.cue` + `.bin` genauso — die Liste nennt ihre Datei. (#462)"""
+    d = tmp_path / "Spiel (USA)"
+    d.mkdir()
+    (d / "Spiel (USA).bin").write_bytes(b"x" * 32)
+    (d / "Spiel (USA).cue").write_text(
+        'FILE "Spiel (USA).bin" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n',
+        encoding="utf-8")
+    assert org.ist_spielordner(str(d), "psx") is True
+
+
+def test_two_different_titles_in_one_folder_stay_a_collection(org, tmp_path):
+    """Zwei verschiedene Abbildlisten -> Sammlung, kein Spiel. (#462)
+
+    Sonst wuerde der Fix aus jedem Ordner mit mehreren Abbildern ein einziges „Spiel"
+    machen und das urspruengliche Problem in die andere Richtung wiederholen.
+    """
+    d = tmp_path / "Zwei Spiele"
+    d.mkdir()
+    for name in ("Spiel A", "Spiel B"):
+        (d / f"{name}.bin").write_bytes(b"x" * 32)
+        (d / f"{name}.cue").write_text(f'FILE "{name}.bin" BINARY\n', encoding="utf-8")
+    assert org.ist_spielordner(str(d), "psx") is False
+
+
+def test_a_multi_disc_game_with_two_cues_is_still_one_game(org, tmp_path):
+    """Aber `(Disc 1)`/`(Disc 2)` desselben Titels bleibt EIN Spiel. (#462)
+
+    Die Marker-Regel gilt weiter — sie wird auf die LISTEN angewandt, nicht auf die
+    Spurdateien. Ohne diesen Fall waere jedes Mehrfach-Disc-Spiel ploetzlich eine Sammlung.
+    """
+    d = tmp_path / "Final Fantasy VII (USA)"
+    d.mkdir()
+    for i in (1, 2, 3):
+        (d / f"Final Fantasy VII (USA) (Disc {i}).bin").write_bytes(b"x" * 32)
+        (d / f"Final Fantasy VII (USA) (Disc {i}).cue").write_text(
+            f'FILE "Final Fantasy VII (USA) (Disc {i}).bin" BINARY\n', encoding="utf-8")
+    assert org.ist_spielordner(str(d), "psx") is True
+
+
+def test_a_disc_set_missing_a_track_is_not_treated_as_one_game(org, tmp_path):
+    """Fehlt eine genannte Datei, ist der Ordner kaputt — und bleibt eine Sammlung. (#462)
+
+    Ihn trotzdem als Einheit zu behandeln wuerde den Schaden festigen: Der Ordner waende
+    unangetastet weitergereicht, und niemand saehe, dass er unvollstaendig ist.
+    """
+    d = _dreamcast_titel(tmp_path, "Unvollstaendig")
+    (d / "track02.raw").unlink()
+    assert org.ist_spielordner(str(d), "dc") is False
+
+
 def test_platforms_whose_folders_are_always_one_game(org, tmp_path):
     """Bei DOS, PS3, ScummVM & Co. ist ein Ordner IMMER ein Spiel.
 
