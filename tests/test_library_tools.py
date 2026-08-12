@@ -13,7 +13,9 @@ can only be measured against a real library. The one place where a mistake does 
 damage is the classification, so that is what is tested here.
 """
 import importlib.util
+import json
 import os
+import re
 
 import pytest
 
@@ -671,3 +673,74 @@ def test_renaming_is_reversible(prg, tmp_path):
 
     prg.zurueck(prot_pfad)
     assert sorted(p.name for p in basis.iterdir()) == ["00readme", "Demo", "adressdaten"]
+
+
+# --- #424: ein Fehler muss auffindbar sein, nicht nur gezaehlt ----------------------
+
+def test_an_error_names_the_file_instead_of_only_counting_it(org, tmp_path, capsys):
+    """Ein Fehler landet mit Pfad im Protokoll UND auf dem Bildschirm. (#424)
+
+    WAS DAS AUFGEDECKT HAT: Der c64-Lauf meldete `FEHLER: 3` bei 62.894 Dateien — und es
+    gab keinen Weg herauszufinden, welche drei. Weder im Bildschirmprotokoll noch im JSONL
+    stand ein Name. Der Zaehler war die einzige Spur, und er zeigt auf nichts.
+
+    Bei den Pruefsummen ist das nicht bloss unbequem: Eine Datei ohne Pruefsumme wird beim
+    Dublettenabgleich UEBERSPRUNGEN. Eine echte Dublette kann also stehen bleiben, und
+    hinterher kann niemand nachsehen, welche Datei es war. Eine kleine, beruhigende Zahl
+    verdeckte drei unbekannte Dateien.
+
+    EN: `FEHLER: 3` out of 62,894 files, with nothing naming them. A file that cannot be
+    checksummed is skipped for de-duplication, so a real duplicate may survive unrecorded.
+    """
+    protokoll_pfad = tmp_path / "prot.jsonl"
+
+    class Protokoll:
+        """Nur so viel wie noetig — geprueft wird, WAS geschrieben wird, nicht wie."""
+
+        def __init__(self):
+            self.eintraege = []
+
+        def schreiben(self, art, **werte):
+            self.eintraege.append({"art": art, **werte})
+            protokoll_pfad.write_text(
+                "\n".join(json.dumps(e) for e in self.eintraege), encoding="utf-8")
+
+    prot = Protokoll()
+    z = {"fehler": 0}
+    org.fehler_merken(z, prot, "datei_pruefsumme", "/roms/c64/kaputt.d64",
+                      "Input/output error")
+
+    assert z["fehler"] == 1, "der Zaehler muss bleiben — er ist die Zusammenfassung"
+
+    assert len(prot.eintraege) == 1, "nichts ins Protokoll geschrieben"
+    e = prot.eintraege[0]
+    assert e["art"] == "fehler"
+    assert e["pfad"] == "/roms/c64/kaputt.d64", "der Pfad fehlt — genau das war das Problem"
+    assert e["schritt"] == "datei_pruefsumme", "ohne Schritt weiss man nicht, WAS schieffiel"
+    assert "Input/output" in e["grund"]
+
+    # Und auf dem Bildschirm, waehrend der Lauf noch sichtbar ist.
+    ausgabe = capsys.readouterr().out
+    assert "/roms/c64/kaputt.d64" in ausgabe, "der Pfad steht nicht in der Ausgabe"
+    assert "datei_pruefsumme" in ausgabe
+
+
+def test_every_error_counter_goes_through_the_recording_helper(org):
+    """Kein `z["fehler"] += 1` mehr an der Aufzeichnung vorbei. (#424)
+
+    WARUM ALS QUELLTEXTPRUEFUNG: Die drei Stellen liegen tief in `umbauen`, hinter einem
+    Lauf ueber Zehntausende Dateien und hinter `OSError`-Zweigen, die sich in einem Test
+    nur mit erheblichem Aufwand ausloesen lassen. Was hier wirklich schuetzt, ist die
+    Zusicherung, dass es keinen zweiten, stillen Weg gibt — und die ist am Quelltext
+    ablesbar.
+
+    Eine vierte Stelle, die kuenftig nur zaehlt, faellt damit sofort auf.
+
+    EN: the three sites sit deep inside a run over tens of thousands of files behind
+    OSError branches. What protects here is the guarantee that no silent path exists.
+    """
+    quelle = open(WERKZEUG, encoding="utf-8").read()
+    roh = re.findall(r'^\s*z\["fehler"\] \+= 1', quelle, re.M)
+    assert len(roh) == 1, (
+        f"{len(roh)} Stellen zaehlen Fehler direkt hoch; erlaubt ist genau eine — die in "
+        "`fehler_merken`, die dabei auch aufzeichnet")
