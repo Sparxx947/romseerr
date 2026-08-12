@@ -1312,3 +1312,64 @@ def test_a_deeply_nested_rename_is_repaired(abb, tmp_path):
     z = abb.plattform_pruefen(str(tmp_path), "psp", reparieren=True, aussortieren=False)
     assert z["repariert"] == 1, "die Reparatur erreichte die tiefe Ebene nicht"
     assert 'FILE "Spiel.bin"' in (tief / "Spiel.cue").read_text(encoding="utf-8")
+
+
+# --- „kein Archiv" ist kein Fehlschlag (#447) ------------------------------------------
+
+def test_a_file_that_is_not_an_archive_is_not_reported_as_a_failure(org, tmp_path,
+                                                                    monkeypatch, capsys):
+    """Eine Datei mit lügender Endung ist KEIN beschädigtes Archiv. (#447)
+
+    Unter `amiga` liegen Dateien, die `.ZIP` oder `.LZH` heissen und keine sind — kein
+    `PK\\x03\\x04`, kein LHA-Kopf, sondern Amiga-Cruncher-Formate (`85 15 02 41`,
+    `95 0a 02 41`). Sie als „Archiv liess sich nicht entpacken" zu melden behauptet einen
+    Schaden, den es nicht gibt, UND begraebt die echten: Von 78 Meldungen waren 49 solche
+    Dateien, und darunter lagen genau ZWEI wirklich beschaedigte Archive.
+
+    Die beiden Befunde verlangen verschiedene Antworten — neu beschaffen gegen umbenennen.
+    """
+    d = tmp_path / "amiga"
+    d.mkdir()
+    (d / "APHOR.ZIP").write_bytes(bytes.fromhex("85150241") + b"\x00" * 64)
+
+    monkeypatch.setattr(org, "ist_ueberhaupt_ein_archiv", lambda p: False)
+    monkeypatch.setattr(org, "entpacken", lambda a, z: False)
+
+    class P:
+        def __init__(self):
+            self.arten = []
+        def schreiben(self, art, **k):
+            self.arten.append(art)
+    prot = P()
+    org.umbauen(str(tmp_path), "amiga", False, prot)
+
+    assert "kein_archiv" in prot.arten, "der Befund wurde gar nicht festgehalten"
+    assert "fehler" not in prot.arten, \
+        "als Fehler gezaehlt — damit begraebt es die echten Fehlschlaege"
+
+
+def test_a_genuinely_damaged_archive_is_still_a_failure(org, tmp_path, monkeypatch):
+    """Ein ECHTES Archiv, das nicht aufgeht, bleibt ein Fehler. (#447)
+
+    Ohne diesen Test liesse sich #447 „loesen", indem man alle Entpackfehler leise
+    schluckt — gruen und blind. `DARKSEED.RAR` ist ein echtes RAR (`lsar` listet
+    `Darksee1.adf`), dessen Inhalt beim Entpacken an „Wrong checksum" scheitert. Genau
+    dieser Fall muss sichtbar bleiben.
+    """
+    d = tmp_path / "amiga"
+    d.mkdir()
+    (d / "DARKSEED.RAR").write_bytes(b"Rar!\x1a\x07\x00" + b"\x00" * 64)
+
+    monkeypatch.setattr(org, "ist_ueberhaupt_ein_archiv", lambda p: True)
+    monkeypatch.setattr(org, "entpacken", lambda a, z: False)
+
+    class P:
+        def __init__(self):
+            self.arten = []
+        def schreiben(self, art, **k):
+            self.arten.append(art)
+    prot = P()
+    org.umbauen(str(tmp_path), "amiga", False, prot)
+
+    assert "fehler" in prot.arten, \
+        "ein beschaedigtes Archiv wurde stillschweigend uebergangen"
