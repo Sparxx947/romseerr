@@ -222,6 +222,29 @@ def baum_rechte_setzen(pfad):
         rechte_setzen(pfad)
 
 
+def fehler_merken(z, protokoll, schritt, pfad, grund):
+    """Einen Fehler zaehlen UND auffindbar machen. (#424)
+
+    WOZU: Vorher stand am Ende einer Plattform nur `FEHLER: 3`. Drei von 62.894 Dateien
+    waren schiefgegangen — und es gab keinen Weg herauszufinden, welche. Weder im
+    Bildschirmprotokoll noch im JSONL stand ein Name.
+
+    Bei den Pruefsummen ist das nicht bloss unschoen. Eine Datei ohne Pruefsumme wird beim
+    Dublettenabgleich UEBERSPRUNGEN, nicht etwa entfernt: Eine echte Dublette kann also
+    stehen bleiben, und niemand kann hinterher nachsehen, welche. Eine beruhigende kleine
+    Zahl verdeckte drei unbekannte Dateien.
+
+    Der Zaehler bleibt — er ist die Zusammenfassung. Dazu kommt die Zeile im Protokoll, die
+    das Scrollback ueberlebt.
+
+    EN: count the error and make it findable. A file that cannot be checksummed is skipped
+    for de-duplication, so a real duplicate may survive — and nothing recorded which file.
+    """
+    z["fehler"] += 1
+    print(f"    FEHLER [{schritt}] {pfad}: {grund}")
+    protokoll.schreiben("fehler", schritt=schritt, pfad=pfad, grund=grund)
+
+
 def pruefsumme(pfad, block=1 << 20):
     h = hashlib.sha256()
     with open(pfad, "rb") as f:
@@ -320,7 +343,8 @@ def umbauen(wurzel, plattform, trocken, protokoll):
                 z["entpackt"] += 1
             else:
                 shutil.rmtree(ziel, ignore_errors=True)
-                z["fehler"] += 1
+                fehler_merken(z, protokoll, "entpacken", a,
+                              "Archiv liess sich nicht entpacken")
     else:
         for w, _d, fs in os.walk(basis):
             z["archiv_behalten"] += sum(
@@ -391,8 +415,11 @@ def umbauen(wurzel, plattform, trocken, protokoll):
                 for f in sorted(fs):
                     teile.append(pruefsumme(os.path.join(w, f)))
             sig = hashlib.sha256("".join(sorted(teile)).encode()).hexdigest()
-        except OSError:
-            z["fehler"] += 1
+        except OSError as e:
+            # NICHT NUR ZAEHLEN: Ein Ordner ohne Pruefsumme wird beim Dublettenabgleich
+            # UEBERSPRUNGEN. Eine echte Dublette kann so stehen bleiben — und ohne den
+            # Namen findet das hinterher niemand mehr. (#424)
+            fehler_merken(z, protokoll, "ordner_pruefsumme", p, e.strerror or str(e))
             continue
         if sig in ordner_sig:
             if trocken:
@@ -420,8 +447,10 @@ def umbauen(wurzel, plattform, trocken, protokoll):
         for p in sorted(gruppe, key=lambda x: (len(os.path.basename(x)), x)):
             try:
                 s = pruefsumme(p)
-            except OSError:
-                z["fehler"] += 1
+            except OSError as e:
+                # Dasselbe wie oben, eine Ebene tiefer: unlesbar heisst hier NICHT
+                # „geloescht", sondern „nicht verglichen". (#424)
+                fehler_merken(z, protokoll, "datei_pruefsumme", p, e.strerror or str(e))
                 continue
             if s in gesehen:
                 # Behalten wird der KUERZESTE Name — die Fassung ohne

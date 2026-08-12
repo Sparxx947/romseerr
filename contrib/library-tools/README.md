@@ -104,6 +104,22 @@ Zwei Feinheiten:
     Erneut versuchen: derselbe Aufruf setzt genau bei diesen fort.
   ```
 
+  **Ein Fehler nennt seine Datei (#424).** Die Zeile `FEHLER: 3` am Ende einer Plattform
+  war lange die einzige Spur — bei 62.894 Dateien und ohne einen einzigen Namen. Jetzt
+  steht jeder Fehler mit Pfad, Schritt und Grund auf dem Bildschirm **und** als
+  `{"art": "fehler", …}` im Protokoll:
+
+  ```
+      FEHLER [datei_pruefsumme] /roms/c64/kaputt.d64: Input/output error
+  ```
+
+  Das ist kein Schönheitsfehler gewesen. Eine Datei ohne Prüfsumme wird beim
+  Dublettenabgleich **übersprungen**, nicht entfernt — eine echte Dublette kann also
+  stehen bleiben, und ohne den Namen findet das hinterher niemand mehr.
+
+  *An error now names its file. A file that cannot be checksummed is skipped for
+  de-duplication, so a real duplicate may survive — and nothing recorded which one.*
+
   Der Rückgabewert ist dann `1`. **Warum das zählt (#397):** Am 2026-08-11 meldete der
   volle Lauf `ALLE 74 PLATTFORMEN FERTIG`, während genau diese zwei abgestürzt waren —
   beide unter den drei größten. Weil der Fortschritt bedingungslos eingetragen wurde,
