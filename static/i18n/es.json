@@ -373,5 +373,16 @@
  "needs_ia_login": "requiere cuenta",
  "ia_hint": "Algunos elementos de Archive.org están en la colección `loggedin` y requieren una cuenta — sin ella la descarga responde HTTP 401. Aquí no va una contraseña sino el par de claves de archive.org/account/s3.php.",
  "job_open_card": "Abrir la ficha del juego",
- "job_no_card": "No hay ficha para este título."
+ "job_no_card": "No hay ficha para este título.",
+ "sec_drop": "Buzón",
+ "drop_hint": "El buzón acepta ROM que no llegan por una solicitud: una colección entera, una carpeta de un USB. <b>Esta vista no mueve nada</b>; solo calcula qué ocurriría. Un archivo se toca únicamente cuando ha permanecido sin cambios durante dos pasadas, así que una subida en curso se deja en paz. Lo que no encaja en ninguna plataforma va a <code>.unsortiert</code> en lugar de adivinarse.",
+ "drop_off": "No hay buzón montado — la función no está configurada. Se espera en:",
+ "drop_every": "se comprueba automáticamente cada {n} minutos",
+ "drop_ready": "Se archivará",
+ "drop_stuck": "Se queda",
+ "drop_none": "La carpeta está vacía.",
+ "drop_more": "… y {n} más",
+ "drop_scan": "Analizar ahora",
+ "drop_running": "en curso …",
+ "drop_done": "{a} archivados, {o} pendientes"
 }

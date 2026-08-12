@@ -246,10 +246,15 @@ that is the normal case and complete as it stands, not a fallback.
   and a half-copied image would otherwise sit in the library as a title that never starts.
   What cannot be determined stays put, **with a reason**. 25 of the 82 accepted extensions
   are ambiguous; a download carries its platform hint from the request, a dropped file
-  carries nothing. The folder name may decide where the extension cannot. Status and
-  reasons live at `/api/import/status`.
+  carries nothing. The folder name may decide where the extension cannot.
   Moving is copy, verify, then delete: drop folder and library are different filesystems,
   and nothing is deleted that did not arrive.
+  All of it is visible and triggerable under **Settings → Drop folder**: what will be
+  filed, what stays put and **why**, plus a button that does not wait for the timer. The
+  list itself moves nothing — it is the dry run. With no folder mounted the panel says so
+  and names the expected path. Without this view the folder would be exactly the black box
+  it was built against: files vanish or they don't, and nobody can see why. (The same data
+  is at `/api/import/status`.)
 - ⌨️ **Home-computer formats import now.** `.prg`, `.tap`, `.crt`, `.g64`, `.z80`,
   `.tzx`, `.cdt`, `.adz`, `.a52` and more — 16 formats were missing from the extension
   list, so **nothing could arrive** through Romseerr for C64, VIC-20, ZX Spectrum, CPC,

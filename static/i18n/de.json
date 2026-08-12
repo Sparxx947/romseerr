@@ -373,5 +373,16 @@
  "needs_ia_login": "Konto nötig",
  "ia_hint": "Manche Archive.org-Titel liegen in der Sammlung `loggedin` und brauchen ein Konto — ohne eines antwortet der Download mit HTTP 401. Hier gehört KEIN Passwort hin, sondern das Schlüsselpaar von archive.org/account/s3.php: einzeln widerrufbar, ohne Sitzung, die still abläuft.",
  "job_open_card": "Zur Karte des Spiels",
- "job_no_card": "Zu diesem Titel gibt es keine Karte."
+ "job_no_card": "Zu diesem Titel gibt es keine Karte.",
+ "sec_drop": "Einwurf",
+ "drop_hint": "Der Einwurfordner nimmt ROMs auf, die nicht über eine Anfrage kommen — eine ganze Sammlung, ein Ordner vom Stick. <b>Diese Ansicht verschiebt nichts</b>, sie rechnet nur durch, was passieren würde. Angefasst wird eine Datei erst, wenn sie zwei Durchgänge lang unverändert geblieben ist — ein noch laufender Upload bleibt also liegen. Was sich keiner Plattform zuordnen lässt, wandert nach <code>.unsortiert</code>, statt geraten zu werden.",
+ "drop_off": "Kein Einwurfordner eingehängt — die Funktion ist nicht eingerichtet. Erwartet wird:",
+ "drop_every": "wird alle {n} Minuten von selbst geprüft",
+ "drop_ready": "Wird einsortiert",
+ "drop_stuck": "Bleibt liegen",
+ "drop_none": "Der Ordner ist leer.",
+ "drop_more": "… und {n} weitere",
+ "drop_scan": "Jetzt einlesen",
+ "drop_running": "läuft …",
+ "drop_done": "{a} einsortiert, {o} liegen geblieben"
 }
