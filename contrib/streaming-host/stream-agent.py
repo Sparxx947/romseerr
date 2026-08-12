@@ -30,6 +30,7 @@ SICHERHEIT: Dieser Dienst startet Prozesse. Er gehört NICHT ins offene Netz.
 import json
 import os
 import re
+import signal
 import time
 import shlex
 import subprocess
@@ -340,31 +341,113 @@ def installed_emulators():
     return out
 
 
+def _eigene_gruppe(p):
+    """Prozessgruppe des Kindes — aber nur, wenn sie ihm ALLEIN gehoert. -> pgid oder 0
+
+    DIE MESSUNG, DIE DIESE PRUEFUNG ERZWINGT (#489): ohne `start_new_session` steht der
+    Emulator in DERSELBEN Gruppe wie der Agent. Am laufenden Host abgelesen —
+
+        1414  1414  1414  python3 /opt/stream-agent.py
+        11616 1414  1414  /bin/sh …/AppRun.wrapped -r PCSF00024
+        11634 11616 1414  …/usr/bin/Vita3K -r PCSF00024
+
+    — alle drei in Gruppe 1414. Ein `killpg` darauf beendet den DIENST SELBST. Die Gruppe
+    wird deshalb nur benutzt, wenn sie gleich der Kind-PID ist: dann und nur dann hat
+    `start_new_session` gegriffen und die Gruppe enthaelt nichts als diesen Start.
+
+    EN: without start_new_session the emulator shares the agent's process group, so a
+    killpg would take down the service. Only pgid == pid is safe to signal.
+    """
+    try:
+        pgid = os.getpgid(p.pid)
+    except OSError:
+        return 0
+    return pgid if pgid == p.pid else 0
+
+
+def _senden(p, gruppe, sig):
+    """Signal an die ganze Gruppe — und nur ersatzweise an den verfolgten Prozess allein.
+
+    Der Rueckfall ist der Zustand VOR #489: er beendet den Wrapper und laesst den
+    Emulator stehen. Schlechter als die Gruppe, aber besser als gar nichts — und er
+    greift nur, wenn die Gruppe nicht sicher zuzuordnen war.
+    """
+    if gruppe:
+        try:
+            os.killpg(gruppe, sig)
+            return
+        except OSError:
+            pass
+    try:
+        p.send_signal(sig)
+    except (OSError, ValueError):
+        pass
+
+
+def _alles_beendet(p, gruppe, frist):
+    """Wartet, bis der Prozess UND seine Gruppe weg sind. -> True, wenn beides erreicht.
+
+    WARUM NICHT `p.wait(timeout=…)` GENUEGT: `p` ist bei Vita3K die Shell des Wrappers,
+    nicht der Emulator. Die Shell verlaesst SIGTERM sofort — `wait` kaeme also nach
+    Millisekunden zurueck und meldete Erfolg, waehrend der Emulator weiterlaeuft. Genau
+    das ist der verwaiste Prozess aus #489 (`kill` genuegte ihm nicht, erst `kill -9`).
+    Deshalb wird auf die GRUPPE gewartet, nicht auf das verfolgte Kind.
+
+    Erst `poll()`, dann die Gruppe: solange das Kind ein nicht abgeholter Zombie ist,
+    zaehlt es als Mitglied der Gruppe und wuerde sie ewig belebt aussehen lassen.
+
+    EN: p is the wrapper's shell, not the emulator — it leaves on SIGTERM at once, so
+    waiting on it alone reports success while the emulator lives on.
+    """
+    ende = time.monotonic() + frist
+    while True:
+        tot = p.poll() is not None
+        if tot and not (gruppe and _gruppe_lebt(gruppe)):
+            return True
+        if time.monotonic() >= ende:
+            return False
+        time.sleep(0.2)
+
+
+def _gruppe_lebt(gruppe):
+    """Signal 0: fragt nur nach, ob die Gruppe noch Mitglieder hat."""
+    try:
+        os.killpg(gruppe, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True             # EPERM: sie existiert, wir duerfen nur nicht
+    return True
+
+
 def _stop_locked():
     p = _current["proc"]
     if p and p.poll() is None:
-        p.terminate()
-        try:
-            p.wait(timeout=8)
-        except subprocess.TimeoutExpired:
-            p.kill()
-            # NACH `kill()` MUSS GEWARTET WERDEN. Sonst bleibt das Kind als ZOMBIE
-            # stehen — tot, aber nie abgeholt — und zwar fuer die ganze Laufzeit des
-            # Dienstes, ein Eintrag je beendeter Sitzung. Eden verlaesst SIGTERM nicht
-            # binnen 8 s, nimmt also immer diesen Zweig.
-            #
-            # DAS KOSTET MEHR ALS EINEN EINTRAG IN DER PROZESSTABELLE: `ps` zeigt einen
-            # Zombie mit demselben Namen und weiterlaufender Zeit wie einen lebenden
-            # Prozess. Genau daran ist die Diagnose zu #428 zweimal falsch abgebogen —
-            # „laeuft noch" statt „ist tot und nicht abgeholt". Ein Aufraeumfehler, der
-            # die naechste Fehlersuche in die Irre schickt, ist teurer als er aussieht.
-            #
-            # Ohne Zeitgrenze: SIGKILL laesst sich nicht abfangen, das Warten kann also
-            # nicht haengen.
-            # EN: reap after kill(). Otherwise the child lingers as a zombie for the
-            # service's lifetime, and `ps` shows it exactly like a running process — which
-            # is how the diagnosis for #428 went wrong twice.
-            p.wait()
+        # Die Gruppe VOR dem ersten Signal bestimmen: danach kann das Kind schon weg
+        # sein, und `getpgid` weiss dann nichts mehr.
+        gruppe = _eigene_gruppe(p)
+        _senden(p, gruppe, signal.SIGTERM)
+        if not _alles_beendet(p, gruppe, 8):
+            _senden(p, gruppe, signal.SIGKILL)
+            _alles_beendet(p, gruppe, 5)
+        # DAS KIND MUSS ABGEHOLT WERDEN. Sonst bleibt es als ZOMBIE stehen — tot, aber
+        # nie abgeholt — und zwar fuer die ganze Laufzeit des Dienstes, ein Eintrag je
+        # beendeter Sitzung. Eden verlaesst SIGTERM nicht binnen 8 s, nimmt also immer
+        # den Zweig darueber.
+        #
+        # DAS KOSTET MEHR ALS EINEN EINTRAG IN DER PROZESSTABELLE: `ps` zeigt einen
+        # Zombie mit demselben Namen und weiterlaufender Zeit wie einen lebenden
+        # Prozess. Genau daran ist die Diagnose zu #428 zweimal falsch abgebogen —
+        # „laeuft noch" statt „ist tot und nicht abgeholt". Ein Aufraeumfehler, der
+        # die naechste Fehlersuche in die Irre schickt, ist teurer als er aussieht.
+        #
+        # Ohne Zeitgrenze: SIGKILL laesst sich nicht abfangen, das Warten kann also
+        # nicht haengen. `_alles_beendet` hat in aller Regel schon abgeholt — dieser
+        # Aufruf ist der, der es ZUSICHERT, auch wenn dort die Frist ablief.
+        # EN: reap unconditionally. Otherwise the child lingers as a zombie for the
+        # service's lifetime, and `ps` shows it exactly like a running process — which
+        # is how the diagnosis for #428 went wrong twice.
+        p.wait()
     _current.update({"proc": None, "platform": "", "path": "",
                      "window": "", "window_detail": ""})
 
@@ -1104,8 +1187,23 @@ def launch(path, platform, rel="", region=""):
         _stop_locked()
         try:
             # Kein shell=True: die Argumentliste geht unveraendert an execve.
+            #
+            # `start_new_session`: EIGENE SITZUNG JE START (#489). Nicht Kosmetik, sondern
+            # die Voraussetzung dafuer, dass `/stop` ueberhaupt eine Gruppe beenden DARF —
+            # ohne sie steht der Emulator in der Gruppe des Agenten, und ein `killpg`
+            # beendet den Dienst selbst (am laufenden Host gemessen, siehe `_eigene_gruppe`).
+            #
+            # WARUM UEBERHAUPT DIE GRUPPE: Vita3Ks `AppRun.wrapped` ist als einziges ein
+            # Shell-Skript und startet den Emulator als KIND, ohne `exec`. Die verfolgte
+            # PID ist damit die der Shell — `/stop` beendete sie, und der Emulator lief
+            # verwaist weiter (PPid 1) und hielt die GPU. Der Weg ueber die Prozessgruppe
+            # ist emulatorunabhaengig: er trifft auch den naechsten Wrapper, den
+            # `linuxdeploy` erzeugt, ohne dass ihn jemand hier eintragen muss.
+            # EN: one session per launch — that is what makes killpg safe, and it catches
+            # any wrapper that starts the emulator as a child instead of exec'ing it.
             _current["proc"] = subprocess.Popen(argv, stdout=subprocess.DEVNULL,
-                                                stderr=subprocess.DEVNULL, env=umgebung)
+                                                stderr=subprocess.DEVNULL, env=umgebung,
+                                                start_new_session=True)
         except OSError as e:
             return False, f"Start fehlgeschlagen / launch failed: {e.__class__.__name__}"
         _current["platform"] = platform
