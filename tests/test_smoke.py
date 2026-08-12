@@ -8722,3 +8722,43 @@ def test_romseerr_and_the_agent_refuse_the_same_switch_packages(appmod, tmp_path
         ag_ab = bool(agent._switch_art(f))
         assert rs_ab == ag_ab == soll_ab, (
             f"{kennung}: Romseerr weist ab={rs_ab}, Agent={ag_ab}, erwartet {soll_ab}")
+
+
+def test_a_killed_emulator_is_reaped():
+    """Nach `kill()` wird gewartet — sonst bleibt ein Zombie stehen. (#428)
+
+    WAS PASSIERT WAR: `_stop_locked` schickt SIGTERM, wartet 8 s und schickt dann SIGKILL —
+    ohne danach zu warten. Das Kind ist tot, aber nie abgeholt: ein Zombie je beendeter
+    Sitzung, fuer die ganze Laufzeit des Dienstes. Eden verlaesst SIGTERM nicht binnen 8 s,
+    nimmt also immer diesen Zweig.
+
+    WARUM DAS MEHR KOSTET ALS EINEN TABELLENEINTRAG: `ps` zeigt einen Zombie mit demselben
+    Namen und weiterlaufender Zeit wie einen lebenden Prozess. Ich habe daran zweimal die
+    falsche Diagnose gestellt — „der Emulator laeuft nach /stop weiter" — und ein Issue mit
+    dieser Behauptung geschrieben, bevor ich die Zustandsspalte gelesen habe.
+
+    WARUM DAS HIER EINE QUELLTEXTPRUEFUNG IST und kein Verhaltenstest — nachgemessen, nicht
+    angenommen: Ein Verhaltenstest funktioniert in DIESEM Prozess nicht. Jedes
+    `subprocess.Popen` irgendwo im selben Python-Prozess ruft `subprocess._cleanup()` auf
+    und erntet dabei ALLE beendeten Kinder. Im Testlauf gibt es solche Aufrufe, das Kind
+    wird also ohnehin abgeholt — die Pruefung waere mit UND ohne den Fix gruen.
+
+    Gemessen: allein laufend bleibt das Kind ohne `p.wait()` ein Zombie
+    (`State: Z (zombie)` nach 0,3 s, 1 s und 2 s), mit `p.wait()` ist es weg. Unter pytest
+    ist es in beiden Faellen weg. Ein Verhaltenstest haette also Sorgfalt bewiesen, die es
+    nicht gibt — genau das Muster, gegen das die uebrigen Pruefungen hier gebaut sind.
+
+    EN: this is a source check on purpose. Any `subprocess.Popen` in the same process reaps
+    all finished children, so a behavioural test would be green with and without the fix.
+    Measured standalone: without `p.wait()` the child stays `Z (zombie)`; with it, it is gone.
+    """
+    quelle = open(os.path.join(REPO, "contrib", "streaming-host", "stream-agent.py"),
+                  encoding="utf-8").read()
+    m = re.search(r"^def _stop_locked\(\):(.*?)(?=^def |\Z)", quelle, re.S | re.M)
+    assert m, "_stop_locked ist nicht mehr auffindbar"
+    koerper = m.group(1)
+    assert "p.kill()" in koerper, "der harte Abbruch fehlt"
+    nach_kill = koerper[koerper.index("p.kill()") + len("p.kill()"):]
+    assert re.search(r"^\s*p\.wait\(\)\s*$", nach_kill, re.M), (
+        "nach p.kill() wird nicht geerntet — das Kind bleibt als Zombie stehen, und `ps` "
+        "zeigt es wie einen laufenden Emulator")
