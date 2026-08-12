@@ -1132,6 +1132,35 @@ def build_index():
                         f"{type(err).__name__}: {err}")
             try:
                 for root, dirs, files in os.walk(p, onerror=_lesefehler):
+                    # EIN ORDNER, DER EIN SPIEL IST, IST EIN TITEL — und NICHT sein
+                    # Innenleben. (#477)
+                    #
+                    # Der Import weiss das laengst (`SPIELORDNER_MUSTER`, #391), der Index
+                    # wusste es nicht: Er lief hinein und legte die Bestandteile als Titel
+                    # ab. Am Bestand gemessen, nach einem vollstaendigen Neuaufbau:
+                    #
+                    #   wiiu    31 Eintraege: `app`, `bootDrcTex`, `bootLogoTex`, `bootMovie`
+                    #   psvita  14 Eintraege: `args`, `eboot`, `Gravite`, `icon`
+                    #   ps3     27 Eintraege: `PS3_DISC`, `ICON0`, …
+                    #
+                    # `bootMovie` ist ein Video IN Captain Toad, `Gravite` die `.psarc` IN
+                    # Gravity Rush. Die echten Titel fehlten ganz — und damit fand
+                    # `stream_info` sie nicht, obwohl sie vollstaendig dalagen.
+                    #
+                    # EN: the import path has known this since #391; the index walked into
+                    # the folder and filed its contents as titles, so a complete, present
+                    # title was unreachable through the UI.
+                    if root != p and ist_titel_ordner(root):
+                        name = os.path.basename(root)
+                        n = norm(name)
+                        if n:
+                            s.add(n); allset.add(n)
+                            anzeige = os.path.splitext(name)[0].strip() or name
+                            vorher = namen.get((slug, n))
+                            if vorher is None or len(anzeige) < len(vorher):
+                                namen[(slug, n)] = anzeige
+                        dirs[:] = []       # nicht hineinlaufen
+                        continue
                     for fn in files:
                         n = norm(fn)
                         if not n: continue
@@ -2952,6 +2981,75 @@ SPIELORDNER_MUSTER = [
 ]
 # Einzelne Dateien, die einen Ordner allein zum Spiel machen.
 SPIELORDNER_DATEI = {"default.xbe": "xbox", "ps3_disc.sfb": "ps3"}
+
+
+# Abbildlisten und was sie nennen — fuer die Frage „ist dieser Ordner EIN Titel?". (#477)
+#
+# WARUM NICHT UEBER `spielordner_slug`: Das liefert einen SLUG, und ein Abbild-Set verraet
+# seine Plattform nicht. Eine `.cue` steht bei psx, saturn, segacd und turbografx-cd; eine
+# `.gdi` bei dc. Fuer den INDEX ist die Plattform aber schon bekannt — dort lautet die
+# Frage nur „ein Titel oder viele?".
+_ABBILDLISTE = (".gdi", ".cue", ".m3u")
+_CUE_FILE = re.compile(r'^\s*FILE\s+(?:"([^"]+)"|(\S+))', re.I | re.M)
+
+
+def _abbild_nennt(pfad):
+    """Dateinamen, die eine Abbildliste nennt. Leer, wenn unlesbar."""
+    endung = os.path.splitext(pfad)[1].lower()
+    try:
+        with open(pfad, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read(200_000)
+    except OSError:
+        return []
+    if endung == ".gdi":
+        namen = []
+        for zeile in text.splitlines()[1:]:
+            teile = zeile.split()
+            if len(teile) >= 6:
+                namen.append(" ".join(teile[4:-1]).strip('"'))
+        return namen
+    if endung == ".cue":
+        return [(a or b) for a, b in _CUE_FILE.findall(text)]
+    return [z.strip() for z in text.splitlines()
+            if z.strip() and not z.lstrip().startswith("#")]
+
+
+def ist_titel_ordner(pfad):
+    """-> True, wenn dieser Ordner GENAU EIN Titel ist. (#477)
+
+    Zwei Wege, und der zweite fehlte:
+
+      1. Ein bekannter Aufbau aus `SPIELORDNER_MUSTER` (Wii U, PS3, GameCube, Vita, Xbox).
+      2. Ein ABBILD-SET: eine `.gdi`/`.cue`/`.m3u` nennt Dateien, die daneben liegen.
+
+    Ohne den zweiten Weg legt der Index einen Dreamcast-Titel als `track01`, `track02`, …
+    ab — dieselbe Sorte Unsinn wie `bootMovie` und `Gravite` vor diesem Fix, nur mit
+    anderen Namen. Dass alle Listen auf denselben Titel reduzieren, wird mitgeprueft:
+    Zwei verschiedene Spiele in einem Ordner sind eine Sammlung, kein Titel.
+
+    EN: two routes — a known layout, or an image list naming files that sit beside it.
+    Without the second, a restored Dreamcast title would be indexed as `track01`, `track02`.
+    """
+    if spielordner_slug(pfad):
+        return True
+    try:
+        eintraege = [e for e in os.scandir(pfad) if e.is_file()]
+    except OSError:
+        return False
+    listen = [e for e in eintraege
+              if os.path.splitext(e.name)[1].lower() in _ABBILDLISTE]
+    if not listen:
+        return False
+    if len({norm(e.name) for e in listen}) != 1:
+        return False                      # zwei Titel in einem Ordner = Sammlung
+    vorhanden = {e.name.lower() for e in eintraege}
+    genannt = []
+    for e in listen:
+        v = _abbild_nennt(e.path)
+        if not v:
+            return False                  # unlesbar oder leer — nicht raten
+        genannt.extend(v)
+    return all(os.path.basename(n).lower() in vorhanden for n in genannt)
 
 
 def spielordner_slug(pfad):
