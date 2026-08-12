@@ -961,11 +961,15 @@ PROFILE = {
     #             (`N[BOOT]: Game ID is [T7011D  50]`).
     #   Gamepad : Flycast oeffnet alle vier virtuellen Pads von selbst und belegt sie
     #             (`SDL: Opened joystick 0..3 on port 0..3` / `Resetting SDL gamepad to
-    #             default`). Es braucht also KEINE Zuordnung von uns — aber `geprueft`
-    #             bleibt False, bis ein Mensch im Spiel gedrueckt hat. Automatik ist eine
-    #             Annahme, kein Messwert. (#301)
+    #             default`). Es braucht KEINE Zuordnung von uns — und das ist hier zum
+    #             ersten Mal BELEGT statt angenommen: ein Mensch hat in Fatal Fury -
+    #             Mark of the Wolves gedrueckt und die Figur hat reagiert (2026-08-12).
+    #             Bei DuckStation, PCSX2, Dolphin und RPCS3 genuegte die Automatik NICHT,
+    #             deshalb steht diese Zeile hier ausdruecklich: Flycast ist die Ausnahme,
+    #             nicht die Regel. (#301, #304)
+    #   Ton     : NICHT geprueft. `geprueft` bezieht sich auf Bild und Gamepad.
     "flycast":   {"system": "Dreamcast",     "controller": None, "bios": None, "vollbild": None,
-                  "geprueft": False},
+                  "geprueft": True},
     # Fenster und Ton am laufenden Host bestaetigt (2026-08-10, #300) — es brauchte
     # KEINE Konfigurationsdatei, nur libusb, den Pulse-Pfad und das Festplattenabbild
     # (init/22-xemu-vorbereiten). Der Controller ist NICHT geprueft.

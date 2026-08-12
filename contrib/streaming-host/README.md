@@ -438,7 +438,7 @@ Controller im Spiel gedrückt.
 | PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
 | Switch | Eden | ✅ | ✅ | (⁠—⁠) | Controller nicht eigens geprüft |
 | Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | erst seit der Entschlüsselung (#354/#356); Vollbild an den Pixeln gemessen (#316); Controller nicht eigens geprüft |
-| Dreamcast | Flycast | ✅ | (⁠—⁠) | (⁠—⁠) | Vollbild und **Vulkan** in der Startzeile, an den Pixeln gemessen (#304); Ton und Controller nicht eigens geprüft |
+| Dreamcast | Flycast | ✅ | (⁠—⁠) | ✅ | Vollbild und **Vulkan** in der Startzeile, an den Pixeln gemessen (#304); Controller von einem Menschen in Fatal Fury bestätigt — Flycast belegt die Pads selbst, als einziger Emulator hier; Ton nicht geprüft |
 | Xbox | xemu | ✅ | ✅ | ✅ | braucht **COMPLEX 4627 + MCPX 1.0** — Retail-BIOS bleiben schwarz |
 | Wii U | Cemu | — | — | — | Titel vorhanden seit #452/#455 — noch nicht gestartet |
 | PS Vita | Vita3K | — | — | — | Titel vorhanden seit #452/#455 — noch nicht gestartet |
@@ -1301,7 +1301,7 @@ pressed in-game.
 | PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
 | Switch | Eden | ✅ | ✅ | (⁠—⁠) | controller not checked separately |
 | Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | only since decryption (#354/#356); fullscreen measured at the pixels (#316); controller not separately checked |
-| Dreamcast | Flycast | ✅ | (⁠—⁠) | (⁠—⁠) | fullscreen and **Vulkan** set on the launch line, measured at the pixels (#304); sound and controller not checked separately |
+| Dreamcast | Flycast | ✅ | (⁠—⁠) | ✅ | fullscreen and **Vulkan** set on the launch line, measured at the pixels (#304); controller confirmed by a human in Fatal Fury — Flycast maps the pads by itself, the only emulator here that does; sound not checked |
 | Xbox | xemu | ✅ | ✅ | ✅ | needs **COMPLEX 4627 + MCPX 1.0** — retail BIOS stays black |
 | Wii U | Cemu | — | — | — | a title is in the library since #452/#455 — not launched yet |
 | PS Vita | Vita3K | — | — | — | a title is in the library since #452/#455 — not launched yet |
