@@ -1024,6 +1024,34 @@ def slug_folders(slug):
     return [slug] + sorted(f for f, z in FOLDER_ALIASES.items() if z == slug)
 
 
+def bibliothek_ordner(slug):
+    """Slug -> Ordner, in den ein Import gehoert. (#454)
+
+    Lesen kannte `FOLDER_ALIASES` laengst, Schreiben nicht: Das Ziel war schlicht
+    `ROMS/<slug>`. Liegt die Bibliothek einer Plattform im Alias-Ordner — RetroNAS nennt
+    GameCube `gc` und Dreamcast `dc` —, dann landete jeder Download DANEBEN statt DARIN,
+    und der Bestand teilte sich lautlos in zwei Ordner. Sichtbar wurde das nicht, weil das
+    Lesen beide wieder zusammenfuegt; auf der Platte war die Plattform trotzdem zweigeteilt,
+    und alles, was die Ordner direkt liest (RomM, RetroNAS' Freigaben, ein blankes `ls`),
+    sah nur eine Haelfte.
+
+    Deshalb: der Ordner, in dem diese Plattform SCHON liegt, sonst der Slug. Die Reihenfolge
+    kommt aus `slug_folders` und damit aus der konstanten Tabelle, nie aus der Eingabe.
+
+    Slug -> the folder an import belongs in. Prefer a folder that already holds this
+    platform's content, so an alias-named library does not get split in two.
+    """
+    for f in slug_folders(slug):
+        p = os.path.join(ROMS, f)
+        try:
+            with os.scandir(p) as eintraege:     # `with`, sonst bleibt der Deskriptor offen
+                if any(eintraege):
+                    return p
+        except OSError:                          # gibt es nicht, ist keiner, nicht lesbar
+            continue
+    return os.path.join(ROMS, slug)
+
+
 INDEX_FEHLER_ZEIGEN = 10   # so viele Plattformnamen stehen in der Schlussmeldung
 
 def _index_fehlertext(fehler):
@@ -3015,7 +3043,7 @@ def import_folder(jid, folder):
     schon_drin = []
     for quelle, slug in ordner_titel:
         name = os.path.basename(quelle.rstrip("/")) or os.path.basename(folder)
-        ziel_ordner = os.path.join(ROMS, slug)
+        ziel_ordner = bibliothek_ordner(slug)     # nicht ROMS/<slug> — siehe #454
         os.makedirs(ziel_ordner, exist_ok=True)
         dst = os.path.join(ziel_ordner, name)
         if os.path.exists(dst):
@@ -7268,7 +7296,7 @@ def einwurf_verschieben(quelle, slug):
     umbenennen, und erst danach die Quelle entfernen.
     """
     name = os.path.basename(quelle)
-    ziel_ordner = os.path.join(ROMS, slug)
+    ziel_ordner = bibliothek_ordner(slug)     # nicht ROMS/<slug> — siehe #454
     try:
         os.makedirs(ziel_ordner, exist_ok=True)
         endgueltig = os.path.join(ziel_ordner, name)
