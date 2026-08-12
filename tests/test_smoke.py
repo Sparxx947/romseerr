@@ -8135,3 +8135,175 @@ def test_an_imported_file_is_group_writable(appmod, tmp_path, monkeypatch):
 
     modus = (roms / "snes" / "Spiel.sfc").stat().st_mode & 0o777
     assert modus & 0o060, f"nicht fuer die Gruppe schreibbar: {modus:o}"
+
+
+# --- #395: Doku-Gleichstand ----------------------------------------------------------
+
+def test_no_test_name_is_defined_twice():
+    """Zwei Tests mit demselben Namen — der zweite verdeckt den ersten LAUTLOS. (#395)
+
+    So entstanden: Diese Datei hatte bereits `test_both_readmes_carry_the_same_sections`
+    aus #378, das `##`-Abschnitte, Inhaltsverzeichnis UND `###`-Unterabschnitte samt einer
+    gepflegten Ausnahmeliste vergleicht. #395 legte 5.000 Zeilen weiter unten einen Test
+    desselben Namens an, der nur die Abschnitte zaehlte. Python behaelt den zweiten. Die
+    Zahl der gesammelten Tests blieb gleich, alles war gruen — und die gruendlichere
+    Pruefung lief ab diesem Tag nicht mehr.
+
+    Das ist die unangenehmste Sorte Regression: Sie entfernt eine Pruefung, waehrend sie
+    aussieht, als kaeme eine dazu.
+
+    EN: a duplicate test name silently shadows the earlier definition. The collection count
+    stays the same and everything is green, while the better check has stopped running.
+    """
+    import collections
+
+    doppelt = {}
+    for datei in sorted(os.listdir(os.path.join(REPO, "tests"))):
+        if not (datei.startswith("test_") and datei.endswith(".py")):
+            continue
+        quelle = open(os.path.join(REPO, "tests", datei), encoding="utf-8").read()
+        namen = re.findall(r"^def (test_[A-Za-z0-9_]+)", quelle, re.M)
+        mehrfach = [n for n, z in collections.Counter(namen).items() if z > 1]
+        if mehrfach:
+            doppelt[datei] = sorted(mehrfach)
+    assert not doppelt, (
+        "diese Tests sind mehrfach definiert; nur die LETZTE Fassung laeuft: "
+        + json.dumps(doppelt, ensure_ascii=False))
+
+
+def test_the_english_readme_documents_the_way_back():
+    """Der Rueckweg nach einem misslungenen Update steht auch auf Englisch. (#378/#395)
+
+    Der konkrete Abschnitt, dessen Fehlen #378 aufdeckte. Diese Pruefung nennt ihn beim
+    Namen statt nur Abschnitte zu zaehlen — sie faellt auch, wenn jemand ihn kuerzt statt
+    ihn zu loeschen.
+    """
+    import re
+    en = open(os.path.join(REPO, "README.en.md"), encoding="utf-8").read()
+    m = re.search(r"^## Versions: updating, and going back$(.*?)(?=^## )", en, re.S | re.M)
+    assert m, "der Abschnitt ueber Aktualisieren und Zurueckgehen fehlt"
+    # NICHT AUF VOKABELN PRUEFEN: Die erste Fassung verlangte die Woerter „rollback" und
+    # „previous version". Der Abschnitt EXISTIERT und benutzt sie nur nicht — der Test
+    # scheiterte an seiner eigenen Wortwahl statt an einer Luecke. Was zaehlt, ist der
+    # Umfang: Ein Abschnitt, der auf drei Zeilen zusammenschrumpft, hat den Rueckweg
+    # verloren, egal welche Woerter darin stehen.
+    zeilen = [z for z in m.group(1).splitlines() if z.strip()]
+    assert len(zeilen) >= 40, \
+        f"der Abschnitt ist auf {len(zeilen)} Zeilen geschrumpft — Rueckweg noch erklaert?"
+
+
+# --- #416: der Einwurfordner braucht einen Weg hinein -------------------------------
+
+def test_the_drop_folder_is_reachable_from_the_ui():
+    """Der Massenimport hat eine Bedienoberflaeche, nicht nur eine API. (#416)
+
+    WIE DAS AUFFIEL: Die Doku-Pruefung (#395) beschrieb einen Bereich unter
+    Einstellungen -> Import. Beim Nachsehen kam heraus, dass es ihn nicht gab: `#396`
+    lieferte den Taktlauf und zwei Endpunkte, aber keine Zeile Oberflaeche. Gemessen auf
+    `dev`: `grep -rc 'import/status\\|import/scan' static templates` -> kein Treffer.
+
+    Das ist genau der Fall „ausgeliefert und wirkungslos": Alle Tests waren gruen, denn
+    die Endpunkte funktionierten. Nur konnte sie niemand erreichen, der nicht `curl`
+    benutzt — und der Einwurfordner ist die eine Funktion, deren Sinn die Bedienung von
+    Hand ist.
+
+    EN: the bulk import shipped with a timer and two endpoints but no UI. Everything was
+    green because the endpoints worked; nobody could reach them without curl.
+    """
+    js = open(os.path.join(REPO, "static", "js", "index.js"), encoding="utf-8").read()
+    for pfad in ("/api/import/status", "/api/import/scan"):
+        assert pfad in js, (
+            f"{pfad} kommt in der Oberflaeche nicht vor — der Einwurfordner waere wieder "
+            "nur ueber die API bedienbar")
+
+    # Ein Abschnitt, den die Navigation nicht anbietet, ist nicht erreichbar. Beides
+    # pruefen: Eintrag in der Leiste UND Zuordnung auf eine Funktion.
+    m = re.search(r"let secs=\[(.+?)\];", js, re.S)
+    assert m and "'drop'" in m.group(1), "der Bereich fehlt in der Einstellungs-Navigation"
+    zuord = re.search(r"\(\{general:secGeneral,(.+?)\}\[sec\]", js, re.S)
+    assert zuord and "drop:secDrop" in zuord.group(1), (
+        "der Bereich ist in der Leiste, wird aber auf keine Funktion abgebildet — "
+        "ein Klick landete stillschweigend auf 'Allgemein'")
+
+
+def test_every_settings_section_has_a_render_function():
+    """Jeder Eintrag der Einstellungs-Leiste zeigt auch seinen eigenen Inhalt. (#416)
+
+    WARUM DAS EINE EIGENE PRUEFUNG BRAUCHT: Die Zuordnung endet auf `||secGeneral`. Ein
+    Eintrag ohne Funktion faellt deshalb NICHT auf — er zeigt „Allgemein" und sieht aus
+    wie ein Bedienfehler des Nutzers. Kein Fehler in der Konsole, kein roter Test.
+
+    EN: the dispatch falls back to `secGeneral`, so a section without a function shows the
+    wrong page instead of failing.
+    """
+    js = open(os.path.join(REPO, "static", "js", "index.js"), encoding="utf-8").read()
+    m = re.search(r"let secs=\[(.+?)\];", js, re.S)
+    assert m, "die Einstellungs-Navigation ist nicht mehr auffindbar"
+    eintraege = re.findall(r"\['([a-z0-9_]+)'", m.group(1))
+    assert len(eintraege) >= 8, f"nur {len(eintraege)} Eintraege gefunden — Muster kaputt?"
+
+    zuord = re.search(r"\(\{general:secGeneral,(.+?)\}\[sec\]", js, re.S)
+    assert zuord, "die Zuordnung Abschnitt -> Funktion ist nicht mehr auffindbar"
+    abgebildet = set(re.findall(r"([a-z0-9_]+):sec[A-Z]", "general:secGeneral," + zuord.group(1)))
+
+    fehlend = [e for e in eintraege if e not in abgebildet]
+    assert not fehlend, (
+        f"diese Abschnitte stehen in der Leiste, zeigen aber 'Allgemein': {fehlend}")
+
+
+def test_every_literal_translation_key_in_the_ui_exists():
+    """Kein `t('…')` im Skript ohne Eintrag in der eingebetteten deutschen Tabelle. (#416)
+
+    Die Gegenrichtung zu `test_the_inlined_german_table_covers_every_key_any_language_has`:
+    Jene prueft, dass die Tabelle jeden Schluessel der Sprachdateien kennt. Diese prueft,
+    dass sie jeden Schluessel kennt, den der CODE benutzt. Ein Tippfehler in einem neuen
+    `t('drop_titel')` faellt sonst nirgends auf — `t()` gibt bei Unbekanntem den
+    SCHLUESSEL zurueck, und der Nutzer liest `drop_titel` als Ueberschrift.
+
+    Zusammengesetzte Aufrufe wie `t('st_'+x.state)` sind hier absichtlich nicht erfasst;
+    sie sind nicht statisch entscheidbar.
+
+    EN: the other direction — every literal key the code uses must exist in the inlined
+    table, otherwise `t()` returns the key itself and the user reads an identifier.
+    """
+    js = open(os.path.join(REPO, "static", "js", "index.js"), encoding="utf-8").read()
+    m = re.search(r"const I18N=\{de:(\{.*?\})\};", js, re.S)
+    assert m, "eingebettete deutsche Tabelle nicht gefunden"
+    tabelle = set(json.loads(m.group(1)))
+
+    benutzt = set(re.findall(r"\bt\('([a-z0-9_]+)'\)", js))
+    assert len(benutzt) > 100, f"nur {len(benutzt)} Schluessel gefunden — Muster kaputt?"
+
+    fehlend = sorted(benutzt - tabelle)
+    assert not fehlend, (
+        "diese Schluessel benutzt die Oberflaeche, ohne dass es sie gibt — der Nutzer "
+        f"sieht den Bezeichner: {fehlend}")
+
+
+def test_every_environment_variable_is_mentioned_in_the_example():
+    """Was der Code aus der Umgebung liest, steht auch in `.env.example`. (#395)
+
+    GEMESSEN BEIM FUND: 23 Variablen las `app.py`, ohne dass die Beispieldatei sie
+    erwaehnte — darunter der komplette Streaming-Host (`STREAM_URL`, `STREAM_LAUNCH` und
+    die zweiten Plaetze) und `IMPORT_SCAN_SEC`, das in einem KOMMENTAR vorkam, aber keinen
+    Eintrag hatte. Eine Einstellung, die man nur findet, indem man den Quelltext liest,
+    ist praktisch nicht vorhanden.
+
+    Absichtlich lasch: Es genuegt, dass der Name irgendwo in der Datei VORKOMMT — auch
+    auskommentiert oder im Fliesstext. Der Test verlangt keine Zeile `X=`, denn ein
+    Vorgabewert ist nicht fuer jede Variable sinnvoll. Er verlangt nur, dass sie
+    auffindbar ist.
+
+    EN: every variable `app.py` reads must appear somewhere in `.env.example` — commented
+    out or in prose is fine, invisible is not.
+    """
+    quelle = open(os.path.join(REPO, "app.py"), encoding="utf-8").read()
+    gelesen = set(re.findall(r'os\.environ\.get\("([A-Z_0-9]+)"', quelle))
+    gelesen |= set(re.findall(r'os\.environ\["([A-Z_0-9]+)"\]', quelle))
+    assert len(gelesen) > 20, f"nur {len(gelesen)} Variablen gefunden — Muster kaputt?"
+
+    beispiel = open(os.path.join(REPO, ".env.example"), encoding="utf-8").read()
+    fehlend = sorted(v for v in gelesen if v not in beispiel)
+    assert not fehlend, (
+        "diese Variablen liest der Code, ohne dass `.env.example` sie kennt — sie sind "
+        f"nur durch Quelltextlesen auffindbar: {fehlend}")

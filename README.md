@@ -256,10 +256,16 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   Was sich **nicht** bestimmen lässt, bleibt liegen — mit Grund. 25 der 82 anerkannten
   Endungen sind mehrdeutig; ein Download bringt seinen Plattform-Hinweis aus der Anfrage
   mit, eine hineingelegte Datei bringt nichts mit. Der Ordnername darf entscheiden, wo die
-  Endung es nicht kann. Stand und Gründe stehen unter `/api/import/status`.
+  Endung es nicht kann.
   Verschoben wird über **Kopieren, Prüfen, dann Löschen**: Einwurfordner und Bibliothek
   liegen auf verschiedenen Dateisystemen, und nichts wird gelöscht, was nicht angekommen
   ist.
+  Zu sehen und auszulösen ist das alles unter **Einstellungen → Einwurf**: was einsortiert
+  wird, was liegen bleibt und **weshalb**, dazu ein Knopf, der nicht auf den Takt wartet.
+  Die Liste verschiebt selbst nichts — sie ist der Trockenlauf. Ist kein Ordner eingehängt,
+  sagt der Bereich das und nennt den erwarteten Pfad. Ohne diese Ansicht wäre der Ordner
+  genau die Blackbox, gegen die er gebaut wurde: Dateien verschwinden oder eben nicht, und
+  niemand kann sehen, warum. (Dieselben Angaben liefert `/api/import/status`.)
 - ⌨️ **Heimcomputer-Formate werden importiert.** `.prg`, `.tap`, `.crt`, `.g64`, `.z80`,
   `.tzx`, `.cdt`, `.adz`, `.a52` und weitere — 16 Formate fehlten in der Endungsliste, und
   damit konnte über Romseerr für C64, VIC-20, ZX Spectrum, CPC, Amiga und Atari 5200
