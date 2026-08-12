@@ -362,3 +362,39 @@ def test_switching_language_redraws_the_requests_list(seite, anfrage_vorhanden):
 
     seite.evaluate("setLang('de')")
     seite.wait_for_timeout(900)
+
+
+def test_a_click_survives_the_list_being_rebuilt(seite, anfrage_vorhanden):
+    """Ein Klick wirkt auch, nachdem die Liste neu aufgebaut wurde. (#449)
+
+    WARUM DIESER TEST UND NICHT DER DANEBEN: `test_eine_anfrage_fuehrt_zur_karte_des_spiels`
+    faellt nur, wenn der Klick zufaellig in einen Neuaufbau faellt. Genau deshalb hat es
+    zwei Runden gedauert, den Rest des Problems zu bemerken: #419 machte die Momente
+    seltener, ich hielt das Problem fuer geloest, und in der CI fiel es wieder.
+
+    Hier wird der Neuaufbau ERZWUNGEN, statt auf ihn zu hoffen: `innerHTML` auf sich selbst
+    zu setzen ersetzt jedes Kindelement. Eine Bindung, die an der Zeile hing, ist danach
+    weg — ein Zuhoerer am Behaelter ueberlebt es.
+
+    EN: the neighbouring test only fails when the click happens to land in a rebuild, which
+    is why the remaining half went unnoticed for two rounds. Here the rebuild is forced.
+    """
+    seite.goto(seite.url.split("#")[0] + "#/requests")
+    seite.wait_for_timeout(600)
+    assert seite.locator(".jobt").count() > 0, "keine Anfragezeile — Fixture leer"
+
+    # Genau das, was loadJobs tut: alle Kindelemente durch neue ersetzen.
+    seite.evaluate("() => { const j = document.getElementById('jobs');"
+                   "         j.innerHTML = j.innerHTML; }")
+    seite.wait_for_timeout(200)
+
+    seite.locator(".jobt").first.click()
+    seite.wait_for_timeout(1500)
+
+    modal = seite.locator("#modal")
+    meldung = seite.locator(".jobmsg")
+    offen = modal.is_visible() if modal.count() else False
+    gesagt = (meldung.first.inner_text().strip() != "") if meldung.count() else False
+    assert offen or gesagt, (
+        "nach einem Neuaufbau tat der Klick nichts — die Bindung haengt wieder an der "
+        "Zeile statt am Behaelter")
