@@ -412,6 +412,38 @@ _ENTPACKER = (
 )
 
 
+def ist_ueberhaupt_ein_archiv(archiv):
+    """-> True, wenn ein Entpacker den INHALT als Archiv erkennt. (#447)
+
+    WOZU DIE UNTERSCHEIDUNG: Unter `amiga` liegen Dateien, die `.ZIP` oder `.LZH` heissen
+    und keine sind — kein `PK\x03\x04`, kein LHA-Kopf, sondern Amiga-Cruncher-Formate mit
+    Kennungen wie `85 15 02 41` oder `95 0a 02 41`. Sie als „Archiv liess sich nicht
+    entpacken" zu melden ist doppelt falsch: Es behauptet einen Schaden, den es nicht gibt,
+    und es begraebt die echten Fehlschlaege. Gemessen: 49 von 78 Meldungen waren solche
+    Dateien, und darunter lagen genau ZWEI wirklich beschaedigte Archive.
+
+    WARUM KEINE FORMATLISTE: Die Kennungen sind uneinheitlich, eine Liste waere Raterei.
+    Die Frage „erkennt ein Entpacker das ueberhaupt?" ist dagegen messbar und braucht kein
+    Formatwissen. `lsar` antwortet auf ein unbekanntes Format mit „Couldn't recognize the
+    archive format" und einem Rueckgabewert ungleich 0.
+
+    Im Zweifel `True`: Ist `lsar` nicht da, wird weiter wie bisher als Archiv behandelt —
+    lieber ein Fehlalarm als eine still uebersprungene Datei.
+
+    EN: distinguishes 'damaged archive' from 'not an archive at all'. Amiga cruncher files
+    named .ZIP/.LZH are not archives; reporting them as failed extractions claims damage
+    that does not exist and buries the two genuinely broken ones. No format list — the
+    measurable question is whether any extractor recognises the content.
+    """
+    if not shutil.which("lsar"):
+        return True
+    try:
+        r = subprocess.run(["lsar", archiv], capture_output=True, timeout=120)
+    except Exception:
+        return True
+    return r.returncode == 0
+
+
 def entpacken(archiv, ziel):
     """-> True bei Erfolg. Python fuer ZIP und TAR, sonst `unar` (ersatzweise `7z`)."""
     endung = os.path.splitext(archiv)[1].lower()
@@ -455,6 +487,7 @@ def umbauen(wurzel, plattform, trocken, protokoll):
 
     z = {"entpackt": 0, "archiv_behalten": 0, "verschoben": 0, "spielordner": 0,
          "dubletten": 0, "beiwerk": 0, "fehler": 0, "befreit": 0, "satz_verschont": 0,
+         "kein_archiv": 0,
          "beiwerk_gesammelt": 0}
     arcade = plattform in ARCHIV_BLEIBT
 
@@ -502,8 +535,20 @@ def umbauen(wurzel, plattform, trocken, protokoll):
                 z["entpackt"] += 1
             else:
                 shutil.rmtree(ziel, ignore_errors=True)
-                fehler_merken(z, protokoll, "entpacken", a,
-                              "Archiv liess sich nicht entpacken")
+                # ZWEI VERSCHIEDENE BEFUNDE, NICHT EINER. (#447)
+                #
+                # „Beschaedigtes Archiv" und „gar kein Archiv" verlangen verschiedene
+                # Antworten: das eine neu beschaffen, das andere nur richtig benennen. Sie
+                # in einen Topf zu werfen behauptet Schaden, den es nicht gibt, und
+                # begraebt die echten Faelle. Gemessen: 49 von 78 Meldungen waren
+                # Amiga-Cruncher-Dateien mit lugender Endung, darunter genau ZWEI wirklich
+                # beschaedigte Archive.
+                if ist_ueberhaupt_ein_archiv(a):
+                    fehler_merken(z, protokoll, "entpacken", a,
+                                  "Archiv liess sich nicht entpacken")
+                else:
+                    z["kein_archiv"] += 1
+                    protokoll.schreiben("kein_archiv", pfad=a)
     else:
         for w, _d, fs in os.walk(basis):
             z["archiv_behalten"] += sum(
@@ -703,6 +748,11 @@ def umbauen(wurzel, plattform, trocken, protokoll):
     print(f"    auf Ebene 1 gehoben   : {z['verschoben']}")
     print(f"    davon Beiwerk         : {z['beiwerk']}")
     print(f"    Spielordner belassen  : {z['spielordner']}")
+    if z["kein_archiv"]:
+        # NICHT UNTER „Fehler" ZAEHLEN, aber auch nicht verschweigen: Diese Dateien tragen
+        # eine luegende Endung und gehoeren umbenannt, nicht neu beschafft. (#447)
+        print(f"    kein Archiv           : {z['kein_archiv']}  (Endung luegt — kein "
+              f"Entpacker erkennt den Inhalt, KEIN Schaden)")
     if z["satz_verschont"]:
         # LAUT SAGEN, WARUM DIE ZAHL KLEINER IST. Ohne diese Zeile saehe der Lauf einfach
         # nach „weniger Dubletten" aus, und niemand wuesste, dass hier eine Regel griff.

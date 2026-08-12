@@ -420,16 +420,30 @@ def test_a_click_survives_the_list_being_rebuilt(seite, anfrage_vorhanden):
         f"der Neuaufbau hat nicht stattgefunden ({ersetzt}) — dann sagt dieser Test nichts")
     seite.wait_for_timeout(200)
 
+    # DER ZUHOERER MUSS DEN AUSTAUSCH UEBERLEBT HABEN — und das ist eine ANDERE Frage als
+    # „hat der Klick gewirkt". Ohne diese Trennung meldet der Test nur „nichts passiert",
+    # und man weiss nicht, ob die Bindung weg war oder der Klick daneben ging. Genau so
+    # stand es in der CI: kein `/api/search` im Protokoll, also war der Handler nie dran.
+    assert seite.evaluate(
+        "() => document.getElementById('jobs').dataset.klickgebunden === '1'"), \
+        "der Behaelter traegt die Bindung nicht mehr — sie haengt wieder an der Zeile"
+
+    # UND DIE SUCHE FEST VERDRAHTEN. Sonst haengt der Ausgang daran, ob Archive.org
+    # erreichbar ist: mit Netz oeffnet sich die Karte, ohne Netz bleibt nur eine
+    # Kurzmeldung, die ein Auffrischen wegwischen kann. Beides prueft dieser Test nicht.
+    seite.route("**/api/search*", lambda route: route.fulfill(
+        status=200, content_type="application/json",
+        body='[{"title":"Super Mario World","platform":"snes","platform_slug":"snes",'
+             '"source":"archive","size":524288,"ref":"probe","cover":"","gkey":"smw"}]'))
+
     seite.locator(".jobt").first.click()
     seite.wait_for_timeout(1500)
 
     modal = seite.locator("#modal")
-    meldung = seite.locator(".jobmsg")
-    offen = modal.is_visible() if modal.count() else False
-    gesagt = (meldung.first.inner_text().strip() != "") if meldung.count() else False
-    assert offen or gesagt, (
-        "nach einem Neuaufbau tat der Klick nichts — die Bindung haengt wieder an der "
-        "Zeile statt am Behaelter")
+    assert modal.count() and modal.is_visible(), (
+        "nach einem Neuaufbau oeffnete der Klick die Karte nicht, obwohl die Suche einen "
+        "Treffer liefert — Meldung in der Zeile: "
+        + (seite.locator(".jobmsg").first.inner_text().strip() or "(keine)"))
 
 
 def test_the_answer_to_a_click_survives_the_next_refresh(seite, anfrage_vorhanden):

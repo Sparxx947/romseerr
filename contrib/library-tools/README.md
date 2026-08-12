@@ -53,6 +53,29 @@ Vier Wege führen zur Antwort, in dieser Reihenfolge:
    derselbe Name übrig. Das ist ein Multi-Disk-Spiel.
 4. **Sonst: Sammlung.**
 
+#### „Kein Archiv" ist kein Fehlschlag (#447)
+
+Unter `amiga` liegen Dateien, die `.ZIP` oder `.LZH` heißen und keine sind — kein
+`PK\x03\x04`, kein LHA-Kopf, sondern Amiga-Cruncher-Formate mit Kennungen wie
+`85 15 02 41` oder `95 0a 02 41`.
+
+Sie als *„Archiv ließ sich nicht entpacken"* zu melden ist doppelt falsch: Es behauptet
+einen Schaden, den es nicht gibt, **und begräbt die echten**. Gemessen: **49 von 78**
+Meldungen waren solche Dateien, und darunter lagen genau **zwei** wirklich beschädigte
+Archive.
+
+Der Lauf trennt deshalb zwei Befunde, weil sie verschiedene Antworten verlangen:
+
+| Befund | Antwort |
+|---|---|
+| beschädigtes Archiv | neu beschaffen |
+| kein Archiv | umbenennen — die Datei ist heil, nur falsch benannt |
+
+**Ohne Formatliste.** Die Kennungen sind uneinheitlich, eine Liste wäre Raterei. Die Frage
+*„erkennt ein Entpacker den Inhalt überhaupt?"* ist dagegen messbar: `lsar` antwortet auf
+ein unbekanntes Format mit `Couldn't recognize the archive format`. Fehlt `lsar`, gilt im
+Zweifel „Archiv" — lieber ein Fehlalarm als eine still übersprungene Datei.
+
 #### Satzmitglieder werden nie als Dublette gelöscht (#467)
 
 Schritt 3b entfernt **bitgleiche** Dateien auf Ebene 1. Bei CD-Titeln ist das falsch: Spur 01
@@ -387,6 +410,27 @@ Four routes to the answer, in order:
    `(Disk 1)`, `(Side A)`, `[Disc 2]`, `(Tape 1 of 3)` — the same name remains. That is a
    multi-disk game.
 4. **Otherwise: a collection.**
+
+#### "Not an archive" is not a failure (#447)
+
+Under `amiga` there are files named `.ZIP` or `.LZH` that are neither — no `PK\x03\x04`,
+no LHA header, but Amiga cruncher formats with signatures like `85 15 02 41`.
+
+Reporting them as *"archive could not be extracted"* is wrong twice over: it claims damage
+that does not exist, **and it buries the real cases**. Measured: **49 of 78** messages were
+such files, and among them sat exactly **two** genuinely damaged archives.
+
+The run therefore separates two findings, because they call for different answers:
+
+| finding | answer |
+|---|---|
+| damaged archive | re-fetch it |
+| not an archive | rename it — the file is intact, only mislabelled |
+
+**Without a format list.** The signatures are inconsistent, so a list would be guesswork.
+The measurable question is whether any extractor recognises the content at all: `lsar`
+answers an unknown format with `Couldn't recognize the archive format`. If `lsar` is
+absent, the file counts as an archive — a false alarm beats a silently skipped file.
 
 #### Set members are never removed as duplicates (#467)
 
