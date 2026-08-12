@@ -7659,3 +7659,147 @@ def test_health_reports_platforms_that_could_not_be_read(appmod, client, monkeyp
         os.chmod(d, 0o755) if os.path.exists(d) else None
         shutil.rmtree(d, ignore_errors=True)
         appmod.build_index()
+
+
+# --- #379: die schreibenden Endpunkte mit Sicherheitsbezug ---------------------------
+#
+# WARUM GERADE DIESE DREI: Von 24 ungeprueften schreibenden Endpunkten tragen drei eine
+# Grenze, deren Bruch nicht auffaellt — Passwort-Zuruecksetzen, Freigabe fremder Anfragen,
+# Loeschen. Alle drei sind im Quelltext KORREKT abgesichert; gemessen, nicht angenommen.
+# Was fehlte, war die Zusicherung, dass es so bleibt.
+
+def _als(client, appmod, name, passwort="pw123456", rolle="user"):
+    """Melde einen Nutzer an; lege ihn an, wenn er fehlt. -> der Client."""
+    if client.get("/api/auth/status").get_json().get("setup"):
+        client.post("/api/setup", json={"username": "admin", "password": "pw123456",
+                                        "display_name": "Admin"})
+    client.post("/api/login", json={"username": "admin", "password": "pw123456"})
+    if name != "admin":
+        users = appmod.load_users()
+        if name not in users:
+            users[name] = {"pw": appmod.generate_password_hash(passwort), "role": rolle}
+            appmod.save_users(users)
+        client.post("/api/logout")
+        client.post("/api/login", json={"username": name, "password": passwort})
+    return client
+
+
+def test_a_plain_user_cannot_approve_a_request(client, appmod):
+    """Freigeben ist an `manage_requests` gebunden — auch fuer die eigene Anfrage. (#379)
+
+    Das ist die Rechtegrenze des gesamten Anfragesystems: Wer freigeben darf, kann jede
+    Kontingent- und Freigaberegel umgehen. Der generische 401-Test beweist nur, dass
+    IRGENDWER angemeldet sein muss, nicht WER.
+    """
+    _als(client, appmod, "normalo")
+    r = client.post("/api/jobs/gibtsnicht/approve")
+    assert r.status_code in (401, 403), \
+        f"ein normaler Nutzer bekam {r.status_code} statt einer Absage"
+    r = client.post("/api/jobs/gibtsnicht/deny")
+    assert r.status_code in (401, 403)
+
+
+def test_a_reset_token_works_once(client, appmod):
+    """Ein Reset-Token gilt genau EINMAL. (#379)
+
+    Ein wiederverwendbarer Token bliebe eine Stunde lang ein zweiter Schluessel zum Konto —
+    auch nachdem der Nutzer sein Passwort laengst gesetzt hat. Im Quelltext wird er nach
+    Gebrauch verworfen; diese Pruefung haelt das fest.
+    """
+    users = appmod.load_users()
+    users["resetprobe"] = {"pw": appmod.generate_password_hash("alt12345"), "role": "user"}
+    appmod.save_users(users)
+
+    tok = appmod.gen_reset("resetprobe")
+    assert appmod.check_reset(tok) == "resetprobe"
+
+    r = client.post("/api/reset", json={"token": tok, "new": "neu12345"})
+    assert r.status_code == 200 and r.get_json()["ok"] is True
+
+    zweit = client.post("/api/reset", json={"token": tok, "new": "nochmal123"})
+    assert zweit.get_json()["ok"] is False, "der Token liess sich ein zweites Mal einloesen"
+    assert appmod.check_reset(tok) is None
+
+
+def test_an_expired_reset_token_is_refused(appmod):
+    """Nach Ablauf gilt der Token nicht mehr. (#379)"""
+    tok = appmod.gen_reset("resetprobe")
+    appmod.RESET_TOKENS[tok]["exp"] = time.time() - 1
+    assert appmod.check_reset(tok) is None
+
+
+def test_forgot_does_not_reveal_whether_an_account_exists(client):
+    """Die Antwort ist fuer bekannte und unbekannte Konten gleich. (#379)
+
+    Sonst waere der Endpunkt ein Verzeichnisdienst: Wer Namen durchprobiert, erfaehrt
+    kostenlos, welche existieren.
+    """
+    a = client.post("/api/forgot", json={"user": "admin"})
+    b = client.post("/api/forgot", json={"user": "gibtesganzsichernicht"})
+    assert a.status_code == b.status_code
+    assert a.get_json() == b.get_json(), "die Antworten unterscheiden sich"
+
+
+def test_deleting_an_issue_needs_the_permission(client, appmod):
+    """Loeschen ist an `manage_issues` gebunden. (#379)
+
+    Der einzige zerstoerende Endpunkt in der Gruppe — und der einzige, dessen Fehler sich
+    nicht zurueckholen laesst.
+    """
+    _als(client, appmod, "normalo")
+    r = client.delete("/api/issues/1")
+    assert r.status_code in (401, 403), f"ein normaler Nutzer bekam {r.status_code}"
+
+
+def test_regenerating_the_api_key_is_admin_only(client, appmod):
+    """Ein neuer API-Key ist Adminsache. (#379)
+
+    Wer ihn erzeugen kann, verschafft sich einen Zugang, der an der Anmeldung vorbeigeht.
+    """
+    _als(client, appmod, "normalo")
+    r = client.post("/api/apikey/regenerate")
+    assert r.status_code in (401, 403)
+
+
+def test_the_remaining_write_endpoints_refuse_an_anonymous_caller(appmod):
+    """Kein schreibender Endpunkt antwortet einem Unangemeldeten mit Erfolg. (#379)
+
+    GEMESSEN, NICHT AM QUELLTEXT ABGELESEN: Die erste Fassung dieser Pruefung suchte nach
+    Dekoratoren an den Routen und meldete 18 Endpunkte als ungeschuetzt. Sie sind es nicht —
+    die Absicherung sitzt zentral in `_guard()` als `before_request`, das alles ausserhalb
+    von `PUBLIC` abweist. Eine Pruefung, die die Form statt der Wirkung ansieht, meldet
+    Fehlalarme, und Fehlalarme schaltet man ab.
+
+    Deshalb wird hier wirklich angefragt: ein eigener Client OHNE Anmeldung, gegen jeden
+    schreibenden Endpunkt, den es gibt.
+
+    GEGENGEPRUEFT: Einen EINZELNEN Endpunkt aus der Wache zu nehmen bricht diese Pruefung
+    NICHT — mehrere Handler pruefen die Sitzung ein zweites Mal und antworten selbst mit
+    403. Erst die abgeschaltete Wache zeigt es, und dann deutlich:
+    `POST /api/wishlist/remove -> 200`. Die doppelte Absicherung ist ein Vorzug, aber sie
+    macht eine Gegenprobe an einer Stelle wertlos — wer diesen Test aendert, muss die
+    Wache ganz abschalten, um ihn wirklich zu pruefen.
+    """
+    import re
+    quelle = open(os.path.join(REPO, "app.py"), encoding="utf-8").read()
+    muster = re.compile(r'@app\.route\(\s*"(/api/[^"]+)"[^)]*methods=\[([^\]]*)\]', re.M)
+    pfade = []
+    for m in muster.finditer(quelle):
+        pfad, methoden = m.group(1), m.group(2)
+        if not re.search(r'"(POST|PUT|DELETE|PATCH)"', methoden):
+            continue
+        if pfad in appmod.PUBLIC:
+            continue                       # Anmeldung, Einrichtung, Passwort-vergessen
+        pfade.append((pfad, "DELETE" if '"DELETE"' in methoden else "POST"))
+
+    assert len(pfade) >= 20, f"nur {len(pfade)} schreibende Endpunkte gefunden — Muster kaputt?"
+
+    anonym = appmod.app.test_client()      # bewusst NICHT angemeldet
+    durchgelassen = []
+    for pfad, methode in pfade:
+        ziel = re.sub(r"<[^>]+>", "1", pfad)
+        r = anonym.open(ziel, method=methode, json={})
+        if r.status_code not in (401, 403, 302):
+            durchgelassen.append(f"{methode} {ziel} -> {r.status_code}")
+    assert not durchgelassen, ("diese schreibenden Endpunkte antworten einem "
+                              "Unangemeldeten: " + ", ".join(durchgelassen))
