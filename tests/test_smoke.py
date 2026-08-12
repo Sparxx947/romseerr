@@ -8915,3 +8915,58 @@ def test_the_install_example_does_not_point_at_latest():
             f"{datei} bietet `:latest` als Installation an, obwohl es aelter ist als jeder "
             f"Release: {schlecht}")
         assert zeilen, f"{datei} nennt gar kein Abbild mehr"
+
+def test_every_workflow_keeps_write_permissions_on_the_job(appmod):
+    """Kein Schreibrecht auf Workflow-Ebene. (#434)
+
+    WARUM DAS ZAEHLT: Ein `permissions:`-Block ganz oben gilt fuer JEDEN Job der Datei —
+    auch fuer die, die nur lesen. In `release-please.yml` standen `contents: write` und
+    `pull-requests: write` oben, obwohl drei der vier Jobs eigene Bloecke hatten und nur
+    einer sie brauchte. Scorecard meldet das als „high", und die enge Fassung ist ohnehin
+    die ehrlichere Beschreibung: Sie sagt, WELCHER Schritt schreibt.
+
+    Nicht geprueft wird, ob ein Job zu viel verlangt — das entscheidet niemand aus dem
+    Quelltext. Geprueft wird nur, dass die Entscheidung ueberhaupt am Job faellt.
+
+    EN: a top-level permissions block applies to every job in the file, including the ones
+    that only read. This checks the decision is made per job, not that a job asks for the
+    right amount.
+    """
+    import yaml
+    verz = os.path.join(REPO, ".github", "workflows")
+    schreibend = {}
+    for datei in sorted(os.listdir(verz)):
+        if not datei.endswith((".yml", ".yaml")):
+            continue
+        d = yaml.safe_load(open(os.path.join(verz, datei), encoding="utf-8"))
+        oben = (d or {}).get("permissions")
+        if not isinstance(oben, dict):
+            continue          # `read-all` oder gar nichts — beides unbedenklich
+        schreibt = sorted(k for k, v in oben.items() if v == "write")
+        if schreibt:
+            schreibend[datei] = schreibt
+    assert not schreibend, (
+        "diese Workflows halten Schreibrechte auf Datei-Ebene, wo sie fuer jeden Job "
+        f"gelten: {json.dumps(schreibend)}")
+
+
+def test_a_security_policy_exists_and_says_where_to_report():
+    """`SECURITY.md` sagt, wo ein Fund hingehoert. (#434)
+
+    Ein oeffentliches Repository ohne diese Datei laesst jemanden raten, wohin mit einem
+    Fund — und die naheliegende Antwort waere ein oeffentliches Issue, also genau der Weg,
+    der ihn sofort allen zeigt.
+
+    Geprueft wird nicht die Laenge, sondern dass die drei Dinge dastehen, die ein Melder
+    braucht: WOHIN, WAS zaehlt, und WAS ausdruecklich nicht.
+    """
+    pfad = os.path.join(REPO, "SECURITY.md")
+    assert os.path.isfile(pfad), "es gibt keine SECURITY.md"
+    text = open(pfad, encoding="utf-8").read()
+    for stelle, was in (("Security Advisories", "der Meldeweg"),
+                        ("_guard", "was als Fund zaehlt"),
+                        ("API key is admin-equivalent", "was ausdruecklich keiner ist")):
+        assert stelle in text, f"{was} fehlt ({stelle!r})"
+    # Zweisprachig wie jede Doku hier.
+    assert "English below" in text or "## What this project is" in text, \
+        "die englische Haelfte fehlt"
