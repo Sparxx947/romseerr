@@ -9278,3 +9278,82 @@ def test_the_release_documentation_names_the_step_that_is_easy_to_forget():
         "der Handgriff selbst fehlt"
     assert "--admin" in abschnitt, \
         "der naheliegende falsche Ausweg wird nicht benannt — genau der wird sonst genommen"
+
+
+def test_vita3k_switches_the_measured_key_and_only_that(tmp_path, monkeypatch):
+    """Vita3K bekommt `boot-apps-full-screen: true` — und sonst nichts. (#304)
+
+    AM LAUFENDEN HOST ABGELESEN: Die `config.yml` traegt genau einen Schalter dafuer, und
+    er stand auf `false`. `backend-renderer` steht dort bereits auf `Vulkan` und darf NICHT
+    mitverstellt werden — wer beim Vollbild auch am Renderer dreht, sucht den naechsten
+    Fehler an der falschen Stelle.
+    """
+    import importlib.util
+    pfad = os.path.join(REPO, "contrib/streaming-host/launch-profile.py")
+    spec = importlib.util.spec_from_file_location("lp_vita", pfad)
+    lp = importlib.util.module_from_spec(spec)
+    monkeypatch.setenv("FW_CONFIG_ROOT", str(tmp_path))
+    spec.loader.exec_module(lp)
+
+    d = tmp_path / ".config" / "Vita3K"
+    d.mkdir(parents=True)
+    (d / "config.yml").write_text(
+        "stretch_the_display_area: false\n"
+        "backend-renderer: Vulkan\n"
+        "boot-apps-full-screen: false\n"
+        "keyboard-gui-fullscreen: F11\n", encoding="utf-8")
+
+    geaendert, meldung = lp.vita3k_vollbild()
+    assert geaendert, meldung
+    text = (d / "config.yml").read_text(encoding="utf-8")
+    assert "boot-apps-full-screen: true" in text
+    assert "backend-renderer: Vulkan" in text, "der Renderer wurde mitverstellt"
+    assert "keyboard-gui-fullscreen: F11" in text, "eine fremde Zeile ging verloren"
+
+    # Zweiter Aufruf aendert nichts mehr — sonst schriebe jeder Start die Datei neu.
+    nochmal, _ = lp.vita3k_vollbild()
+    assert nochmal is False
+
+
+def test_vita3k_creates_nothing_when_the_config_is_absent(tmp_path, monkeypatch):
+    """Fehlt die `config.yml`, wird KEINE angelegt. (#304)
+
+    Eine von uns erfundene Konfiguration koennte Felder vermissen lassen, die der Emulator
+    erwartet — und der Fehler saehe danach nach einem kaputten Emulator aus statt nach
+    einer erfundenen Datei. Vita3K schreibt sie beim Beenden selbst.
+    """
+    import importlib.util
+    pfad = os.path.join(REPO, "contrib/streaming-host/launch-profile.py")
+    spec = importlib.util.spec_from_file_location("lp_vita2", pfad)
+    lp = importlib.util.module_from_spec(spec)
+    monkeypatch.setenv("FW_CONFIG_ROOT", str(tmp_path))
+    spec.loader.exec_module(lp)
+
+    geaendert, meldung = lp.vita3k_vollbild()
+    assert geaendert is False
+    assert "noch nicht" in meldung
+    assert not (tmp_path / ".config").exists(), "es wurde doch etwas angelegt"
+
+
+def test_vita3k_does_not_invent_the_key_when_it_is_missing(tmp_path, monkeypatch):
+    """Fehlt der Schluessel, wird er NICHT angehaengt. (#304)
+
+    Haette die naechste Fassung ihn umbenannt, waere ein angehaengter Eintrag wirkungslos —
+    und wir haetten trotzdem Erfolg gemeldet. Das ist der Fall „ausgeliefert und
+    wirkungslos", nur eine Ebene frueher.
+    """
+    import importlib.util
+    pfad = os.path.join(REPO, "contrib/streaming-host/launch-profile.py")
+    spec = importlib.util.spec_from_file_location("lp_vita3", pfad)
+    lp = importlib.util.module_from_spec(spec)
+    monkeypatch.setenv("FW_CONFIG_ROOT", str(tmp_path))
+    spec.loader.exec_module(lp)
+
+    d = tmp_path / ".config" / "Vita3K"
+    d.mkdir(parents=True)
+    (d / "config.yml").write_text("backend-renderer: Vulkan\n", encoding="utf-8")
+
+    geaendert, meldung = lp.vita3k_vollbild()
+    assert geaendert is False
+    assert "steht nicht" in meldung, meldung
+    assert (d / "config.yml").read_text(encoding="utf-8") == "backend-renderer: Vulkan\n"
