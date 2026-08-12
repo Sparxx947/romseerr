@@ -240,6 +240,13 @@ that is the normal case and complete as it stands, not a fallback.
   password is never involved. With keys present the padlock on restricted hits disappears,
   because they are downloadable. **Without** keys a restricted title is refused immediately
   with a reason rather than queued.
+- ⌨️ **Home-computer formats import now.** `.prg`, `.tap`, `.crt`, `.g64`, `.z80`,
+  `.tzx`, `.cdt`, `.adz`, `.a52` and more — 16 formats were missing from the extension
+  list, so **nothing could arrive** through Romseerr for C64, VIC-20, ZX Spectrum, CPC,
+  Amiga or Atari 5200. Measured against the library: **51,118 files**. That those platforms
+  hold content at all is down to the RetroNAS share.
+  `.tap`, `.sna` and `.car` deliberately keep **no fixed platform** — `.tap` exists on C64
+  *and* ZX Spectrum. They import; the platform comes from the request.
 - 📦 **An unpacked game is ONE title, not a pile of files.** Where the title is a
   directory — Wii U (`code`+`content`+`meta`), PS3 (`PS3_GAME`), extracted GameCube images,
   Xbox (`default.xbe`) — it moves into the library as a unit. Recognised by **layout**, not
