@@ -16,6 +16,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 
 import pytest
 
@@ -911,3 +912,58 @@ def test_the_extraction_target_goes_through_the_collision_check(org):
     zuweisung = ohne_kommentar[:ohne_kommentar.index("if trocken:")]
     assert "freier_name(" in zuweisung, \
         f"das Entpackziel geht nicht ueber freier_name: {zuweisung.strip()!r}"
+
+
+# --- #447: RAR, LZH und LHA muessen aufgehen ----------------------------------------
+
+def test_the_unpacker_prefers_unar_over_7z(org):
+    """`unar` steht vor `7z` — und `7z` bleibt als Ersatz. (#447)
+
+    GEMESSEN am Umbau vom 2026-08-12, allein auf `amiga`:
+
+        45 zip · 28 lzh · 7 rar · 4 lha     = 84 Archive, die geschlossen blieben
+
+    Die `.rar` sind ECHTE RAR-Dateien — `52 61 72 21` (`Rar!`) in den ersten vier Bytes,
+    keine falsch benannten. Der Umbau lief in `python:3.12-alpine` mit `p7zip`, und dessen
+    RAR-Codec fehlt, weil er unfrei ist. `.lzh` und `.lha` sind auf dem Amiga das NORMALE
+    Verteilformat: Ein Archiv mit zwanzig Spielen zaehlte so als ein einziger Eintrag.
+
+    `7z` bleibt als Ersatz stehen, damit das Werkzeug auch in einem Container laeuft, in dem
+    nur das vorhanden ist — die Reihenfolge entscheidet, nicht das Entweder-oder.
+
+    EN: Alpine's p7zip ships without the non-free RAR codec, and lzh/lha are the normal
+    Amiga distribution formats. unar handles all of them; 7z stays as a fallback.
+    """
+    namen = [n for n, _ in org._ENTPACKER]
+    assert namen[0] == "unar", f"unar steht nicht an erster Stelle: {namen}"
+    assert "7z" in namen, "7z ist als Ersatz verschwunden"
+
+
+def test_a_rejected_zip_is_handed_on_instead_of_given_up(org, tmp_path):
+    """Ein `.zip`, das Python ablehnt, wird weitergereicht statt aufgegeben. (#447/#422)
+
+    45 der 84 Fehlschlaege trugen `.zip`. Python meldete `BadZipFile: File is not a zip
+    file` — die Datei heisst so, ist aber keine. In diesen Bestaenden sind das haeufig
+    falsch benannte LHA-Archive.
+
+    Vorher endete der Versuch dort: `except Exception: return False`. Der Name entschied
+    also, ob ein Archiv aufgeht. Dieselbe Lehre wie bei den 3DS-Abbildern (#422) — der
+    INHALT entscheidet, und ein Werkzeug, das ihn liest, bekommt seine Gelegenheit.
+
+    Geprueft wird am echten Verhalten: eine Datei mit `.zip` im Namen, die in Wahrheit ein
+    TAR ist. Python lehnt sie ab; ein Entpacker, der den Inhalt liest, schafft sie.
+    """
+    import tarfile
+    getarnt = tmp_path / "spiel.zip"
+    inhalt = tmp_path / "inhalt.adf"
+    inhalt.write_bytes(b"\x00" * 32)
+    with tarfile.open(getarnt, "w") as t:
+        t.add(inhalt, arcname="inhalt.adf")
+
+    ziel = tmp_path / "raus"
+    ok = org.entpacken(str(getarnt), str(ziel))
+    if not any(shutil.which(n) for n, _ in org._ENTPACKER):
+        pytest.skip("weder unar noch 7z vorhanden — der Weiterreich-Zweig ist hier nicht messbar")
+    assert ok, "das getarnte Archiv wurde aufgegeben, statt weitergereicht zu werden"
+    assert (ziel / "inhalt.adf").exists() or list(ziel.rglob("inhalt.adf")), \
+        f"Inhalt fehlt: {[p.name for p in ziel.rglob('*')]}"

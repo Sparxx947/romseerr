@@ -290,8 +290,33 @@ def freier_name(ordner, name):
         i += 1
 
 
+# Womit entpackt wird, wenn Python es nicht selbst kann. In dieser Reihenfolge, und der
+# erste vorhandene gewinnt. (#447)
+#
+# WARUM `unar` VOR `7z`: Das p7zip aus Alpine ist OHNE den RAR-Codec gebaut — der ist
+# unfrei und wird nicht mitgeliefert. Gemessen am Umbau vom 2026-08-12, allein auf `amiga`:
+#
+#     45 zip · 28 lzh · 7 rar · 4 lha     = 84 Archive, die geschlossen blieben
+#
+# Die `.rar` sind echte RAR-Dateien (`Rar!` in den ersten vier Bytes), nicht falsch
+# benannte. `.lzh` und `.lha` sind auf dem Amiga das NORMALE Verteilformat — ein Archiv mit
+# zwanzig Spielen zaehlt sonst als ein einziger Eintrag.
+#
+# `unar` kann alle vier und liegt ohnehin im Romseerr-Abbild, weil der Import-Weg es
+# benutzt. Dass beide Wege Archive verschieden behandeln, war die eigentliche Ursache:
+# derselbe Titel kam ueber den einen an und ueber den anderen nicht.
+#
+# EN: Alpine's p7zip ships without the non-free RAR codec, and lzh/lha are the normal Amiga
+# distribution formats. `unar` handles all of them and is already in the Romseerr image,
+# where the import path uses it — the two paths differing was the actual cause.
+_ENTPACKER = (
+    ("unar", lambda a, z: ["unar", "-quiet", "-force-overwrite", "-output-directory", z, a]),
+    ("7z",   lambda a, z: ["7z", "x", "-y", f"-o{z}", a]),
+)
+
+
 def entpacken(archiv, ziel):
-    """-> True bei Erfolg. Python fuer ZIP und TAR, 7z fuer den Rest."""
+    """-> True bei Erfolg. Python fuer ZIP und TAR, sonst `unar` (ersatzweise `7z`)."""
     endung = os.path.splitext(archiv)[1].lower()
     os.makedirs(ziel, exist_ok=True)
     try:
@@ -305,11 +330,24 @@ def entpacken(archiv, ziel):
             with tarfile.open(archiv) as t:
                 t.extractall(ziel)
             return True
-        r = subprocess.run(["7z", "x", "-y", f"-o{ziel}", archiv],
-                           capture_output=True, timeout=1800)
-        return r.returncode == 0
     except Exception:
-        return False
+        # KEIN `return False` MEHR. Ein `.zip`, das Python ablehnt, ist nicht zwangslaeufig
+        # kaputt — es kann ein falsch benanntes LHA sein, und genau das kommt in diesen
+        # Bestaenden vor. Weiterreichen an ein Werkzeug, das nach dem INHALT geht, statt am
+        # Namen zu scheitern. Dieselbe Lehre wie bei den 3DS-Abbildern (#422).
+        # EN: a .zip Python rejects may be a misnamed LHA; hand it to a tool that reads the
+        # content instead of failing on the name.
+        pass
+    for name, befehl in _ENTPACKER:
+        if not shutil.which(name):
+            continue
+        try:
+            r = subprocess.run(befehl(archiv, ziel), capture_output=True, timeout=1800)
+            if r.returncode == 0:
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def umbauen(wurzel, plattform, trocken, protokoll):
