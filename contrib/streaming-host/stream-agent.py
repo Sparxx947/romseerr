@@ -1072,10 +1072,13 @@ def launch(path, platform, rel="", region=""):
         # es laeuft nur "komisch".
         # Guessing a region would be worse than leaving it: a wrong BIOS does not
         # announce itself, the game merely behaves oddly.
-        # Reihenfolge: Controller, BIOS, Vollbild — alles BEVOR der Emulator seine
-        # Konfiguration liest. Danach zu setzen hiesse, gegen einen laufenden Prozess
-        # zu arbeiten, der seine eigene Geometrie zurueckschreibt.
-        auftraege = [["--apply", profil], ["--fullscreen", profil]]
+        # Reihenfolge: Controller, BIOS, Startdialoge, Vollbild — alles BEVOR der
+        # Emulator seine Konfiguration liest. Danach zu setzen hiesse, gegen einen
+        # laufenden Prozess zu arbeiten, der seine eigene Geometrie zurueckschreibt —
+        # und bei Vita3K auch alles andere: der schreibt seine `config.yml` schon beim
+        # START zurueck, nicht erst beim Beenden (nachgemessen, #488).
+        # EN: `--dialogs` takes away the modal windows that otherwise catch the launch.
+        auftraege = [["--apply", profil], ["--dialogs", profil], ["--fullscreen", profil]]
         if region:
             auftraege.insert(1, ["--bios", profil, region])
         for a in auftraege:

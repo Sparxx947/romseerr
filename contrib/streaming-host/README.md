@@ -441,7 +441,7 @@ Controller im Spiel gedrückt.
 | Dreamcast | Flycast | ✅ | ✅ | ✅ | Vollbild und **Vulkan** in der Startzeile, an den Pixeln gemessen (#304); Bild, Ton und Controller von einem Menschen in Fatal Fury bestätigt — Flycast belegt die Pads selbst, als einziger Emulator hier |
 | Xbox | xemu | ✅ | ✅ | ✅ | braucht **COMPLEX 4627 + MCPX 1.0** — Retail-BIOS bleiben schwarz |
 | Wii U | Cemu | — | — | — | Titel vorhanden seit #452/#455 — noch nicht gestartet |
-| PS Vita | Vita3K | — | — | — | Titel vorhanden seit #452/#455; Vollbild und Vulkan stehen in der Konfiguration (#304); der Start übergibt seit #481 die **Titelkennung** statt des Pfades — noch nicht gestartet |
+| PS Vita | Vita3K | — | — | — | Titel vorhanden seit #452/#455; Vollbild und Vulkan stehen in der Konfiguration (#304); der Start übergibt seit #481 die **Titelkennung** statt des Pfades; seit #488 stehen die beiden Startdialoge ab, und der Titel bootet gemessen bis ins Ladefenster — ein Mensch hat ihn noch nicht gesehen |
 
 Ein `—` heißt **ungeprüft**, nicht „defekt". Für Dreamcast, Wii U und PS Vita liegen
 seit #452/#455 Titel bereit; sie sind ungeprüft, weil noch niemand sie gestartet hat —
@@ -721,7 +721,14 @@ Fehlt diese Angabe, greift im Skript der Zweig *„ohne Ablage ist die Frage geg
 — und der Status ist **grün für eine Firmware, die der Emulator gar nicht hat**. Genau so
 stand `psvita` auf `installed: true`, während `vs0`, `os0` und `sa0` leer waren: 133 MB
 bereitgelegt, null eingespielt (#479). Aufgefallen ist es erst beim Startversuch, an
-Vita3Ks „Welcome"-Fenster — das war die richtige Meldung, nicht das Problem.
+Vita3Ks „Welcome"-Fenster.
+
+**Korrektur dazu (#488):** Dieses Fenster war *nicht* die Meldung über die fehlende
+Firmware — das stand hier bis dahin und ist nachgemessen falsch. Vita3K zeigt es bei
+jedem Start, solange `show-welcome: true` steht, auch bei vollständiger Firmware. Es hat
+die Sache nur zufällig zur richtigen Zeit sichtbar gemacht. *EN: correction — that window
+was not the missing-firmware message; Vita3K shows it on every launch while
+`show-welcome: true`, complete firmware or not. It merely surfaced at the right moment.*
 
 Für PS1, PS2, Dreamcast, Xbox, 3DS, Switch und Wii U gibt es keine Ablage, und das ist
 richtig: Dort **ist** die Firmware die Datei im Verzeichnis, es gibt keinen zweiten Schritt.
@@ -805,6 +812,58 @@ looks it up in `ux0/app` under Vita3K's `pref-path`, and substitutes that. Nothi
 guessed from the folder name. A title that is not installed is refused rather than
 launched, because without `-r` Vita3K merely opens its title list: the launch succeeds
 and no game appears. Installing is a step in Vita3K's own GUI (File ▸ Install).*
+
+### Zwei modale Fenster fangen jeden Start ab — beide stehen ab (#488)
+
+Die richtige Startzeile allein genügte nicht. Vita3K nimmt die Kennung an und zeigt
+danach ein **Willkommensfenster**, das im Container niemand wegklickt; dahinter staut sich
+jeder Start. Ist das aus dem Weg, legt sich das nächste davor: **„Update Available"**,
+320 × 183 Pixel mitten auf dem Spielfenster.
+
+Beide sitzen als Schalter in `<config>/.config/Vita3K/config.yml`, und der Start-Dienst
+legt sie **vor** dem Start um (`launch-profile.py --dialogs vita3k`):
+
+| Schalter | Wert | wofür |
+|---|---|---|
+| `show-welcome` | `false` | das Willkommensfenster |
+| `check-for-updates-mode` | `0` | die Abfrage nach einer neuen Vita3K-Fassung |
+
+Gemessen am laufenden Host, jeder Schalter mit Gegenprobe — die Fenster gehören der
+**echten** Vita3K-PID, nicht der des Wrappers (#489):
+
+| `show-welcome` | `check-for-updates-mode` | Fenster |
+|---|---|---|
+| `true` | `1` | nur `Welcome to Vita3K`, kein Spiel, 4,5 % CPU |
+| `false` | `1` | Spiel + `Update Available` |
+| `false` | `0` | Spiel, kein Dialog — 99,3 % der Fläche bemalt |
+| `false` | `1` (Gegenprobe) | `Update Available` wieder da |
+
+Dass `0` in Vita3Ks Quelltext „nie" heißt, wird hier **nicht** behauptet: der Wert ist
+gemessen, nicht abgelesen. Belegt ist, dass der Dialog damit wegbleibt und Vita3K die `0`
+annimmt.
+
+**Zwei Fallen beim Nachstellen von Hand:** Vita3K schreibt seine `config.yml` schon beim
+**Start** zurück — wer sie ändert, während der Emulator läuft, verliert die Änderung. Und
+`warn-missing-firmware` bleibt bewusst auf `true`: es ist der dritte Dialog derselben
+Klasse, hier folgenlos, weil die Firmware vollständig ist (#485/#486). Wer ihn vorsorglich
+abschaltet, verliert die Warnung genau dann, wenn sie einmal berechtigt wäre.
+
+*EN: the correct launch line was not enough. Vita3K accepts the title id and then shows a
+**welcome window** nobody can dismiss in a container; every launch stalls behind it. With
+that out of the way the next one takes its place: **"Update Available"**, 320 × 183 pixels
+in the middle of the game window. Both are switches in
+`<config>/.config/Vita3K/config.yml`, and the launch service flips them BEFORE the launch
+(`launch-profile.py --dialogs vita3k`): `show-welcome: false` and
+`check-for-updates-mode: 0`. Measured on the running host with a counter-check per switch
+(and on the real Vita3K PID, not the wrapper's, see #489): `true`/`1` gives only the
+welcome dialog at 4.5 % CPU and no game; `false`/`1` boots the game but puts "Update
+Available" on top; `false`/`0` gives the game with no dialog and 99.3 % of the screen
+painted; switching back to `1` brings the dialog back. It is NOT claimed that `0` is the
+source's name for "never" — that value is measured, not read. Two traps when reproducing
+by hand: Vita3K rewrites its `config.yml` at STARTUP, so an edit made while it runs is
+lost; and `warn-missing-firmware` deliberately stays `true` — it is the third dialog of the
+same class, harmless here because the firmware is complete (#485/#486), and switching it
+off pre-emptively would remove the warning exactly when it becomes justified.*
 
 ## Zwei Plätze gleichzeitig (optional)
 
@@ -1382,7 +1441,7 @@ pressed in-game.
 | Dreamcast | Flycast | ✅ | ✅ | ✅ | fullscreen and **Vulkan** set on the launch line, measured at the pixels (#304); picture, sound and controller all confirmed by a human in Fatal Fury — Flycast maps the pads by itself, the only emulator here that does |
 | Xbox | xemu | ✅ | ✅ | ✅ | needs **COMPLEX 4627 + MCPX 1.0** — retail BIOS stays black |
 | Wii U | Cemu | — | — | — | a title is in the library since #452/#455 — not launched yet |
-| PS Vita | Vita3K | — | — | — | a title is in the library since #452/#455; fullscreen and Vulkan are set in the config (#304); since #481 the launch passes the **title id** instead of the path — not launched yet |
+| PS Vita | Vita3K | — | — | — | a title is in the library since #452/#455; fullscreen and Vulkan are set in the config (#304); since #481 the launch passes the **title id** instead of the path; since #488 both startup dialogs are switched off and the title was measured booting into its loading window — no human has seen it yet |
 
 A `—` means **untested**, not "broken". Dreamcast, Wii U and PS Vita have had content since
 #452/#455; they are untested because nobody has launched them yet, not because there is

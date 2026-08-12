@@ -9359,6 +9359,154 @@ def test_vita3k_does_not_invent_the_key_when_it_is_missing(tmp_path, monkeypatch
     assert (d / "config.yml").read_text(encoding="utf-8") == "backend-renderer: Vulkan\n"
 
 
+# --- #488: zwei modale Fenster fangen jeden Vita-Start ab ---------------------------
+#
+# NACHGEMESSEN am laufenden Host (2026-08-13, Gravity Rush, Vita3K v0.2.1), mit
+# Gegenprobe je Schalter — die Tabelle steht im Issue:
+#
+#   show-welcome | check-for-updates-mode | Fenster der ECHTEN Vita3K-PID
+#   true         | 1                      | nur "Welcome to Vita3K", kein Spiel, 4,5 % CPU
+#   false        | 1                      | Spiel + "Update Available" (320x183 mittendrauf)
+#   false        | 0                      | Spiel, kein Dialog -> Fensterschritt meldet "ok"
+#   false        | 1  (Gegenprobe)        | "Update Available" wieder da
+#
+# Der zweite Schalter steht hier NICHT auf Verdacht: ohne ihn tauscht die Behebung nur
+# einen Dialog gegen einen anderen.
+
+def _vita3k_lp(tmp_path, monkeypatch, name):
+    """launch-profile.py mit `tmp_path` als /config laden."""
+    import importlib.util
+    pfad = os.path.join(REPO, "contrib/streaming-host/launch-profile.py")
+    spec = importlib.util.spec_from_file_location(name, pfad)
+    lp = importlib.util.module_from_spec(spec)
+    monkeypatch.setenv("FW_CONFIG_ROOT", str(tmp_path))
+    spec.loader.exec_module(lp)
+    return lp
+
+
+def test_vita3k_takes_both_startup_dialogs_out_of_the_way(tmp_path, monkeypatch):
+    """`show-welcome: false` UND `check-for-updates-mode: 0` — beide, sonst nichts. (#488)
+
+    Der Willkommensdialog allein reicht nicht: mit ihm aus dem Weg bootet der Titel zwar,
+    aber `Update Available` legt sich mitten auf das Spielfenster. Beide Werte sind am
+    laufenden Host gemessen, jeder mit Gegenprobe.
+    """
+    lp = _vita3k_lp(tmp_path, monkeypatch, "lp_vita_dlg1")
+
+    d = tmp_path / ".config" / "Vita3K"
+    d.mkdir(parents=True)
+    (d / "config.yml").write_text(
+        "backend-renderer: Vulkan\n"
+        "boot-apps-full-screen: true\n"
+        "show-welcome: true\n"
+        "warn-missing-firmware: true\n"
+        "check-for-updates-mode: 1\n", encoding="utf-8")
+
+    geaendert, meldung = lp.vita3k_dialoge()
+    assert geaendert, meldung
+    text = (d / "config.yml").read_text(encoding="utf-8")
+    assert "show-welcome: false" in text, text
+    assert "check-for-updates-mode: 0" in text, text
+    # NICHTS SONST. `warn-missing-firmware` ist der dritte Dialog derselben Klasse und
+    # bleibt bewusst stehen: die Firmware ist vollstaendig (#485/#486), der Schalter hat
+    # hier also nichts abzufangen — und wer ihn mitverstellt, verliert die Warnung genau
+    # dann, wenn sie einmal berechtigt waere.
+    assert "warn-missing-firmware: true" in text, text
+    assert "backend-renderer: Vulkan" in text, "der Renderer wurde mitverstellt"
+    assert "boot-apps-full-screen: true" in text, "eine fremde Zeile ging verloren"
+
+    # Zweiter Aufruf schreibt nicht noch einmal — sonst faende Vita3K bei jedem Start
+    # eine frisch geschriebene Datei vor.
+    nochmal, _ = lp.vita3k_dialoge()
+    assert nochmal is False
+
+
+def test_vita3k_dialogs_create_nothing_when_the_config_is_absent(tmp_path, monkeypatch):
+    """Fehlt die `config.yml`, wird KEINE angelegt. (#488)
+
+    Dieselbe Regel wie beim Vollbild (#304): eine von uns erfundene Konfiguration koennte
+    Felder vermissen lassen, die der Emulator erwartet.
+    """
+    lp = _vita3k_lp(tmp_path, monkeypatch, "lp_vita_dlg2")
+
+    geaendert, meldung = lp.vita3k_dialoge()
+    assert geaendert is False
+    assert "noch nicht" in meldung, meldung
+    assert not (tmp_path / ".config").exists(), "es wurde doch etwas angelegt"
+
+
+def test_vita3k_dialogs_do_not_invent_a_missing_key(tmp_path, monkeypatch):
+    """Fehlt ein Schluessel, wird er NICHT angehaengt — er wird GEMELDET. (#488)
+
+    Die Ratsche gegen genau den Fall, an dem DuckStations Wizard zweimal zurueckkam:
+    eine neue Fassung benennt den Schalter um, ein angehaengter Eintrag bliebe wirkungslos,
+    und wir haetten trotzdem Erfolg gemeldet. Der andere, vorhandene Schluessel wird
+    trotzdem gesetzt — halb wirksam ist besser als gar nicht, solange es dabeisteht.
+    """
+    lp = _vita3k_lp(tmp_path, monkeypatch, "lp_vita_dlg3")
+
+    d = tmp_path / ".config" / "Vita3K"
+    d.mkdir(parents=True)
+    (d / "config.yml").write_text(
+        "show-welcome: true\n"
+        "backend-renderer: Vulkan\n", encoding="utf-8")
+
+    geaendert, meldung = lp.vita3k_dialoge()
+    text = (d / "config.yml").read_text(encoding="utf-8")
+    assert "check-for-updates-mode" not in text, "der fehlende Schluessel wurde erfunden"
+    assert "check-for-updates-mode" in meldung, meldung
+    assert geaendert, meldung
+    assert "show-welcome: false" in text, text
+
+
+def test_vita3k_dialogs_leave_a_value_that_already_fits(tmp_path, monkeypatch):
+    """Gesetzt wird nach dem WERT, nicht nach dem Vorhandensein des Schluessels. (#488)"""
+    lp = _vita3k_lp(tmp_path, monkeypatch, "lp_vita_dlg4")
+
+    d = tmp_path / ".config" / "Vita3K"
+    d.mkdir(parents=True)
+    (d / "config.yml").write_text(
+        "show-welcome: false\n"
+        "check-for-updates-mode: 0\n", encoding="utf-8")
+    vorher = (d / "config.yml").stat().st_mtime_ns
+
+    geaendert, meldung = lp.vita3k_dialoge()
+    assert geaendert is False, meldung
+    assert (d / "config.yml").stat().st_mtime_ns == vorher, "die Datei wurde neu geschrieben"
+
+
+def test_the_agent_takes_the_vita_dialogs_away_before_the_launch(tmp_path):
+    """Der Agent ruft den Schritt AUF, sonst steht er ungenutzt in der Datei. (#488)
+
+    Gemessen wird die Aufrufliste des Startprofils, nicht sein Programmtext: ein Schritt,
+    den niemand aufruft, ist genau der Fehler „ausgeliefert und wirkungslos".
+    Und er muss VOR dem Start liegen — danach liest Vita3K seine Konfiguration nicht mehr.
+    """
+    roms, pref = _vita_bibliothek(tmp_path)
+    befehl, datei = _mitschrift_emulator(tmp_path)
+    mitschrift = tmp_path / "profil.log"
+    profil = tmp_path / "profil.py"
+    profil.write_text(
+        "import sys, time\n"
+        f"open({str(mitschrift)!r}, 'a').write(' '.join(sys.argv[1:]) + '|'"
+        " + str(time.time()) + '\\n')\n", encoding="utf-8")
+    m = _agent_module(roms, EMU_VITA=f"{befehl} -r %s", VITA_PREF=str(pref),
+                      PROFILE_SCRIPT=str(profil))
+    ok, msg = m.launch("", "psvita", "psvita/Gravity Rush (Europe).vpk")
+    assert ok, msg
+    _argv(datei, m._current["proc"])
+    m._stop_locked()
+
+    zeilen = [z.split("|") for z in mitschrift.read_text().splitlines()]
+    aufrufe = [z[0] for z in zeilen]
+    assert "--dialogs vita3k" in aufrufe, aufrufe
+    # Vor dem Start: der Fensterschritt (`--window`) laeuft als einziger danach, und er
+    # ist deshalb die Messlatte fuer „davor".
+    dialoge = next(float(z[1]) for z in zeilen if z[0] == "--dialogs vita3k")
+    fenster = [float(z[1]) for z in zeilen if z[0].startswith("--window")]
+    assert not fenster or dialoge < min(fenster), zeilen
+
+
 # --- #477: ein Ordner-Titel ist EIN Titel, nicht sein Innenleben --------------------
 
 def test_a_folder_title_is_indexed_as_one_title(appmod):
