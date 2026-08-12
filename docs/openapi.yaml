@@ -1913,6 +1913,27 @@ paths:
         '403': *id004
         '401': *id002
       security: *id003
+  /api/import/status:
+    get:
+      summary: Stand des Einwurfordners — was einsortierbar ist und was nicht
+      tags:
+      - Import
+      responses:
+        '200':
+          description: OK
+        '401': *id002
+      security: *id003
+  /api/import/scan:
+    post:
+      summary: Einwurfordner sofort einlesen (Admin)
+      tags:
+      - Import
+      responses:
+        '200':
+          description: OK
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/admin/reindex:
     post:
       summary: Bibliotheks-Index neu aufbauen (Hintergrund)

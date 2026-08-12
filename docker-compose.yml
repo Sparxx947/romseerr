@@ -47,6 +47,10 @@ services:
       # Dasselbe Paar wie JD_OUTPUT (Host) / JD_OUT (Romseerrs Sicht). (#377)
       # Host side is JD_WATCH_HOST: `env_file` pushes every .env entry into the
       # container, where the app reads JD_WATCH as its own path.
+      # Einwurfordner fuer den Massenimport (#396). Wer Dateien per SMB hineinlegt,
+      # bekommt sie ohne Klick in die Bibliothek. Der Name traegt `_HOST`, weil die App
+      # den Pfad IM Container unter `/import` sieht — dieselbe Falle wie bei JD_WATCH (#377).
+      - ${IMPORT_SHARE_HOST:-./data/romseerr-import}:/import
       - ${JD_WATCH_HOST:-./data/jdownloader/folderwatch}:/jd-watch
       # Ausgabe: derselbe Ordner wie /output bei JDownloader, nur anders eingehängt.
       # JD_DL_BASE ist die JD-Sicht darauf; Romseerrs Sicht wird daraus abgeleitet.

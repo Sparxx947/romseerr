@@ -240,6 +240,16 @@ that is the normal case and complete as it stands, not a fallback.
   password is never involved. With keys present the padlock on restricted hits disappears,
   because they are downloadable. **Without** keys a restricted title is refused immediately
   with a reason rather than queued.
+- 📥 **Bulk import from a drop folder.** Put files in the share over SMB — Romseerr
+  looks every 5 minutes and files what it can determine. A file is only touched once size
+  **and** mtime are unchanged since the previous pass: an SMB copy of 5 GB takes minutes,
+  and a half-copied image would otherwise sit in the library as a title that never starts.
+  What cannot be determined stays put, **with a reason**. 25 of the 82 accepted extensions
+  are ambiguous; a download carries its platform hint from the request, a dropped file
+  carries nothing. The folder name may decide where the extension cannot. Status and
+  reasons live at `/api/import/status`.
+  Moving is copy, verify, then delete: drop folder and library are different filesystems,
+  and nothing is deleted that did not arrive.
 - ⌨️ **Home-computer formats import now.** `.prg`, `.tap`, `.crt`, `.g64`, `.z80`,
   `.tzx`, `.cdt`, `.adz`, `.a52` and more — 16 formats were missing from the extension
   list, so **nothing could arrive** through Romseerr for C64, VIC-20, ZX Spectrum, CPC,
