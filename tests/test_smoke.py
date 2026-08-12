@@ -8355,3 +8355,49 @@ def test_every_contrib_tool_is_named_in_its_readme():
     assert not fehlend, (
         "diese Werkzeuge kommen in der README daneben nicht vor — man findet sie nur, "
         f"wenn man ohnehin nachsieht: {json.dumps(fehlend, ensure_ascii=False)}")
+
+
+def test_no_markdown_table_row_stands_outside_its_table():
+    """Eine Tabellenzeile hinter einem Absatz ist keine Tabelle mehr. (#395)
+
+    GEFUNDEN IN `docs/API.md`: Die Endpunkt-Tabelle hatte elf Zeilen, aber nach der achten
+    stand ein Absatz ueber `GET /health` — ohne Leerzeile direkt an die Tabelle geklebt.
+    Markdown beendet die Tabelle dort. Die drei letzten Zeilen (Admin, Diagnose,
+    Aufraeumen) wurden als **Fliesstext mit Pipe-Zeichen** gerendert:
+
+        | Admin | `/api/users`, `/api/settings`, … |
+
+    Im Quelltext sieht das vollkommen in Ordnung aus — der Fehler existiert nur in der
+    Darstellung. Genau deshalb faellt so etwas jahrelang niemandem auf: Wer die Datei
+    bearbeitet, liest den Quelltext; wer sie liest, liest das Gerenderte.
+
+    EN: a table row separated from its table by a paragraph renders as literal text with
+    pipes. It looks perfectly fine in the source, which is why nobody notices.
+    """
+    verdaechtig = {}
+    for wurzel, verz, dateien in os.walk(REPO):
+        verz[:] = [v for v in verz if v not in
+                   (".git", "node_modules", "__pycache__", ".pytest_cache")]
+        for datei in dateien:
+            if not datei.endswith(".md"):
+                continue
+            pfad = os.path.join(wurzel, datei)
+            zeilen = open(pfad, encoding="utf-8").read().splitlines()
+            treffer = []
+            for n, zeile in enumerate(zeilen):
+                if not (zeile.startswith("|") and zeile.rstrip().endswith("|")):
+                    continue
+                # Ueber einer Tabellenzeile darf stehen: eine weitere Tabellenzeile, eine
+                # Leerzeile — oder eine UEBERSCHRIFT. Ueberschriften sind Blockelemente und
+                # beenden sich selbst, eine Tabelle darf unmittelbar darunter beginnen.
+                # Ohne diese Ausnahme meldete die Pruefung jede Tabelle des Repos, die
+                # direkt auf ihre Ueberschrift folgt — ein Fehlalarm, der die echten Funde
+                # zugedeckt haette.
+                davor = zeilen[n - 1].strip() if n else ""
+                if davor and not davor.startswith(("|", "#")):
+                    treffer.append(f"{n + 1}: {zeile[:60]}")
+            if treffer:
+                verdaechtig[os.path.relpath(pfad, REPO)] = treffer
+    assert not verdaechtig, (
+        "diese Tabellenzeilen haengen an einem Absatz und werden als Text mit Pipes "
+        f"gerendert: {json.dumps(verdaechtig, ensure_ascii=False)[:600]}")

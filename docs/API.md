@@ -58,9 +58,42 @@ ohne gültige Session/Key mit **401**.
 | Auth | `POST /api/setup`, `/api/login`, `/api/logout`, `/api/forgot`, `/api/reset` |
 | Suche | `GET /api/search`, `/api/discover/rows`, `/api/detail`, `/api/platforms`, `/api/coverage`, `/api/ra/status` |
 | Anfragen | `POST /api/download`, `GET /api/jobs`, `POST /api/jobs/{id}/approve\|deny\|retry\|reimport`, `DELETE /api/jobs/{id}`, `POST /api/wishlist/import` |
+| Einwurfordner | `GET /api/import/status`, `POST /api/import/scan` |
 | Probleme | `GET/POST /api/issues`, `/api/issues/{id}/comment\|close` |
 | Profil | `GET/POST /api/profile`, `/api/profile/password` |
 | Push | `GET /api/push/pubkey`, `POST /api/push/subscribe` |
+| Admin | `/api/users`, `/api/settings`, `/api/blocklist`, `/api/logs`, `/api/apikey`, `/api/export`, `/api/import` |
+| Diagnose | `GET /api/services/status`, `GET /api/config/warnings`, `GET /api/usenet/check` |
+| Aufräumen | `GET /api/leftovers`, `POST /api/leftovers/remove`, `POST /api/jobs/{jid}/reimport` |
+
+> **Zwei Dinge heißen „import".** `POST /api/import` spielt eine **Einstellungs**-Sicherung
+> zurück (siehe unten). Der **Einwurfordner** für ROMs hängt an `/api/import/status` und
+> `/api/import/scan`. Die Namen sind historisch gewachsen und bezeichnen nichts Gemeinsames.
+>
+> *Two unrelated things are called "import": `POST /api/import` restores a settings backup,
+> while `/api/import/status` and `/api/import/scan` drive the ROM drop folder.*
+
+`GET /api/import/status` (jede angemeldete Rolle) **ist der Trockenlauf** — er verschiebt
+nichts und beantwortet nur, was einsortiert würde und was nicht:
+
+```json
+{"aktiv": true, "pfad": "/import", "takt_sek": 300,
+ "bereit": [{"datei": "…", "slug": "snes", "grund": "Endung .sfc"}],
+ "offen":  [{"datei": "…", "grund": ".iso ist mehrdeutig — Plattform nicht bestimmbar"}],
+ "bereit_gesamt": 1, "offen_gesamt": 1}
+```
+
+Ist kein Ordner eingehängt, kommt `{"aktiv": false, "pfad": …, "msg": …}` — kein Fehler,
+sondern eine nicht eingerichtete Funktion, und der erwartete Pfad steht dabei. `bereit` und
+`offen` sind auf je 200 Einträge gekürzt; die Gesamtzahlen bleiben vollständig.
+
+`POST /api/import/scan` (**nur Admin**) führt denselben Lauf wirklich aus, ohne auf den Takt
+zu warten. **Kein Body, keine Parameter.** Antwort: `{"ok": true, "eingeordnet": n,
+"offen": m}`.
+
+*`GET /api/import/status` is the dry run and moves nothing; `POST /api/import/scan` performs
+the same pass for real and takes no body.*
+
 `GET /health` ist ohne Anmeldung erreichbar und liefert
 `{"ok", "lib_titles", "jobs", "storage", "lib_failed", "lib_failed_platforms"}`.
 `lib_failed` zählt die Plattformordner, die beim letzten Indexlauf **nicht lesbar** waren
@@ -78,9 +111,6 @@ mit Passwort übrig bliebe — das gilt für `PATCH /api/users/{u}` (Rolle entzi
 wie für `DELETE /api/users/{u}`. Eine vollständig leere Benutzerliste ist erlaubt und
 führt zur Ersteinrichtung.
 
-| Admin | `/api/users`, `/api/settings`, `/api/blocklist`, `/api/logs`, `/api/apikey`, `/api/export`, `/api/import` |
-| Diagnose | `GET /api/services/status`, `GET /api/config/warnings`, `GET /api/usenet/check` |
-| Aufräumen | `GET /api/leftovers`, `POST /api/leftovers/remove`, `POST /api/jobs/{jid}/reimport` |
 
 `GET /api/usenet/check` misst den Usenet-Weg stufenweise durch (Suche, SAB-Kategorie,
 Warteschlange, Einsammelordner) und lädt dabei **nichts** herunter. Die letzte Stufe
@@ -90,17 +120,25 @@ eingesammelt. Eine weitere Stufe je Indexer (`step: "indexer:<Name>"`) holt **ei
 Datei ab und meldet, ob wirklich eine NZB kommt; das zählt beim Indexer als Abruf gegen
 sein Stundenlimit. Antwort: `{"ok": bool, "steps": [{"step", "ok", "info"}]}`.
 
-`GET /api/leftovers` lists downloads a failed import left behind;
-`POST /api/leftovers/remove` clears one (`{"jid": "…"}`) or all (`{"all": true}`).
-Only paths resolving inside a collect directory and carrying the `romseerr_` prefix are
-ever deleted — a path from the request is never used, and folders owned by a running job
-are not listed at all. `POST /api/jobs/{jid}/reimport` re-reads a kept download without
-fetching it again (state `error` only) — unlike `/retry`, which downloads the whole
-release a second time. `DELETE /api/jobs/{jid}` removes a finished request (active ones are
-refused with 400); `{"files": true}` deletes a kept download along with it, otherwise the
-response reports `files_left`. `clear-finished` accepts `{"states": [...]}`. `POST /api/jobs/{jid}/retry` counts attempts and switches source from the third one; with none left it answers **409** with `exhausted: true` instead of re-queueing.
+`GET /api/leftovers` listet Downloads, die ein fehlgeschlagener Import liegen gelassen
+hat; `POST /api/leftovers/remove` entfernt einen (`{"jid": "…"}`) oder alle
+(`{"all": true}`). Gelöscht wird nur, was unterhalb eines Sammelordners liegt und das
+`romseerr_`-Präfix trägt — ein Pfad aus dem Request wird nie verwendet. Ordner laufender
+Aufträge erscheinen gar nicht erst.
 
-Details (Parameter, Bodies, Antworten) → `/api/docs`.
+`POST /api/jobs/{jid}/reimport` liest einen liegengebliebenen Download **erneut ein**,
+ohne ihn neu zu holen (nur im Zustand `error`, nur solange die Dateien da sind). Nicht zu
+verwechseln mit `POST /api/jobs/{jid}/retry`, das den kompletten Download wiederholt.
+
+`DELETE /api/jobs/{jid}` entfernt eine **abgeschlossene** Anfrage; laufende werden mit
+400 abgewiesen. Mit `{"files": true}` wird ein noch vorhandener Download mitgelöscht,
+sonst meldet die Antwort `files_left: true` — der Auftrag ist das Einzige, was den Ordner
+noch einem Titel zuordnet. `POST /api/jobs/clear-finished` nimmt optional
+`{"states": ["error"]}`, um nur eine Gruppe zu räumen.
+
+`POST /api/jobs/{jid}/retry` zählt die Versuche mit und wechselt **ab dem dritten** die
+Quelle. Gibt es keine passende mehr, antwortet er mit **409** und `exhausted: true` und
+stellt den Auftrag *nicht* erneut ein. Ein geglückter Import setzt `tries` zurück.
 
 ### Export / Import
 `GET /api/export` liefert ein versioniertes JSON-Dokument (Einstellungen, Benutzer & Rechte,
@@ -167,25 +205,44 @@ permission returns **403**; missing/invalid auth returns **401**.
 - Success is usually `{"ok": true, …}`; errors are `{"error": "…"}` with an appropriate HTTP
   status. `/api/forgot` responds generically (does not reveal whether an account exists).
 
-`GET /api/leftovers` listet Downloads, die ein fehlgeschlagener Import liegen gelassen
-hat; `POST /api/leftovers/remove` entfernt einen (`{"jid": "…"}`) oder alle
-(`{"all": true}`). Gelöscht wird nur, was unterhalb eines Sammelordners liegt und das
-`romseerr_`-Präfix trägt — ein Pfad aus dem Request wird nie verwendet. Ordner laufender
-Aufträge erscheinen gar nicht erst.
+### Drop folder
 
-`POST /api/jobs/{jid}/reimport` liest einen liegengebliebenen Download **erneut ein**,
-ohne ihn neu zu holen (nur im Zustand `error`, nur solange die Dateien da sind). Nicht zu
-verwechseln mit `POST /api/jobs/{jid}/retry`, das den kompletten Download wiederholt.
+Two unrelated things are called "import". `POST /api/import` restores a **settings** backup
+(see below). The **drop folder** for ROMs is `/api/import/status` and `/api/import/scan`.
+The names are historical and share no meaning.
 
-`DELETE /api/jobs/{jid}` entfernt eine **abgeschlossene** Anfrage; laufende werden mit
-400 abgewiesen. Mit `{"files": true}` wird ein noch vorhandener Download mitgelöscht,
-sonst meldet die Antwort `files_left: true` — der Auftrag ist das Einzige, was den Ordner
-noch einem Titel zuordnet. `POST /api/jobs/clear-finished` nimmt optional
-`{"states": ["error"]}`, um nur eine Gruppe zu räumen.
+`GET /api/import/status` (any signed-in role) **is the dry run** — it moves nothing and only
+answers what would be filed and what would not:
 
-`POST /api/jobs/{jid}/retry` zählt die Versuche mit und wechselt **ab dem dritten** die
-Quelle. Gibt es keine passende mehr, antwortet er mit **409** und `exhausted: true` und
-stellt den Auftrag *nicht* erneut ein. Ein geglückter Import setzt `tries` zurück.
+```json
+{"aktiv": true, "pfad": "/import", "takt_sek": 300,
+ "bereit": [{"datei": "…", "slug": "snes", "grund": "Endung .sfc"}],
+ "offen":  [{"datei": "…", "grund": ".iso ist mehrdeutig — Plattform nicht bestimmbar"}],
+ "bereit_gesamt": 1, "offen_gesamt": 1}
+```
+
+With no folder mounted the answer is `{"aktiv": false, "pfad": …, "msg": …}` — not an error
+but an unconfigured feature, and the expected path comes with it. `bereit` and `offen` are
+capped at 200 entries each; the totals stay complete.
+
+`POST /api/import/scan` (**admin only**) performs the same pass for real without waiting for
+the timer. **No body, no parameters.** It answers `{"ok": true, "eingeordnet": n,
+"offen": m}`.
+
+Field names in these two responses are German because they mirror the internal structures;
+they are part of the contract and will not be renamed silently.
+
+`GET /api/leftovers` lists downloads a failed import left behind;
+`POST /api/leftovers/remove` clears one (`{"jid": "…"}`) or all (`{"all": true}`).
+Only paths resolving inside a collect directory and carrying the `romseerr_` prefix are
+ever deleted — a path from the request is never used, and folders owned by a running job
+are not listed at all. `POST /api/jobs/{jid}/reimport` re-reads a kept download without
+fetching it again (state `error` only) — unlike `/retry`, which downloads the whole
+release a second time. `DELETE /api/jobs/{jid}` removes a finished request (active ones are
+refused with 400); `{"files": true}` deletes a kept download along with it, otherwise the
+response reports `files_left`. `clear-finished` accepts `{"states": [...]}`. `POST /api/jobs/{jid}/retry` counts attempts and switches source from the third one; with none left it answers **409** with `exhausted: true` instead of re-queueing.
+
+Details (Parameter, Bodies, Antworten) → `/api/docs`.
 
 ### Diagnostics
 `GET /api/services/status`, `GET /api/config/warnings` and `GET /api/usenet/check` (all

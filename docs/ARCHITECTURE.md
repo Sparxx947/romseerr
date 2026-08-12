@@ -62,6 +62,36 @@ eigenem Zielordner, damit Radarr/Sonarr davon nichts sehen.
    Filesystem-Watcher erkennt die neue Datei; optional meldet Romseerr die
    Verfügbarkeit per Discord.
 
+### Zweiter Weg hinein: der Einwurfordner
+
+Nicht alles kommt über eine Anfrage. Wer eine ganze Sammlung hat, legt sie in
+`IMPORT_SHARE` (im Container `/import`); ein eigener Thread (`periodic_einwurf`, Takt
+`IMPORT_SCAN_SEC`, Vorgabe 300 s) sieht nach und sortiert ein. Die Oberfläche zeigt und
+löst denselben Lauf unter Einstellungen → Einwurf aus, die API über
+`/api/import/status` (Trockenlauf) und `/api/import/scan`.
+
+Drei Eigenschaften, die den Unterschied zu einem simplen „verschiebe alles" ausmachen:
+
+- **Ruhe vor dem Anfassen.** `einwurf_stabil` merkt sich Größe und Änderungszeit und lässt
+  eine Datei erst nach **zwei** gleichen Durchgängen zu. Über SMB dauert eine 5-GB-Kopie
+  Minuten; ohne diese Bedingung läge ein halb kopiertes Abbild als Titel in der Bibliothek
+  und startete nie.
+- **Verschieben über Dateisystemgrenzen.** Einwurfordner und Bibliothek liegen in der
+  Regel auf verschiedenen Speichern, `os.rename` scheitert dort. Deshalb: nach `.teil`
+  kopieren → Größe vergleichen → `os.replace` → Quelle löschen. Ein Abbruch hinterlässt
+  eine `.teil`-Datei, nie eine halbe ROM. Scheitert nur das **Löschen**, gilt der Import
+  trotzdem als erfolgreich — der Titel ist angekommen, und das Protokoll nennt den Grund.
+- **Nichts raten.** Wo eine Datei sich keiner Plattform zuordnen lässt, wandert sie nach
+  `.unsortiert` und steht mit Grund im Bericht. 25 der 82 anerkannten Endungen sind
+  mehrdeutig; ein Download bringt seinen Plattform-Hinweis aus der Anfrage mit, eine
+  hineingelegte Datei bringt nichts mit. Der Ordnername darf entscheiden, wo die Endung es
+  nicht kann.
+
+*A second way in: a watched drop folder, scanned on its own thread every 5 minutes and on
+demand. A file is only touched after size and mtime stayed equal across two passes; moves
+are copy → verify → replace → delete because the two sides are different filesystems; and
+anything unclassifiable goes to `.unsortiert` with a reason rather than being guessed at.*
+
 > **Wer RomM unter Unraid betreibt: die Vorlage ist die Wahrheit, nicht der laufende
 > Container.** Alles, was am laufenden Container gesetzt wird und nicht in der
 > Docker-Vorlage steht, ist beim nächsten Neuanlegen weg — und zwar lautlos. Das hat hier
