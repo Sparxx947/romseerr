@@ -724,6 +724,136 @@ def _3ds_art(pfad):
     return ""
 
 
+# --- PS Vita: Vita3K will eine KENNUNG, keinen Pfad (#481) ---------------------------
+#
+# Vita3Ks Datenablage. `pref-path` steht in seiner `config.yml` und darunter liegt
+# `ux0/app/<TITLE_ID>` — am laufenden Host abgelesen, nicht angenommen:
+#     pref-path: /config/.local/share/Vita3K/Vita3K
+# `VITA_PREF` haengt die Ablage direkt ein und ist der Weg fuer den Test.
+VITA_CONFIG = os.environ.get("VITA_CONFIG", "/config/.config/Vita3K/config.yml")
+VITA_PREF = os.environ.get("VITA_PREF", "")
+
+
+def vita_ablage():
+    """-> Vita3Ks Datenverzeichnis (das mit `ux0`, `os0`, `vs0` darin).
+
+    Der Vorgabepfad ist die Wahl des Emulators und gilt nur, solange seine
+    Konfiguration nichts anderes sagt — deshalb wird sie zuerst gelesen.
+    EN: the emulator's default only applies while its config says nothing else.
+    """
+    if VITA_PREF:
+        return VITA_PREF
+    try:
+        with open(VITA_CONFIG, encoding="utf-8") as f:
+            for zeile in f:
+                if zeile.startswith("pref-path:"):
+                    wert = zeile.split(":", 1)[1].strip().strip("\"'")
+                    if wert:
+                        return wert
+    except OSError:
+        pass
+    return os.path.expanduser("~/.local/share/Vita3K/Vita3K")
+
+
+def sfo_felder(pfad):
+    """`param.sfo` -> {Schluessel: Wert}. Bei allem Unerwarteten {}.
+
+    Das Format ist ein Kopf, eine Schluessel- und eine Datentabelle. Am echten Titel
+    der Bibliothek abgelesen (`Gravity Rush (Europe).vpk/sce_sys/param.sfo`, 1292 Byte):
+
+        00 50 53 46 | 01 01 00 00 | 24 01 00 00 | e0 01 00 00 | 11 00 00 00
+        "\\0PSF"      Fassung 1.1   Schluessel-   Daten ab      17 Eintraege
+                                    tabelle 0x124  0x1e0
+
+    Jeder Eintrag ist 16 Byte: Schluesselversatz (u16), Format (u16), Laenge (u32),
+    Hoechstlaenge (u32), Datenversatz (u32). Format 0x0204 ist UTF-8 mit Nullbyte,
+    0x0404 eine 32-Bit-Zahl. Gelesen wurden so u. a. `TITLE_ID = 'PCSF00024'`,
+    `TITLE = 'GRAVITY RUSH™'` und `CATEGORY = 'gd'`.
+
+    Zahlen werden bewusst als Zeichenkette zurueckgegeben — hier interessiert nur
+    `TITLE_ID`, und ein einheitlicher Typ erspart dem Aufrufer die Fallunterscheidung.
+
+    EN: minimal SFO reader, built from the real file of the library's only Vita title.
+    """
+    import struct
+    try:
+        with open(pfad, "rb") as f:
+            roh = f.read(1 << 20)
+    except OSError:
+        return {}
+    if roh[:4] != b"\x00PSF":
+        return {}
+    try:
+        schluesselstart, datenstart, anzahl = struct.unpack_from("<III", roh, 8)
+        if not 0 < anzahl <= 1000:
+            return {}
+        felder = {}
+        for i in range(anzahl):
+            kv, fmt, laenge, _max, dv = struct.unpack_from("<HHIII", roh, 0x14 + i * 16)
+            ende = roh.index(b"\x00", schluesselstart + kv)
+            name = roh[schluesselstart + kv:ende].decode("utf-8", "replace")
+            wert = roh[datenstart + dv:datenstart + dv + laenge]
+            if fmt == 0x0404:
+                felder[name] = str(struct.unpack("<I", wert[:4])[0]) if len(wert) >= 4 else ""
+            else:
+                felder[name] = wert.split(b"\x00")[0].decode("utf-8", "replace")
+        return felder
+    except (struct.error, ValueError, IndexError):
+        return {}
+
+
+def vita_startwert(ordner):
+    """-> (Titelkennung fuer `-r`, Absagegrund). Genau eines von beidem ist gesetzt.
+
+    WARUM UEBERHAUPT: Vita3K startet einen Titel ueber seine KENNUNG, nicht ueber
+    seinen Pfad. Seine eigene Hilfe sagt es:
+
+        -r, --installed-path TEXT:{PCSF00024}   Path to the installed app to run
+
+    Die geschweifte Menge ist die Liste der installierten Titel. Mit dem Pfad statt der
+    Kennung endet der Start mit Exit 4, bevor ein Fenster entsteht:
+
+        CLI parsing error: --installed-path: /roms/psvita/Gravity not in {PCSF00024}
+
+    WARUM DIE KENNUNG IM LISTING GESUCHT UND NICHT AN `ux0/app` GEKLEBT WIRD: Sie
+    stammt aus einer Datei der Bibliothek und ist damit eine Eingabe von aussen —
+    dieselbe Ueberlegung wie in `_bibliothekspfad`. Der weitergegebene Wert ist so ein
+    echter Verzeichniseintrag; ein `..` darin kann gar nicht erst wirken.
+
+    NICHT INSTALLIERT IST EINE ABSAGE, kein Startversuch. Ohne `-r` oeffnet Vita3K
+    seine Titelliste: der Start GELINGT, der Stream zeigt einen Emulator, und niemand
+    sieht, warum kein Spiel kommt. Installieren tut dieser Dienst nicht — das ist ein
+    Schritt in Vita3Ks eigener Oberflaeche.
+
+    EN: Vita3K launches an INSTALLED title by its id, not by a path. The id is read
+    from `sce_sys/param.sfo` and then looked up in the listing of `ux0/app`, so the
+    value handed on is a real directory entry. Not installed is refused rather than
+    launched, because without `-r` Vita3K merely opens its title list.
+    """
+    name = os.path.basename(ordner.rstrip(os.sep)) or ordner
+    if not os.path.isdir(ordner):
+        return "", (f"'{name}' ist kein Titelordner — Vita3K startet nur INSTALLIERTE "
+                    "Titel; eine .vpk-Datei muss zuerst in Vita3K installiert werden "
+                    "(File ▸ Install). / not a title folder: Vita3K only launches "
+                    "installed titles, a .vpk file has to be installed there first")
+    kennung = sfo_felder(os.path.join(ordner, "sce_sys", "param.sfo")).get("TITLE_ID", "").strip()
+    if not kennung:
+        return "", (f"Keine Titelkennung in '{name}' — `sce_sys/param.sfo` fehlt oder "
+                    "nennt kein TITLE_ID; ohne sie weiss Vita3K nicht, was es starten "
+                    "soll. / no title id: `sce_sys/param.sfo` is missing or has no "
+                    "TITLE_ID")
+    try:
+        installiert = os.listdir(os.path.join(vita_ablage(), "ux0", "app"))
+    except OSError:
+        installiert = []
+    if kennung not in installiert:
+        return "", (f"'{name}' ist in Vita3K nicht installiert (Titelkennung {kennung}). "
+                    "Vita3K startet nur, was unter `ux0/app` liegt — den Titel einmal in "
+                    "Vita3K installieren. / not installed in Vita3K (title id "
+                    f"{kennung}); install it once, then streaming works.")
+    return kennung, ""
+
+
 def _switch_art(pfad):
     """-> Absagegrund, oder "" wenn die Datei ein Spiel sein kann. (#427)
 
@@ -901,7 +1031,19 @@ def launch(path, platform, rel="", region=""):
     # A title is not always a file: a PS3 disc is a directory. The previous `isfile`
     # check rejected those with a message about differing mount points — plausible
     # and wrong, which is the worst kind of error message.
-    if os.path.isdir(real):
+    #
+    # PS VITA GEHT EINEN ANDEREN WEG (#481): Dort ist ein Titel ebenfalls ein Ordner,
+    # aber Vita3K bekommt keine Datei daraus, sondern die TITELKENNUNG des installierten
+    # Titels. Bis dahin lief ein Vita-Titel in die Absage unten hinein — gemessen am
+    # laufenden Dienst, denn ein Vita-Ordner traegt keine der bekannten Startdateien:
+    #     {"ok": false, "msg": "Ordner ohne startbaren Inhalt … Gravity Rush (Europe).vpk"}
+    # EN: for PS Vita the folder yields an id, not a boot file.
+    vita_id = ""
+    if platform == "psvita":
+        vita_id, fehler = vita_startwert(real)
+        if fehler:
+            return False, fehler
+    elif os.path.isdir(real):
         boot = _bootdatei(real, platform)
         if not boot:
             return False, (f"Ordner ohne startbaren Inhalt / folder has no bootable file: "
@@ -946,9 +1088,14 @@ def launch(path, platform, rel="", region=""):
 
     # argv ist damit: fester Befehl aus der Umgebung (der Betreiber setzt ihn) + genau EIN
     # geprueftes Argument aus der Bibliothek. Keine Shell, keine Wortzerlegung durch execve.
-    argv = [real if part == "%s" else part for part in shlex.split(cmd)]
+    #
+    # Das Argument ist der PFAD — ausser bei PS Vita, wo es die Titelkennung ist (#481).
+    # `real` bleibt trotzdem der Pfad: er ist es, was `/status` meldet und was im Bericht
+    # steht. / the argument is the path, except for PS Vita where it is the title id.
+    startwert = vita_id or real
+    argv = [startwert if part == "%s" else part for part in shlex.split(cmd)]
     if "%s" not in cmd:
-        argv.append(real)
+        argv.append(startwert)
     umgebung = start_umgebung(platform)
     with _lock:
         _stop_locked()

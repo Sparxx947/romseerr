@@ -183,6 +183,19 @@ apprun() {   # <ordner> -> Kommando-Praefix bis einschliesslich AppRun
 [ -x "$EMU/xemu/AppRun" ]      && EMU_XBOX="$(apprun xemu) -dvd_path %s" && export EMU_XBOX
 [ -x "$EMU/cemu/AppRun" ]      && EMU_WIIU="$(apprun cemu) -g %s" && export EMU_WIIU
 [ -x "$EMU/azahar/AppRun" ]    && EMU_3DS="$(apprun azahar) %s" && export EMU_3DS
+# VITA3K: `%s` IST HIER KEIN PFAD, SONDERN DIE TITELKENNUNG. (#481)
+#
+# `-r` ist `--installed-path` und nimmt laut eigener Hilfe eine Kennung aus der Menge der
+# INSTALLIERTEN Titel — `TEXT:{PCSF00024}`. Mit dem Pfad endet der Start vor jedem Fenster:
+#
+#     CLI parsing error: --installed-path: /roms/psvita/Gravity not in {PCSF00024}
+#     [E] [main]: Failed to initialise config                            (Exit 4)
+#
+# Der Agent setzt deshalb bei `psvita` die Kennung aus `sce_sys/param.sfo` ein, nicht den
+# Pfad. Wer diese Zeile auf den POSITIONALEN Parameter umstellt (`… %s`), bekaeme etwas
+# anderes: der installiert und startet, und die Kennung waere dort falsch. Beides zusammen
+# muss geaendert werden oder gar nichts.
+# EN: `%s` here is the title id, not a path — the agent substitutes it for psvita.
 [ -x "$EMU/vita3k/AppRun" ]    && EMU_VITA="$(apprun vita3k) -r %s" && export EMU_VITA
 [ -x "$EMU/rpcs3/AppRun" ]     && EMU_PS3="$(apprun rpcs3) --no-gui %s" && export EMU_PS3
 
