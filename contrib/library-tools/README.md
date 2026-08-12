@@ -246,6 +246,62 @@ harmlosen Datei ein kaputtes Spiel.
 Zusätzlich muss **Ladeadresse plus Größe in 64 KB passen** — sonst ist es kein
 Commodore-Programm, sondern eine große Datei mit zufällig passenden ersten Bytes.
 
+### Abbildlisten prüfen: `rom-abbilder-pruefen`
+
+Ein Disc-Abbild besteht aus einer kleinen Textliste (`.gdi`, `.cue`, `.m3u`) und mehreren
+Datendateien. Fehlt eine davon, ist der Titel unspielbar — und zwar **lautlos**: In der
+Bibliothek steht er weiterhin, RomM zählt ihn mit, und erst der Emulator sagt
+`Sector Read miss`.
+
+```bash
+rom-abbilder-pruefen /roms                    # nur berichten, nichts anfassen
+rom-abbilder-pruefen /roms psx --reparieren   # eindeutige Verweise umschreiben
+rom-abbilder-pruefen /roms --aussortieren     # Unbrauchbares nach _defekt/ VERSCHIEBEN
+```
+
+#### Zwei Fragen, nicht eine
+
+Die naheliegende Prüfung — *nennt die Liste Dateien, die es nicht gibt?* — hat eine blinde
+Stelle, und die wurde am Bestand gemessen:
+
+```
+/roms/dc  ->  0 Defekte gemeldet, obwohl ALLE 138 Titel kaputt waren
+```
+
+Denn dort waren die Spielordner flachgelegt worden, und die Spuren heißen bei jedem
+Dreamcast-Spiel `track01.bin`. Im flachen Ordner **existiert** der Name also — jede Liste
+fand einen Treffer, nur den falschen. **Namenspräsenz ist nicht dasselbe wie die richtige
+Datei.**
+
+Deshalb stellt das Werkzeug zwei Fragen:
+
+| Frage | findet |
+|---|---|
+| **fehlend** — nennt die Liste Dateien, die nicht daneben liegen? | verlorene oder umbenannte Spuren |
+| **geteilt** — nennen *mehrere* Listen im selben Ordner dieselbe Datei? | den Kollisionsschaden aus #462 |
+
+Am Bestand gemessen: 11 eindeutig lösbar, 106 mit wirklich fehlenden Daten, 83 geteilte
+Verweise (alle unter `dc`).
+
+#### Was es repariert — und was bewusst nicht
+
+Umgeschrieben wird nur, wenn die gemeinte Datei **eindeutig** ist: Sie trägt den Stamm der
+Liste selbst (der häufige Fall umbenannter Rips), oder sie ist die einzige Datei dieser
+Endung, **die keine andere Liste beansprucht**.
+
+Der Nachsatz ist der Punkt. Ohne ihn genügte „genau eine `.bin` im Ordner" — und eine
+`.cue`, deren Daten wirklich fehlen, wurde auf das Abbild eines **fremden** Spiels
+umgebogen. An einem Probebestand aufgefallen, bevor das Werkzeug den echten sah. **Ein
+geratener Verweis sieht heil aus und ist es nicht**; das ist schlechter als ein sichtbar
+kaputter, weil danach niemand mehr hinsieht.
+
+`--aussortieren` **verschiebt** nach `<plattform>/_defekt/` und löscht nichts. Die
+vorhandenen Spuren sind echte Daten; ob sie ersetzbar sind, entscheidet der Betreiber.
+Jede Änderung steht mit Quelle und echtem Ziel in `.abbildpruefung/<plattform>-<zeit>.jsonl`,
+und vor jedem Umschreiben bleibt eine `.vor-fix`-Sicherung liegen.
+
+Eine `.m3u` mit Netzadressen (Radio-Streams) gilt **nicht** als defektes Abbild.
+
 ### Was die Werkzeuge nicht tun
 
 - **Keine Plattformordner umbenennen.** Die Namen stammen von RetroNAS.
@@ -457,6 +513,57 @@ Renaming a readme to `readme.prg` would turn a harmless file into a broken game.
 
 Load address plus size must also fit in 64 KB, which catches large files whose first two
 bytes happen to match.
+
+### Checking image lists: `rom-abbilder-pruefen`
+
+A disc image is a small text list (`.gdi`, `.cue`, `.m3u`) plus several data files. If one
+is missing the title is unplayable — and **silently so**: it still shows in the library,
+RomM counts it, and only the emulator says `Sector Read miss`.
+
+```bash
+rom-abbilder-pruefen /roms                    # report only, touch nothing
+rom-abbilder-pruefen /roms psx --reparieren   # rewrite unambiguous references
+rom-abbilder-pruefen /roms --aussortieren     # MOVE unusable sets to _defekt/
+```
+
+#### Two questions, not one
+
+The obvious check — *does the list name files that are not there?* — has a blind spot, and
+it was measured on the library:
+
+```
+/roms/dc  ->  0 defects reported, while ALL 138 titles were broken
+```
+
+The game folders had been flattened, and every Dreamcast game names its tracks
+`track01.bin`. In the flat folder that name **exists**, so every list found a match — just
+the wrong one. **Name presence is not the same as the right file.**
+
+| Question | finds |
+|---|---|
+| **missing** — does the list name files that are not beside it? | lost or renamed tracks |
+| **shared** — do *several* lists in one folder name the same file? | the collision damage from #462 |
+
+Measured: 11 unambiguously solvable, 106 with genuinely missing data, 83 shared references
+(all under `dc`).
+
+#### What it repairs, and what it deliberately does not
+
+A list is rewritten only when the intended file is **unambiguous**: it carries the list's
+own stem (the common case of a renamed rip), or it is the only file with that extension
+**that no other list claims**.
+
+That last clause is the point. Without it, "exactly one `.bin` in the folder" was enough —
+and a `.cue` whose data is genuinely gone got rewired onto **another game's** image. Caught
+on a fixture before the tool saw the real library. **A guessed reference looks intact and
+is not**, which is worse than a visibly broken one, because nobody looks again.
+
+`--aussortieren` **moves** to `<plattform>/_defekt/` and deletes nothing. The tracks that
+are there are real data, and whether they are replaceable is the operator's call. Every
+change is recorded with source and real destination in
+`.abbildpruefung/<platform>-<time>.jsonl`, and a rewrite leaves a `.vor-fix` copy.
+
+An `.m3u` holding stream URLs is **not** counted as a broken image.
 
 ### What the tools do not do
 

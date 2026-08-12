@@ -23,6 +23,7 @@ import pytest
 WURZEL = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WERKZEUG = os.path.join(WURZEL, "contrib", "library-tools", "retronas-organisieren")
 SORTIERER = os.path.join(WURZEL, "contrib", "library-tools", "retronas-mixed-sortieren")
+PRUEFER = os.path.join(WURZEL, "contrib", "library-tools", "rom-abbilder-pruefen")
 
 
 def _laden(pfad, name):
@@ -57,6 +58,11 @@ def org():
 @pytest.fixture(scope="module")
 def mix():
     return _laden(SORTIERER, "retronas_mixed_sortieren")
+
+
+@pytest.fixture(scope="module")
+def abb():
+    return _laden(PRUEFER, "rom_abbilder_pruefen")
 
 
 # --- Datentraeger-Marker: das einzige verlaessliche Zeichen -------------------------
@@ -1064,3 +1070,121 @@ def test_a_rejected_zip_is_handed_on_instead_of_given_up(org, tmp_path):
     assert ok, "das getarnte Archiv wurde aufgegeben, statt weitergereicht zu werden"
     assert (ziel / "inhalt.adf").exists() or list(ziel.rglob("inhalt.adf")), \
         f"Inhalt fehlt: {[p.name for p in ziel.rglob('*')]}"
+
+
+# --- Abbildlisten pruefen (#465) -------------------------------------------------------
+
+def _cue(ordner, name, nennt):
+    (ordner / f"{name}.cue").write_text(
+        "".join(f'FILE "{n}" BINARY\n' for n in nennt), encoding="utf-8")
+
+
+def test_a_renamed_data_file_is_recognised_as_solvable(abb, tmp_path):
+    """Nennt die `.cue` einen alten Namen und liegt die Datei unter IHREM Stamm da,
+    ist der Fall eindeutig. (#465)
+
+    Am Bestand gemessen: `Sexy Parodius (Japan).cue` sucht
+    `Sexy Parodius (J) [SLPM-86009].bin`, daneben liegt `Sexy Parodius (Japan).bin`.
+    """
+    d = tmp_path / "psx"
+    d.mkdir()
+    _cue(d, "Spiel (Japan)", ["Spiel (J) [SLPM-1].bin"])
+    (d / "Spiel (Japan).bin").write_bytes(b"x" * 64)
+    befunde, _ = abb.ordner_pruefen(str(d), os.listdir(d))
+    assert len(befunde) == 1
+    assert befunde[0]["ursache"] == "umbenannt"
+    assert befunde[0]["loesungen"] == {"Spiel (J) [SLPM-1].bin": "Spiel (Japan).bin"}
+
+
+def test_a_broken_cue_does_not_grab_another_games_image(abb, tmp_path):
+    """Eine kaputte `.cue` darf NICHT auf fremde Daten umgebogen werden. (#465)
+
+    DAS WAR EIN ECHTER FEHLER IN DER ERSTEN FASSUNG. Die Regel lautete „gibt es genau eine
+    Datei dieser Endung, ist sie gemeint". Im Ordner lagen eine heile `.cue` mit ihrer
+    `.bin` und eine zweite `.cue`, deren Daten wirklich fehlen — und die bekam die `.bin`
+    des ersten Spiels zugewiesen. Am Probebestand aufgefallen, bevor es den echten sah.
+
+    Ein geratener Verweis sieht heil aus und ist es nicht. Das ist schlechter als ein
+    sichtbar kaputter, weil niemand mehr hinsieht.
+    """
+    d = tmp_path / "psx"
+    d.mkdir()
+    _cue(d, "Spiel (Japan)", ["Spiel (J) [SLPM-1].bin"])
+    (d / "Spiel (Japan).bin").write_bytes(b"x" * 64)
+    _cue(d, "Verloren", ["Weg.bin"])
+    befunde, _ = abb.ordner_pruefen(str(d), os.listdir(d))
+    nach_liste = {b["liste"]: b for b in befunde}
+    assert nach_liste["Verloren.cue"]["ursache"] == "fehlend", \
+        "die kaputte Liste wurde auf fremde Daten umgebogen"
+    assert not nach_liste["Verloren.cue"]["loesungen"]
+    assert nach_liste["Spiel (Japan).cue"]["ursache"] == "umbenannt"
+
+
+def test_shared_references_are_reported_even_when_every_name_resolves(abb, tmp_path):
+    """Der Kollisionsfall — den die Frage nach fehlenden Dateien NICHT sehen kann. (#465)
+
+    In `/roms/dc` meldete die naheliegende Pruefung NULL Defekte, obwohl alle 138 Titel
+    kaputt waren: Im flachgelegten Ordner existiert `track01.bin` ja, jede `.gdi` fand
+    einen Treffer — nur den falschen. Namenspraesenz ist nicht dasselbe wie die richtige
+    Datei.
+    """
+    d = tmp_path / "dc"
+    d.mkdir()
+    zeilen = "3\n1 0 4 2352 track01.bin 0\n2 600 0 2352 track02.raw 0\n3 45000 4 2352 track03.bin 0\n"
+    for name in ("Spiel A", "Spiel B"):
+        (d / f"{name}.gdi").write_text(zeilen, encoding="utf-8")
+    for n in ("track01.bin", "track02.raw", "track03.bin"):
+        (d / n).write_bytes(b"x" * 32)
+    befunde, geteilt = abb.ordner_pruefen(str(d), os.listdir(d))
+    assert befunde == [], "keine Datei fehlt — die erste Frage sieht hier nichts"
+    assert len(geteilt) == 3, f"der Kollisionsschaden wurde nicht gemeldet: {geteilt}"
+
+
+def test_a_playlist_of_stream_urls_is_not_a_broken_image(abb, tmp_path):
+    """`.m3u` mit Netzadressen ist kein defektes Abbild. (#465)
+
+    Am Bestand: `RG350/heavy-metal.m3u` verweist auf einen Radio-Stream. Ohne diese
+    Unterscheidung wuerde das Werkzeug ihn „reparieren" wollen.
+    """
+    d = tmp_path / "RG350"
+    d.mkdir()
+    (d / "heavy-metal.m3u").write_text(
+        "#EXTM3U\nhttp://stream.rockantenne.de/heavy-metal\n", encoding="utf-8")
+    befunde, _ = abb.ordner_pruefen(str(d), os.listdir(d))
+    assert befunde == [], f"Stream-Adressen als Defekt gemeldet: {befunde}"
+
+
+def test_repairing_keeps_a_copy_of_the_original(abb, tmp_path):
+    """Vor dem Umschreiben bleibt eine Sicherung liegen. (#465)
+
+    Eine kaputte Liste ist ersetzbar; eine FALSCH reparierte faellt niemandem auf. Deshalb
+    ist der Rueckweg Pflicht und nicht Kuer.
+    """
+    d = tmp_path / "psx"
+    d.mkdir()
+    _cue(d, "Spiel", ["Alt.bin"])
+    (d / "Spiel.bin").write_bytes(b"x" * 64)
+    assert abb.liste_umschreiben(str(d / "Spiel.cue"), {"Alt.bin": "Spiel.bin"}) is True
+    assert 'FILE "Spiel.bin"' in (d / "Spiel.cue").read_text(encoding="utf-8")
+    assert (d / "Spiel.cue.vor-fix").exists(), "keine Sicherung angelegt"
+    assert 'FILE "Alt.bin"' in (d / "Spiel.cue.vor-fix").read_text(encoding="utf-8")
+
+
+def test_sorting_out_moves_and_never_deletes(abb, tmp_path):
+    """`--aussortieren` VERSCHIEBT nach `_defekt/`. (#465)
+
+    Die vorhandenen Spuren sind echte Daten. Ob sie ersetzbar sind, entscheidet der
+    Betreiber — ein Skript, das sie loescht, nimmt ihm diese Entscheidung ab.
+    """
+    d = tmp_path / "psx"
+    d.mkdir()
+    _cue(d, "Verloren", ["Weg.bin"])
+    (d / "Verloren.bin.teilstueck").write_bytes(b"x" * 8)
+    z = abb.plattform_pruefen(str(tmp_path), "psx", reparieren=False, aussortieren=True)
+    assert z["aussortiert"] >= 1
+    assert (d / "_defekt" / "Verloren.cue").exists()
+    assert not (d / "Verloren.cue").exists()
+    protokoll = list((tmp_path / ".abbildpruefung").glob("*.jsonl"))
+    assert protokoll, "kein Protokoll geschrieben"
+    zeilen = [json.loads(z) for z in protokoll[0].read_text(encoding="utf-8").splitlines()]
+    assert any(e["art"] == "verschoben" and e["von"] and e["nach"] for e in zeilen)
