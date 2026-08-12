@@ -627,6 +627,40 @@ removed individually or in bulk, and expire after `leftover_days` (default 14, 0
 never listed, and removal only accepts paths that resolve inside a collect directory and
 carry the `romseerr_` prefix.*
 
+### Kurzmeldungen an einer Zeile überleben das Auffrischen nicht (#449, #459)
+
+Die Anfragenliste zeichnet sich alle vier Sekunden neu und ersetzt dabei `#jobs` vollständig.
+Was an einer **Zeile** hängt, ist danach weg. Das hat zweimal in Folge zugeschlagen, in zwei
+verschiedenen Formen:
+
+| hängt an der Zeile | Folge | Lösung |
+|---|---|---|
+| `onclick` je Zeile | Klick ins Fenster tut nichts (#449) | ein Zuhörer am **Behälter**, `jobKlickBindung` |
+| Meldungstext in `.jobmsg` | Antwort verschwindet, evtl. sofort (#459) | `JOBMELDUNG`-Karte je **Auftrags-Id**, von `loadJobs` wieder eingetragen |
+
+Beide Male war die Ursache dieselbe und die erste Reparatur nur die Hälfte: #419 senkte die
+Zahl der Neuaufbauten, das Fenster blieb. **Nicht seltener machen, sondern woanders
+verankern** — am Behälter, der nicht ersetzt wird, oder am Auftrag, der die Zeile überdauert.
+
+Dazu gehört: **kein stilles Scheitern.** In `openJobDetail` stand ein leerer `catch`; ein
+Netzfehler oder ein 500 aus `/api/search` ließ die Zeile aufhellen und sonst geschah nichts —
+von einem toten Knopf nicht zu unterscheiden. Jeder Ausgang schreibt jetzt eine Meldung.
+
+Für Tests heißt das: `j.innerHTML = j.innerHTML` verwirft **Ereignisbindungen**, erhält aber
+den **Text** — er steht ja im serialisierten HTML. Für die Klickfrage ist dieser Rundlauf
+also der richtige Hebel, für die Meldungsfrage der falsche. Dort braucht es den echten Weg:
+`JOBSTAND` leeren und `loadJobs()` rufen. Mit dem falschen Hebel bestand die Prüfung auch
+gegen den kaputten Stand.
+
+*EN: the requests list replaces `#jobs` wholesale every four seconds, so anything bound to a
+row is lost. Twice in a row this bit: the per-row click handler (#449) and the message text
+in `.jobmsg` (#459). Reducing how often it happens is not a fix — anchor elsewhere: on the
+container, which is never replaced, or on the job id, which outlives the row. And never fail
+silently: the empty `catch` in `openJobDetail` made a broken lookup look like a dead button.
+For tests: an `innerHTML` round-trip discards event handlers but preserves text, so it is the
+right lever for the click question and the wrong one for the message question — there, clear
+`JOBSTAND` and call `loadJobs()`.*
+
 ### Etwas an der Oberfläche ändern
 Datei unter `static/` oder `templates/` bearbeiten, App neu starten (der Hash und damit die
 URL ändern sich automatisch). Kein Build, kein Bündler.
