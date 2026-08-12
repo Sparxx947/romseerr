@@ -3638,7 +3638,13 @@ def test_the_empty_requests_page_says_which_kind_of_empty():
     Aussagen. Vorher stand für beides derselbe Satz — mit Filtern wäre er schlicht
     falsch. (#201)"""
     js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
-    fn = js[js.index("async function loadJobs(){"):]
+    # NICHT AUF DIE EXAKTE SIGNATUR ANKERN. Der Anker lautete `async function loadJobs(){`
+    # und brach, sobald #419 der Funktion versuchsweise einen Parameter gab: `ValueError:
+    # substring not found`, ein Fehler ueber die Suche statt ueber die gepruefte Sache.
+    # Was hier zaehlt, sind die zwei verschiedenen Leertexte — nicht die Klammern.
+    m = re.search(r"async function loadJobs\([^)]*\)\s*\{", js)
+    assert m, "loadJobs ist nicht mehr auffindbar"
+    fn = js[m.start():]
     fn = fn[:fn.index("\nasync function ", 1)]
     assert "t('flt_leer')" in fn and "t('no_requests')" in fn, "es gibt nur einen Leertext"
     assert "alle.length&&(JOBGRP||window.jobFilter)" in fn, \
@@ -8307,3 +8313,45 @@ def test_every_environment_variable_is_mentioned_in_the_example():
     assert not fehlend, (
         "diese Variablen liest der Code, ohne dass `.env.example` sie kennt — sie sind "
         f"nur durch Quelltextlesen auffindbar: {fehlend}")
+
+
+def test_every_contrib_tool_is_named_in_its_readme():
+    """Jedes Werkzeug unter `contrib/` steht in der README daneben. (#395)
+
+    GEMESSEN BEIM FUND: `contrib/streaming-host/README.md` hat 1.444 Zeilen und erwaehnte
+    fuenf der dortigen Dateien mit keinem Wort — darunter `launch-profile.py` mit 1.187
+    Zeilen, also den zweitgroessten Brocken des Verzeichnisses, und `emu-setup`, ohne das
+    sich keine Tastenbelegung setzen laesst.
+
+    Die Dateien selbst sind gut dokumentiert; jede traegt einen zweisprachigen Kopf. Nur
+    erfaehrt man von ihrer Existenz nicht, wenn man nicht ohnehin `ls` tippt. Doku, die
+    voraussetzt, dass man schon weiss, wonach man sucht, hilft genau denen nicht, fuer die
+    sie da ist.
+
+    EN: every tool under contrib/ must be named in the README beside it. The files carry
+    good headers; the problem was that nothing pointed at them.
+    """
+    fehlend = {}
+    for ordner in sorted(os.listdir(os.path.join(REPO, "contrib"))):
+        basis = os.path.join(REPO, "contrib", ordner)
+        readme = os.path.join(basis, "README.md")
+        if not os.path.isdir(basis) or not os.path.isfile(readme):
+            continue
+        text = open(readme, encoding="utf-8").read()
+        luecke = []
+        for wurzel, verz, dateien in os.walk(basis):
+            verz[:] = [v for v in verz
+                       if v not in ("__pycache__", ".pytest_cache", "node_modules")]
+            for datei in dateien:
+                pfad = os.path.join(wurzel, datei)
+                # Nur ausfuehrbare Werkzeuge. Beiwerk (Bilder, .md, Konfiguration im Web-
+                # Verzeichnis) einzeln aufzuzaehlen waere Ballast ohne Nutzen.
+                if datei.endswith(".md") or not os.access(pfad, os.X_OK):
+                    continue
+                if datei not in text:
+                    luecke.append(os.path.relpath(pfad, basis))
+        if luecke:
+            fehlend[ordner] = sorted(luecke)
+    assert not fehlend, (
+        "diese Werkzeuge kommen in der README daneben nicht vor — man findet sie nur, "
+        f"wenn man ohnehin nachsieht: {json.dumps(fehlend, ensure_ascii=False)}")
