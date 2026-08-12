@@ -8514,3 +8514,88 @@ def test_the_agent_reads_the_same_format_as_romseerr(appmod, tmp_path):
     fremd = tmp_path / "fremd.3ds"
     fremd.write_bytes(b"\x00" * 4096)
     assert appmod.dreids_art(str(fremd)) == agent._3ds_art(str(fremd)) == ""
+
+
+# --- #429: Vollbild wird gemessen, nicht angenommen ---------------------------------
+
+def test_the_keystroke_route_does_not_sit_where_it_cannot_fire():
+    """Kein Tastenweg im `--fullscreen`-Schritt — der laeuft VOR dem Start. (#429)
+
+    DER FUND: `xemu_vollbild()` schickt F11 an ein xemu-Fenster. Der Agent ruft
+    `--fullscreen` aber ab, BEVOR der Emulator gestartet wird — damit dieser seine
+    Konfiguration frisch liest. Zu diesem Zeitpunkt gibt es kein Fenster. Am laufenden
+    Host nachgestellt:
+
+        [vollbild] xemu: kein xemu-Fenster gefunden — laeuft der Emulator?
+
+    Die Loesung aus #306 stand also im Quelltext und feuerte nie. Genau das Muster
+    „ausgeliefert und wirkungslos": Es sah aus wie ein Fix, war aber einer, den niemand
+    ausgeloest hat.
+
+    Diese Pruefung haelt die beiden Zeitpunkte auseinander: Was `--fullscreen` tut, muss
+    ohne Fenster sinnvoll sein — also Konfiguration schreiben. Tastensendungen gehoeren in
+    den Fensterschritt nach dem Start.
+
+    EN: `--fullscreen` runs before the emulator starts, so a keystroke route there finds no
+    window and never fires. #306's fix was in the source and inert.
+    """
+    quelle = open(os.path.join(REPO, "contrib", "streaming-host", "launch-profile.py"),
+                  encoding="utf-8").read()
+    m = re.search(r"^PROFILE = \{(.*?)^\}", quelle, re.S | re.M)
+    assert m, "PROFILE nicht gefunden"
+    zugeordnet = set(re.findall(r'"vollbild":\s*([A-Za-z_][A-Za-z0-9_]*)', m.group(1)))
+    zugeordnet.discard("None")
+
+    def rumpf(fn):
+        m = re.search(rf"^def {fn}\(.*?\):(.*?)(?=^def |\Z)", quelle, re.S | re.M)
+        return m.group(1) if m else ""
+
+    for name in sorted(zugeordnet):
+        eigener = rumpf(name)
+        assert eigener, f"{name} ist zugeordnet, aber nicht definiert"
+        # EINE EBENE WEITERVERFOLGEN. Die erste Fassung sah nur in die genannte Funktion —
+        # und `azahar_vollbild` besteht aus einer einzigen Zeile: `return
+        # f11_vollbild("Azahar")`. Der xdotool-Aufruf steht im gemeinsamen Helfer, also
+        # blieb der Waechter gruen, waehrend genau der Fehler wieder dastand, den er
+        # verhindern soll. Aufgefallen NUR, weil die Gegenprobe ihn absichtlich einbaute.
+        aufgerufen = set(re.findall(r"\b([a-z_][a-z0-9_]*)\(", eigener))
+        koerper = eigener + "".join(rumpf(f) for f in aufgerufen if f != name)
+        koerper = re.match(r"(.*)", koerper, re.S)
+        # AUF DEN AUFRUF PRUEFEN, NICHT AUF DAS WORT. Die erste Fassung suchte
+        # "xdotool" im ganzen Funktionskoerper und meldete `pcsx2_vollbild` — das
+        # schreibt eine Konfigurationszeile und erwaehnt xdotool nur in seinem
+        # Kommentar, um zu begruenden, WARUM es den Fenstertrick nicht benutzt. Ein
+        # Waechter, der an einer Erklaerung scheitert, erzieht dazu, Erklaerungen
+        # wegzulassen.
+        assert '_x("xdotool"' not in koerper.group(1), (
+            f"{name} sucht ein Fenster, laeuft aber im `--fullscreen`-Schritt VOR dem "
+            "Start — dort gibt es keins. Tastenwege gehoeren in vollbild_sicherstellen().")
+
+
+def test_fullscreen_is_measured_before_it_is_corrected():
+    """Erst messen, dann F11 — nicht umgekehrt. (#429)
+
+    WARUM DAS DIE ENTSCHEIDENDE REIHENFOLGE IST: **F11 ist ein Umschalter.** Ein Emulator,
+    bei dem der Fenstertrick bereits gewirkt hat, fiele durch ein blindes F11 WIEDER aus
+    dem Vollbild — aus einem funktionierenden Fall wuerde ein kaputter. Die Messung ist
+    hier keine zusaetzliche Vorsicht, sondern das, was die Korrektur ungefaehrlich macht.
+
+    EN: F11 is a toggle. Measuring first is what makes the correction safe rather than a
+    way to break the emulators that already worked.
+    """
+    quelle = open(os.path.join(REPO, "contrib", "streaming-host", "launch-profile.py"),
+                  encoding="utf-8").read()
+    m = re.search(r"^def vollbild_sicherstellen\(.*?\):(.*?)(?=^def |\Z)", quelle,
+                  re.S | re.M)
+    assert m, "vollbild_sicherstellen fehlt"
+    koerper = m.group(1)
+
+    mess = koerper.index("gezeichneter_anteil()")
+    taste = koerper.index('"F11"')
+    assert mess < taste, "F11 wird geschickt, bevor gemessen wurde"
+
+    # Und der Rueckweg ohne Korrektur muss es geben: liegt die Flaeche schon ueber der
+    # Schwelle, darf NICHTS gesendet werden.
+    assert "VOLLBILD_SCHWELLE" in koerper, "es gibt keine Schwelle, ab der nichts passiert"
+    assert re.search(r">= VOLLBILD_SCHWELLE:\s*\n\s*return", koerper), \
+        "ueber der Schwelle wird nicht frueh zurueckgekehrt — F11 traefe auch den Gutfall"
