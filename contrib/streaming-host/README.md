@@ -688,10 +688,25 @@ neu installiert, bleibt die Firmware erhalten.
 | Teil | woher | landet in |
 |---|---|---|
 | Firmware (`PSVUPDAT.PUP`) | **selbst besorgen** und über *Install Firmware* einspielen | `vs0`, `os0` |
-| Font-Paket | **Vita3K lädt es selbst** — Schaltfläche *Download Firmware Font Package* | `sa0` |
+| Font-Paket (`PSP2UPDAT.PUP`) | **auch selbst besorgen** — die Schaltfläche *Download Firmware Font Package* öffnet nur einen Link | `sa0` |
 
-Für die **Firmware** öffnet der Quelltext nur einen Dateidialog (`firmware_install_dialog.cpp`),
-da ist nichts zu automatisieren. Für das **Font-Paket** gilt das nicht — hier genügt ein Klick.
+**Vita3K lädt beides NICHT selbst.** Die Schaltfläche *Download Firmware Font Package* sieht
+so aus, als täte sie es, und tut es nicht: Sie öffnet einen Browser auf einen Kurzlink. Am
+laufenden Host gemessen — im Protokoll steht `Opening in existing browser session`, danach
+startet Chromium und sonst passiert nichts.
+
+Der Kurzlink zeigt auf einen unverschlüsselten Direktdownload:
+
+```
+https://bit.ly/2P2rb0r
+  -> http://dus01.psp2.update.playstation.net/update/psp2/image/2019_0924/
+     sd_8b5f60b56c3da8365b973dba570c53a5/PSP2UPDAT.PUP?dest=us
+  56.768.512 Byte, Kopf `SCEUF`
+```
+
+Mit `curl` ist es ein Einzeiler; im Browser des Containers startete der Download nicht.
+Beide PUPs landen in `firmware/psvita/` und werden über *File ▸ Install Firmware*
+eingespielt — einzeln, erst die eine, dann die andere.
 
 Der Status prüft deshalb **beide** Ablagen (`vs0` und `sa0`). Mit nur einer meldete er
 „eingespielt", während der Emulator selbst widersprach (#484).
@@ -1574,10 +1589,25 @@ the firmware with it.
 | part | where from | ends up in |
 |---|---|---|
 | firmware (`PSVUPDAT.PUP`) | **obtain it yourself**, then *Install Firmware* | `vs0`, `os0` |
-| font package | **Vita3K fetches it** — the *Download Firmware Font Package* button | `sa0` |
+| font package (`PSP2UPDAT.PUP`) | **obtain it too** — the *Download Firmware Font Package* button only opens a link | `sa0` |
 
-For the **firmware** the source only opens a file dialog (`firmware_install_dialog.cpp`) and
-there is nothing to automate. That is not true of the **font package**, which is one click.
+**Vita3K fetches neither.** The *Download Firmware Font Package* button looks as though it
+does and does not: it opens a browser on a shortened link. Measured on the running host —
+the log says `Opening in existing browser session`, Chromium starts, and nothing else
+happens.
+
+The link resolves to a plain-HTTP direct download:
+
+```
+https://bit.ly/2P2rb0r
+  -> http://dus01.psp2.update.playstation.net/update/psp2/image/2019_0924/
+     sd_8b5f60b56c3da8365b973dba570c53a5/PSP2UPDAT.PUP?dest=us
+  56,768,512 bytes, header `SCEUF`
+```
+
+`curl` handles it in one line; the container's browser never started the download. Both PUPs
+go into `firmware/psvita/` and are installed one after the other via *File > Install
+Firmware*.
 
 The status therefore checks **both** Ablagen (`vs0` and `sa0`). With only one it reported
 "installed" while the emulator itself disagreed (#484).
