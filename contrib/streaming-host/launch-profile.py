@@ -813,6 +813,62 @@ def azahar_ini():
     return os.path.join(CONFIG, ".config", "azahar-emu", "qt-config.ini")
 
 
+def vita3k_config():
+    return os.path.join(CONFIG, ".config", "Vita3K", "config.yml")
+
+
+def vita3k_vollbild(pruefen=False):
+    """-> (geaendert, meldung). Vita3K startet Titel im Fenster. (#304)
+
+    AM LAUFENDEN HOST ABGELESEN, nicht geraten. Die Datei traegt genau einen Schalter
+    dafuer, und er stand aus:
+
+        boot-apps-full-screen: false      <- der hier
+        backend-renderer: Vulkan          <- steht bereits richtig
+        keyboard-gui-fullscreen: F11      <- der Tastenweg, den wir NICHT brauchen
+
+    Warum nicht der Tastenweg: Der greift erst, wenn ein Fenster da ist, und der Agent
+    ruft die Vorbereitung VOR dem Start auf — dieselbe Falle wie bei xemu (#429). Ein
+    Schalter in der Konfiguration wirkt beim naechsten Start und braucht kein Fenster.
+
+    Vita3K schreibt seine Konfiguration beim Beenden; existiert sie noch nicht, wird hier
+    NICHTS angelegt. Eine von uns erfundene Datei koennte Felder vermissen lassen, die der
+    Emulator erwartet — und der Fehler saehe dann nach einem kaputten Emulator aus.
+
+    EN: read off the running host. `boot-apps-full-screen: false` is the one switch; the
+    renderer is already Vulkan. The keyboard route needs a window, which does not exist
+    when the agent prepares the launch. Nothing is created if the file is absent.
+    """
+    pfad = vita3k_config()
+    if not os.path.isfile(pfad):
+        return False, "config.yml gibt es noch nicht — der Emulator legt sie beim ersten Start an"
+    try:
+        with open(pfad, encoding="utf-8") as f:
+            zeilen = f.read().splitlines()
+    except OSError as e:
+        return False, f"config.yml nicht lesbar: {e.strerror}"
+
+    schluessel = "boot-apps-full-screen:"
+    treffer = [i for i, z in enumerate(zeilen) if z.strip().startswith(schluessel)]
+    if not treffer:
+        # NICHT ANHAENGEN. Fehlt der Schluessel, hat diese Fassung ihn vielleicht anders
+        # benannt — dann waere ein angehaengter Eintrag wirkungslos und wir haetten es
+        # trotzdem als Erfolg gemeldet.
+        return False, f"{schluessel} steht nicht in der config.yml — Fassung geaendert?"
+    i = treffer[0]
+    if zeilen[i].split(":", 1)[1].strip().lower() == "true":
+        return False, "steht bereits auf Vollbild"
+    if pruefen:
+        return True, "wuerde auf Vollbild stellen"
+    zeilen[i] = f"{schluessel} true"
+    try:
+        with open(pfad, "w", encoding="utf-8") as f:
+            f.write("\n".join(zeilen) + "\n")
+    except OSError as e:
+        return False, f"config.yml nicht schreibbar: {e.strerror}"
+    return True, "Titel starten jetzt im Vollbild"
+
+
 # SDL-Kennung des gebrueckten Pads. Aufbau: Bus 03 (USB), Vendor 045e (Microsoft),
 # Product 028e (Xbox 360 Controller) — jeweils byteweise gedreht. SDL hat sie sich in
 # xemus Konfiguration selbst eingetragen; von dort abgelesen, nicht erfunden.
@@ -1000,7 +1056,13 @@ PROFILE = {
                   # Tastenweg: siehe xemu — greift nach dem Start, nicht hier. (#429)
                   "bios": None, "vollbild": None,
                   "geprueft": False},
-    "vita3k":    {"system": "PS Vita",       "controller": None, "bios": None, "vollbild": None,
+    # Am laufenden Host abgelesen (2026-08-12, #304): `backend-renderer` steht bereits auf
+    # Vulkan, `boot-apps-full-screen` stand auf `false`. Der Schalter kommt in die
+    # Konfiguration und NICHT als Tastensendung — die braeuchte ein Fenster, das es zum
+    # Zeitpunkt der Vorbereitung nicht gibt (#429). `geprueft` bleibt False, bis ein
+    # Mensch Bild, Ton und Pad im Spiel bestaetigt hat (#303).
+    "vita3k":    {"system": "PS Vita",       "controller": None, "bios": None,
+                  "vollbild": vita3k_vollbild,
                   "geprueft": False},
     # geprueft: Bild, Ton und Gamepad im Spiel bestaetigt (2026-08-10, #119). Dass die
     # Warnung „Adding empty device" verschwindet, war nur der Hinweis — den Nachweis

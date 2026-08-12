@@ -441,7 +441,7 @@ Controller im Spiel gedrückt.
 | Dreamcast | Flycast | ✅ | ✅ | ✅ | Vollbild und **Vulkan** in der Startzeile, an den Pixeln gemessen (#304); Bild, Ton und Controller von einem Menschen in Fatal Fury bestätigt — Flycast belegt die Pads selbst, als einziger Emulator hier |
 | Xbox | xemu | ✅ | ✅ | ✅ | braucht **COMPLEX 4627 + MCPX 1.0** — Retail-BIOS bleiben schwarz |
 | Wii U | Cemu | — | — | — | Titel vorhanden seit #452/#455 — noch nicht gestartet |
-| PS Vita | Vita3K | — | — | — | Titel vorhanden seit #452/#455 — noch nicht gestartet |
+| PS Vita | Vita3K | — | — | — | Titel vorhanden seit #452/#455; Vollbild und Vulkan stehen in der Konfiguration (#304) — noch nicht gestartet |
 
 Ein `—` heißt **ungeprüft**, nicht „defekt". Für Dreamcast, Wii U und PS Vita liegen
 seit #452/#455 Titel bereit; sie sind ungeprüft, weil noch niemand sie gestartet hat —
@@ -1304,7 +1304,7 @@ pressed in-game.
 | Dreamcast | Flycast | ✅ | ✅ | ✅ | fullscreen and **Vulkan** set on the launch line, measured at the pixels (#304); picture, sound and controller all confirmed by a human in Fatal Fury — Flycast maps the pads by itself, the only emulator here that does |
 | Xbox | xemu | ✅ | ✅ | ✅ | needs **COMPLEX 4627 + MCPX 1.0** — retail BIOS stays black |
 | Wii U | Cemu | — | — | — | a title is in the library since #452/#455 — not launched yet |
-| PS Vita | Vita3K | — | — | — | a title is in the library since #452/#455 — not launched yet |
+| PS Vita | Vita3K | — | — | — | a title is in the library since #452/#455; fullscreen and Vulkan are set in the config (#304) — not launched yet |
 
 A `—` means **untested**, not "broken". Dreamcast, Wii U and PS Vita have had content since
 #452/#455; they are untested because nobody has launched them yet, not because there is
