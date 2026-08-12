@@ -488,6 +488,47 @@ only something reading the directories directly (RomM's scan, RetroNAS' shares, 
 the platform and falls back to the slug. An empty alias folder does not count, or the stray
 would beat the library.*
 
+### Der Index muss dasselbe wissen wie der Import (#477)
+
+`SPIELORDNER_MUSTER` sagt dem **Import**, dass ein Ordner ein Titel sein kann. Der **Index**
+wusste es nicht: Er lief hinein und legte die Bestandteile als Titel ab. Nach einem
+vollständigen Neuaufbau am echten Bestand gemessen:
+
+```
+wiiu    31 Einträge:  app, bootDrcTex, bootLogoTex, bootMovie
+psvita  14 Einträge:  args, eboot, Gravite, icon
+ps3     27 Einträge:  PS3_DISC, ICON0, …
+```
+
+`bootMovie` ist ein Video **in** Captain Toad, `Gravite` die `.psarc` **in** Gravity Rush.
+Die echten Titel fehlten ganz — und damit fand `stream_info` sie nicht: **ein vollständiger,
+vorhandener Titel war über die Oberfläche unerreichbar.**
+
+`ist_titel_ordner()` beantwortet die Frage jetzt für beide Wege:
+
+| Weg | erkennt |
+|---|---|
+| `spielordner_slug` | bekannter Aufbau — Wii U, PS3, GameCube, Vita, Xbox |
+| Abbild-Set | eine `.gdi`/`.cue`/`.m3u` nennt Dateien, die daneben liegen |
+
+**Warum zwei Wege und nicht einer:** `spielordner_slug` liefert einen *Slug*, und ein
+Abbild-Set verrät seine Plattform nicht — eine `.cue` steht bei psx, saturn, segacd und
+turbografx-cd. Für den Index ist die Plattform aber schon bekannt; dort lautet die Frage nur
+„ein Titel oder viele?". Ohne den zweiten Weg hieße ein wiederhergestellter
+Dreamcast-Titel `track01`, `track02`, `track03`.
+
+**Die Tiefe bleibt bei zwei Ebenen.** Drei wurden gemessen: 32,6 s gegen 106,3 s für 7,6 %
+mehr Dateien — das 3,3-fache für einen Lauf, der periodisch läuft. Titel, die tiefer liegen,
+holt der Bibliotheksumbau auf Ebene 1; das ist seine Aufgabe, nicht die des Index.
+
+*EN: the import path has known since #391 that a folder can be a title; the index did not,
+so it walked in and filed game data as titles — a complete, present title was unreachable
+through the UI. `ist_titel_ordner()` now answers for both a known layout and an image set.
+Two routes rather than one because `spielordner_slug` returns a platform, which an image
+set does not reveal — the index already knows the platform and only asks "one title or
+many?". Depth stays at two levels: three costs 3.3x for 7.6% more files, and normalising
+deeper trees is the library rebuild's job.*
+
 ### Wenn ein Ordner EIN Spiel ist (#391, #455)
 
 Für manche Plattformen ist ein Titel kein *File*, sondern ein *Ordner*. Der Import lief

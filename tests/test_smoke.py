@@ -9357,3 +9357,90 @@ def test_vita3k_does_not_invent_the_key_when_it_is_missing(tmp_path, monkeypatch
     assert geaendert is False
     assert "steht nicht" in meldung, meldung
     assert (d / "config.yml").read_text(encoding="utf-8") == "backend-renderer: Vulkan\n"
+
+
+# --- #477: ein Ordner-Titel ist EIN Titel, nicht sein Innenleben --------------------
+
+def test_a_folder_title_is_indexed_as_one_title(appmod):
+    """Wii U, Vita und PS3 liegen als ORDNER vor — der Index zaehlt sie als einen. (#477)
+
+    GEMESSENER SCHADEN, nach einem vollstaendigen Neuaufbau am echten Bestand:
+
+        wiiu    31 Eintraege: `app`, `bootDrcTex`, `bootLogoTex`, `bootMovie`
+        psvita  14 Eintraege: `args`, `eboot`, `Gravite`, `icon`
+        ps3     27 Eintraege: `PS3_DISC`, `ICON0`, …
+
+    `bootMovie` ist ein Video IN Captain Toad, `Gravite` die `.psarc` IN Gravity Rush. Die
+    echten Titel fehlten ganz, und `stream_info` fand sie nicht — ein vollstaendiger Titel
+    war ueber die Oberflaeche unerreichbar.
+
+    Der Import weiss das seit #391. Der Index wusste es nicht.
+    """
+    spiel = os.path.join(appmod.ROMS, "wiiu", "Captain Toad Treasure Tracker [AKBP01]")
+    for teil in ("code", "content", "meta"):
+        os.makedirs(os.path.join(spiel, teil), exist_ok=True)
+    open(os.path.join(spiel, "code", "Kinopio.rpx"), "w").close()
+    open(os.path.join(spiel, "content", "bootMovie"), "w").close()
+    open(os.path.join(spiel, "meta", "bootLogoTex"), "w").close()
+
+    appmod.build_index()
+    titel = appmod.LIB["per"].get("wiiu", set())
+    assert appmod.norm("Captain Toad Treasure Tracker [AKBP01]") in titel, \
+        f"der Ordner-Titel fehlt im Index: {sorted(titel)[:6]}"
+    for innerei in ("bootMovie", "bootLogoTex", "Kinopio"):
+        assert appmod.norm(innerei) not in titel, \
+            f"{innerei!r} steht als Titel im Index — das ist Spielinhalt, kein Titel"
+
+
+def test_a_disc_image_set_folder_is_one_title(appmod):
+    """Auch ein Abbild-Set — sonst hiesse ein Dreamcast-Titel `track01`. (#477)
+
+    `spielordner_slug` kennt Wii U, PS3, GameCube, Vita und Xbox, aber KEIN Abbild-Set:
+    Eine `.cue` verraet ihre Plattform nicht. Fuer den Index ist die Plattform aber schon
+    bekannt — dort lautet die Frage nur „ein Titel oder viele?".
+
+    Ohne diesen Weg legt der Index nach dem Umbau `track01`, `track02`, `track03` als
+    Titel ab: derselbe Unsinn wie `bootMovie`, nur mit anderen Namen.
+    """
+    spiel = os.path.join(appmod.ROMS, "dc", "Crazy Taxi (PAL)")
+    os.makedirs(spiel, exist_ok=True)
+    with open(os.path.join(spiel, "Crazy Taxi (PAL).gdi"), "w") as f:
+        f.write("3\n1 0 4 2352 track01.bin 0\n2 600 0 2352 track02.raw 0\n"
+                "3 45000 4 2352 track03.bin 0\n")
+    for n in ("track01.bin", "track02.raw", "track03.bin"):
+        open(os.path.join(spiel, n), "w").close()
+
+    appmod.build_index()
+    titel = appmod.LIB["per"].get("dreamcast", set()) | appmod.LIB["per"].get("dc", set())
+    assert appmod.norm("Crazy Taxi (PAL)") in titel, \
+        f"der Abbild-Set-Ordner fehlt im Index: {sorted(titel)[:6]}"
+    assert appmod.norm("track01") not in titel, "die Spurdateien stehen als Titel im Index"
+
+
+def test_two_games_in_one_folder_are_not_one_title(appmod):
+    """Zwei verschiedene Abbildlisten in einem Ordner = Sammlung, kein Titel. (#477)
+
+    Ohne diese Bedingung machte der Fix aus jedem Sammelordner EINEN Titel und verstaeckte
+    alles darin — dieselbe Fehlrichtung wie vorher, nur andersherum.
+    """
+    ordner = os.path.join(appmod.ROMS, "psx", "Zwei Spiele")
+    os.makedirs(ordner, exist_ok=True)
+    for name in ("Spiel A", "Spiel B"):
+        with open(os.path.join(ordner, f"{name}.cue"), "w") as f:
+            f.write(f'FILE "{name}.bin" BINARY\n')
+        open(os.path.join(ordner, f"{name}.bin"), "w").close()
+
+    assert appmod.ist_titel_ordner(ordner) is False
+
+
+def test_an_incomplete_set_folder_is_not_one_title(appmod):
+    """Fehlt eine genannte Datei, ist der Ordner kein Titel. (#477)
+
+    Ihn trotzdem als Titel zu fuehren hiesse, einen kaputten Satz als vollstaendig
+    auszuweisen — genau das, was in #462 wochenlang niemandem auffiel.
+    """
+    ordner = os.path.join(appmod.ROMS, "dc", "Unvollstaendig")
+    os.makedirs(ordner, exist_ok=True)
+    with open(os.path.join(ordner, "Unvollstaendig.gdi"), "w") as f:
+        f.write("1\n1 0 4 2352 track01.bin 0\n")
+    assert appmod.ist_titel_ordner(ordner) is False
