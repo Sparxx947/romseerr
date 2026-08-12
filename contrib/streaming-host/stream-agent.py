@@ -671,6 +671,62 @@ def _3ds_art(pfad):
     return ""
 
 
+def _switch_art(pfad):
+    """-> Absagegrund, oder "" wenn die Datei ein Spiel sein kann. (#427)
+
+    Die letzten drei Stellen der Titel-ID sagen, WAS das Paket ist: `000` Basisspiel,
+    `800` Update, ab `001` Zusatzinhalt. Die ID steht unverschluesselt im
+    Inhaltsverzeichnis der NSP — im Namen von `<rights-id>.tik`, dessen erste 16
+    Hexzeichen sie sind. Es braucht dafuer keine Schluessel.
+
+    IM ZWEIFEL DURCHLASSEN: XCI ist ein anderer Behaelter und praktisch immer ein
+    Basisspiel; ein Archiv ohne Ticket ist nicht beurteilbar. Beide gehen durch. Eine
+    falsche Absage kostet mehr als ein Fehlversuch — dieselbe Regel wie bei 3DS.
+
+    EN: refuse only what identifies itself as update or add-on. The title ID sits
+    unencrypted in the PFS0 index; no keys needed.
+    """
+    import struct
+    try:
+        with open(pfad, "rb") as f:
+            kopf = f.read(0x8000)
+    except OSError:
+        return ""
+    if kopf[:4] != b"PFS0":
+        return ""
+    try:
+        anzahl = struct.unpack_from("<I", kopf, 4)[0]
+        if not 0 < anzahl <= 4000:
+            return ""
+        basis = 0x10 + anzahl * 0x18
+        titel = ""
+        for i in range(anzahl):
+            _o, _s, so, _r = struct.unpack_from("<QQII", kopf, 0x10 + i * 0x18)
+            ende = kopf.index(b"\x00", basis + so)
+            name = kopf[basis + so:ende].decode("utf-8", "replace")
+            if name.endswith((".tik", ".cert")) and len(name) > 16:
+                titel = name[:16].lower()
+                break
+    except (struct.error, ValueError, IndexError):
+        return ""
+    if len(titel) != 16:
+        return ""
+    endung = titel[-3:]
+    if endung == "800":
+        return ("Das ist ein Update, kein Spiel / "
+                "this is an update, not a game")
+    if endung == "000":
+        return ""
+    try:
+        n = int(endung, 16)
+    except ValueError:
+        return ""
+    if 0 < n < 0x800:
+        return ("Das ist ein Zusatzinhalt (DLC), kein eigenstaendiges Spiel / "
+                "this is add-on content, not a game")
+    return ""
+
+
 def _3ds_spielbar(pfad):
     """-> (spielbar, grund). Nur fuer 3DS-Abbilder; alles andere gilt als spielbar.
 
@@ -744,6 +800,15 @@ def launch(path, platform, rel="", region=""):
         return False, (f"In der Bibliothek nicht gefunden / not found in the library: "
                        f"{rel} — haengen Romseerr und der Streaming-Host DIESELBE "
                        "Bibliothekswurzel ein? / do both mount the same library root?")
+
+    # Switch vor dem Start pruefen (#427). Romseerr fragt dasselbe schon vorher — aber
+    # ein direkter Aufruf des Dienstes umgeht das, und dann startet Eden ein Update, das
+    # kein Spiel ist. Beide Seiten muessen absagen, sonst haengt die Zusage daran, welchen
+    # Weg jemand genommen hat.
+    if platform == "switch" and os.path.isfile(real):
+        art = _switch_art(real)
+        if art:
+            return False, art
 
     # 3DS vor dem Start pruefen (#299): Was verschluesselt ist, kann Azahar nicht
     # spielen — das jetzt zu sagen ist ehrlicher als ein Stream, der leer aufgeht.

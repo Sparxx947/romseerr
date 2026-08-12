@@ -203,6 +203,15 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   starten Installationspakete nicht direkt. Im Zweifel wird durchgelassen: ein Abbild ohne
   lesbaren NCSD-Kopf ist nicht beurteilbar, und eine falsche Absage kostet mehr als ein
   Fehlversuch.
+  **Switch: Updates und DLC sind keine Spiele.** Von 434 Dateien unter `switch/` sind
+  **110 Updates und 58 Zusatzinhalte** — 39 % waren Startknöpfe, die nicht starten können.
+  Entschieden wird an den letzten drei Stellen der Titel-ID (`000` Spiel, `800` Update, ab
+  `001` DLC), und die steht **im Archiv**: im Namen des Tickets `<rights-id>.tik` im
+  PFS0-Inhaltsverzeichnis, unverschlüsselt und ohne Schlüssel lesbar. Der Dateiname taugt
+  nicht — im Bestand steht „DLC" mal als `[DLC]`, mal als `[space scout pack dlc]`, und
+  `[Trowzer's Top Tonic Pack]` trägt gar keinen Hinweis und ist trotzdem einer. Eine XCI
+  und ein Archiv ohne Ticket gehen weiterhin durch: Eine falsche Absage kostet mehr als
+  ein Fehlversuch.
   **Was die Datei ist, sagt ihr Inhalt — nicht ihr Name.** In dieser Bibliothek liegt ein
   „Save Data Transfer Tool", das `.3ds` heißt und eine `.cia` **ist**: Kopfgröße `0x2020`,
   Zertifikatskette, Ticket, TMD, und bei `0x100` kein `NCSD`. Nach der Endung beurteilt fiel

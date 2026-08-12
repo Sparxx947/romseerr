@@ -384,5 +384,7 @@
  "drop_more": "… e altri {n}",
  "drop_scan": "Analizza ora",
  "drop_running": "in corso …",
- "drop_done": "{a} archiviati, {o} rimasti"
+ "drop_done": "{a} archiviati, {o} rimasti",
+ "stream_nsp_update": "È un aggiornamento, non un gioco: appartiene a un altro titolo e non si avvia nemmeno installato.",
+ "stream_nsp_dlc": "È un contenuto aggiuntivo (DLC), non un gioco a sé."
 }

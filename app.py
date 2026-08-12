@@ -3613,6 +3613,86 @@ def dreids_art(pfad):
     return ""
 
 
+# Switch: die letzten drei Stellen der Titel-ID sagen, WAS das Paket ist. (#427)
+# `000` Basisspiel, `800` Update, ab `001` aufwaerts Zusatzinhalt. Dasselbe Prinzip wie bei
+# den 3DS-Kategorien (#315) — nur an anderer Stelle in der Kennung.
+_NSP_ZUBEHOER = {"800": "nsp_update"}
+
+
+def switch_titel_id(pfad):
+    """-> (titel_id_hex, fehler). Liest die Titel-ID AUS DER DATEI, nicht aus dem Namen.
+
+    WARUM NICHT AUS DEM DATEINAMEN: Die Klammer `[0100...000]` ist Szene-Konvention. Sie
+    stimmt hier meist, aber eben nur meist — `[Trowzer's Top Tonic Pack]` traegt gar keine,
+    und das Wort „DLC" steht mal als `[DLC]`, mal als `[space scout pack dlc]` mitten im
+    Namen. Wer danach filtert, filtert die Schreibweise, nicht den Inhalt.
+
+    WIE: Eine NSP ist ein PFS0-Archiv. Darin liegen `<rights-id>.tik` und `.cert`, und die
+    ersten 16 Hexzeichen der Rights-ID SIND die Titel-ID. Das steht unverschluesselt im
+    Inhaltsverzeichnis — es braucht keine Schluessel, nur den Kopf der Datei.
+
+    Am Bestand gemessen: 387 von 434 Dateien liefern die ID auf diesem Weg. 25 sind XCI
+    (anderer Behaelter), 4 haben weder Ticket noch `cnmt.xml`.
+
+    EN: read the title ID from inside the archive. The bracketed ID in the filename is a
+    scene convention that usually agrees — usually is not a basis for refusing a launch.
+    """
+    import struct
+    try:
+        with open(pfad, "rb") as f:
+            kopf = f.read(0x8000)
+    except OSError as e:
+        return "", str(e)
+    if kopf[:4] != b"PFS0":
+        return "", "kein PFS0-Archiv"
+    try:
+        anzahl = struct.unpack_from("<I", kopf, 4)[0]
+        if not 0 < anzahl <= 4000:
+            return "", "unglaubwuerdige Eintragszahl"
+        basis = 0x10 + anzahl * 0x18
+        for i in range(anzahl):
+            _off, _size, str_off, _r = struct.unpack_from("<QQII", kopf, 0x10 + i * 0x18)
+            ende = kopf.index(b"\x00", basis + str_off)
+            name = kopf[basis + str_off:ende].decode("utf-8", "replace")
+            if name.endswith((".tik", ".cert")) and len(name) > 16:
+                return name[:16].lower(), ""
+    except (struct.error, ValueError, IndexError) as e:
+        return "", f"Inhaltsverzeichnis nicht lesbar ({e.__class__.__name__})"
+    return "", "kein Ticket im Archiv"
+
+
+def switch_startbar(pfad):
+    """-> (startbar, grund) fuer eine Switch-Datei.
+
+    IM ZWEIFEL DURCHLASSEN — wie bei `.3ds` und aus demselben Grund: Eine falsche Absage
+    kostet mehr als ein Fehlversuch. Eine XCI ist ein Cartridge-Abbild und praktisch immer
+    ein Basisspiel; ein Archiv ohne Ticket ist schlicht nicht beurteilbar. Beide gehen
+    durch.
+
+    Abgewiesen wird nur, was sich EINDEUTIG als Update oder Zusatzinhalt ausweist. Am
+    Bestand: 110 Updates und rund 40 DLC unter 434 Dateien — jedes davon war bisher ein
+    Startknopf, der einen Platz belegt und ein Bild verspricht, das nicht kommen kann.
+
+    EN: refuse only what identifies itself as an update or add-on; anything unreadable
+    passes, because a wrong refusal is the expensive error.
+    """
+    titel, fehler = switch_titel_id(pfad)
+    if fehler or len(titel) != 16:
+        return True, ""
+    endung = titel[-3:]
+    if endung in _NSP_ZUBEHOER:
+        return False, _NSP_ZUBEHOER[endung]
+    if endung == "000":
+        return True, ""
+    # Alles zwischen 001 und 7ff ist Zusatzinhalt. Nicht als Liste, weil die Nummern
+    # fortlaufend vergeben werden — eine Aufzaehlung waere ab dem naechsten Titel unvollstaendig.
+    try:
+        n = int(endung, 16)
+    except ValueError:
+        return True, ""
+    return (False, "nsp_dlc") if 0 < n < 0x800 else (True, "")
+
+
 def dreids_startbar(pfad):
     """-> (startbar, grund) fuer eine 3DS-Datei. Alles andere gilt als startbar. (#299)
 
@@ -3695,6 +3775,12 @@ def stream_info(title, slug, user=""):
     if not path:
         return {"streamable": False, "reason": "not_in_library", "platform": slug}
     entschluesselt_erst = False
+    if slug == "switch":
+        # Dieselbe Frage wie bei 3DS und aus demselben Grund: Ein Update oder ein DLC
+        # startet nicht fuer sich, und das steht VOR der Platzvergabe fest. (#427)
+        startbar, grund = switch_startbar(path)
+        if not startbar:
+            return {"streamable": False, "reason": grund, "platform": slug}
     if slug == "3ds":
         # Vor der Platzvergabe fragen, nicht danach: Ein belegter Platz fuer einen Titel,
         # der ohnehin nicht startet, nimmt ihn jemandem weg, der spielen koennte. (#299)
