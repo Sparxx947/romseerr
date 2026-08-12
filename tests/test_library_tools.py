@@ -1164,7 +1164,8 @@ def test_repairing_keeps_a_copy_of_the_original(abb, tmp_path):
     d.mkdir()
     _cue(d, "Spiel", ["Alt.bin"])
     (d / "Spiel.bin").write_bytes(b"x" * 64)
-    assert abb.liste_umschreiben(str(d / "Spiel.cue"), {"Alt.bin": "Spiel.bin"}) is True
+    ok, grund = abb.liste_umschreiben(str(d / "Spiel.cue"), {"Alt.bin": "Spiel.bin"})
+    assert ok, grund
     assert 'FILE "Spiel.bin"' in (d / "Spiel.cue").read_text(encoding="utf-8")
     assert (d / "Spiel.cue.vor-fix").exists(), "keine Sicherung angelegt"
     assert 'FILE "Alt.bin"' in (d / "Spiel.cue.vor-fix").read_text(encoding="utf-8")
@@ -1188,3 +1189,36 @@ def test_sorting_out_moves_and_never_deletes(abb, tmp_path):
     assert protokoll, "kein Protokoll geschrieben"
     zeilen = [json.loads(z) for z in protokoll[0].read_text(encoding="utf-8").splitlines()]
     assert any(e["art"] == "verschoben" and e["von"] and e["nach"] for e in zeilen)
+
+
+def test_a_failed_rewrite_says_why(abb, tmp_path):
+    """Ein Fehlschlag nennt seinen Grund, statt nur eine Zahl nicht zu erhoehen. (#465)
+
+    DAS IST AM ECHTEN BESTAND PASSIERT. Der Lauf meldete „11 gefunden, 0 repariert" — und
+    kein Wort dazu, dass JEDER Schreibversuch an `Permission denied` gescheitert war (der
+    Container laeuft als uid 1000, die Bibliothek gehoert 99:users). Das las sich wie
+    „nichts zu tun" und war „nichts ging".
+    """
+    d = tmp_path / "psx"
+    d.mkdir()
+    _cue(d, "Spiel", ["Alt.bin"])
+    (d / "Spiel.bin").write_bytes(b"x" * 8)
+    (d / "Spiel.cue").chmod(0o444)
+    d.chmod(0o555)
+    try:
+        ok, grund = abb.liste_umschreiben(str(d / "Spiel.cue"), {"Alt.bin": "Spiel.bin"})
+    finally:
+        d.chmod(0o755)
+        (d / "Spiel.cue").chmod(0o644)
+    assert ok is False
+    assert grund, "der Fehlschlag blieb stumm"
+    assert "schreibbar" in grund or "lesbar" in grund, grund
+
+
+def test_a_missing_reference_that_is_not_in_the_text_is_reported(abb, tmp_path):
+    """Auch „steht so gar nicht drin" ist ein Grund, kein stilles False. (#465)"""
+    d = tmp_path / "psx"
+    d.mkdir()
+    _cue(d, "Spiel", ["Alt.bin"])
+    ok, grund = abb.liste_umschreiben(str(d / "Spiel.cue"), {"Gibtsnicht.bin": "X.bin"})
+    assert ok is False and grund

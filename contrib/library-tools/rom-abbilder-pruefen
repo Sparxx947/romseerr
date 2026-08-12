@@ -195,7 +195,16 @@ def ordner_pruefen(pfad, dateien):
 
 
 def liste_umschreiben(pfad, loesungen):
-    """Ersetzt Verweise in einer `.cue`/`.gdi`/`.m3u`. -> True bei Erfolg.
+    """Ersetzt Verweise in einer `.cue`/`.gdi`/`.m3u`. -> (True, "") oder (False, Grund).
+
+    WARUM EIN GRUND UND KEIN BLOSSES False (#465): Die erste Fassung gab bei jedem Fehler
+    stumm `False` zurueck. Am echten Bestand meldete der Lauf daraufhin
+    „11 gefunden, 0 repariert" — ohne ein Wort dazu, dass JEDER Schreibversuch an
+    `Permission denied` gescheitert war (Container als uid 1000, Bibliothek 99:users).
+    Das las sich wie „nichts zu tun" und war „nichts ging".
+
+    EN: returns a reason instead of a bare False — silently swallowing OSError turned
+    'every write was denied' into a report reading like 'nothing needed doing'.
 
     Textersetzung auf dem ganzen Namen, nicht zeilenweise geparst: Die Formate
     unterscheiden sich, der Dateiname darin nicht. Eine Sicherung bleibt als `.vor-fix`
@@ -204,22 +213,22 @@ def liste_umschreiben(pfad, loesungen):
     try:
         with open(pfad, "r", encoding="utf-8", errors="replace") as f:
             text = f.read()
-    except OSError:
-        return False
+    except OSError as e:
+        return False, f"nicht lesbar: {e.strerror}"
     neu = text
     for alt, ersatz in loesungen.items():
         neu = neu.replace(alt, ersatz)
         neu = neu.replace(os.path.basename(alt), ersatz)
     if neu == text:
-        return False
+        return False, "Verweis steht so nicht im Text"
     try:
         if not os.path.exists(pfad + ".vor-fix"):
             shutil.copy2(pfad, pfad + ".vor-fix")
         with open(pfad, "w", encoding="utf-8") as f:
             f.write(neu)
-    except OSError:
-        return False
-    return True
+    except OSError as e:
+        return False, f"nicht schreibbar: {e.strerror}"
+    return True, ""
 
 
 def protokoll_oeffnen(wurzel, plattform):
@@ -248,7 +257,13 @@ def plattform_pruefen(wurzel, plattform, reparieren, aussortieren, tiefe=2):
         for b in befunde:
             z[b["ursache"]] += 1
             if reparieren and b["ursache"] == "umbenannt":
-                if liste_umschreiben(os.path.join(w, b["liste"]), b["loesungen"]):
+                ok, grund = liste_umschreiben(os.path.join(w, b["liste"]), b["loesungen"])
+                if not ok:
+                    # LAUT SCHEITERN. Ein Fehlschlag, der nur eine Zahl nicht erhoeht,
+                    # liest sich wie „nichts zu tun". (#465)
+                    z["fehlgeschlagen"] += 1
+                    print(f"    FEHLER {plattform}/{b['liste']}: {grund}", file=sys.stderr)
+                else:
                     z["repariert"] += 1
                     if protokoll is None:
                         protokoll, pfad_protokoll = protokoll_oeffnen(wurzel, plattform)
@@ -268,7 +283,10 @@ def plattform_pruefen(wurzel, plattform, reparieren, aussortieren, tiefe=2):
                         continue
                     try:
                         shutil.move(quelle, endziel)
-                    except OSError:
+                    except OSError as e:
+                        z["fehlgeschlagen"] += 1
+                        print(f"    FEHLER {plattform}/{n}: nicht verschiebbar "
+                              f"({e.strerror})", file=sys.stderr)
                         continue
                     z["aussortiert"] += 1
                     if protokoll is None:
@@ -309,7 +327,8 @@ def main(argv=None):
         if any(z[k] for k in ("umbenannt", "teilweise", "fehlend", "geteilt")):
             print(f"  {plattform[:22]:22s} {z['umbenannt']:10d} {z['teilweise']:10d} "
                   f"{z['fehlend']:8d} {z['geteilt']:8d}")
-        for k in ("umbenannt", "teilweise", "fehlend", "geteilt", "repariert", "aussortiert"):
+        for k in ("umbenannt", "teilweise", "fehlend", "geteilt", "repariert",
+                  "aussortiert", "fehlgeschlagen"):
             gesamt[k] += z[k]
 
     print()
@@ -322,9 +341,13 @@ def main(argv=None):
         print(f"  repariert                    : {gesamt['repariert']}")
     if a.aussortieren:
         print(f"  nach {DEFEKT_ORDNER}/ verschoben     : {gesamt['aussortiert']}")
+    if gesamt["fehlgeschlagen"]:
+        print(f"  FEHLGESCHLAGEN               : {gesamt['fehlgeschlagen']}"
+              "   <- Gruende stehen oben auf stderr")
     if not (a.reparieren or a.aussortieren):
         print("\n  Nichts wurde angefasst. `--reparieren` und `--aussortieren` wirken.")
-    return 1 if (gesamt["fehlend"] or gesamt["geteilt"]) else 0
+    return 1 if (gesamt["fehlend"] or gesamt["geteilt"]
+                 or gesamt["fehlgeschlagen"]) else 0
 
 
 if __name__ == "__main__":
