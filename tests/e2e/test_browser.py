@@ -384,8 +384,22 @@ def test_a_click_survives_the_list_being_rebuilt(seite, anfrage_vorhanden):
     assert seite.locator(".jobt").count() > 0, "keine Anfragezeile — Fixture leer"
 
     # Genau das, was loadJobs tut: alle Kindelemente durch neue ersetzen.
-    seite.evaluate("() => { const j = document.getElementById('jobs');"
-                   "         j.innerHTML = j.innerHTML; }")
+    #
+    # UND NACHSEHEN, DASS ES WIRKLICH PASSIERT IST. Bleibt der Austausch aus — weil der
+    # Behaelter umbenannt wurde, die Liste leer ist oder der Browser optimiert —, klickt
+    # der Test auf die URSPRUENGLICHE Zeile. Dann waere auch eine Bindung je Zeile gruen,
+    # und die Pruefung sagte nichts, ohne fehlzuschlagen. Genau diese Sorte Stille hat das
+    # Problem hier zwei Runden lang getragen.
+    ersetzt = seite.evaluate("""() => {
+        const j = document.getElementById('jobs');
+        if (!j) return 'kein Behaelter';
+        const vorher = j.querySelector('.jobt');
+        j.innerHTML = j.innerHTML;
+        const nachher = j.querySelector('.jobt');
+        return (vorher && nachher && vorher !== nachher) ? 'ok' : 'nicht ersetzt';
+    }""")
+    assert ersetzt == "ok", (
+        f"der Neuaufbau hat nicht stattgefunden ({ersetzt}) — dann sagt dieser Test nichts")
     seite.wait_for_timeout(200)
 
     seite.locator(".jobt").first.click()
