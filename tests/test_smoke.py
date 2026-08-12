@@ -8887,3 +8887,31 @@ def test_the_agent_reports_platforms_that_have_no_emulator(appmod):
             "die Auskunft steht nicht in /status"
     finally:
         os.environ.pop("EMU_PSX", None)
+
+
+def test_the_install_example_does_not_point_at_latest():
+    """Das Installationsbeispiel nennt eine Version, nicht `:latest`. (#436)
+
+    GEMESSEN: `ghcr.io/sparxx947/romseerr:latest` stammt vom 2026-08-07 07:33 (`bd87e6c`)
+    und ist damit AELTER als v1.0.0-beta.1. Der Grund ist richtig — `release-image.yml`
+    setzt `latest` nur fuer stabile Fassungen, damit eine Vorabversion es nicht verschiebt,
+    und stabile gab es noch keine. Die Folge war es nicht: Die READMEs boten genau dieses
+    Tag als Standardinstallation an, also einen Bau ohne Einwurfordner, ohne
+    Archive.org-Schluessel, ohne Download-Proxy, ohne die Switch- und 3DS-Pruefungen.
+
+    Ein `latest`, das aelter ist als jeder Release, ist eine Falle — und die Doku darf nicht
+    hineinfuehren. Sobald die erste stabile Fassung erscheint, darf diese Pruefung fallen.
+
+    EN: the published `latest` predates every release, because the tag is reserved for stable
+    versions and none exists yet. The READMEs offered exactly that tag as the default install.
+    """
+    for datei in ("README.md", "README.en.md"):
+        text = open(os.path.join(REPO, datei), encoding="utf-8").read()
+        # Nur die Befehlszeilen, nicht die Erklaerung darueber, WARUM man es nicht nimmt.
+        zeilen = [z.strip() for z in text.splitlines()
+                  if "ghcr.io/sparxx947/romseerr:" in z and not z.strip().startswith(">")]
+        schlecht = [z for z in zeilen if z.endswith(":latest")]
+        assert not schlecht, (
+            f"{datei} bietet `:latest` als Installation an, obwohl es aelter ist als jeder "
+            f"Release: {schlecht}")
+        assert zeilen, f"{datei} nennt gar kein Abbild mehr"
