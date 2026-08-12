@@ -374,6 +374,7 @@
  "ia_hint": "Some Archive.org items sit in the `loggedin` collection and need an account — without one the download answers HTTP 401. This is not the place for a password but for the key pair from archive.org/account/s3.php: revocable on its own, with no session to expire quietly.",
  "job_open_card": "Open the game's card",
  "job_no_card": "No card found for this title.",
+ "job_lookup_failed": "Could not load the card.",
  "sec_drop": "Drop folder",
  "drop_hint": "The drop folder takes ROMs that do not come from a request — a whole collection, a folder off a stick. <b>This view moves nothing</b>; it only works out what would happen. A file is touched only once it has stayed unchanged across two passes, so an upload still in progress is left alone. Anything that matches no platform goes to <code>.unsortiert</code> rather than being guessed at.",
  "drop_off": "No drop folder mounted — the feature is not set up. Expected at:",

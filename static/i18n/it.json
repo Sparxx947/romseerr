@@ -374,6 +374,7 @@
  "ia_hint": "Alcuni elementi di Archive.org sono nella raccolta `loggedin` e richiedono un account — senza, il download risponde HTTP 401. Qui non va una password ma la coppia di chiavi da archive.org/account/s3.php.",
  "job_open_card": "Apri la scheda del gioco",
  "job_no_card": "Nessuna scheda per questo titolo.",
+ "job_lookup_failed": "Impossibile caricare la scheda.",
  "sec_drop": "Cartella di consegna",
  "drop_hint": "La cartella di consegna accoglie le ROM che non arrivano da una richiesta: un'intera collezione, una cartella da una chiavetta. <b>Questa vista non sposta nulla</b>: calcola soltanto cosa accadrebbe. Un file viene toccato solo dopo essere rimasto invariato per due passaggi, quindi un caricamento in corso resta intatto. Ciò che non corrisponde a nessuna piattaforma finisce in <code>.unsortiert</code> invece di essere indovinato.",
  "drop_off": "Nessuna cartella di consegna montata — la funzione non è configurata. Attesa in:",
