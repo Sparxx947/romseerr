@@ -332,7 +332,31 @@ def umbauen(wurzel, plattform, trocken, protokoll):
                 if os.path.splitext(f)[1].lower() in ARCHIV_ENDUNGEN:
                     archive.append(os.path.join(w, f))
         for a in archive:
-            ziel = os.path.splitext(a)[0]
+            # DAS ENTPACKZIEL BRAUCHT EINEN FREIEN NAMEN — als einzige Stelle im Werkzeug
+            # ging es bisher ohne. (#442)
+            #
+            # `Kolumbus.rar` soll nach `Kolumbus` entpackt werden, und auf `amiga` liegt
+            # daneben eine DATEI namens `Kolumbus` (endungslos, dort voellig normal).
+            # `os.makedirs(ziel, exist_ok=True)` verzeiht nur ein vorhandenes VERZEICHNIS;
+            # gegen eine gleichnamige Datei wirft es `FileExistsError` — und die Ausnahme
+            # reisst den ganzen Plattformlauf ab.
+            #
+            # DER GRUND, WARUM ES SICH NIE VON SELBST LOESTE: Der erste Durchlauf hebt die
+            # Datei auf Ebene 1, das Archiv liegt noch da. Der naechste Lauf beginnt die
+            # Plattform von vorn, kommt hierher und kollidiert wieder. `amiga` ist daran
+            # dreimal gescheitert, zweimal ohne erkennbaren aeusseren Anlass.
+            #
+            # Der Ordnername ist beliebig: Sein Inhalt wird gleich danach auf Ebene 1
+            # gehoben. Ein freier Name kostet also nichts und nimmt die zweite Falle mit —
+            # Reste eines abgebrochenen Entpackens mischen sich nicht mehr unter den neuen
+            # Inhalt.
+            #
+            # EN: the extraction target was the one path not going through freier_name.
+            # makedirs(exist_ok=True) only forgives an existing directory; against a
+            # same-named file it raises and takes the whole platform down. On resume it
+            # happens again every time, so the platform could never finish.
+            ziel = freier_name(os.path.dirname(a),
+                               os.path.basename(os.path.splitext(a)[0]))
             if trocken:
                 z["entpackt"] += 1
                 continue

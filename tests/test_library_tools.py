@@ -827,3 +827,87 @@ def test_xemu_does_nothing_without_a_config(tmp_path):
     mod = _profil(tmp_path)
     geaendert, meldung = mod.xemu_apply()
     assert not geaendert and "gibt es noch nicht" in meldung, meldung
+
+
+# --- #442: Entpacken gegen eine gleichnamige Datei ----------------------------------
+
+def test_unpacking_survives_a_file_with_the_archive_s_name(org, tmp_path):
+    """Ein Archiv neben einer gleichnamigen DATEI darf den Lauf nicht abreissen. (#442)
+
+    DIE ECHTE LAGE, an der der Umbau dreimal gescheitert ist. Unter `amiga` lagen
+    nebeneinander:
+
+        Kolumbus          <- eine Datei, 357 kB, endungslos (bei Amiga voellig normal)
+        Kolumbus (2)
+        Kolumbus.rar
+
+    Schritt 1 entpackt Archive in einen Ordner, der nach dem Archiv heisst — also
+    `Kolumbus`. `os.makedirs(ziel, exist_ok=True)` verzeiht aber NUR ein vorhandenes
+    Verzeichnis. Gegen eine gleichnamige Datei wirft es `FileExistsError`, und die Ausnahme
+    nimmt die ganze Plattform mit:
+
+        amiga: FileExistsError: [Errno 17] File exists: '/roms/amiga/Kolumbus'
+
+    WARUM ES SICH NIE VON SELBST LOESTE: Der erste Durchlauf hebt die Datei auf Ebene 1,
+    das Archiv liegt noch da. Der naechste Lauf beginnt die Plattform von vorn und
+    kollidiert an derselben Stelle. `amiga` konnte damit NIE fertig werden — unabhaengig
+    davon, ob ein Container-Neustart dazwischenkam.
+
+    Das `(2)` daneben zeigt, dass `freier_name()` ueberall sonst greift. Das Entpackziel
+    war die einzige Stelle ohne.
+
+    EN: an archive beside a same-named file aborted the whole platform, and on resume it
+    happened again every time — so the platform could never finish.
+    """
+    import zipfile
+
+    basis = tmp_path / "amiga"
+    basis.mkdir()
+    # Die Datei, die den Namen schon belegt.
+    (basis / "Kolumbus").write_bytes(b"\x00" * 64)
+    # Und das Archiv, das genau dorthin entpackt werden soll.
+    with zipfile.ZipFile(basis / "Kolumbus.zip", "w") as z:
+        z.writestr("spiel.adf", b"\x00" * 32)
+
+    protokoll = org.Protokoll(str(tmp_path / "prot.jsonl"), False)
+    try:
+        org.umbauen(str(tmp_path), "amiga", False, protokoll)
+    finally:
+        protokoll.zu()
+
+    # Die vorhandene Datei bleibt, und der Archivinhalt ist angekommen.
+    assert (basis / "Kolumbus").is_file(), "die gleichnamige Datei wurde ueberschrieben"
+    adf = list(basis.glob("**/spiel.adf"))
+    assert adf, f"der Archivinhalt fehlt — Inhalt: {sorted(p.name for p in basis.iterdir())}"
+
+
+def test_the_extraction_target_goes_through_the_collision_check(org):
+    """Kein Entpackziel mehr ohne `freier_name`. (#442)
+
+    Der Verhaltenstest daneben deckt den einen bekannten Fall ab. Diese Pruefung deckt die
+    Regel: Es darf keinen zweiten Weg geben, auf dem ein Entpackziel ohne Kollisionspruefung
+    entsteht — sonst kehrt derselbe Fehler an anderer Stelle zurueck.
+    """
+    import inspect
+    import re
+    quelle = inspect.getsource(org.umbauen)
+    # AUF DIE DIREKTE ZUWEISUNG PRUEFEN. Die erste Fassung suchte nur nach
+    # `os.path.splitext(a)[0]` und meldete die REPARIERTE Zeile — dort steht der Ausdruck
+    # weiterhin, nur eben als Argument von `freier_name`. Ein Waechter, der die Loesung
+    # anzeigt, ist so unbrauchbar wie einer, der das Problem uebersieht.
+    assert not re.search(r"^\s*ziel\s*=\s*os\.path\.splitext\(a\)\[0\]\s*$",
+                         quelle, re.M), \
+        "ein Entpackziel wird direkt aus dem Archivnamen gebildet, ohne freier_name"
+
+    # Und die Gegenrichtung: die Zuweisung im Archiv-Zweig MUSS ueber freier_name gehen.
+    #
+    # KEIN ZEICHENFENSTER. Die erste Fassung sah sich die ersten 1600 Zeichen nach
+    # `for a in archive:` an — und die waren vom Kommentar ueber genau diesen Fix gefuellt,
+    # sodass der Waechter an der Erklaerung scheiterte statt an der Sache. Willkuerliche
+    # Fenstergroessen sind eine Annahme ueber Formatierung, keine Pruefung.
+    zweig = quelle[quelle.index("for a in archive:"):]
+    ohne_kommentar = "\n".join(z for z in zweig.splitlines()
+                                if not z.strip().startswith("#"))
+    zuweisung = ohne_kommentar[:ohne_kommentar.index("if trocken:")]
+    assert "freier_name(" in zuweisung, \
+        f"das Entpackziel geht nicht ueber freier_name: {zuweisung.strip()!r}"
