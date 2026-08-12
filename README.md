@@ -203,6 +203,16 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   starten Installationspakete nicht direkt. Im Zweifel wird durchgelassen: ein Abbild ohne
   lesbaren NCSD-Kopf ist nicht beurteilbar, und eine falsche Absage kostet mehr als ein
   Fehlversuch.
+  **Was die Datei ist, sagt ihr Inhalt — nicht ihr Name.** In dieser Bibliothek liegt ein
+  „Save Data Transfer Tool", das `.3ds` heißt und eine `.cia` **ist**: Kopfgröße `0x2020`,
+  Zertifikatskette, Ticket, TMD, und bei `0x100` kein `NCSD`. Nach der Endung beurteilt fiel
+  es genau in die Regel „nicht beurteilbar, also durchlassen" — und wurde als startbar
+  angeboten. Von 1.249 Abbildern war es das einzige; die Zahl stimmte, der Schluss nicht.
+  Jetzt entscheidet die Kennung im Kopf, in **beide** Richtungen: Ein Abbild, das
+  fälschlich `.cia` heißt, würde sonst als „unlesbare CIA" abgewiesen, obwohl es einwandfrei
+  läuft — und eine falsche Absage ist hier der teure Fehler. Was sich weder als das eine
+  noch als das andere zu erkennen gibt, geht weiterhin durch: Die Erkennung fügt Wissen
+  hinzu, keine Absagen.
   **Verschlüsselt ist kein Endzustand mehr, wenn der Host entschlüsseln kann.** Azahar
   spielt nur entschlüsselte Dumps und entschlüsselt nicht selbst; von 1.249 gemessenen
   Abbildern dieser Bibliothek waren 1.248 verschlüsselt — ohne diesen Schritt bleibt die

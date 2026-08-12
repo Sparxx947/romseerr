@@ -641,9 +641,45 @@ def cia_bereitstellen(pfad):
     return start, ""
 
 
+def _3ds_art(pfad):
+    """-> ".cia", ".3ds" oder "" — was die Datei WIRKLICH ist, unabhaengig vom Namen. (#422)
+
+    Gegenstueck zu `dreids_art` in `app.py`; beide Seiten muessen dasselbe entscheiden,
+    sonst sagt Romseerr zu und der Agent ab (oder umgekehrt).
+
+    - **CIA**: Das erste Feld ist die Kopfgroesse und betraegt bei jeder CIA `0x2020`.
+    - **NCSD**: die Kennung `NCSD` bei 0x100.
+
+    Im Zweifel "" — der Aufrufer faellt dann auf die Endung zurueck, also auf das
+    Verhalten von vorher.
+
+    EN: mirror of `dreids_art` in app.py. Both sides must decide alike, otherwise Romseerr
+    promises and the agent refuses.
+    """
+    import struct
+    try:
+        with open(pfad, "rb") as f:
+            kopf = f.read(4)
+            f.seek(0x100)
+            kennung = f.read(4)
+    except OSError:
+        return ""
+    if len(kopf) == 4 and struct.unpack("<I", kopf)[0] == 0x2020:
+        return ".cia"
+    if kennung == b"NCSD":
+        return ".3ds"
+    return ""
+
+
 def _3ds_spielbar(pfad):
-    """-> (spielbar, grund). Nur fuer 3DS-Abbilder; alles andere gilt als spielbar."""
-    endung = os.path.splitext(pfad)[1].lower()
+    """-> (spielbar, grund). Nur fuer 3DS-Abbilder; alles andere gilt als spielbar.
+
+    DER INHALT SCHLAEGT DEN NAMEN (#422): In der Bibliothek liegt eine CIA, die `.3ds`
+    heisst. Nach der Endung beurteilt fiel sie durch die NCSD-Pruefung in den Zweig
+    „nicht beurteilbar, also durchlassen" — und waere als Abbild an den Emulator gegangen,
+    der damit nichts anfangen kann.
+    """
+    endung = _3ds_art(pfad) or os.path.splitext(pfad)[1].lower()
     if endung == ".cia":
         # CIAs sind Installationspakete, keine startbaren Abbilder — unabhaengig von
         # jeder Verschluesselung. Azahar sagt das selbst: "CIA must be installed
@@ -725,7 +761,8 @@ def launch(path, platform, rel="", region=""):
                 return False, fehler
             real = ziel
             print(f"[3ds] entschluesselt, starte {os.path.basename(real)}", flush=True)
-        elif not spielbar and os.path.splitext(real)[1].lower() == ".cia":
+        elif not spielbar and (_3ds_art(real) or
+                               os.path.splitext(real)[1].lower()) == ".cia":
             # Eine CIA startet nie DIREKT — aber sie laesst sich installieren, und danach
             # startet der installierte Titel. Was dabei absagt, ist nicht die Datei,
             # sondern ihre Art: Updates und DLC gehoeren zu einem anderen Titel. (#315)
