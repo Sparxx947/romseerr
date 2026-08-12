@@ -1222,3 +1222,59 @@ def test_a_missing_reference_that_is_not_in_the_text_is_reported(abb, tmp_path):
     _cue(d, "Spiel", ["Alt.bin"])
     ok, grund = abb.liste_umschreiben(str(d / "Spiel.cue"), {"Gibtsnicht.bin": "X.bin"})
     assert ok is False and grund
+
+
+# --- Dubletten: Satzmitglieder sind tabu (#467) ----------------------------------------
+
+def test_a_shared_cd_track_is_never_deduplicated(org, tmp_path, capsys):
+    """Zwei Spiele mit BITGLEICHER Spur 01 behalten beide ihre Datei. (#467)
+
+    DER GEMESSENE SCHADEN, nicht ein erfundener. Aus dem Laufprotokoll:
+
+        dublette_entfernt  turbografx-cd/Monster Lair (USA) (Track 01).bin
+                           gleich_wie  turbografx-cd/Valis II (USA) (Track 01).bin
+
+    Zwei verschiedene Spiele. Bei CD-Titeln ist Spur 01 haeufig identisch — eine leere
+    Datenspur. Danach nennt Monster Lairs `.cue` eine Datei, die es nicht mehr gibt.
+    Unter `dc` sind so 375 Dateien geloescht worden.
+
+    Bitgleichheit macht zwei Spuren NICHT austauschbar: Jeder Satz braucht sein eigenes
+    Exemplar.
+    """
+    d = tmp_path / "turbografx-cd"
+    d.mkdir()
+    gleich = b"\x00" * 2048
+    for spiel in ("Monster Lair (USA)", "Valis II (USA)"):
+        (d / f"{spiel} (Track 01).bin").write_bytes(gleich)
+        (d / f"{spiel} (Track 02).bin").write_bytes(spiel.encode() * 8)
+        (d / f"{spiel}.cue").write_text(
+            f'FILE "{spiel} (Track 01).bin" BINARY\nFILE "{spiel} (Track 02).bin" BINARY\n',
+            encoding="utf-8")
+
+    class P:
+        def schreiben(self, *a, **k):
+            pass
+    org.umbauen(str(tmp_path), "turbografx-cd", False, P())
+
+    for spiel in ("Monster Lair (USA)", "Valis II (USA)"):
+        assert (d / f"{spiel} (Track 01).bin").exists(), \
+            f"{spiel} hat seine Spur 01 an das andere Spiel verloren"
+
+
+def test_a_real_duplicate_that_no_list_claims_is_still_removed(org, tmp_path):
+    """Die Dublettenerkennung bleibt sonst scharf. (#467)
+
+    Ohne diesen Test koennte man #467 „loesen", indem man Schritt 3b ganz abschaltet —
+    gruen und nutzlos. Was keine Abbildliste nennt, wird weiterhin entfernt.
+    """
+    d = tmp_path / "snes"
+    d.mkdir()
+    (d / "Spiel.sfc").write_bytes(b"y" * 512)
+    (d / "Spiel (2).sfc").write_bytes(b"y" * 512)
+
+    class P:
+        def schreiben(self, *a, **k):
+            pass
+    org.umbauen(str(tmp_path), "snes", False, P())
+    uebrig = sorted(p.name for p in d.iterdir())
+    assert len(uebrig) == 1, f"die echte Dublette blieb liegen: {uebrig}"

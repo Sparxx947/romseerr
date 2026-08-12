@@ -53,6 +53,25 @@ Vier Wege führen zur Antwort, in dieser Reihenfolge:
    derselbe Name übrig. Das ist ein Multi-Disk-Spiel.
 4. **Sonst: Sammlung.**
 
+#### Satzmitglieder werden nie als Dublette gelöscht (#467)
+
+Schritt 3b entfernt **bitgleiche** Dateien auf Ebene 1. Bei CD-Titeln ist das falsch: Spur 01
+ist bei vielen Spielen identisch — eine leere Datenspur oder ein Kopierschutzhinweis. Aus
+dem Laufprotokoll, wörtlich:
+
+```
+dublette_entfernt  turbografx-cd/Monster Lair (USA) (Track 01).bin
+                   gleich_wie  turbografx-cd/Valis II (USA) (Track 01).bin
+```
+
+Zwei verschiedene Spiele. Danach nennt Monster Lairs `.cue` eine Datei, die es nicht mehr
+gibt. Unter `dc` sind so **375 Dateien gelöscht** worden — deshalb sind von 213 Titeln nur
+13 aus dem Protokoll rekonstruierbar: Der Rest ist weg, nicht verlegt.
+
+**Bitgleichheit macht zwei Spuren nicht austauschbar.** Was eine Abbildliste im selben
+Ordner nennt, ist von der Dublettenerkennung ausgenommen; der Lauf sagt am Ende, wie viele
+Dateien er deshalb verschont hat.
+
 #### Warum Abbild-Sets eine eigene Regel brauchen (#462)
 
 Ein Dreamcast-Titel sieht so aus:
@@ -368,6 +387,25 @@ Four routes to the answer, in order:
    `(Disk 1)`, `(Side A)`, `[Disc 2]`, `(Tape 1 of 3)` — the same name remains. That is a
    multi-disk game.
 4. **Otherwise: a collection.**
+
+#### Set members are never removed as duplicates (#467)
+
+Step 3b removes **bit-identical** files at level 1. For CD titles that is wrong: track 01 is
+frequently identical across many games — an empty data track or a copy-protection notice.
+From the run log, verbatim:
+
+```
+dublette_entfernt  turbografx-cd/Monster Lair (USA) (Track 01).bin
+                   gleich_wie  turbografx-cd/Valis II (USA) (Track 01).bin
+```
+
+Two different games. Afterwards Monster Lair's `.cue` names a file that no longer exists.
+Under `dc` this deleted **375 files**, which is why only 13 of 213 titles can be
+reconstructed from the log: the rest is gone, not misplaced.
+
+**Identical content does not make two tracks interchangeable.** Anything named by an image
+list in the same folder is exempt from deduplication, and the run reports how many files it
+spared for that reason.
 
 #### Why disc-image sets need their own rule (#462)
 
