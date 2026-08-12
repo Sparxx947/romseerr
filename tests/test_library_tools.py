@@ -1278,3 +1278,37 @@ def test_a_real_duplicate_that_no_list_claims_is_still_removed(org, tmp_path):
     org.umbauen(str(tmp_path), "snes", False, P())
     uebrig = sorted(p.name for p in d.iterdir())
     assert len(uebrig) == 1, f"die echte Dublette blieb liegen: {uebrig}"
+
+
+def test_a_deeply_nested_set_is_not_skipped(abb, tmp_path):
+    """Ein Titel drei Ebenen tief wird geprueft, nicht uebersprungen. (#465)
+
+    DER TEUERSTE FEHLER, DEN EIN PRUEFWERKZEUG HABEN KANN. `tiefe=2` liess das Werkzeug
+    129 von 138 Dreamcast-Titeln nie ansehen — sie liegen unter
+    `dc/MODE/Dreamcast/<Titel>/`. Gemeldet wurden „2 defekt", eine unabhaengige Zaehlung
+    fand 126. Aus „nicht geprueft" wurde damit „in Ordnung".
+
+    Derselbe Blindfleck kostete eine Reparatur: In
+    `psp/PSX2PSP/PSX Images/Super Puzzle Fighter 2 Turbo-NTSC/` lag die gesuchte `.bin`
+    direkt neben ihrer `.cue`.
+    """
+    tief = tmp_path / "dc" / "MODE" / "Dreamcast" / "Spiel"
+    tief.mkdir(parents=True)
+    (tief / "Spiel.cue").write_text('FILE "Weg.bin" BINARY\n', encoding="utf-8")
+
+    z = abb.plattform_pruefen(str(tmp_path), "dc", reparieren=False, aussortieren=False)
+    assert z["fehlend"] == 1, (
+        "der Titel drei Ebenen tief wurde uebersprungen — das Werkzeug haette Entwarnung "
+        "gegeben")
+
+
+def test_a_deeply_nested_rename_is_repaired(abb, tmp_path):
+    """Und die Reparatur greift dort ebenfalls. (#465)"""
+    tief = tmp_path / "psp" / "PSX2PSP" / "PSX Images" / "Spiel"
+    tief.mkdir(parents=True)
+    (tief / "Spiel.cue").write_text('FILE "Alt.bin" BINARY\n', encoding="utf-8")
+    (tief / "Spiel.bin").write_bytes(b"x" * 32)
+
+    z = abb.plattform_pruefen(str(tmp_path), "psp", reparieren=True, aussortieren=False)
+    assert z["repariert"] == 1, "die Reparatur erreichte die tiefe Ebene nicht"
+    assert 'FILE "Spiel.bin"' in (tief / "Spiel.cue").read_text(encoding="utf-8")
