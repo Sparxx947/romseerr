@@ -7917,3 +7917,38 @@ def test_a_game_folder_inside_a_wrapper_is_still_found(appmod, tmp_path):
     gefunden = appmod.spielordner_finden(str(tmp_path))
     assert [s for _p, s in gefunden] == ["wiiu"], gefunden
     assert gefunden[0][0].endswith("Mario Kart 8")
+
+
+def test_the_home_computer_formats_can_be_imported(appmod):
+    """16 Heimcomputer-Formate waren unbekannt — 51.118 Dateien. (#410)
+
+    Dieselbe Klasse wie die Wii-U-Luecke (#391), eine Groessenordnung darueber: `.z80`
+    12.180, `.tzx` 11.525, `.prg` 9.740, `.tap` 6.966, `.g64` 6.131, `.crt` 4.123. Ein
+    Download in einem dieser Formate endete mit „0 Datei(en) -> nichts".
+
+    Dass die Heimcomputer ueberhaupt Inhalt haben, liegt an der RetroNAS-Freigabe, nicht am
+    Import — ueber Romseerr angefragt konnte fuer diese Plattformen nichts ankommen.
+    """
+    for e in ("prg", "tap", "crt", "d71", "d81", "g64", "p00", "x64",
+              "z80", "sna", "tzx", "cdt", "adz", "dms", "a52", "car"):
+        assert e in appmod.ROM_EXT, f".{e} wird beim Import uebersprungen"
+
+
+def test_the_ambiguous_home_computer_formats_stay_unmapped(appmod):
+    """`.tap`, `.sna` und `.car` bekommen KEINE feste Plattform. (#410)
+
+    `.tap` ist C64 UND ZX Spectrum, `.sna` ist ZX Spectrum und ein Amiga-Schnappschuss,
+    `.car` ist Atari 5200 und anderes. Sie sind importierbar, aber die Plattform kommt aus
+    dem Auftrag — dieselbe Behandlung wie `.iso` und `.bin`.
+
+    Eine falsche Zuordnung kostet mehr als eine ausgelassene: Der Titel laege unter der
+    falschen Konsole und fiele niemandem auf.
+    """
+    for e in ("tap", "sna", "car"):
+        assert e in appmod.ROM_EXT, f".{e} sollte importierbar sein"
+        assert e not in appmod.EXT2PLAT, \
+            f".{e} ist mehrdeutig und darf keine feste Plattform bekommen"
+    # Die eindeutigen dagegen schon.
+    assert appmod.EXT2PLAT.get("prg") == "c64"
+    assert appmod.EXT2PLAT.get("z80") == "zxs"
+    assert appmod.EXT2PLAT.get("a52") == "atari5200"

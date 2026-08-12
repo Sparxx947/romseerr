@@ -291,7 +291,17 @@ ROM_EXT = {"sfc","smc","nes","fds","gb","gba","gbc","n64","z64","v64","ndd","md"
            "vpk",
            # Xbox: `.xbe` ist die ausfuehrbare Datei eines entpackten Titels. `.iso` steht
            # schon oben, ist aber MEHRDEUTIG — die Plattform kommt dann aus dem Auftrag.
-           "xbe"}
+           "xbe",
+           # Heimcomputer (#410). Am Bestand gemessen betrafen die Luecken 51.118 Dateien:
+           # `.z80` 12.180, `.tzx` 11.525, `.prg` 9.740, `.tap` 6.966, `.g64` 6.131,
+           # `.crt` 4.123. Ein Download in einem dieser Formate endete mit
+           # „0 Datei(en) -> nichts", genau wie Wii U vor #392. Dass die Heimcomputer
+           # ueberhaupt Inhalt haben, liegt an der RetroNAS-Freigabe, nicht am Import.
+           "prg", "tap", "crt", "d71", "d81", "g64", "p00", "x64",   # Commodore
+           "z80", "sna", "tzx",                                       # ZX Spectrum
+           "cdt",                                                     # Amstrad CPC
+           "adz", "dms",                                              # Amiga
+           "a52", "car"}                                              # Atari 5200
 ARCH_EXT = {"zip","7z","rar","gz","tar","tgz","bz2","xz"}
 SKIP_FILES = re.compile(r'(\.xml$|\.sqlite$|\.torrent$|_meta\.|__ia_thumb|\.log$|\.txt$|\.nfo$)', re.I)
 
@@ -485,7 +495,19 @@ EXT2PLAT = {"sfc":"snes","smc":"snes","nes":"nes","fds":"nes","n64":"n64","z64":
             # Eindeutige Endungen -> Plattform. Sie schlagen den Hinweis aus dem Auftrag,
             # deshalb stehen hier nur solche, die es auf genau EINER Plattform gibt. (#391)
             "wux":"wiiu","wud":"wiiu","wua":"wiiu","rpx":"wiiu",
-            "vpk":"psvita","xbe":"xbox"}
+            "vpk":"psvita","xbe":"xbox",
+            # Heimcomputer, NUR die eindeutigen (#410).
+            "prg":"c64","crt":"c64","g64":"c64","p00":"c64","x64":"c64","d71":"c64","d81":"c64",
+            "z80":"zxs","tzx":"zxs",
+            "cdt":"acpc",
+            "adz":"amiga","dms":"amiga",
+            "a52":"atari5200"}
+# BEWUSST NICHT ZUGEORDNET, obwohl importierbar (#410):
+#   `.tap` — C64 UND ZX Spectrum. Beide Systeme, dieselbe Endung.
+#   `.sna` — ZX Spectrum, aber auch ein Amiga-Schnappschussformat.
+#   `.car` — Atari 5200, aber auch anderswo gebraucht.
+# Sie stehen in `ROM_EXT`, damit die Dateien ankommen; die Plattform kommt aus dem Auftrag,
+# der weiss, wonach gefragt wurde. Dieselbe Behandlung wie `.iso` und `.bin`.
 
 # Titel, die keine ROMs sind -> aus der Suche filtern
 NOISE_RE = re.compile(r'\b(winamp|skin|wallpaper|theme|soundtrack|\bost\b|manual|guide|artbook|'

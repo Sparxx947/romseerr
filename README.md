@@ -248,6 +248,13 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   verschwindet das Schloss an gesperrten Treffern — sie sind dann ja ladbar. **Ohne**
   Schlüssel wird ein gesperrter Titel gar nicht erst eingereiht, sondern sofort mit Grund
   abgelehnt.
+- ⌨️ **Heimcomputer-Formate werden importiert.** `.prg`, `.tap`, `.crt`, `.g64`, `.z80`,
+  `.tzx`, `.cdt`, `.adz`, `.a52` und weitere — 16 Formate fehlten in der Endungsliste, und
+  damit konnte über Romseerr für C64, VIC-20, ZX Spectrum, CPC, Amiga und Atari 5200
+  **nichts ankommen**. Am Bestand gemessen betrifft das **51.118 Dateien**; dass diese
+  Plattformen überhaupt Inhalt haben, lag an der RetroNAS-Freigabe.
+  `.tap`, `.sna` und `.car` bleiben bewusst **ohne feste Plattform** — `.tap` gibt es auf
+  C64 *und* ZX Spectrum. Sie kommen an, die Plattform liefert die Anfrage.
 - 📦 **Ein entpacktes Spiel ist EIN Titel, kein Haufen Dateien.** Wo der Titel ein
   Ordner ist — Wii U (`code`+`content`+`meta`), PS3 (`PS3_GAME`), entpackte GameCube-
   Abbilder, Xbox (`default.xbe`) — wandert er als Ganzes in die Bibliothek. Erkannt am
