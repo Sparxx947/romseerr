@@ -8028,6 +8028,56 @@ def test_every_game_folder_pattern_names_a_known_platform(appmod):
         assert slug in bekannt, f"{slug!r} aus SPIELORDNER_DATEI ist keine Plattform"
 
 
+def test_an_import_lands_in_the_folder_that_already_holds_the_platform(appmod):
+    """Liegt die Bibliothek im Alias-Ordner, gehoert der Import dorthin. (#454)
+
+    RetroNAS nennt GameCube `gc`, Romseerrs Slug heisst `ngc`. Ging der Import stur nach
+    `ROMS/<slug>`, landete er NEBEN der Bibliothek statt darin — 561 GB in `gc`, der
+    Download in `ngc`. Sichtbar war das nicht, weil das Lesen beide Ordner zusammenfuegt.
+    """
+    gc = os.path.join(appmod.ROMS, "gc")
+    os.makedirs(gc, exist_ok=True)
+    open(os.path.join(gc, "Luigi's Mansion (USA).rvz"), "w").close()
+    assert appmod.bibliothek_ordner("ngc") == gc, \
+        "der Import muss in den Ordner, in dem die Plattform schon liegt"
+
+
+def test_an_import_falls_back_to_the_slug_when_nothing_exists_yet(appmod, tmp_path, monkeypatch):
+    """Ist noch nichts da, bleibt es beim Slug. (#454)
+
+    Der Rueckfall darf nicht schweigen: Eine Plattform ohne jeden Ordner muss trotzdem ein
+    Ziel bekommen, sonst waere der erste Download jeder neuen Plattform unmoeglich.
+    """
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    assert appmod.bibliothek_ordner("ngc") == str(tmp_path / "ngc")
+
+    # Ein LEERER Alias-Ordner zaehlt nicht — sonst gewaenne der Streuner gegen die
+    # Bibliothek. Genau so herum lagen `ngc` und `dreamcast` auf der Anlage.
+    (tmp_path / "gc").mkdir()
+    assert appmod.bibliothek_ordner("ngc") == str(tmp_path / "ngc")
+
+    # Sobald etwas drin ist, gewinnt er.
+    (tmp_path / "gc" / "spiel.rvz").write_bytes(b"x")
+    assert appmod.bibliothek_ordner("ngc") == str(tmp_path / "gc")
+
+
+def test_no_import_path_is_built_from_the_slug_directly(appmod):
+    """`ROMS/<slug>` darf nur noch in `bibliothek_ordner` stehen. (#454)
+
+    Der Fehler war nicht, dass die Aufloesung fehlte — sie gab es fuer das Lesen laengst.
+    Er war, dass ZWEI Schreibstellen daran vorbeigingen. Eine dritte waere genauso still.
+    """
+    import inspect
+    quelle = inspect.getsource(appmod)
+    zeilen = [i for i, z in enumerate(quelle.splitlines(), 1)
+              if "os.path.join(ROMS, slug)" in z]
+    _, start = inspect.getsourcelines(appmod.bibliothek_ordner)
+    ende = start + len(inspect.getsourcelines(appmod.bibliothek_ordner)[0])
+    draussen = [i for i in zeilen if not (start <= i < ende)]
+    assert not draussen, \
+        f"Zeile(n) {draussen} bauen das Importziel am Alias vorbei — bibliothek_ordner nehmen"
+
+
 def test_the_game_folder_moves_as_one_unit_and_its_files_are_not_scattered(appmod, tmp_path, monkeypatch):
     """Der Ordner wandert als Ganzes, seine Dateien NICHT einzeln. (#391)
 

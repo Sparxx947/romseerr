@@ -453,6 +453,41 @@ static/icon.svg   App-Icon (PWA)
    Erkennt der Import **nichts**, gibt er `False` zurück, der Job geht auf `error` und der
    Download **bleibt liegen** (#240).
 
+### Ein Ordnername, zwei Namensgeber (#454)
+
+RetroNAS und Romseerr nennen dieselbe Plattform verschieden: `gc` gegen `ngc`, `dc` gegen
+`dreamcast`. `FOLDER_ALIASES` bildet das ab, und **Lesen** benutzt es überall —
+`slug_folders()` liefert alle beitragenden Ordner, `STREAM_DIR` baut darauf auf, der Index
+ordnet `gc`-Dateien dem Slug `ngc` zu.
+
+**Schreiben tat es nicht.** Das Importziel war schlicht `ROMS/<slug>`, an zwei Stellen.
+Liegt die Bibliothek im Alias-Ordner, landete jeder Download also *daneben* statt *darin*:
+
+```
+roms/gc          713 Dateien  561 GB   <- die Bibliothek
+roms/ngc           0 Dateien           <- wohin Importe gingen
+```
+
+Das Tückische daran ist die **Unsichtbarkeit**: Das Lesen fügt beide Ordner wieder
+zusammen, in Romseerr sah alles vollständig aus. Auf der Platte war die Plattform trotzdem
+zweigeteilt, und alles, was die Ordner direkt liest — RomMs Scan, RetroNAS' Freigaben, ein
+blankes `ls` — sah nur eine Hälfte. Eine Messung ist daran schon gescheitert: „diese
+Plattformen haben keinen Inhalt", während GameCube und Dreamcast durchgehend gefüllt waren.
+
+`bibliothek_ordner(slug)` nimmt jetzt den Ordner, in dem die Plattform **schon liegt**, und
+fällt sonst auf den Slug zurück. Ein *leerer* Alias-Ordner zählt dabei nicht — sonst gewänne
+der Streuner gegen die Bibliothek, und genau so herum lagen `ngc` und `dreamcast` auf der
+Anlage. Die Reihenfolge kommt aus `slug_folders` und damit aus der konstanten Tabelle, nie
+aus der Eingabe.
+
+*EN: RetroNAS and Romseerr name the same platform differently (`gc`/`ngc`, `dc`/`dreamcast`).
+Reading resolved this everywhere; writing did not, so downloads landed beside the library
+instead of inside it. The split was invisible, because reading merges both folders again —
+only something reading the directories directly (RomM's scan, RetroNAS' shares, a plain
+`ls`) sees one half. `bibliothek_ordner(slug)` now prefers the folder that already holds
+the platform and falls back to the slug. An empty alias folder does not count, or the stray
+would beat the library.*
+
 ### Wenn ein Ordner EIN Spiel ist (#391, #455)
 
 Für manche Plattformen ist ein Titel kein *File*, sondern ein *Ordner*. Der Import lief
