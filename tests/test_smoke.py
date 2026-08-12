@@ -8072,3 +8072,66 @@ def test_a_truncated_copy_does_not_delete_the_source(appmod, tmp_path, monkeypat
     assert quelle.exists(), "die Quelle wurde geloescht, obwohl die Kopie unvollstaendig war"
     assert not (roms / "snes" / "Spiel.sfc").exists(), "ein abgeschnittener Titel blieb liegen"
     assert not list((roms / "snes").glob("*.teil")), "der Zwischenstand blieb liegen"
+
+
+def test_an_arrived_title_counts_as_imported_even_if_the_source_stays(appmod, tmp_path, monkeypatch):
+    """Kommt der Titel an, gilt er als eingeordnet — auch wenn die Quelle bleibt. (#396)
+
+    AM ECHTEN SHARE GEMESSEN: Ein per SMB angelegter Unterordner kann `755` gehoeren, und
+    der Container laeuft als uid 1000 in der Gruppe `users`. Dann gelingt das Kopieren und
+    das Loeschen der Quelle nicht.
+
+    Die erste Fassung gab dafuer `False` zurueck — dieselbe Antwort wie fuer „nichts
+    passiert", obwohl der Titel in der Bibliothek lag. Zwei sehr verschiedene Lagen unter
+    einer Meldung, und die verwirrendere von beiden gewinnt.
+    """
+    share = tmp_path / "import"; share.mkdir()
+    roms = tmp_path / "roms"; roms.mkdir()
+    quelle = share / "Spiel.sfc"; quelle.write_bytes(b"x" * 64)
+    monkeypatch.setattr(appmod, "ROMS", str(roms))
+
+    echtes_remove = os.remove
+    def remove_schlaegt_fehl(p, *a, **k):
+        if str(p) == str(quelle):
+            raise PermissionError(13, "Permission denied")
+        return echtes_remove(p, *a, **k)
+    monkeypatch.setattr(os, "remove", remove_schlaegt_fehl)
+
+    assert appmod.einwurf_verschieben(str(quelle), "snes") is True, \
+        "ein angekommener Titel muss als eingeordnet gelten"
+    assert (roms / "snes" / "Spiel.sfc").is_file()
+    assert quelle.exists(), "die Quelle sollte hier absichtlich liegen bleiben"
+
+
+def test_an_imported_file_is_group_writable(appmod, tmp_path, monkeypatch):
+    """Die eingeordnete Datei ERBT die Rechte des Zielordners. (#396)
+
+    Sonst gehoert sie dem Container-Benutzer, und RomM, RetroNAS und SMB koennen sie nicht
+    bewegen — derselbe Fall, den `baum_rechte_setzen` in den Bibliothekswerkzeugen abfaengt.
+
+    GEERBT und nicht fest gesetzt: Ein `0o664` im Quelltext behauptet zu wissen, wie diese
+    Bibliothek eingerichtet ist, und Bandit meldet es zurecht als B103. Der Zielordner weiss
+    es besser.
+    """
+    share = tmp_path / "import"; share.mkdir()
+    roms = tmp_path / "roms"; roms.mkdir()
+    # Eine ECHTE Bibliothek: Der Plattformordner ist fuer die Gruppe schreibbar (auf
+    # Unraid `0775`). Legte der Test ihn unter der engen Umask an, waere er `0700` — und
+    # dann WAERE `0600` die richtige Antwort, der Test prueefte nur sich selbst.
+    (roms / "snes").mkdir()
+    os.chmod(roms / "snes", 0o775)
+    quelle = share / "Spiel.sfc"; quelle.write_bytes(b"x" * 64)
+    monkeypatch.setattr(appmod, "ROMS", str(roms))
+
+    # Die Umask VERENGEN, sonst prueft der Test nichts: Mit der ueblichen `022` entsteht
+    # ohnehin `0644`, und mit `002` sogar `0664` — die Gegenprobe zum `chmod` schlug
+    # deshalb zuerst nicht an. Unter `077` erzeugt das Kopieren `0600`, und nur der
+    # ausdrueckliche `chmod` bringt die Gruppenrechte zurueck.
+    alt = os.umask(0o077)
+    try:
+        appmod.einwurf_verschieben(str(quelle), "snes")
+    finally:
+        os.umask(alt)
+
+    modus = (roms / "snes" / "Spiel.sfc").stat().st_mode & 0o777
+    assert modus & 0o060, f"nicht fuer die Gruppe schreibbar: {modus:o}"

@@ -7111,11 +7111,36 @@ def einwurf_verschieben(quelle, slug):
         teil = endgueltig + ".teil"
         import shutil
         shutil.copyfile(quelle, teil)
+        # Rechte vom ZIELORDNER erben, nicht fest setzen. Ohne das gehoert die Datei dem
+        # Container-Benutzer, und RomM, RetroNAS und SMB koennen sie nicht bewegen —
+        # derselbe Fall, den `baum_rechte_setzen` in den Bibliothekswerkzeugen abfaengt.
+        #
+        # WARUM GEERBT UND NICHT `0o664`: Ein fester Wert ist zweimal falsch. Er behauptet
+        # zu wissen, wie diese Bibliothek eingerichtet ist — und Bandit meldet ihn zurecht
+        # als B103, weil eine fest verdrahtete grosszuegige Maske im Quelltext nie zu
+        # begruenden ist. Der Ordner daneben weiss es besser: Was fuer ihn gilt, gilt auch
+        # fuer die Datei darin, nur ohne Ausfuehrungsrecht.
+        try:
+            ordner_modus = os.stat(ziel_ordner).st_mode & 0o777
+            os.chmod(teil, ordner_modus & 0o666)
+        except OSError:
+            pass
         if os.path.getsize(teil) != os.path.getsize(quelle):
             os.remove(teil)
             raise OSError("Groesse nach dem Kopieren verschieden")
         os.replace(teil, endgueltig)
-        os.remove(quelle)
+        # AB HIER IST DER TITEL DA. Was jetzt noch schiefgeht, kostet keine Daten — aber
+        # es muss anders klingen als „nichts passiert". Am echten Share gemessen: Ein per
+        # SMB angelegter Unterordner kann `755` sein, und der Container laeuft als uid 1000
+        # in der Gruppe `users` — dann gelingt das Kopieren und das Loeschen der Quelle
+        # nicht. Die Datei ist in der Bibliothek, liegt aber weiter im Einwurfordner.
+        try:
+            os.remove(quelle)
+        except OSError as e:
+            log(f"Einwurf: {name!r} ist unter {slug}/ angekommen, die Quelle liess sich "
+                f"NICHT entfernen ({e.strerror}) — Rechte des Ordners pruefen")
+            _EINWURF_GESEHEN.pop(quelle, None)
+            return True          # angekommen ist angekommen
         _EINWURF_GESEHEN.pop(quelle, None)
         log(f"Einwurf: {name!r} -> {slug}/")
         return True
