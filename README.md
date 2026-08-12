@@ -248,6 +248,14 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   verschwindet das Schloss an gesperrten Treffern — sie sind dann ja ladbar. **Ohne**
   Schlüssel wird ein gesperrter Titel gar nicht erst eingereiht, sondern sofort mit Grund
   abgelehnt.
+- 📦 **Ein entpacktes Spiel ist EIN Titel, kein Haufen Dateien.** Wo der Titel ein
+  Ordner ist — Wii U (`code`+`content`+`meta`), PS3 (`PS3_GAME`), entpackte GameCube-
+  Abbilder, Xbox (`default.xbe`) — wandert er als Ganzes in die Bibliothek. Erkannt am
+  **Aufbau**, nicht an einer Dateizahl: Ein entpacktes Spiel hat Tausende Dateien, eine
+  Sammlung auch, aber der Aufbau ist vom Format vorgegeben.
+  Vorher wurde jede Datei einzeln geprüft, und das ging in beide Richtungen schief:
+  „14 Datei(en) → 14×wiiu · 170 Nicht-ROM übersprungen" — die 14 waren Bruchstücke aus dem
+  Spielinneren, die 170 das Spiel samt ausführbarer Datei.
 - 🔗 **Von der Anfrage zur Karte.** Ein Klick auf den Titel einer Anfrage öffnet die
   Detailseite des Spiels. Vorher war der Titel reiner Text — nur die Knöpfe rechts
   reagierten, und wer wissen wollte, worum es geht, musste ihn abtippen. Findet die Suche

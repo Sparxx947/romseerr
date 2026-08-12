@@ -240,6 +240,14 @@ that is the normal case and complete as it stands, not a fallback.
   password is never involved. With keys present the padlock on restricted hits disappears,
   because they are downloadable. **Without** keys a restricted title is refused immediately
   with a reason rather than queued.
+- 📦 **An unpacked game is ONE title, not a pile of files.** Where the title is a
+  directory — Wii U (`code`+`content`+`meta`), PS3 (`PS3_GAME`), extracted GameCube images,
+  Xbox (`default.xbe`) — it moves into the library as a unit. Recognised by **layout**, not
+  by file count: an unpacked game and a collection both have thousands of files, but the
+  layout is fixed by the format.
+  Previously each file was judged on its own, which went wrong in both directions:
+  "14 Datei(en) → 14×wiiu · 170 Nicht-ROM übersprungen" — the 14 were fragments from inside
+  the game, the 170 were the game including its executable.
 - 🔗 **From a request to its card.** Clicking a request's title opens the game's detail
   view. The title used to be plain text — only the buttons on the right reacted. When the
   search finds nothing the row says so rather than opening an empty window: the likeliest

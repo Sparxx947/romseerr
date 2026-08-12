@@ -2837,6 +2837,79 @@ def extract_archives(folder):
                 try: os.remove(fp)
                 except Exception: pass
 
+# Ordner, die EIN Spiel sind — erkannt an ihrem Aufbau, nicht an einer Dateizahl. (#391)
+#
+# WOZU: Der Import lief bisher ueber `os.walk` und kopierte jede Datei mit passender
+# Endung einzeln. Fuer eine Plattform, deren Titel ein ORDNER ist, ist das in beide
+# Richtungen falsch. Gemessen an „MARIO KART 8 wii u uncompressed":
+#
+#     14 Datei(en) -> 14×wiiu · 170 Nicht-ROM uebersprungen
+#
+# Die 14 waren `.bin`-Bruchstuecke aus dem Spielinneren, die 170 waren das Spiel — samt
+# `code/*.rpx`, ohne die Cemu nichts startet. Bruchstuecke kamen in die Bibliothek, der
+# Titel wurde verworfen.
+#
+# WARUM STRUKTUR UND NICHT DATEIZAHL: Ein entpacktes Wii-U-Spiel hat Tausende Dateien, eine
+# Sammlung auch. Was sie unterscheidet, ist ein FESTER Aufbau — `code`+`content`+`meta` ist
+# kein Zufall, sondern das Format. Die Bibliothekswerkzeuge treffen dieselbe Unterscheidung
+# fuer bereits einsortierte Ordner; hier geht es um die Ankunft.
+#
+# Recognised by structure, not by file count: an unpacked game and a collection both have
+# thousands of files, but the layout is fixed by the format.
+SPIELORDNER_MUSTER = [
+    # (Slug, benoetigte Eintraege im Ordner) — alle muessen vorhanden sein.
+    ("wiiu", {"code", "content", "meta"}),
+    ("ps3",  {"ps3_game"}),
+    ("ngc",  {"sys", "files"}),          # entpacktes GameCube-/Wii-Abbild
+]
+# Einzelne Dateien, die einen Ordner allein zum Spiel machen.
+SPIELORDNER_DATEI = {"default.xbe": "xbox", "ps3_disc.sfb": "ps3"}
+
+
+def spielordner_slug(pfad):
+    """-> Plattform-Slug, wenn dieser Ordner EIN Spiel ist; sonst "".
+
+    Nur die oberste Ebene wird angesehen: Der Aufbau steht dort oder gar nicht.
+    """
+    try:
+        eintraege = {e.lower() for e in os.listdir(pfad)}
+    except OSError:
+        return ""
+    for slug, noetig in SPIELORDNER_MUSTER:
+        if noetig <= eintraege:
+            return slug
+    for datei, slug in SPIELORDNER_DATEI.items():
+        if datei in eintraege:
+            return slug
+    return ""
+
+
+def spielordner_finden(wurzel, tiefe=2):
+    """Alle Spielordner unter `wurzel` -> [(pfad, slug), …].
+
+    Zwei Ebenen tief: Ein Archiv entpackt sich oft in einen Zwischenordner
+    (`Mario Kart 8/code/…` oder `Mario Kart 8 (EUR)/Mario Kart 8/code/…`). Tiefer zu suchen
+    hiesse, in den Spielinhalt hineinzulaufen — `content/` enthaelt selbst Unterordner.
+    """
+    gefunden, offen = [], [(wurzel, 0)]
+    while offen:
+        pfad, ebene = offen.pop(0)
+        slug = spielordner_slug(pfad)
+        if slug:
+            gefunden.append((pfad, slug))
+            continue                      # NICHT hineinlaufen: der Inhalt gehoert dazu
+        if ebene >= tiefe:
+            continue
+        try:
+            for e in sorted(os.listdir(pfad)):
+                q = os.path.join(pfad, e)
+                if os.path.isdir(q):
+                    offen.append((q, ebene + 1))
+        except OSError:
+            pass
+    return gefunden
+
+
 def rom_endung(fn):
     """(Endung, Zielname) fuer eine Datei — oder (None, None), wenn es keine ROM ist. (#241)
 
@@ -2876,7 +2949,38 @@ def import_folder(jid, folder):
     moved, skipped, by_plat = 0, 0, {}
     copy_errors = 0
     uebergangen = []          # Namen der übersprungenen Dateien, für eine brauchbare Meldung (#242)
+    # ZUERST die Spielordner: Was als Ganzes ein Titel ist, wird als Ganzes verschoben —
+    # und seine Dateien danach NICHT noch einmal einzeln eingesammelt. (#391)
+    ordner_titel = spielordner_finden(folder)
+    schon_drin = []
+    for quelle, slug in ordner_titel:
+        name = os.path.basename(quelle.rstrip("/")) or os.path.basename(folder)
+        ziel_ordner = os.path.join(ROMS, slug)
+        os.makedirs(ziel_ordner, exist_ok=True)
+        dst = os.path.join(ziel_ordner, name)
+        if os.path.exists(dst):
+            schon_drin.append(quelle)
+            continue
+        try:
+            # `cp -a` und danach loeschen, nicht `mv`: Staging und Bibliothek liegen auf
+            # verschiedenen Dateisystemen, und ein abgebrochenes `mv` hinterliesse dort
+            # einen halben Titel. Erst wenn die Kopie steht, ist der Titel da.
+            subprocess.run(["cp", "-a", quelle, dst], check=True)
+            moved += 1
+            by_plat[slug] = by_plat.get(slug, 0) + 1
+            schon_drin.append(quelle)
+            log(f"Job {jid}: Spielordner {name!r} -> {slug}/")
+        except Exception as e:
+            log(f"Spielordner-Fehler {name}: {e}"); copy_errors += 1
+
+    def in_spielordner(pfad):
+        """Liegt diese Datei INNERHALB eines schon verschobenen Titels?"""
+        return any(pfad == q or pfad.startswith(q.rstrip("/") + os.sep)
+                   for q in schon_drin)
+
     for root,_,files in os.walk(folder):
+        if in_spielordner(root):
+            continue
         for fn in files:
             if SKIP_FILES.search(fn) or fn == ".urls": continue
             src = os.path.join(root,fn)
