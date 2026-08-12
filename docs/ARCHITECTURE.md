@@ -231,6 +231,43 @@ lief. Unterschieden wird es an einem Header: `application/x-nzb` gegen `text/htm
 so ein Abruf beim Indexer als *grab* gegen ein Stundenlimit zählt, holt die Prüfung
 höchstens **eine** Datei je Indexer und nur auf ausdrücklichen Aufruf.
 
+#### Wessen Plattform gilt: Kategorie oder Titel? (#452)
+
+Ein Usenet-Treffer trägt zwei Aussagen über seine Plattform — die **Kategorie** des
+Indexers und den **Titel**. Die Kategorie gilt, denn sie ist gepflegt; der Titel ist
+Fließtext. Nur: nicht jede Plattform bekommt eine eigene Kategorie. Zwei fahren beim
+hiesigen Indexer in der des Nachbarn mit, und dort ist die Kategorie nachweislich zu grob:
+
+| Plattform | Kategorie | Kategorie sagt | Titel sagt |
+|---|---|---|---|
+| PS Vita | `101020` | `psp` | `psvita` |
+| Wii U | `101030`, `101060` | `wii` | `wiiu` |
+
+Beides steht in **einer** Tabelle, `KAT_LEIHE` (Mieter → Eigentümer), und sie hat zwei
+Wirkungen. Erstens erbt der Mieter die Kategorien des Eigentümers — ohne das ist seine
+Kategorienliste leer, und `search_usenet` steigt bei `not cats` sofort aus: Die Auswahl
+dieser Plattform **schaltet die Usenet-Suche ab**, lautlos, ohne Fehler. Zweitens darf der
+Mieter seine Kategorie am Titel zurückerobern: Nennt der Titel eine Plattform, die genau
+in der gefundenen Kategorie mitfährt, gewinnt der Titel (`plattform_aus_kategorie_und_titel`).
+
+Die Erlaubnis ist bewusst eng. Titel erwähnen ständig fremde Systeme („PS2 Classics",
+„Dreamcast Port"); dürfte jeder Titeltreffer die Kategorie schlagen, wäre die Zuordnung
+schlechter als vorher. Sie gilt nur für den eingetragenen Mieter und nur für dessen eigene
+Kategorie. Gemessen vor der Änderung: **16 von 16** Treffern kamen unter dem Slug des
+Eigentümers zurück — ein Vita-Download landete im PSP-Ordner, und die Wii-U-Treffer aus
+#375 waren zwar auffindbar, fielen aber aus dem Wii-U-Filter, weil sie `wii` hießen.
+
+*EN: a usenet hit states its platform twice — indexer category and title. The category
+wins, because it is curated. But not every platform gets its own category: PS Vita rides
+in the PSP category, Wii U in the Wii ones. `KAT_LEIHE` (tenant → owner of the category)
+records both facts and does two things. The tenant inherits the owner's categories —
+without that its category list is empty and `search_usenet` bails out at `not cats`,
+silently disabling usenet search for that platform. And the tenant may reclaim its own
+category from the title: if the title names a platform that is a documented tenant of
+exactly the category found, the title wins. Deliberately narrow — a title merely
+mentioning some foreign platform must not reclassify anything, or the result would be
+worse than before. Measured before the change: 16 of 16 hits carried the owner's slug.*
+
 #### Wenn SABnzbd den Download verwirft (#235)
 
 Ein NZB, das SAB nicht laden kann, verlässt die Warteschlange, **ohne** je einen Ordner

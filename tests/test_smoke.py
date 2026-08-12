@@ -7118,12 +7118,90 @@ def test_wiiu_uses_the_wii_categories_because_the_indexer_does_not_separate_them
 
     Nachgemessen: `Super.Mario.3D.World.USA.WiiU-PoWeRUp` kommt mit {1030, 101030}, und
     die Standardkategorie fuer Wii U liefert NULL Treffer. Die Zuordnung am Titel raeumt
-    danach auf — `guess_platform` erkennt `WiiU` zuverlaessig.
+    danach auf — aber erst seit #452, siehe die Tests darunter. Bis dahin behauptete das
+    nur ein Kommentar.
     """
     assert appmod.SLUG2USE.get("wiiu"), "Wii U kennt keine Usenet-Kategorie"
     assert set(appmod.SLUG2USE["wiiu"]) >= set(appmod.SLUG2USE["wii"]), \
         "Wii U muss mindestens die Wii-Kategorien mitbenutzen"
     assert appmod.guess_platform("Super.Mario.3D.World.USA.WiiU-PoWeRUp") == "wiiu"
+
+
+# --- #452: Kategorie gegen Titel ------------------------------------------------------
+
+def test_every_category_tenant_can_actually_be_searched(appmod):
+    """Wer in `KAT_LEIHE` steht, MUSS Kategorien haben. (#452)
+
+    Ein leeres `SLUG2USE[slug]` schaltet die Usenet-Suche fuer diese Plattform komplett
+    ab — `search_usenet` steigt bei `not cats` sofort aus. Das ist der lautlose Fall:
+    kein Fehler, keine Meldung, nur null Treffer. Genau so war PS Vita unerreichbar.
+    """
+    for mieter, eigner in appmod.KAT_LEIHE.items():
+        assert appmod.SLUG2USE.get(mieter), \
+            f"{mieter} hat keine Usenet-Kategorie — die Suche ist fuer ihn abgeschaltet"
+        assert set(appmod.SLUG2USE[mieter]) >= set(appmod.SLUG2USE.get(eigner, [])), \
+            f"{mieter} muss die Kategorien von {eigner} mitbenutzen"
+
+
+def test_a_tenant_reclaims_its_own_category_from_the_title(appmod):
+    """Nennt der Titel den Mieter der gefundenen Kategorie, gewinnt der Titel. (#452)
+
+    Gemessen am echten Indexer: 16 von 16 Treffern kamen unter dem Slug des Eigentuemers
+    zurueck. Ein Vita-Titel landete dadurch im PSP-Ordner, und die Wii-U-Treffer aus #375
+    fielen aus dem Wii-U-Filter, weil sie `wii` hiessen.
+    """
+    f = appmod.plattform_aus_kategorie_und_titel
+    assert f("psp", "Uncharted Golden Abyss.PSVITA") == "psvita"
+    assert f("psp", "Uncharted Golden Abyss USA PSV-VENOM") == "psvita"
+    assert f("wii", "Super.Mario.3D.World.USA.WiiU-PoWeRUp") == "wiiu"
+    assert f("wii", "WiiU Super Mario 3D World-(Loadiine Ready2Play)") == "wiiu"
+
+
+def test_a_foreign_platform_in_the_title_does_not_override_the_category(appmod):
+    """Nur der eingetragene Mieter darf umwerfen — sonst niemand. (#452)
+
+    Titel erwaehnen staendig fremde Systeme („Wii version", „PS2 Classics"). Duerfte
+    jeder Titeltreffer die Kategorie schlagen, waere die Zuordnung schlechter als vorher.
+    Die Erlaubnis gilt nur dort, wo die Kategorie nachweislich zu grob ist.
+    """
+    f = appmod.plattform_aus_kategorie_und_titel
+    # `guess_platform` erkennt hier etwas anderes als die Kategorie — trotzdem bleibt sie.
+    assert appmod.guess_platform("Sonic Adventure 2 Dreamcast Port") == "dreamcast"
+    assert f("xbox", "Sonic Adventure 2 Dreamcast Port") == "xbox"
+    assert f("ps3", "Jak and Daxter PS2 Classics") == "ps3"
+    # Der umgekehrte Weg ist ebenfalls gesperrt: PSP faehrt nicht in der Vita-Kategorie.
+    assert f("psvita", "Daxter USA PSP-Googlecus") == "psvita"
+    # Ohne Kategorie bleibt der Titel die einzige Quelle — wie bisher.
+    assert f(None, "Uncharted Golden Abyss.PSVITA") == "psvita"
+    assert f(None, "voellig namenlos") is None
+
+
+def test_the_usenet_search_labels_a_vita_release_as_vita(appmod, monkeypatch):
+    """Die ganze Kette, nicht nur die Entscheidungsfunktion. (#452)
+
+    Der Fehler sass in `search_usenet`, nicht in `guess_platform` — das erkannte `psvita`
+    die ganze Zeit richtig, wurde aber nie gefragt. Ein Test nur auf `guess_platform`
+    haette gruen gestanden, waehrend der Download im PSP-Ordner landete.
+    """
+    appmod.save_settings({"connections": {"prow_url": "http://prow", "prow_apikey": "k"}})
+
+    class R:
+        def json(self):
+            return [{"protocol": "usenet", "title": "Uncharted Golden Abyss.PSVITA",
+                     "size": 3076095179, "indexer": "I", "downloadUrl": "http://prow/1",
+                     "categories": [{"id": 101020}]},
+                    {"protocol": "usenet", "title": "Daxter USA PSP-Googlecus",
+                     "size": 1, "indexer": "I", "downloadUrl": "http://prow/2",
+                     "categories": [{"id": 101020}]}]
+    monkeypatch.setattr(appmod.requests, "get", lambda *a, **k: R())
+
+    out = appmod.search_usenet("Uncharted", appmod.SLUG2USE["psvita"])
+    nach_titel = {o["title"]: o["platform"] for o in out}
+    assert nach_titel["Uncharted Golden Abyss.PSVITA"] == "psvita", \
+        "der Vita-Titel darf nicht als PSP zurueckkommen"
+    assert nach_titel["Daxter USA PSP-Googlecus"] == "psp", \
+        "ein echter PSP-Titel in derselben Kategorie muss PSP bleiben"
+    appmod.save_settings({})
 
 
 # --- #382: gesperrte Archive.org-Eintraege -------------------------------------------
