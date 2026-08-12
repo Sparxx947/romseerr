@@ -9507,3 +9507,32 @@ def test_no_desktop_entry_runs_a_bare_apprun():
     schlecht = [z for z in aufrufe if "AppRun" in z and "apprun_befehl" not in z]
     assert not schlecht, (
         "diese Eintraege starten ein nacktes AppRun und tun beim Klick nichts: " + str(schlecht))
+
+
+def test_the_vita_entry_checks_both_firmware_parts():
+    """Vita3K braucht Firmware UND Font-Paket — der Status muss beide sehen. (#484)
+
+    Nach dem Einspielen der PUP meldete Romseerr `installed`, waehrend Vita3K selbst sagte:
+
+        Firmware is not fully installed.
+
+    Gemessen: `vs0` 1473 Dateien, `os0` 69 — und `sa0` LEER. Das Font-Paket landet in `sa0`
+    und ist ein eigener Schritt (`Download Firmware Font Package`). Ein Teil von zwei ist
+    nicht „eingespielt", sondern halb, und halb ist hier unbrauchbar.
+
+    Geprueft wird die Eigenschaft: Der psvita-Eintrag nennt MEHRERE Ablagen, und `sa0`
+    gehoert dazu. Ohne diese Pruefung waere die Rueckkehr zu einer einzigen Ablage
+    unauffaellig — der Status stuende wieder gruen, ohne etwas geprueft zu haben.
+    """
+    pfad = os.path.join(REPO, "contrib/streaming-host/init/25-firmware")
+    text = open(pfad, encoding="utf-8").read()
+    tabelle = re.search(r"KATALOG=\((.*?)\n\)", text, re.S).group(1)
+    zeile = [z.strip().strip('"') for z in tabelle.splitlines()
+             if z.strip().startswith('"psvita|')]
+    assert zeile, "kein psvita-Eintrag im Katalog"
+    ablagen = [a for a in zeile[0].split("|")[6].split(";") if a.strip()]
+    assert len(ablagen) >= 2, (
+        f"psvita nennt nur {len(ablagen)} Ablage(n) — Firmware und Font-Paket sind zwei "
+        f"Schritte: {ablagen}")
+    assert any(a.rstrip('/').endswith("sa0") for a in ablagen), (
+        f"das Font-Paket landet in `sa0`, das steht nicht in den Ablagen: {ablagen}")

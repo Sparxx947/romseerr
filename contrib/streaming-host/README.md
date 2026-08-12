@@ -682,9 +682,19 @@ Die Dateien landen unter `/config/firmware/<plattform>/` und werden von dort dor
 kopiert, wo der jeweilige Emulator sucht. Diese Trennung ist Absicht: Wird ein Emulator
 neu installiert, bleibt die Firmware erhalten.
 
-**PS Vita:** Vita3K **lädt nichts herunter** — der Quelltext öffnet einen Dateidialog
-(`firmware_install_dialog.cpp`). Es gibt dort also nichts zu automatisieren außer dem
-Einspielen; die PUP besorgst du dir selbst und lädst sie hoch.
+**PS Vita: zwei Teile, und nur einer ist Handarbeit.** Vita3K verlangt die Firmware-PUP
+**und** ein **Font-Paket**; fehlt eines, sagt es wörtlich `Firmware is not fully installed.`
+
+| Teil | woher | landet in |
+|---|---|---|
+| Firmware (`PSVUPDAT.PUP`) | **selbst besorgen** und über *Install Firmware* einspielen | `vs0`, `os0` |
+| Font-Paket | **Vita3K lädt es selbst** — Schaltfläche *Download Firmware Font Package* | `sa0` |
+
+Für die **Firmware** öffnet der Quelltext nur einen Dateidialog (`firmware_install_dialog.cpp`),
+da ist nichts zu automatisieren. Für das **Font-Paket** gilt das nicht — hier genügt ein Klick.
+
+Der Status prüft deshalb **beide** Ablagen (`vs0` und `sa0`). Mit nur einer meldete er
+„eingespielt", während der Emulator selbst widersprach (#484).
 
 **Bereitgelegt ist nicht eingespielt.** Für **PS3 und PS Vita** ist die Firmware eine
 `.PUP` — ein Update-Paket, das der Emulator *einspielen* muss und nie an Ort und Stelle
@@ -1558,8 +1568,19 @@ Files land in `/config/firmware/<platform>/` and are copied from there to wherev
 emulator looks. That separation is deliberate: reinstalling an emulator does not take
 the firmware with it.
 
-**PS Vita:** Vita3K **downloads nothing** — its source opens a file dialog
-(`firmware_install_dialog.cpp`). There is nothing to automate beyond the import.
+**PS Vita: two parts, and only one is manual.** Vita3K wants the firmware PUP **and** a
+**font package**; without either it says, verbatim, `Firmware is not fully installed.`
+
+| part | where from | ends up in |
+|---|---|---|
+| firmware (`PSVUPDAT.PUP`) | **obtain it yourself**, then *Install Firmware* | `vs0`, `os0` |
+| font package | **Vita3K fetches it** — the *Download Firmware Font Package* button | `sa0` |
+
+For the **firmware** the source only opens a file dialog (`firmware_install_dialog.cpp`) and
+there is nothing to automate. That is not true of the **font package**, which is one click.
+
+The status therefore checks **both** Ablagen (`vs0` and `sa0`). With only one it reported
+"installed" while the emulator itself disagreed (#484).
 
 **Staged is not installed.** For **PS3 and PS Vita** the firmware is a `.PUP` — an update
 package the emulator has to *install*, never used in place. The catalogue therefore names an
