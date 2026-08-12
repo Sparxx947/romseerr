@@ -15,6 +15,52 @@ dafür gibt es den Play-Knopf.
 
 ---
 
+## Was hier liegt
+
+Jede Datei trägt einen zweisprachigen Kopf, der ihre Existenz begründet — das hier ist
+nur die Landkarte, damit man weiß, wo man nachsieht.
+
+| Datei | Wozu |
+|---|---|
+| `docker-compose.yml` | der Stack: Selkies-Desktop, Start-Dienst, optional `acme` (certbot) und `seat2` |
+| `stream-agent.py` | der **Start-Dienst**, den Romseerr aufruft: `/status`, Titel öffnen, 3DS entschlüsseln, CIA installieren |
+| `launch-profile.py` | **Startprofil je Emulator**: Controller-Belegung und regionsrichtiges BIOS. Eine Zuordnung je Emulator genügt für alle Pads, weil Browser und Selkies bereits auf ein Xbox-Pad normieren |
+| `emu-setup` | einen Emulator **ohne Spiel** öffnen, um Tasten zu belegen — mit derselben Umgebung wie ein Spielstart. Vom Desktop oder über SSH gestartet sieht er das Pad überhaupt nicht |
+| `selkies-uinput-bridge.py` | die **uinput-Brücke**: macht aus dem virtuellen Pad ein Gerät, das die Emulatoren finden |
+| `gamepad-bridge-probe.py` | prüft dieselbe Brücke, ohne einen Emulator zu starten |
+| `renew.sh` | läuft im certbot-Beiwagen. **Nicht** bloß `certbot renew`: das erneuert nur im eigenen Volume, der Host liest aber aus `/config/ssl` — ohne Kopie läuft das ausgelieferte Zertifikat still ab |
+| `init/` | Startschritte in fester Reihenfolge, siehe unten |
+| `web/` | die Seite, die der Browser bekommt |
+
+Die Schritte unter `init/` laufen nummeriert, und die Reihenfolge ist jedes Mal aus einem
+Fehlschlag entstanden:
+
+| Schritt | Wozu |
+|---|---|
+| `05-web` | richtet die Web-Wurzel her. **Kein Bind-Mount in `/usr/share/selkies/web/`** — das Basis-Image löscht das Verzeichnis beim Start und legt es neu an; ein Mountpunkt darin überlebt das `rm -Rf` und lässt das `cp -a` ins Leere laufen |
+| `10-virtualgl` | ermittelt den Card-Knoten. Ohne VirtualGL rendert Mesa auf der CPU |
+| `23-3ds-entschluesseln` | holt die 3DS-Werkzeuge (`decrypt_3ds.py`, `3ds-decrypt-cia`) |
+| `25-firmware` | legt BIOS und Firmware an ihren Platz |
+| `30-agent` | startet den Start-Dienst. Das Token wird **aus einer Datei** gelesen, nicht ins Skript geschrieben |
+
+## What is in here
+
+Every file carries a bilingual header explaining why it exists; this table is only the map.
+
+| File | Purpose |
+|---|---|
+| `docker-compose.yml` | the stack: Selkies desktop, launch service, optional `acme` and `seat2` |
+| `stream-agent.py` | the **launch service** Romseerr calls: `/status`, opening titles, 3DS decryption, CIA install |
+| `launch-profile.py` | **per-emulator launch profile**: controller mapping and region-correct BIOS. One mapping per emulator covers every pad, because the browser and Selkies already normalise to an Xbox pad |
+| `emu-setup` | open an emulator **without a game** to bind keys, with the same environment a launch gets. Started from the desktop or over SSH it cannot see the pad at all |
+| `selkies-uinput-bridge.py` | the **uinput bridge**: turns the virtual pad into a device emulators can find |
+| `gamepad-bridge-probe.py` | checks that bridge without starting an emulator |
+| `renew.sh` | runs in the certbot sidecar. **Not** just `certbot renew`: that only updates certbot's own volume while the host reads from `/config/ssl`, so the served certificate goes stale in silence |
+| `init/` | ordered start-up steps (`05-web`, `10-virtualgl`, `23-3ds-entschluesseln`, `25-firmware`, `30-agent`) |
+| `web/` | the page the browser gets |
+
+Each ordering constraint in `init/` came out of a failure; the German table above says which.
+
 ## Kurzfassung
 
 ```bash
