@@ -23,11 +23,26 @@ SORTIERER = os.path.join(WURZEL, "contrib", "library-tools", "retronas-mixed-sor
 
 
 def _laden(pfad, name):
-    """Ein Skript ohne `.py`-Endung als Modul laden."""
-    spec = importlib.util.spec_from_loader(
-        name, importlib.machinery.SourceFileLoader(name, pfad))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    """Ein Skript ohne `.py`-Endung als Modul laden — IMMER aus der Quelle.
+
+    WARUM NICHT `SourceFileLoader` (#399): Der legt Bytecode unter `__pycache__` ab und
+    haelt ihn fuer aktuell, wenn der Zeitstempel der Quelle passt — auf die SEKUNDE genau.
+    Wird eine Datei mehrfach innerhalb derselben Sekunde geaendert, laeuft der Test gegen
+    den alten Stand. Genau das ist passiert: Eine Aenderung um 06:00:45 lief gegen einen
+    Cache von 06:00, der Test meldete das Verhalten VOR der Aenderung, und die Ursache
+    stand nirgends — weder im Test noch im Quelltext.
+
+    `compile` + `exec` kennt keinen Cache. Der Preis ist ein Uebersetzungsvorgang je
+    Testlauf; er kostet Millisekunden.
+
+    Always compile from source: the bytecode cache validates on a whole-second timestamp,
+    so a file edited twice within one second runs the tests against the older version.
+    """
+    import types
+    quelle = open(pfad, encoding="utf-8").read()
+    mod = types.ModuleType(name)
+    mod.__file__ = pfad
+    exec(compile(quelle, pfad, "exec"), mod.__dict__)
     return mod
 
 
@@ -429,10 +444,14 @@ def test_ancillary_files_are_collected_off_the_game_level(org, tmp_path):
     Jens' Entscheidung war Weg 2 — sammeln statt loeschen oder liegen lassen. Nichts geht
     verloren, und Ebene 1 traegt einen Ordner statt zehntausend Dateien.
     """
+    # Das Verhaeltnis ist Absicht: Am echten Bestand sind es 19 % (c64) bis 26 % (gbc)
+    # Beiwerk auf Ebene 1. Eine erste Fassung dieses Tests hatte 4 von 7 Eintraegen als
+    # Beiwerk — 57 %, und damit ueber der Schranke, die genau das als Irrtum wertet. Der
+    # Test scheiterte an seiner eigenen unrealistischen Annahme.
     basis = tmp_path / "c64"
     basis.mkdir()
-    for n in ("Turrican.d64", "Katakis.d64", "Uridium.d64"):
-        (basis / n).write_bytes(os.urandom(64))
+    for i in range(12):
+        (basis / f"Spiel {i}.d64").write_bytes(os.urandom(64))
     for n in ("VERSION.NFO", "readme.txt", "cover.jpg", "liste.html"):
         (basis / n).write_bytes(os.urandom(32))
 
@@ -442,8 +461,9 @@ def test_ancillary_files_are_collected_off_the_game_level(org, tmp_path):
 
     oben = sorted(p.name for p in basis.iterdir())
     assert "_beiwerk" in oben, "kein Sammelordner angelegt"
-    assert sorted(x for x in oben if x != "_beiwerk") == \
-        ["Katakis.d64", "Turrican.d64", "Uridium.d64"], f"Ebene 1 stimmt nicht: {oben}"
+    spiele = [x for x in oben if x != "_beiwerk"]
+    assert len(spiele) == 12 and all(x.endswith(".d64") for x in spiele), \
+        f"Ebene 1 stimmt nicht: {oben}"
     gesammelt = sorted(p.name for p in (basis / "_beiwerk").iterdir())
     assert gesammelt == ["VERSION.NFO", "cover.jpg", "liste.html", "readme.txt"], gesammelt
 
@@ -477,3 +497,47 @@ def test_arcade_platforms_keep_their_layout(org, tmp_path):
     org.umbauen(str(tmp_path), "arcade", False, StummesProtokoll())
     assert not (basis / "_beiwerk").exists(), "bei Arcade darf nicht eingesammelt werden"
     assert (basis / "info.txt").exists()
+
+
+def test_a_platform_whose_games_are_png_is_not_emptied(org, tmp_path):
+    """Wo `.png` das SPIELFORMAT ist, wird nichts eingesammelt. (#399)
+
+    BEINAHE-SCHADEN, am echten Bestand gefunden: PICO-8-Karten sind `.png` —
+    `10002.p8.png` ist ein Spiel, kein Bild. Unter `pico8` liegen 12.629 davon. Die Regel
+    „Beiwerk gehoert nicht auf Ebene 1" haette die Plattform GELEERT statt sie aufzuraeumen.
+    """
+    basis = tmp_path / "pico8"
+    basis.mkdir()
+    for i in range(4):
+        (basis / f"1000{i}.p8.png").write_bytes(os.urandom(32))
+    (basis / "liesmich.txt").write_bytes(os.urandom(16))
+
+    class StummesProtokoll:
+        def schreiben(self, *a, **k): pass
+    org.umbauen(str(tmp_path), "pico8", False, StummesProtokoll())
+
+    verblieben = sorted(p.name for p in basis.iterdir())
+    assert len([x for x in verblieben if x.endswith(".png")]) == 4, \
+        f"PICO-8-Karten wurden verschoben: {verblieben}"
+
+
+def test_collection_is_refused_when_it_would_take_most_of_the_platform(org, tmp_path):
+    """Waeren mehr als die Haelfte betroffen, wird NICHT eingesammelt. (#399)
+
+    Dann stimmt nicht der Bestand, sondern die Einordnung — und Nichtstun ist die richtige
+    Antwort. `pico8` steht ausdruecklich in der Ausnahmeliste; diese Schranke faengt den
+    naechsten Fall, den noch niemand gemessen hat.
+    """
+    basis = tmp_path / "unbekannt"
+    basis.mkdir()
+    for i in range(8):
+        (basis / f"datei{i}.txt").write_bytes(os.urandom(16))
+    (basis / "spiel.d64").write_bytes(os.urandom(32))
+
+    class StummesProtokoll:
+        def schreiben(self, *a, **k): pass
+    org.umbauen(str(tmp_path), "unbekannt", False, StummesProtokoll())
+
+    assert not (basis / "_beiwerk").exists(), \
+        "bei ueberwiegendem Beiwerk darf nicht eingesammelt werden"
+    assert len(list(basis.iterdir())) == 9, "es darf nichts verschoben worden sein"
