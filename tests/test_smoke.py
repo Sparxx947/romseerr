@@ -7836,7 +7836,25 @@ def test_a_request_row_links_to_the_title(appmod):
     js = open(os.path.join(REPO, "static", "js", "index.js"), encoding="utf-8").read()
     assert "openJobDetail" in js, "es gibt keine Verknuepfung von der Anfrage zur Karte"
     assert "class=jobt" in js, "der Titel der Anfragezeile ist nicht ausgezeichnet"
-    assert "jt.onclick" in js, "der Titel reagiert auf keinen Klick"
+    # AUF DIE EIGENSCHAFT, NICHT AUF DIE SCHREIBWEISE. Die erste Fassung verlangte woertlich
+    # `jt.onclick` — also eine Bindung JE ZEILE. Genau die war der Fehler aus #449: Beim
+    # Neuaufbau der Liste ist die Zeile ein anderes Element, die Bindung weg, und ein Klick
+    # in diesem Moment tut nichts. Der Test haette den Fix also blockiert, obwohl der Titel
+    # danach besser reagiert als vorher.
+    #
+    # Heute der dritte Test, der an einer Schreibweise haengt statt an der Sache
+    # (vorher: der apt-Dolphin-Rueckfall und der leere Anfragen-Text).
+    # NUR DIE BINDUNG DER ANFRAGENLISTE ANSEHEN. Die erste Fassung suchte
+    # `addEventListener('click'` in der GANZEN Datei — das kommt dort mehrfach vor, also
+    # blieb sie gruen, als ich die Bindung zum Ausprobieren entfernte. Ein Test, der auf ein
+    # Vorkommen irgendwo prueft, prueft nichts Bestimmtes.
+    m = re.search(r"^function jobKlickBindung\(.*?\)\{(.*?)^\}", js, re.S | re.M)
+    assert m, "die Klickbindung der Anfragenliste ist nicht mehr auffindbar"
+    koerper = m.group(1)
+    assert "addEventListener('click'" in koerper, "sie bindet keinen Klick"
+    assert "closest('.jobt')" in koerper, \
+        "sie findet den Titel nicht — sie reagierte dann auf die ganze Zeile"
+    assert "openJobDetail" in koerper, "sie fuehrt nicht zur Karte"
 
 
 def test_a_request_without_a_card_says_so_instead_of_opening_nothing(appmod):

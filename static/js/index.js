@@ -972,7 +972,35 @@ async function loadJobs(){let r=await fetch('/api/jobs');let d=await r.json();le
   // Gelieferte Fassung im Verlauf zeigen — damit eine Falschlieferung belegbar ist. (#77)
   let vl=o.variant_label?` · 🏷 ${o.variant_label.replace(/</g,'&lt;')}`:'';
   e.innerHTML=`<div><div class=jobt style="cursor:pointer" title="${t('job_open_card')}">${o.title.replace(/</g,'&lt;')}</div><span class=jobmsg style="color:#8b929e;font-size:11px"></span><div class=meta style="color:#8b929e;font-size:11px">👤 <b style="color:#b9c0cc">${(o.user||'—').replace(/</g,'&lt;')}</b> · ${(o.platform||t('plat_unknown')).replace(/</g,'&lt;')} · ${o.source}${vs}${vl}${dt?' · '+dt:''} · ${o.msg||''}</div></div><div>${right}</div>`;
-  let jt=e.querySelector('.jobt');if(jt)jt.onclick=()=>{if(!e.dataset.busy)openJobDetail(o.title,o.platform||'',e);};j.appendChild(e);});}
+  // KEINE Bindung je Zeile mehr — der Titel traegt seine Daten, geklickt wird oben. (#449)
+  e.dataset.titel=o.title; e.dataset.plattform=o.platform||'';
+  j.appendChild(e);});
+ jobKlickBindung(j);}
+// EIN Zuhoerer am BEHAELTER statt einer je Zeile. (#449)
+//
+// WARUM DAS DER UNTERSCHIED IST: `loadJobs` baut `#jobs` per `innerHTML` neu auf. Jede
+// Zeile ist danach ein anderes Element — eine Bindung, die an der Zeile hing, ist weg, und
+// ein Klick, der genau in diesen Moment faellt, tut NICHTS. Kein Fehler, keine Meldung.
+//
+// #419 hat die Zahl dieser Momente gesenkt (nicht neu zeichnen, wenn sich nichts geaendert
+// hat) und ich habe daraus geschlossen, das Problem sei weg. War es nicht: Sobald sich
+// wirklich etwas aendert, ist das Fenster wieder da — und beim Testfall aendert sich immer
+// etwas, weil er die Anfrage gerade erst angelegt hat.
+//
+// Der Zuhoerer am Behaelter ueberlebt das Ersetzen, weil der Behaelter nicht ersetzt wird.
+// Damit ist das Fenster nicht kleiner, sondern zu.
+//
+// EN: one listener on the container instead of one per row. innerHTML replacement detaches
+// per-row handlers, so a click landing in that moment does nothing. #419 made those moments
+// rarer; it could not remove them, because a list that never re-renders never updates.
+function jobKlickBindung(behaelter){
+ if(!behaelter||behaelter.dataset.klickgebunden)return;
+ behaelter.dataset.klickgebunden='1';
+ behaelter.addEventListener('click',ev=>{
+  let titel=ev.target.closest('.jobt');if(!titel)return;
+  let zeile=titel.closest('[data-titel]');if(!zeile||zeile.dataset.busy)return;
+  openJobDetail(zeile.dataset.titel,zeile.dataset.plattform||'',zeile);
+ });}
 // --- Plattform-Vorauswahl ---
 let SELP=new Set(JSON.parse(localStorage.getItem('romp')||'[]'));
 let SLUGNAME={},GRUPPEN=[];
