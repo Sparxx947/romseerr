@@ -26,8 +26,10 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
+import tempfile
 import time
 
 CONFIG = os.environ.get("FW_CONFIG_ROOT", "/config")
@@ -675,14 +677,67 @@ def xemu_vollbild():
     Deshalb steht hier eine Tastensendung statt eines Konfigurationsschluessels — und
     deshalb muss sie NACH dem Start kommen, nicht davor.
     """
-    fenster = _x("xdotool", "search", "--onlyvisible", "--name", "xemu").stdout.split()
+    return f11_vollbild("xemu")
+
+
+def f11_vollbild(fenstername):
+    """F11 an das Fenster schicken. -> (ok, meldung).
+
+    Gemeinsamer Weg fuer alle Emulatoren, bei denen der Fenstertrick die HUELLE
+    vergroessert und der gezeichnete Bereich nicht mitwaechst. Gemessen wurde jeder
+    einzelne — geraten wird hier nichts:
+
+    | Emulator | Fenstertrick | nach F11 |
+    |---|---|---|
+    | xemu   | 960 von 1920 breit | wirkt (#306) |
+    | Azahar | 53,3 % der Flaeche | **99,3 %** (#316) |
+    | Eden   | 88,6 % der Flaeche | **99,3 %** (#316) |
+
+    WIE GEMESSEN: nicht mit `xdotool getwindowgeometry` — das meldete in allen drei
+    Faellen brav 1920x1080, waehrend das Bild kleiner war. Stattdessen `xwd -root` und
+    darin der Rahmen der nicht-schwarzen Pixel. Die Fenstergroesse ist genau die Zahl,
+    die hier nichts beweist.
+
+    EN: shared route for emulators whose drawn area does not follow the window. Each was
+    measured with `xwd`, not with window geometry — that reported 1920x1080 in all three
+    cases while the picture was smaller.
+    """
+    fenster = _x("xdotool", "search", "--onlyvisible",
+                 "--name", fenstername).stdout.split()
     if not fenster:
-        return False, "kein xemu-Fenster gefunden — laeuft der Emulator?"
+        return False, f"kein {fenstername}-Fenster gefunden — laeuft der Emulator?"
     fid = fenster[0]
     _x("xdotool", "windowactivate", fid)
     time.sleep(1)
     _x("xdotool", "key", "--window", fid, "F11")
     return True, "Vollbild ueber F11 geschaltet"
+
+
+def azahar_vollbild():
+    """Azahar ins Vollbild — F11, nicht der Fenstertrick. (#316)
+
+    NACHGEMESSEN am laufenden Host mit `Shovel_Knight_EUR_MULTi5_3DS.3ds`: Nach dem
+    Fenstertrick war das Fenster 1920x1080 und BEMALT waren 1915x577 — 53,3 %, die untere
+    Haelfte blieb schwarz. Zweimal gemessen, um einen Ladezustand auszuschliessen: gleiches
+    Ergebnis. Nach F11: 99,3 %.
+
+    Das ist der Fall, den #316 fuer Azahar vermutet hat, und er ist eingetreten.
+    """
+    return f11_vollbild("Azahar")
+
+
+def eden_vollbild():
+    """Eden (Switch) ins Vollbild — ebenfalls F11. (#316)
+
+    NACHGEMESSEN mit `Arcade Archives DIG DUG`: Der Fenstertrick liess einen gleichmaessigen
+    Rand von etwa 36 Pixeln ringsum stehen — 88,6 %. Das ist ein anderes Fehlerbild als bei
+    Azahar (nicht die halbe Flaeche schwarz, sondern ein Rahmen), aber dieselbe Abhilfe:
+    nach F11 sind es 99,3 %.
+
+    Ein Rand von 36 Pixeln faellt beim Zusehen kaum auf. Genau deshalb wurde er gemessen
+    und nicht beurteilt.
+    """
+    return f11_vollbild("Eden")
 
 
 # --------------------------------------------------------------- Azahar (3DS)
@@ -837,7 +892,14 @@ PROFILE = {
     # Festplattenabbild und vor allem das RICHTIGE BIOS: alle Retail-Dumps bleiben
     # schwarz, erst das gepatchte COMPLEX 4627 mit MCPX 1.0 bootet.
     "xemu":      {"system": "Xbox",          "controller": None, "bios": None,
-                  "vollbild": xemu_vollbild,
+                  # vollbild=None ist KEIN Rueckschritt: Der Tastenweg lag hier falsch.
+                  # `--fullscreen` ruft der Agent VOR dem Start auf, damit ein Emulator
+                  # seine Konfiguration frisch liest — eine Tastensendung findet dort kein
+                  # Fenster und lief ins Leere. Am Host nachgestellt:
+                  #   [vollbild] xemu: kein xemu-Fenster gefunden — laeuft der Emulator?
+                  # Der Tastenweg steht jetzt in `vollbild_sicherstellen()`, das NACH dem
+                  # Start misst und nur nachhilft, wenn das Bild zu klein ist. (#429)
+                  "vollbild": None,
                   "geprueft": True},
     "cemu":      {"system": "Wii U",         "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
@@ -846,6 +908,7 @@ PROFILE = {
     # die Pixel, nicht ueber die Fenstergeometrie — die meldet den Rahmen, nicht den
     # Inhalt, und genau daran ist der Fall bei xemu lange unbemerkt geblieben.
     "azahar":    {"system": "3DS",           "controller": azahar_apply,
+                  # Tastenweg: siehe xemu — greift nach dem Start, nicht hier. (#429)
                   "bios": None, "vollbild": None,
                   "geprueft": False},
     "vita3k":    {"system": "PS Vita",       "controller": None, "bios": None, "vollbild": None,
@@ -856,7 +919,9 @@ PROFILE = {
     "rpcs3":     {"system": "PS3",           "controller": rpcs3_apply,
                   "bios": None, "vollbild": None,
                   "geprueft": True},
-    "switchemu": {"system": "Switch",        "controller": None, "bios": None, "vollbild": None,
+    "switchemu": {"system": "Switch",        "controller": None, "bios": None,
+                  # Tastenweg: siehe xemu — greift nach dem Start, nicht hier. (#429)
+                  "vollbild": None,
                   "geprueft": False},
 }
 # "geprueft: False" heisst NICHT "funktioniert nicht", sondern "noch nicht am
@@ -1117,6 +1182,110 @@ def sicher(schritt, *args, **kw):
         return False, "KEIN ZUGRIFF: " + rechte_hinweis(e.filename or "?")
 
 
+def gezeichneter_anteil():
+    """-> Anteil der BEMALTEN Flaeche in Prozent, oder None wenn nicht messbar. (#429)
+
+    WARUM NICHT `xdotool getwindowgeometry`: Die Fenstergroesse ist genau die Zahl, die
+    hier nichts beweist. Bei xemu, Azahar und Eden meldete sie brav 1920x1080, waehrend
+    das Bild 960 Pixel breit war beziehungsweise die untere Haelfte schwarz blieb. Gemessen
+    werden muss der INHALT.
+
+    WIE: `xwd -root` zieht den Bildschirm, und darin wird der Rahmen der nicht-schwarzen
+    Pixel gesucht. Abgetastet wird ein Raster von 6 Pixeln — bei 1920x1080 sind das rund
+    57.000 Punkte, genug fuer eine Flaechenangabe und schnell genug, um im Startweg zu
+    stehen.
+
+    Braucht nichts, was nicht ohnehin da waere: `xwd` liegt im Basis-Image.
+
+    EN: measures the painted content, not the window. Window geometry reported 1920x1080
+    in every case that turned out to be wrong.
+    """
+    ziel = os.path.join(tempfile.gettempdir(), "vollbild-messung.xwd")
+    try:
+        r = _x("xwd", "-root", "-silent", "-out", ziel)
+        if r.returncode != 0 or not os.path.isfile(ziel):
+            return None
+        d = open(ziel, "rb").read()
+        if len(d) < 100:
+            return None
+        k = struct.unpack(">25I", d[:100])
+        kopfgroesse, version, format_ = k[0], k[1], k[2]
+        breite, hoehe, bpp, bytes_pro_zeile = k[4], k[5], k[11], k[12]
+        rmask, gmask, bmask, ncolors = k[14], k[15], k[16], k[19]
+        if version != 7 or format_ != 2 or not breite or not hoehe:
+            return None
+        start = kopfgroesse + ncolors * 12
+        schritt = max(1, bpp // 8)
+        x0 = y0 = 1 << 30
+        x1 = y1 = -1
+        for y in range(0, hoehe, 6):
+            zeile = start + y * bytes_pro_zeile
+            for x in range(0, breite, 6):
+                o = zeile + x * schritt
+                w = int.from_bytes(d[o:o + schritt], "little")
+                # SCHWELLE 18 statt 0: Ein Emulator zeichnet selten reines Schwarz, und
+                # ein X-Server liefert am Rand gern ein paar Restwerte. Bei 0 waere jede
+                # Flaeche „bemalt" und die Messung wertlos.
+                if ((w & rmask) or (w & gmask) or (w & bmask)) and \
+                   max(((w & rmask) >> 16) & 0xFF, ((w & gmask) >> 8) & 0xFF,
+                       w & bmask & 0xFF) > 18:
+                    if x < x0: x0 = x
+                    if y < y0: y0 = y
+                    if x > x1: x1 = x
+                    if y > y1: y1 = y
+        if x1 < 0:
+            return 0.0
+        return (x1 - x0 + 1) * (y1 - y0 + 1) / (breite * hoehe) * 100
+    except (OSError, struct.error, ValueError):
+        return None
+    finally:
+        try:
+            os.remove(ziel)
+        except OSError:
+            pass
+
+
+# Ab hier gilt die Flaeche als ausgefuellt. NICHT 100: Passt das Seitenverhaeltnis des
+# Titels nicht zum Bildschirm, laesst der Emulator zu Recht schwarze Balken stehen. Was
+# #316 sucht, ist der Fall „halbe Flaeche", nicht ein paar Pixel Rand.
+VOLLBILD_SCHWELLE = 90.0
+
+
+def vollbild_sicherstellen(fensterid=None):
+    """Messen, und nur wenn noetig mit F11 nachhelfen. -> (anteil_vorher, anteil_nachher, weg)
+
+    WARUM MESSEN UND NICHT EINFACH F11 SCHICKEN: **F11 ist ein Umschalter.** Ein Emulator,
+    bei dem der Fenstertrick bereits gewirkt hat, fiele dadurch WIEDER aus dem Vollbild —
+    aus einem funktionierenden Fall wuerde ein kaputter. Die Messung ist deshalb keine
+    zusaetzliche Vorsicht, sondern das, was die Korrektur ueberhaupt erst ungefaehrlich
+    macht.
+
+    So braucht auch ein Emulator, den nie jemand ausprobiert hat, keine vorab ausgefuellte
+    Zeile in einer Tabelle: Er wird beim ersten Start gemessen und, wenn noetig, korrigiert.
+
+    EN: F11 is a toggle. Sending it blindly would knock an already-fullscreen emulator back
+    out. Measuring first is what makes the correction safe — and it means an emulator nobody
+    has ever exercised is handled on its first launch.
+    """
+    vorher = gezeichneter_anteil()
+    if vorher is None:
+        return None, None, "nicht messbar"
+    if vorher >= VOLLBILD_SCHWELLE:
+        return vorher, vorher, "Fenstertrick genuegt"
+    ziel = fensterid
+    if not ziel:
+        gefunden = _x("xdotool", "getactivewindow").stdout.split()
+        ziel = gefunden[0] if gefunden else None
+    if not ziel:
+        return vorher, vorher, "kein Fenster fuer F11 gefunden"
+    _x("xdotool", "windowactivate", str(ziel))
+    time.sleep(1)
+    _x("xdotool", "key", "--window", str(ziel), "F11")
+    time.sleep(2)
+    nachher = gezeichneter_anteil()
+    return vorher, nachher, "F11"
+
+
 def main(argv):
     if argv and argv[0] == "--fullscreen":
         if len(argv) < 2 or argv[1] not in PROFILE:
@@ -1133,10 +1302,25 @@ def main(argv):
             print("Aufruf: --window <pid>", file=sys.stderr); return 1
         zustand, msg = nur_emulator(int(argv[1]))
         print(f"[fenster] {msg}")
+        # MESSEN, NICHT ANNEHMEN (#429). Der Fensterschritt meldet bisher „ok", sobald die
+        # HUELLE auf voller Flaeche steht — und genau das war bei xemu, Azahar und Eden
+        # wahr, waehrend das Bild kleiner blieb. Deshalb hier die Gegenprobe am Inhalt,
+        # und nur wo sie ausfaellt, die Korrektur per F11.
+        anteil = None
+        if zustand == "ok":
+            vorher, nachher, weg = vollbild_sicherstellen()
+            anteil = nachher
+            if vorher is None:
+                print("[vollbild] nicht messbar — Bildschirm nicht lesbar")
+            elif weg == "F11":
+                print(f"[vollbild] {vorher:.1f} % bemalt -> F11 -> "
+                      f"{nachher if nachher is None else f'{nachher:.1f} %'}")
+            else:
+                print(f"[vollbild] {vorher:.1f} % bemalt — {weg}")
         # Maschinenlesbar als LETZTE Zeile, damit der Agent den Befund weiterreichen
         # kann statt ihn nur ins Log zu schreiben (#288). Eine JSON-Zeile statt eines
         # blossen Exit-Codes, weil der Dialogtitel die eigentliche Auskunft ist.
-        print(json.dumps({"window": zustand, "detail": msg}))
+        print(json.dumps({"window": zustand, "detail": msg, "bemalt": anteil}))
         return 0 if zustand == "ok" else 1
     if argv and argv[0] == "--desktop":
         panel_zurueck(); print("[fenster] Panel wieder eingeblendet"); return 0

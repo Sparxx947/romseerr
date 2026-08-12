@@ -219,6 +219,43 @@ startet xemu auch ohne Konfigurationsdatei und ohne `eeprom.bin`, das es sich se
 anlegt. Der anfängliche `Failed to load BIOS '(null)'` war ein Folgefehler der
 fehlenden Platte.
 
+## Vollbild: gemessen, nicht angenommen
+
+Jeder Start misst nach dem Fensterschritt, **wie viel der Fläche der Emulator wirklich
+bemalt**, und hilft nur nach, wenn zu wenig herauskommt:
+
+```
+[fenster]  8 Fenster auf 1920x1080, ohne Rahmen, Panel ausgeblendet
+[vollbild] 53.3 % bemalt -> F11 -> 99.3 %
+```
+
+**Die Fenstergröße beweist hier nichts.** `xdotool getwindowgeometry` meldete in jedem
+Fall, der sich als falsch herausstellte, brav `1920x1080` — während das Bild kleiner war.
+Gemessen wird deshalb der Inhalt: `xwd -root` zieht den Bildschirm, und darin wird der
+Rahmen der nicht-schwarzen Pixel gesucht.
+
+Gemessen am laufenden Host:
+
+| Emulator | Fenstertrick | nach F11 |
+|---|---|---|
+| Azahar (3DS) | 53,3 % — untere Hälfte schwarz | **99,3 %** |
+| Eden (Switch) | 88,6 % — gleichmäßiger Rand von ~36 px | **99,3 %** |
+| xemu | 960 von 1920 breit | wirkt |
+
+Eden ist der lehrreiche Fall: Ein Rand von 36 Pixeln fällt beim Zusehen nicht auf und wäre
+nie als Fehler gemeldet worden.
+
+**Warum erst gemessen und dann F11 — nicht einfach immer F11:** F11 ist ein **Umschalter**.
+Ein Emulator, bei dem der Fenstertrick schon gewirkt hat, fiele dadurch wieder heraus. Die
+Messung ist also nicht zusätzliche Vorsicht, sondern das, was die Korrektur ungefährlich
+macht. Und sie gilt für **jeden** Emulator, auch für die, die nie jemand ausprobiert hat —
+sie brauchen keine vorab ausgefüllte Zeile in einer Tabelle.
+
+*Every launch measures the painted share and only corrects when it falls short. Window
+geometry proves nothing here: it reported 1920x1080 in every case that turned out wrong.
+F11 is a toggle, so measuring first is what makes the correction safe — and it covers
+emulators nobody has ever exercised.*
+
 ## Was noch überrascht
 
 **Init-Skripte gehören nach `/custom-cont-init.d`.** Der ältere Pfad
