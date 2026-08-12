@@ -8599,3 +8599,126 @@ def test_fullscreen_is_measured_before_it_is_corrected():
     assert "VOLLBILD_SCHWELLE" in koerper, "es gibt keine Schwelle, ab der nichts passiert"
     assert re.search(r">= VOLLBILD_SCHWELLE:\s*\n\s*return", koerper), \
         "ueber der Schwelle wird nicht frueh zurueckgekehrt — F11 traefe auch den Gutfall"
+
+
+# --- #427: Updates und DLC sind keine Spiele ----------------------------------------
+
+def _nsp_datei(tmp_path, name, titel_id):
+    """Ein minimales, aber ECHTES PFS0-Archiv mit einem Ticket im Inhaltsverzeichnis.
+
+    Nicht einfach ein paar Bytes: Die Titel-ID wird aus dem NAMEN des Ticket-Eintrags
+    gelesen, also muss das Inhaltsverzeichnis stimmen. Eine Attrappe ohne gueltiges PFS0
+    pruefte nur den Fehlerpfad und behauptete, die Absage zu pruefen — genau die Falle,
+    in die die ersten CIA-Tests gelaufen sind.
+    """
+    import struct
+    eintraege = [f"{titel_id}0000000000000004.tik", "abcd.nca"]
+    tabelle = b""
+    versatz = []
+    for n in eintraege:
+        versatz.append(len(tabelle))
+        tabelle += n.encode() + b"\x00"
+    kopf = struct.pack("<4sIII", b"PFS0", len(eintraege), len(tabelle), 0)
+    for i, _n in enumerate(eintraege):
+        kopf += struct.pack("<QQII", 0, 16, versatz[i], 0)
+    p = tmp_path / name
+    p.write_bytes(kopf + tabelle + b"\x00" * 64)
+    return str(p)
+
+
+def test_a_switch_update_or_dlc_is_refused_before_a_seat_is_taken(appmod, tmp_path):
+    """Update und DLC starten nicht — und das steht VOR der Platzvergabe fest. (#427)
+
+    GEMESSEN AM BESTAND: 434 Dateien unter `switch/`, davon **110 Updates** (Titel-ID auf
+    `800`) und rund **40 DLC** (`001` aufwaerts). Jedes davon war ein Startknopf. Der Agent
+    nahm ein DLC anstandslos an:
+
+        POST /launch rel=switch/Arkanoid - Eternal Battle [DLC][010091D01597D002].nsp
+        {"ok": true, ...}
+
+    Ein Platz wird belegt, und der Nutzer wartet auf ein Bild, das nicht kommen kann —
+    dieselbe Lage wie vor #315 bei den 3DS-CIAs.
+
+    EN: 110 updates and ~40 DLC among 434 files, every one of them offered with a Play
+    button. The agent accepted a DLC without comment.
+    """
+    spiel = _nsp_datei(tmp_path, "Spiel.nsp", "0100633007d48000")
+    assert appmod.switch_startbar(spiel) == (True, "")
+
+    update = _nsp_datei(tmp_path, "Update.nsp", "0100633007d48800")
+    assert appmod.switch_startbar(update) == (False, "nsp_update")
+
+    dlc = _nsp_datei(tmp_path, "Zusatz.nsp", "010091d01597d002")
+    assert appmod.switch_startbar(dlc) == (False, "nsp_dlc")
+
+
+def test_the_switch_title_id_comes_from_the_file_not_the_name(appmod, tmp_path):
+    """Der Dateiname entscheidet NICHT. (#427)
+
+    WARUM DAS DIE EIGENTLICHE AUSSAGE IST: Der naheliegende Filter waere das Wort „DLC" im
+    Namen. Er haelt nicht — im Bestand steht es als `[DLC]`, als
+    `[space scout pack dlc]`, und `[Trowzer's Top Tonic Pack]` traegt gar keinen Hinweis
+    und ist trotzdem DLC (ID `010022F00DA67001`).
+
+    Deshalb wird die ID AUS DEM ARCHIV gelesen. Diese Pruefung dreht beides gegeneinander:
+    ein Spiel, das „DLC" heisst, muss durchgehen — ein DLC, das nach Spiel klingt, nicht.
+
+    EN: the obvious filter is the word "DLC" in the name, and it does not hold. The check
+    turns both cases against each other.
+    """
+    getarnt = _nsp_datei(tmp_path, "Irgendwas [DLC] Edition.nsp", "0100633007d48000")
+    assert appmod.switch_startbar(getarnt) == (True, ""), \
+        "ein Basisspiel wurde wegen seines NAMENS abgewiesen"
+
+    heimlich = _nsp_datei(tmp_path, "Trowzers Top Tonic Pack.nsp", "010022f00da67001")
+    assert appmod.switch_startbar(heimlich) == (False, "nsp_dlc"), \
+        "ein DLC ohne Hinweis im Namen kam durch"
+
+
+def test_an_unreadable_switch_file_still_passes(appmod, tmp_path):
+    """Im Zweifel durchlassen — auch hier. (#427/#299)
+
+    Eine XCI ist ein anderer Behaelter, ein Archiv ohne Ticket nicht beurteilbar. Am
+    Bestand: 25 XCI und 4 ohne Ticket unter 434. Beide Gruppen gehen durch, weil eine
+    falsche ABSAGE hier der teure Fehler ist.
+
+    Diese Pruefung ist der Waechter gegen den eigenen Fix: Sie faellt, sobald jemand aus
+    „nicht lesbar" eine Absage macht.
+
+    EN: this guards against the fix itself — an unreadable file must not become a refusal.
+    """
+    xci = tmp_path / "Spiel.xci"
+    xci.write_bytes(b"\x00" * 0x200 + b"HEAD" + b"\x00" * 0x100)
+    assert appmod.switch_startbar(str(xci)) == (True, "")
+
+    leer = tmp_path / "kaputt.nsp"
+    leer.write_bytes(b"PFS0" + b"\xff" * 32)
+    assert appmod.switch_startbar(str(leer)) == (True, "")
+
+    assert appmod.switch_startbar(str(tmp_path / "gibtsnicht.nsp")) == (True, "")
+
+
+def test_romseerr_and_the_agent_refuse_the_same_switch_packages(appmod, tmp_path):
+    """Beide Seiten sagen dasselbe ab. (#427)
+
+    Romseerr fragt vor der Platzvergabe, der Agent noch einmal beim Start. Laufen die
+    beiden auseinander, haengt die Zusage daran, welchen Weg jemand genommen hat — und ein
+    direkter Aufruf des Dienstes umgeht die Pruefung ganz.
+
+    EN: if the two drift, whether a launch is refused depends on which route was taken.
+    """
+    import importlib.util
+    pfad = os.path.join(REPO, "contrib", "streaming-host", "stream-agent.py")
+    os.environ["STREAM_AGENT_TOKEN"] = "testtoken"
+    os.environ["STREAM_ROMS"] = appmod.ROMS
+    spec = importlib.util.spec_from_file_location("stream_agent_427", pfad)
+    agent = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(agent)
+
+    for kennung, soll_ab in (("0100633007d48000", False), ("0100633007d48800", True),
+                             ("010091d01597d002", True)):
+        f = _nsp_datei(tmp_path, f"x{kennung}.nsp", kennung)
+        rs_ab = not appmod.switch_startbar(f)[0]
+        ag_ab = bool(agent._switch_art(f))
+        assert rs_ab == ag_ab == soll_ab, (
+            f"{kennung}: Romseerr weist ab={rs_ab}, Agent={ag_ab}, erwartet {soll_ab}")

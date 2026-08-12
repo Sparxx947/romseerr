@@ -384,5 +384,7 @@
  "drop_more": "… and {n} more",
  "drop_scan": "Scan now",
  "drop_running": "running …",
- "drop_done": "{a} filed, {o} left"
+ "drop_done": "{a} filed, {o} left",
+ "stream_nsp_update": "This is an update, not a game — it belongs to another title and does not boot even once installed.",
+ "stream_nsp_dlc": "This is add-on content (DLC), not a game in its own right."
 }

@@ -208,6 +208,14 @@ that is the normal case and complete as it stands, not a fallback.
   to the format, always — installation packages never boot directly, decrypted or not. When
   in doubt it passes: an image without a readable NCSD header cannot be judged, and a wrong
   refusal costs more than a failed attempt.
+  **Switch: updates and DLC are not games.** Of 434 files under `switch/`, **110 are
+  updates and 58 are add-on content** — 39 % were Play buttons that cannot boot. The last
+  three digits of the title ID decide (`000` game, `800` update, `001` upward DLC), and it
+  sits **inside the archive**: in the name of the `<rights-id>.tik` ticket in the PFS0
+  index, unencrypted and readable without keys. The filename does not do it — "DLC" appears
+  as `[DLC]`, as `[space scout pack dlc]`, and `[Trowzer's Top Tonic Pack]` carries no hint
+  at all while being one. An XCI or an archive without a ticket still passes: a wrong
+  refusal costs more than a failed attempt.
   **What a file is comes from its content, not its name.** This library holds a "Save Data
   Transfer Tool" named `.3ds` that **is** a `.cia`: header size `0x2020`, certificate chain,
   ticket, TMD, and no `NCSD` at `0x100`. Judged by extension it fell straight into the
