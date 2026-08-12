@@ -2914,6 +2914,13 @@ SPIELORDNER_MUSTER = [
     ("wiiu", {"code", "content", "meta"}),
     ("ps3",  {"ps3_game"}),
     ("ngc",  {"sys", "files"}),          # entpacktes GameCube-/Wii-Abbild
+    # PS Vita: der ausgepackte VPK-Aufbau. `eboot.bin` UND `sce_sys` — beides zusammen,
+    # denn `eboot.bin` allein hat jeder Vita-Titel, und ein einzelnes Bruchstueck duerfte
+    # die Plattform nicht fuer sich beanspruchen. `sce_module`/`PSP2` sind optional und
+    # stehen deshalb NICHT hier. Ohne diesen Eintrag nahm der Import nur die `eboot.bin`
+    # mit (`.bin` steht in ROM_EXT) und liess den Rest des Titels liegen — und weil jeder
+    # Vita-Titel so heisst, ueberschrieb der naechste Import den vorigen. (#455)
+    ("psvita", {"eboot.bin", "sce_sys"}),
 ]
 # Einzelne Dateien, die einen Ordner allein zum Spiel machen.
 SPIELORDNER_DATEI = {"default.xbe": "xbox", "ps3_disc.sfb": "ps3"}

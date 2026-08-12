@@ -7974,6 +7974,60 @@ def test_an_unpacked_wii_u_game_is_recognised_as_one_title(appmod, tmp_path):
     assert appmod.spielordner_slug(str(sammlung)) == ""
 
 
+def test_an_unpacked_ps_vita_title_is_recognised_as_one_title(appmod, tmp_path):
+    """`eboot.bin`+`sce_sys` macht einen Ordner zu einem Vita-Titel. (#455)
+
+    Der Aufbau ist an einem echten Import gemessen, nicht erfunden — das Release liefert
+    einen ORDNER, dessen Name auf `.vpk` endet. Der Name darf dabei nichts entscheiden:
+    andere Releases liefern denselben Aufbau unter dem blanken Titel.
+    """
+    spiel = tmp_path / "WipEout 2048 [PCSF00007] (v01.00) .vpk"
+    (spiel / "sce_sys").mkdir(parents=True)
+    (spiel / "sce_module").mkdir()
+    (spiel / "PSP2").mkdir()
+    (spiel / "eboot.bin").write_bytes(b"x" * 16)
+    (spiel / "sce_sys" / "param.sfo").write_bytes(b"x" * 8)
+    assert appmod.spielordner_slug(str(spiel)) == "psvita"
+
+    # Derselbe Aufbau ohne die optionalen Teile — muss weiterhin greifen.
+    schlank = tmp_path / "Gravity Rush"
+    (schlank / "sce_sys").mkdir(parents=True)
+    (schlank / "eboot.bin").write_bytes(b"x" * 16)
+    assert appmod.spielordner_slug(str(schlank)) == "psvita"
+
+
+def test_a_lone_eboot_does_not_claim_the_vita_platform(appmod, tmp_path):
+    """`eboot.bin` ALLEIN ist kein Titel. (#455)
+
+    Jeder Vita-Titel hat eine `eboot.bin`, und genau deshalb landete beim Fehlschlag eine
+    namenlose 10-MB-Datei in der Bibliothek. Wuerde die Datei allein schon die Plattform
+    beanspruchen, machte der Fix aus einem Bruchstueck einen anerkannten Titel — das waere
+    schlimmer als der Fehler.
+    """
+    bruchstueck = tmp_path / "irgendwas"
+    bruchstueck.mkdir()
+    (bruchstueck / "eboot.bin").write_bytes(b"x" * 16)
+    assert appmod.spielordner_slug(str(bruchstueck)) == ""
+
+    # Und umgekehrt: `sce_sys` allein (z.B. ein Metadaten-Rest) ebenfalls nicht.
+    rest = tmp_path / "rest"
+    (rest / "sce_sys").mkdir(parents=True)
+    assert appmod.spielordner_slug(str(rest)) == ""
+
+
+def test_every_game_folder_pattern_names_a_known_platform(appmod):
+    """Jeder Slug in `SPIELORDNER_MUSTER` muss eine Plattform sein. (#455)
+
+    Ein Tippfehler im Slug faellt sonst nirgends auf: Der Ordner wird erkannt, wandert
+    als Ganzes — und landet unter einer Plattform, die es nicht gibt.
+    """
+    bekannt = {s for _, paare in appmod.PLATFORMS for s, _ in paare}
+    for slug, _ in appmod.SPIELORDNER_MUSTER:
+        assert slug in bekannt, f"{slug!r} aus SPIELORDNER_MUSTER ist keine Plattform"
+    for _, slug in appmod.SPIELORDNER_DATEI.items():
+        assert slug in bekannt, f"{slug!r} aus SPIELORDNER_DATEI ist keine Plattform"
+
+
 def test_the_game_folder_moves_as_one_unit_and_its_files_are_not_scattered(appmod, tmp_path, monkeypatch):
     """Der Ordner wandert als Ganzes, seine Dateien NICHT einzeln. (#391)
 
