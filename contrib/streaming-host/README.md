@@ -441,7 +441,7 @@ Controller im Spiel gedrückt.
 | Dreamcast | Flycast | ✅ | ✅ | ✅ | Vollbild und **Vulkan** in der Startzeile, an den Pixeln gemessen (#304); Bild, Ton und Controller von einem Menschen in Fatal Fury bestätigt — Flycast belegt die Pads selbst, als einziger Emulator hier |
 | Xbox | xemu | ✅ | ✅ | ✅ | braucht **COMPLEX 4627 + MCPX 1.0** — Retail-BIOS bleiben schwarz |
 | Wii U | Cemu | — | — | — | Titel vorhanden seit #452/#455 — noch nicht gestartet |
-| PS Vita | Vita3K | — | — | — | Titel vorhanden seit #452/#455; Vollbild und Vulkan stehen in der Konfiguration (#304); der Start übergibt seit #481 die **Titelkennung** statt des Pfades; seit #488 stehen die beiden Startdialoge ab, und der Titel bootet gemessen bis ins Ladefenster — ein Mensch hat ihn noch nicht gesehen |
+| PS Vita | Vita3K | — | — | — | Titel vorhanden seit #452/#455; Vollbild und Vulkan stehen in der Konfiguration (#304); der Start übergibt seit #481 die **Titelkennung** statt des Pfades; seit #488 stehen die beiden Startdialoge ab, und der Titel bootet gemessen bis ins Ladefenster — ein Mensch hat ihn noch nicht gesehen; seit #489 beendet `/stop` ihn wirklich und `/status` findet sein Fenster |
 
 Ein `—` heißt **ungeprüft**, nicht „defekt". Für Dreamcast, Wii U und PS Vita liegen
 seit #452/#455 Titel bereit; sie sind ungeprüft, weil noch niemand sie gestartet hat —
@@ -864,6 +864,86 @@ by hand: Vita3K rewrites its `config.yml` at STARTUP, so an edit made while it r
 lost; and `warn-missing-firmware` deliberately stays `true` — it is the third dialog of the
 same class, harmless here because the firmware is complete (#485/#486), and switching it
 off pre-emptively would remove the warning exactly when it becomes justified.*
+
+### Der Start-Dienst verfolgt eine **Prozessgruppe**, nicht eine PID (#489)
+
+`linuxdeploy` erzeugt bei Vita3K als einzigem Emulator ein `AppRun.wrapped`, das ein
+**Shell-Skript** ist. Bei rpcs3, cemu und azahar ist dieselbe Datei ein **Symlink auf die
+Programmdatei** und wird `exec`-t — nachgemessen, alle vier:
+
+```
+$ file -bL <emu>/AppRun.wrapped
+vita3k   POSIX shell script          <- startet das Programm als KIND, ohne exec
+rpcs3    ELF 64-bit LSB pie executable  (Symlink -> usr/bin/rpcs3)
+cemu     ELF 64-bit LSB pie executable  (Symlink -> usr/bin/Cemu)
+azahar   ELF 64-bit LSB pie executable  (Symlink -> usr/bin/azahar)
+```
+
+Der Dienst merkte sich damit bei Vita3K die PID der **Shell**, nicht die des Emulators —
+am laufenden Host bei laufendem Spiel abgelesen:
+
+```
+  PID  PPID  PGID
+ 1414  1414  1414  python3 /opt/stream-agent.py          <- der Dienst
+11616  1414  1414  /bin/sh …/AppRun.wrapped -r PCSF00024 <- verfolgt
+11634 11616  1414  …/usr/bin/Vita3K -r PCSF00024         <- der Emulator
+```
+
+Das kostete **zwei** Zusagen:
+
+| gemessen | vorher | jetzt |
+|---|---|---|
+| `/stop` | `{"ok": true}`, Vita3K lief mit `PPid 1` weiter und hielt die GPU | der ganze Baum ist weg |
+| `/status` | `"window": "kein-fenster"` bei sichtbarem Spiel | das Fenster wird gefunden |
+
+Zum zweiten Punkt, dieselbe Sitzung, zwei PIDs:
+
+```
+xdotool search --onlyvisible --pid 11616   (Wrapper)  -> nichts
+xdotool search --onlyvisible --pid 11634   (Vita3K)   -> 46137351 [Vita3K v0.2.1 …]
+                                                         46137358 [GRAVITY RUSH™ (PCSF00024)]
+```
+
+Behoben wird beides **emulatorunabhängig**, nicht mit einem Sonderweg für Vita3K:
+
+- Jeder Start bekommt eine **eigene Sitzung** (`start_new_session`), `/stop` schickt
+  SIGTERM und nötigenfalls SIGKILL an die **Gruppe**. Damit trifft es auch den nächsten
+  Wrapper, den `linuxdeploy` erzeugt, ohne dass ihn jemand hier einträgt.
+- Die Fensterprüfung fragt zusätzlich bei den **Kindprozessen** nach (`/proc`, keine
+  weiteren Werkzeuge). Für die anderen Emulatoren ändert das nichts: deren `AppRun`
+  `exec`-t, die verfolgte PID *ist* das Programm.
+
+**Warum die eigene Sitzung nicht Beiwerk ist:** ohne sie steht der Emulator in der Gruppe
+des Dienstes — oben alle drei in `1414`. Ein `killpg` darauf hätte den **Dienst selbst**
+beendet. Der Code benutzt die Gruppe deshalb nur, wenn sie gleich der Kind-PID ist; sonst
+fällt er auf das Signal an den einen Prozess zurück.
+
+**Was bewusst offen bleibt:** das unquotierte `$@` im Wrapper zerlegt Argumente an
+Leerzeichen (`--installed-path: x` statt `x PCSF00024`). Für die heutige Startzeile ist
+das folgenlos — eine Titelkennung hat keine Leerzeichen. Behoben wäre es nur, indem man
+`usr/bin/Vita3K` **direkt** startet, und das kostet zwei Dinge: den Qt-Hook aus
+`apprun-hooks/` (setzt `QT_QPA_PLATFORMTHEME=gtk2`) und die Erkennung fehlender
+Plattformen, die im Startbefehl nach einem `…/AppRun` sucht. Wer die Startzeile je auf den
+**positionalen** Parameter umstellt (Pfad statt Kennung), muss vorher hier hinsehen.
+
+*EN: Vita3K is the only emulator whose `AppRun.wrapped` is a shell script — for rpcs3, cemu
+and azahar the same file is a symlink to the binary and gets `exec`'d. So the service was
+tracking the **shell's** PID, not the emulator's (measured on the running host: agent 1414,
+wrapper 11616, Vita3K 11634). That cost two promises: `/stop` answered `ok` while Vita3K
+kept running orphaned at `PPid 1` holding the GPU, and `/status` reported `kein-fenster`
+for a title that was visibly on screen — `xdotool --pid` on the wrapper found nothing while
+the same query on the real PID found both the Vita3K window and `GRAVITY RUSH™`. Both are
+fixed **without an emulator-specific path**: every launch gets its own session
+(`start_new_session`) and `/stop` signals the process **group**, so it also catches the next
+wrapper `linuxdeploy` produces; and the window check additionally asks the **child
+processes** (via `/proc`). Nothing changes for the other emulators, whose `AppRun` `exec`s.
+The new session is not decoration: without it the emulator sits in the agent's own group
+(all three in `1414` above) and a `killpg` would have killed the service — the code
+therefore only uses the group when it equals the child PID. Deliberately left alone: the
+wrapper's unquoted `$@` splits arguments at spaces. That is harmless for today's launch
+line (a title id has no spaces), and fixing it would mean launching `usr/bin/Vita3K`
+directly — which drops the Qt hook from `apprun-hooks/` and breaks the missing-platform
+check that looks for a `…/AppRun` in the launch command.*
 
 ## Zwei Plätze gleichzeitig (optional)
 
@@ -1378,6 +1458,48 @@ silent.
 never uses a shell, and resolves the path with `realpath`, rejecting anything
 outside the ROM library. Do not expose it to the open internet.
 
+### It tracks a process **group**, not a PID
+
+A launch does not always end at the process the service starts. `linuxdeploy` gives Vita3K
+— and only Vita3K — an `AppRun.wrapped` that is a **shell script** and runs the emulator as
+a **child** without `exec`; for rpcs3, cemu and azahar the same file is a symlink to the
+binary. Measured on the running host, with the game visibly up:
+
+```
+  PID  PPID  PGID
+ 1414  1414  1414  python3 /opt/stream-agent.py            <- the service
+11616  1414  1414  /bin/sh …/AppRun.wrapped -r PCSF00024   <- the PID it tracked
+11634 11616  1414  …/usr/bin/Vita3K -r PCSF00024           <- the emulator
+```
+
+Tracking the wrapper cost two promises: `/stop` answered `{"ok": true}` while Vita3K kept
+running orphaned at `PPid 1`, still holding the GPU — and `/status` reported
+`window: "kein-fenster"` for a title that was on screen, because `xdotool --pid` on the
+wrapper finds nothing while the same query on PID 11634 finds both the Vita3K window and
+`GRAVITY RUSH™ (PCSF00024)`.
+
+Both are fixed **without an emulator-specific path**:
+
+- every launch gets its **own session** (`start_new_session`), and `/stop` sends SIGTERM —
+  then SIGKILL if needed — to the process **group**. That also catches the next wrapper
+  `linuxdeploy` produces, with nobody having to list it here;
+- the window check additionally asks the **child processes**, read from `/proc`.
+
+Nothing changes for the other emulators: their `AppRun` `exec`s, so the tracked PID *is*
+the program and has no children.
+
+The new session is not decoration. Without it the emulator sits in the **agent's own**
+process group — all three lines above share `1414` — and a `killpg` there would take down
+the service itself. The code therefore only signals the group when it equals the child PID,
+and otherwise falls back to signalling the tracked process alone.
+
+Deliberately left alone: the wrapper's unquoted `$@` splits arguments at spaces
+(`--installed-path: x` instead of `x PCSF00024`). That is harmless for today's launch line,
+since a title id has no spaces. Fixing it would mean launching `usr/bin/Vita3K` directly,
+which drops the Qt hook in `apprun-hooks/` and breaks the missing-platform check that looks
+for a `…/AppRun` inside the launch command. Anyone switching the Vita launch line to the
+**positional** parameter (a path instead of an id) has to look here first.
+
 ### Rotating the token
 
 The token is the only thing between a request and a process starting on the host. It lives
@@ -1441,7 +1563,7 @@ pressed in-game.
 | Dreamcast | Flycast | ✅ | ✅ | ✅ | fullscreen and **Vulkan** set on the launch line, measured at the pixels (#304); picture, sound and controller all confirmed by a human in Fatal Fury — Flycast maps the pads by itself, the only emulator here that does |
 | Xbox | xemu | ✅ | ✅ | ✅ | needs **COMPLEX 4627 + MCPX 1.0** — retail BIOS stays black |
 | Wii U | Cemu | — | — | — | a title is in the library since #452/#455 — not launched yet |
-| PS Vita | Vita3K | — | — | — | a title is in the library since #452/#455; fullscreen and Vulkan are set in the config (#304); since #481 the launch passes the **title id** instead of the path; since #488 both startup dialogs are switched off and the title was measured booting into its loading window — no human has seen it yet |
+| PS Vita | Vita3K | — | — | — | a title is in the library since #452/#455; fullscreen and Vulkan are set in the config (#304); since #481 the launch passes the **title id** instead of the path; since #488 both startup dialogs are switched off and the title was measured booting into its loading window — no human has seen it yet; since #489 `/stop` really ends it and `/status` finds its window |
 
 A `—` means **untested**, not "broken". Dreamcast, Wii U and PS Vita have had content since
 #452/#455; they are untested because nobody has launched them yet, not because there is

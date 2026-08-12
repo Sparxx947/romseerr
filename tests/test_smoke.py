@@ -9041,17 +9041,27 @@ def test_a_killed_emulator_is_reaped():
     EN: this is a source check on purpose. Any `subprocess.Popen` in the same process reaps
     all finished children, so a behavioural test would be green with and without the fix.
     Measured standalone: without `p.wait()` the child stays `Z (zombie)`; with it, it is gone.
+
+    SEIT #489 IST DER HARTE ABBRUCH EIN `SIGKILL` AN DIE PROZESSGRUPPE, nicht mehr
+    `p.kill()` — weil `p` bei Vita3K die Shell des Wrappers ist und nicht der Emulator.
+    Geprueft wird deshalb weiter dasselbe: dass es einen harten Abbruch gibt und dass
+    danach geerntet wird. Nur die Schreibweise hat sich geaendert, nicht die Zusage.
+
+    EN: since #489 the hard abort is a SIGKILL to the process group; the promise checked
+    here — hard abort, then reap — is unchanged.
     """
     quelle = open(os.path.join(REPO, "contrib", "streaming-host", "stream-agent.py"),
                   encoding="utf-8").read()
     m = re.search(r"^def _stop_locked\(\):(.*?)(?=^def |\Z)", quelle, re.S | re.M)
     assert m, "_stop_locked ist nicht mehr auffindbar"
     koerper = m.group(1)
-    assert "p.kill()" in koerper, "der harte Abbruch fehlt"
-    nach_kill = koerper[koerper.index("p.kill()") + len("p.kill()"):]
+    hart = re.search(r"^\s*(p\.kill\(\)|_senden\(p, gruppe, signal\.SIGKILL\))\s*$",
+                     koerper, re.M)
+    assert hart, "der harte Abbruch fehlt"
+    nach_kill = koerper[hart.end():]
     assert re.search(r"^\s*p\.wait\(\)\s*$", nach_kill, re.M), (
-        "nach p.kill() wird nicht geerntet — das Kind bleibt als Zombie stehen, und `ps` "
-        "zeigt es wie einen laufenden Emulator")
+        "nach dem harten Abbruch wird nicht geerntet — das Kind bleibt als Zombie stehen, "
+        "und `ps` zeigt es wie einen laufenden Emulator")
 
 
 # --- #440: ein Update darf den Emulator nicht loeschen ------------------------------
@@ -9870,3 +9880,203 @@ def test_other_platforms_still_get_the_path(tmp_path):
     argumente = _argv(datei, m._current["proc"])
     m._stop_locked()
     assert argumente[0] == "--no-gui" and argumente[1].endswith("EBOOT.BIN"), argumente
+
+
+# ------------------------------- Der Wrapper zwischen Agent und Emulator (#489)
+
+def _wrapper_emulator(tmp_path, name="vita3k"):
+    """Baut Vita3Ks Verpackung NACH, ohne einen Emulator zu starten. -> (befehl, marke)
+
+    GEMESSEN am laufenden Host, bevor etwas geaendert wurde (#489). `AppRun.wrapped` ist
+    bei rpcs3, cemu und azahar ein SYMLINK auf die Programmdatei und wird `exec`-t; bei
+    vita3k ist es ein Shell-Skript, das das Programm als KIND startet — ohne `exec`:
+
+        #!/bin/sh
+        if [ "${APPIMAGE}" != "" ]; then
+            export PATH="$APPDIR/usr/bin:$PATH"
+            "${APPDIR}/usr/bin/Vita3K" $@
+
+    Der Agent merkt sich damit die PID der SHELL, nicht die des Emulators. Am Host:
+
+        11616  1414  /bin/sh /config/emulators/vita3k/AppRun.wrapped -r PCSF00024
+        11634 11616  /config/emulators/vita3k/usr/bin/Vita3K -r PCSF00024
+
+    Der Ersatz hier tut genau dasselbe und ueberlebt wie der echte Emulator ein SIGTERM
+    — auch das ist gemessen: `kill` auf den Vita3K-Prozess genuegte nicht, erst `kill -9`.
+    """
+    marke = tmp_path / f"{name}.lebt"
+    kind = tmp_path / f"{name}-emulator.sh"
+    kind.write_text(
+        "#!/bin/sh\n"
+        "trap '' TERM\n"                       # wie Vita3K: SIGTERM genuegt nicht
+        f'printf "%s" "$$" > "{marke}"\n'
+        "while :; do sleep 0.2; done\n")
+    kind.chmod(0o755)
+    wrapper = tmp_path / f"{name}-AppRun.wrapped"
+    wrapper.write_text(f'#!/bin/sh\n"{kind}" $@\n')   # KEIN exec — das ist der Fall
+    wrapper.chmod(0o755)
+    return str(wrapper), marke
+
+
+def _pid_lebt(pid):
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError):
+        return False
+    return True
+
+
+def test_the_emulator_is_launched_in_its_own_process_group(tmp_path):
+    """Jeder Start bekommt eine EIGENE Sitzung. (#489)
+
+    WARUM DAS DIE ERSTE PRUEFUNG IST — am laufenden Host gemessen, und das Issue sagt es
+    nicht: Agent und Emulator standen in DERSELBEN Prozessgruppe.
+
+        1414  1414  1414  python3 /opt/stream-agent.py
+        11616 1414  1414  /bin/sh …/AppRun.wrapped -r PCSF00024
+        11634 11616 1414  …/usr/bin/Vita3K -r PCSF00024
+
+    Ein `killpg` auf diese Gruppe haette den DIENST SELBST beendet. `start_new_session`
+    ist deshalb nicht Beiwerk der Behebung, sondern ihre Voraussetzung.
+
+    EN: measured on the host, agent and emulator shared process group 1414 — a killpg
+    would have taken down the service itself. The new session is what makes it safe.
+    """
+    (tmp_path / "ps2").mkdir()
+    (tmp_path / "ps2" / "spiel.iso").write_bytes(b"x")
+    befehl, _marke = _wrapper_emulator(tmp_path, "ps2")
+    m = _agent_module(tmp_path, EMU_PS2=f"{befehl} %s")
+    ok, msg = m.launch("", "ps2", "ps2/spiel.iso")
+    assert ok, msg
+    try:
+        pid = m._current["proc"].pid
+        assert os.getpgid(pid) == pid, (
+            "der Emulator steht in der Gruppe des Agenten — ein killpg darauf beendet "
+            f"den Dienst selbst (pgid {os.getpgid(pid)}, pid {pid})")
+    finally:
+        m._stop_locked()
+
+
+def test_stop_also_ends_the_emulator_the_wrapper_started(tmp_path):
+    """`/stop` beendet den ganzen Baum, nicht nur den verfolgten Prozess. (#489)
+
+    GEMESSEN am laufenden Host, vor der Aenderung — `/stop` meldete `{"ok": true}` und
+    `/status` sagte `running: false`, waehrend der Emulator weiterlief:
+
+        11634  1  Sl  01:15  /config/emulators/vita3k/usr/bin/Vita3K -r PCSF00024
+                ^ PPid 1: verwaist
+
+    Der Dienst haelt sich fuer einsitzig, und der naechste Start laeuft gegen einen
+    Emulator, der noch die GPU haelt. Aufgeraeumt werden musste jedes Mal von Hand.
+
+    Der Weg ueber die PROZESSGRUPPE statt ueber die Programmdatei ist Absicht: er ist
+    emulatorunabhaengig und trifft auch den naechsten Wrapper, den `linuxdeploy` erzeugt.
+
+    EN: /stop reported success while the emulator kept running, orphaned to PPid 1.
+    """
+    (tmp_path / "ps2").mkdir()
+    (tmp_path / "ps2" / "spiel.iso").write_bytes(b"x")
+    befehl, marke = _wrapper_emulator(tmp_path, "ps2")
+    m = _agent_module(tmp_path, EMU_PS2=f"{befehl} %s")
+    ok, msg = m.launch("", "ps2", "ps2/spiel.iso")
+    assert ok, msg
+    for _ in range(100):
+        if marke.exists():
+            break
+        time.sleep(0.1)
+    assert marke.exists(), "der Ersatz-Emulator ist gar nicht angelaufen"
+    enkel = int(marke.read_text())
+    assert _pid_lebt(enkel)
+    m._stop_locked()
+    assert not _pid_lebt(enkel), (
+        f"der Emulator (PID {enkel}) laeuft nach /stop weiter — genau der verwaiste "
+        "Vita3K-Prozess aus #489")
+
+
+def test_stop_refuses_to_signal_a_group_that_is_not_the_childs_own(tmp_path, monkeypatch):
+    """Die Gruppe wird nur benutzt, wenn sie dem Kind ALLEIN gehoert. (#489)
+
+    Der Schutz gegen genau den Fehler, den die Messung nahegelegt hat: eine Gruppe, in
+    der auch der Agent steht. Faellt `start_new_session` je aus — altes Python, ein
+    Prozess, der die Gruppe selbst wechselt —, darf daraus kein `killpg` auf den Dienst
+    werden. Dann wird nur der verfolgte Prozess beendet; das ist der Zustand VOR dieser
+    Aenderung und damit nicht schlechter als vorher.
+
+    ANDERS ALS DIE DREI DAVOR war diese Pruefung schon VOR der Aenderung gruen — es gab
+    noch gar kein `killpg`. Sie ist eine Gegenprobe, keine Behebung: sie haelt fest, dass
+    die neue Faehigkeit nicht auf eine fremde Gruppe losgeht.
+
+    EN: the group is only used when pgid == pid. Otherwise fall back to signalling the
+    tracked process alone — no worse than before, and never the agent's own group. Unlike
+    the three above, this one was already green: it is a guard, not a fix.
+    """
+    (tmp_path / "ps2").mkdir()
+    (tmp_path / "ps2" / "spiel.iso").write_bytes(b"x")
+    befehl, marke = _wrapper_emulator(tmp_path, "ps2")
+    m = _agent_module(tmp_path, EMU_PS2=f"{befehl} %s")
+    ok, msg = m.launch("", "ps2", "ps2/spiel.iso")
+    assert ok, msg
+    for _ in range(100):
+        if marke.exists():
+            break
+        time.sleep(0.1)
+    enkel = int(marke.read_text())
+    gesendet = []
+    monkeypatch.setattr(m.os, "getpgid", lambda _pid: 1)      # fremde Gruppe
+    monkeypatch.setattr(m.os, "killpg",
+                        lambda gid, sig: gesendet.append((gid, sig)))
+    try:
+        m._stop_locked()
+        assert not gesendet, f"an eine fremde Prozessgruppe gesendet: {gesendet}"
+    finally:
+        try:
+            os.kill(enkel, 9)
+        except ProcessLookupError:
+            pass
+
+
+def test_the_window_check_looks_at_the_children_too(tmp_path):
+    """Die Fensterpruefung sucht auch bei den Kindprozessen. (#489)
+
+    GEMESSEN am laufenden Host, bei laufendem Spiel — dieselbe Sitzung, zwei PIDs:
+
+        xdotool search --pid 11616   (Wrapper)   -> nichts
+        xdotool search --pid 11634   (Vita3K)    -> 46137351 [Vita3K v0.2.1 …]
+                                                   46137358 [GRAVITY RUSH™ (PCSF00024)]
+
+    `/status` meldete dazu `"window": "kein-fenster"` — eine FALSCHE Auskunft ueber
+    einen Titel, der sichtbar lief. Der Befund war nicht "nichts zu sehen", sondern
+    "an der falschen PID nachgesehen".
+    """
+    m = _profil_modul(tmp_path)
+    kind = tmp_path / "kind.sh"
+    kind.write_text("#!/bin/sh\nwhile :; do sleep 0.2; done\n")
+    kind.chmod(0o755)
+    eltern = subprocess.Popen(["/bin/sh", "-c", f'"{kind}" & wait'])
+    try:
+        for _ in range(100):
+            gefunden = m.nachkommen(eltern.pid)
+            if gefunden:
+                break
+            time.sleep(0.1)
+        assert gefunden, "der Kindprozess wurde nicht gefunden"
+        gefragt = []
+        m_x = m._x
+
+        def mitschrift(*args, **kw):
+            gefragt.append(args)
+            return m_x("true")            # nichts finden, nur aufschreiben
+        m.sichtbare_fenster.__globals__["_x"] = mitschrift
+        try:
+            m.sichtbare_fenster(eltern.pid)
+        finally:
+            m.sichtbare_fenster.__globals__["_x"] = m_x
+        gefragte_pids = {a[-1] for a in gefragt if a[0] == "xdotool"}
+        assert str(eltern.pid) in gefragte_pids, gefragt
+        for enkel in gefunden:
+            assert str(enkel) in gefragte_pids, (
+                f"das Kind {enkel} wurde nicht nach Fenstern gefragt — genau der Fall, "
+                f"der bei Vita3K `kein-fenster` gemeldet hat: {gefragt}")
+    finally:
+        eltern.kill()
+        eltern.wait()

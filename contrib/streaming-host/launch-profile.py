@@ -1239,8 +1239,67 @@ def fenstername(fid):
     return _x("xdotool", "getwindowname", fid).stdout.strip()
 
 
+def nachkommen(pid, grenze=32):
+    """PID und alle Nachkommen, Eltern zuerst. -> [pid, kind, enkel, …]
+
+    WOZU (#489): Vita3Ks `AppRun.wrapped` ist als einziges der Emulator-Verpackungen ein
+    Shell-Skript und startet das Programm als KIND, ohne `exec`. Der Agent verfolgt damit
+    die Shell, und die hat kein Fenster. Am laufenden Host gemessen, bei sichtbar
+    laufendem Spiel:
+
+        xdotool search --pid 11616   (Wrapper)   -> nichts
+        xdotool search --pid 11634   (Vita3K)    -> 46137351 [Vita3K v0.2.1 …]
+                                                    46137358 [GRAVITY RUSH™ (PCSF00024)]
+
+    `/status` meldete dazu `"window": "kein-fenster"`. Das war keine Beobachtung, sondern
+    eine Verwechslung — nachgesehen wurde an der falschen PID.
+
+    WARUM /proc UND NICHT `pgrep -P`: das hier laeuft ohne zusaetzliche Werkzeuge, und
+    ein Baum braucht ohnehin die ganze Tabelle. Threads stehen nicht in /proc auf oberster
+    Ebene, ein Emulator mit vielen Threads bleibt also EIN Eintrag.
+
+    `grenze` ist eine Reissleine, keine Fachaussage: Bei den gemessenen Emulatoren sind es
+    zwei Prozesse. Wer eines Tages ein Programm startet, das Dutzende Kinder aufmacht, soll
+    nicht in Dutzende `xdotool`-Aufrufe laufen — dann lieber unvollstaendig als langsam.
+
+    EN: the agent tracks the wrapper shell, which owns no window; the emulator does.
+    Reading /proc avoids depending on another tool, and `grenze` is a runaway guard.
+    """
+    kinder = {}
+    try:
+        eintraege = os.listdir("/proc")
+    except OSError:
+        return [pid]
+    for name in eintraege:
+        if not name.isdigit():
+            continue
+        try:
+            with open(f"/proc/{name}/stat", encoding="utf-8", errors="replace") as f:
+                daten = f.read()
+        except OSError:
+            continue            # in der Zwischenzeit beendet — kein Fehler
+        # Der Programmname steht in Klammern und darf SELBST Leerzeichen und Klammern
+        # enthalten. Deshalb hinter der LETZTEN `)` aufteilen, nicht am ersten Leerzeichen.
+        schluss = daten.rfind(")")
+        felder = daten[schluss + 2:].split() if schluss > 0 else []
+        if len(felder) < 2:
+            continue
+        try:
+            kinder.setdefault(int(felder[1]), []).append(int(name))
+        except ValueError:
+            continue
+    gefunden = [pid]
+    i = 0
+    while i < len(gefunden) and len(gefunden) < grenze:
+        for k in sorted(kinder.get(gefunden[i], [])):
+            if k not in gefunden:
+                gefunden.append(k)
+        i += 1
+    return gefunden[:grenze]
+
+
 def sichtbare_fenster(pid, mit_dialogen=False):
-    """Sichtbare Fenster des Prozesses, groesstes zuerst.
+    """Sichtbare Fenster des Prozesses UND seiner Nachkommen, groesstes zuerst.
 
     `--onlyvisible` ist wichtig: Emulatoren legen unsichtbare Hilfsfenster an, und ohne
     den Filter erwischt man eines davon. Beim ersten Anlauf hier genau passiert — das
@@ -1251,10 +1310,21 @@ def sichtbare_fenster(pid, mit_dialogen=False):
 
     Dialoge bleiben standardmaessig draussen (siehe `ist_dialog`) — ein aufs Vollbild
     gezogener Fehlerdialog ist schlimmer als gar keine Behandlung.
+
+    GEFRAGT WIRD AUCH BEI DEN KINDPROZESSEN (#489, siehe `nachkommen`): `xdotool --pid`
+    trifft nur die genannte PID, und bei Vita3K ist das die Shell des Wrappers, nicht der
+    Emulator. Fuer die uebrigen Emulatoren aendert sich damit nichts — deren `AppRun`
+    `exec`-t, die verfolgte PID IST das Programm und hat keine Kinder.
     """
-    r = _x("xdotool", "search", "--onlyvisible", "--pid", str(pid))
+    kandidaten = nachkommen(pid)
+    ids = []
+    for kandidat in kandidaten:
+        r = _x("xdotool", "search", "--onlyvisible", "--pid", str(kandidat))
+        for z in r.stdout.split():
+            if z.strip() and z not in ids:
+                ids.append(z)
     mit_flaeche = []
-    for i in [z for z in r.stdout.split() if z.strip()]:
+    for i in ids:
         g = _x("xdotool", "getwindowgeometry", "--shell", i).stdout
         masse = dict(z.split("=", 1) for z in g.strip().splitlines() if "=" in z)
         try:
