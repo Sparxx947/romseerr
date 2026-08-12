@@ -415,3 +415,65 @@ def test_such_a_file_survives_the_whole_way_back(org, tmp_path, capsys):
     capsys.readouterr()
     assert quelle.exists() and not ziel.exists(), \
         "der Rueckweg findet den Namen nicht wieder"
+
+
+# --- #399: Beiwerk gehoert nicht auf Ebene 1 -----------------------------------------
+
+def test_ancillary_files_are_collected_off_the_game_level(org, tmp_path):
+    """Beiwerk wandert von Ebene 1 in einen eigenen Ordner. (#399)
+
+    WARUM DAS ZAEHLT: Ebene 1 ist die SPIELEBENE — RomM zaehlt dort jeden Eintrag als
+    genau ein Spiel. Unter `c64` standen 10.018 `.nfo`, 1.871 `.svg` und weiteres Beiwerk
+    als „Spiele": 10.726 von 57.615 Eintraegen, fast jeder fuenfte.
+
+    Jens' Entscheidung war Weg 2 — sammeln statt loeschen oder liegen lassen. Nichts geht
+    verloren, und Ebene 1 traegt einen Ordner statt zehntausend Dateien.
+    """
+    basis = tmp_path / "c64"
+    basis.mkdir()
+    for n in ("Turrican.d64", "Katakis.d64", "Uridium.d64"):
+        (basis / n).write_bytes(os.urandom(64))
+    for n in ("VERSION.NFO", "readme.txt", "cover.jpg", "liste.html"):
+        (basis / n).write_bytes(os.urandom(32))
+
+    class StummesProtokoll:
+        def schreiben(self, *a, **k): pass
+    org.umbauen(str(tmp_path), "c64", False, StummesProtokoll())
+
+    oben = sorted(p.name for p in basis.iterdir())
+    assert "_beiwerk" in oben, "kein Sammelordner angelegt"
+    assert sorted(x for x in oben if x != "_beiwerk") == \
+        ["Katakis.d64", "Turrican.d64", "Uridium.d64"], f"Ebene 1 stimmt nicht: {oben}"
+    gesammelt = sorted(p.name for p in (basis / "_beiwerk").iterdir())
+    assert gesammelt == ["VERSION.NFO", "cover.jpg", "liste.html", "readme.txt"], gesammelt
+
+
+def test_the_ancillary_folder_is_visible_not_hidden(org):
+    """Der Sammelordner beginnt mit `_`, NICHT mit einem Punkt. (#399)
+
+    Ein versteckter Ordner waere fuer Romseerr unsichtbar (#321) — aber RomM zaehlt ihn
+    trotzdem, weil RomM Ebene 1 liest und keine Punktregel kennt. Dann stuende dort wieder
+    ein „Spiel", nur ein anderes. Sichtbar ist hier richtig: Es ist kein
+    Werkzeugverzeichnis, sondern Inhalt.
+    """
+    assert not org.BEIWERK_ORDNER.startswith("."), \
+        "ein versteckter Ordner waere fuer RomM trotzdem ein Eintrag"
+    assert org.BEIWERK_ORDNER.startswith("_")
+
+
+def test_arcade_platforms_keep_their_layout(org, tmp_path):
+    """Bei Arcade wird NICHTS eingesammelt. (#399)
+
+    Dort ist das Archiv das Spiel, und MAME-Romsets erwarten ihre Begleitdateien an Ort
+    und Stelle. Dieselbe Ausnahme, die schon fuer das Entpacken gilt.
+    """
+    basis = tmp_path / "arcade"
+    basis.mkdir()
+    (basis / "info.txt").write_bytes(os.urandom(16))
+    (basis / "spiel.zip").write_bytes(os.urandom(16))
+
+    class StummesProtokoll:
+        def schreiben(self, *a, **k): pass
+    org.umbauen(str(tmp_path), "arcade", False, StummesProtokoll())
+    assert not (basis / "_beiwerk").exists(), "bei Arcade darf nicht eingesammelt werden"
+    assert (basis / "info.txt").exists()
