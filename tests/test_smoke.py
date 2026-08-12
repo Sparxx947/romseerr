@@ -9170,3 +9170,37 @@ def test_a_security_policy_exists_and_says_where_to_report():
     # Zweisprachig wie jede Doku hier.
     assert "English below" in text or "## What this project is" in text, \
         "die englische Haelfte fehlt"
+
+
+def test_the_release_documentation_names_the_step_that_is_easy_to_forget():
+    """Der Handgriff, ohne den kein Release durchgeht, steht geschrieben. (#435)
+
+    GitHub loest fuer Ereignisse aus dem voreingestellten `GITHUB_TOKEN` KEINE Workflows
+    aus — das verhindert, dass ein Workflow sich selbst endlos anstoesst. Es trifft damit
+    ausgerechnet den einen PR, der ein oeffentliches Artefakt erzeugt: Der Release-PR
+    bekommt gar keine Pruefungen, waehrend `dev-ci-gate` acht davon verlangt.
+
+        $ gh pr checks 188
+        no checks reported on the 'release-please--branches--dev' branch
+
+    Schliessen und Wiederoeffnen aus einem Benutzerkonto loest die Ausloeser erneut aus.
+    Das ist ein Ritual, und Rituale leben in jemandes Kopf, bis sie aufgeschrieben sind —
+    beim naechsten Release, den jemand anders schneidet, waere die naheliegende Abhilfe
+    `--admin`, also ein Release, der gruen aussieht und nie geprueft wurde.
+
+    Diese Pruefung haelt die Anleitung an der Stelle, an der sie gebraucht wird.
+
+    EN: GitHub fires no workflows for GITHUB_TOKEN-caused events, so the one PR producing a
+    public artefact gets no checks at all. Close and reopen re-fires them; the obvious
+    alternative, --admin, ships a release that was never checked.
+    """
+    text = open(os.path.join(REPO, ".github", "CONTRIBUTING.md"), encoding="utf-8").read()
+    i = text.find("### Wie ein Release entsteht")
+    assert i >= 0, "der Abschnitt ueber den Release fehlt"
+    abschnitt = text[i:text.find("\n### ", i + 10)]
+
+    assert "GITHUB_TOKEN" in abschnitt, "der Grund fehlt — ohne ihn wirkt der Schritt willkuerlich"
+    assert "schließen" in abschnitt.lower() or "schliessen" in abschnitt.lower(), \
+        "der Handgriff selbst fehlt"
+    assert "--admin" in abschnitt, \
+        "der naheliegende falsche Ausweg wird nicht benannt — genau der wird sonst genommen"
