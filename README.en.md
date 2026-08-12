@@ -240,6 +240,10 @@ that is the normal case and complete as it stands, not a fallback.
   password is never involved. With keys present the padlock on restricted hits disappears,
   because they are downloadable. **Without** keys a restricted title is refused immediately
   with a reason rather than queued.
+- 🔗 **From a request to its card.** Clicking a request's title opens the game's detail
+  view. The title used to be plain text — only the buttons on the right reacted. When the
+  search finds nothing the row says so rather than opening an empty window: the likeliest
+  click is on a **failed** request, and that is exactly the one that may not be findable.
 - 🔒 **Restricted Archive.org items say so beforehand.** Some items sit in the `loggedin`
   collection and need an account; without one the download answers **HTTP 401**. Such hits
   stay visible — they exist — but carry a padlock. Previously this only surfaced after the

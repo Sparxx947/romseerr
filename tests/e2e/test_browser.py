@@ -228,3 +228,29 @@ def test_a_non_german_language_is_fetched_and_applied(seite, eingerichtet):
     assert "Discover" in sichtbar, f"die Seite zeigt noch: {sichtbar!r}"
 
     seite.evaluate("localStorage.setItem('lang','de')")
+
+
+def test_eine_anfrage_fuehrt_zur_karte_des_spiels(seite, anfrage_vorhanden):
+    """Ein Klick auf den Titel einer Anfrage öffnet die Detailansicht. (#390)
+
+    WARUM IM BROWSER: Die Prüfungen daneben lesen den Quelltext — sie sehen, dass eine
+    Klickbindung dasteht, nicht, dass sie greift. Genau diese Lücke hat hier schon einmal
+    gekostet: Eine Seitenleiste war mit der Maus bedienbar und mit der Tastatur nicht, und
+    kein Test bemerkte es.
+    """
+    seite.goto(seite.url.split("#")[0] + "#/requests")
+    seite.wait_for_timeout(600)
+    titel = seite.locator(".jobt")
+    assert titel.count() > 0, ("keine Anfragezeile sichtbar — die Fixture hat nichts "
+                               "angelegt, der Test waere sonst inhaltsleer")
+    assert titel.first.is_visible()
+    # Der Zeiger sagt dem Nutzer, dass hier etwas passiert.
+    assert titel.first.evaluate("e=>getComputedStyle(e).cursor") == "pointer"
+    titel.first.click()
+    seite.wait_for_timeout(1500)
+    # Entweder öffnet sich die Karte — oder es steht dort, dass es keine gibt.
+    modal = seite.locator("#modal")
+    meldung = seite.locator(".jobmsg")
+    offen = modal.is_visible() if modal.count() else False
+    gesagt = (meldung.first.inner_text().strip() != "") if meldung.count() else False
+    assert offen or gesagt, "der Klick tat nichts — weder Karte noch Meldung"

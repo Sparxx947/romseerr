@@ -248,6 +248,11 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   verschwindet das Schloss an gesperrten Treffern — sie sind dann ja ladbar. **Ohne**
   Schlüssel wird ein gesperrter Titel gar nicht erst eingereiht, sondern sofort mit Grund
   abgelehnt.
+- 🔗 **Von der Anfrage zur Karte.** Ein Klick auf den Titel einer Anfrage öffnet die
+  Detailseite des Spiels. Vorher war der Titel reiner Text — nur die Knöpfe rechts
+  reagierten, und wer wissen wollte, worum es geht, musste ihn abtippen. Findet die Suche
+  nichts, sagt die Zeile das kurz, statt ein leeres Fenster zu öffnen: Der wahrscheinlichste
+  Klick ist der auf eine **fehlgeschlagene** Anfrage, und genau die kann unauffindbar sein.
 - 🔒 **Gesperrte Archive.org-Titel sagen es vorher.** Manche Einträge liegen in der
   Sammlung `loggedin` und brauchen ein Konto; ohne eines antwortet der Download mit
   **HTTP 401**. Solche Treffer bleiben sichtbar — es gibt sie ja —, tragen aber ein

@@ -371,5 +371,7 @@
  "stream_cia_broken": "Diese CIA lässt sich nicht lesen — der Titelkopf fehlt oder ist beschädigt.",
  "plat_unknown": "Plattform unbekannt",
  "needs_ia_login": "Konto nötig",
- "ia_hint": "Manche Archive.org-Titel liegen in der Sammlung `loggedin` und brauchen ein Konto — ohne eines antwortet der Download mit HTTP 401. Hier gehört KEIN Passwort hin, sondern das Schlüsselpaar von archive.org/account/s3.php: einzeln widerrufbar, ohne Sitzung, die still abläuft."
+ "ia_hint": "Manche Archive.org-Titel liegen in der Sammlung `loggedin` und brauchen ein Konto — ohne eines antwortet der Download mit HTTP 401. Hier gehört KEIN Passwort hin, sondern das Schlüsselpaar von archive.org/account/s3.php: einzeln widerrufbar, ohne Sitzung, die still abläuft.",
+ "job_open_card": "Zur Karte des Spiels",
+ "job_no_card": "Zu diesem Titel gibt es keine Karte."
 }

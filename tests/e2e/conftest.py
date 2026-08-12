@@ -106,3 +106,22 @@ def konsolenfehler(page):
             lambda m: fehler.append(f"{m.type}: {m.text}") if m.type == "error" else None)
     page.on("pageerror", lambda e: fehler.append(f"pageerror: {e}"))
     return fehler
+
+
+@pytest.fixture
+def anfrage_vorhanden(servermod, seite):
+    """Legt eine Anfrage an, damit die Anfragenliste eine Zeile hat.
+
+    WARUM: Ohne sie übersprang der Test für #390 sich selbst — auf der leeren Testinstanz
+    gibt es keine Anfrage, also nichts zu klicken. Ein übersprungener Test ist ein Test,
+    der nichts sagt, und genau dieselbe Falle hat schon `bibliothek_gefuellt` nötig
+    gemacht: Der Tastaturtest der Bibliothek bestand inhaltsleer.
+
+    Ohne Fixture bewiese der Klicktest nur, dass die Seite sich öffnen lässt.
+    """
+    job = servermod.new_job({"title": "Super Mario World", "source": "archive",
+                             "ref": "probe", "platform_slug": "snes", "size": 1},
+                            user="admin", approved=False)
+    seite.reload()
+    seite.wait_for_timeout(400)
+    return job
