@@ -351,6 +351,53 @@ Eine `.m3u` mit Netzadressen (Radio-Streams) gilt **nicht** als defektes Abbild.
 - **Keine Archive anfassen, wo Archive die richtige Form sind**: Arcade, MAME, Neo Geo
   und CPS erwarten die `.zip` als Spiel. Diese Plattformen stehen in `ARCHIV_BLEIBT`.
 
+### Das Protokoll ist der Rückweg — auch bei gelöschten Dateien
+
+Am 2026-08-12 waren 256 Disc-Abbilder kaputt, darunter **alle 138 Dreamcast-Titel**.
+Wiederhergestellt wurden davon 230 — **ohne einen Byte zu laden**. Das ging nur, weil das
+Protokoll mehr festhält, als man beim Lesen des Quelltextes vermutet.
+
+#### Verschieben: Quelle und **echtes** Ziel
+
+```json
+{"art":"verschoben",
+ "von":"/roms/dc/Bomber Hehhe! (JP)/track01.bin",
+ "nach":"/roms/dc/track01 (2).bin"}
+```
+
+Das Ziel steht **mit Kollisionssuffix** darin. Ein Flachlegen ist damit Datei für Datei
+umkehrbar, auch wenn hundert Spiele dieselben Spurnamen tragen.
+
+#### Löschen: die Datei, mit der sie identisch war
+
+```json
+{"art":"dublette_entfernt",
+ "pfad":"/roms/dc/track03 (67).bin",
+ "gleich_wie":"/roms/dc/track03 (7).bin",
+ "sha256":"09b26522…"}
+```
+
+**Gelöscht wird nur bei Bitgleichheit.** Eine gelöschte Datei ist deshalb nicht verloren,
+solange ihr Zwilling existiert — sie lässt sich **kopieren**, und die Kopie ist
+konstruktionsbedingt exakt. In allen 555 Fällen war die Vorlage noch da.
+
+#### Zwei Bedingungen, ohne die es schiefgeht
+
+**Nur Satzmitglieder zurückholen.** 161.406 der gelöschten Dateien sind *echte* Dubletten
+(`Krull (CCE) (2).a26` neben `Krull (CCE).a26`) und müssen gelöscht bleiben. Die Zahl der
+„rettbaren" fiel von 1078 auf 180, als diese Bedingung richtig angewandt wurde: Dateien wie
+`Alien Breed 3D (Track 1) (2).bin` sind Zweitkopien, die keine `.cue` nennt. Maßgeblich ist
+allein, **ob eine Abbildliste im Zielordner den Namen nennt**.
+
+**Die Prüfsumme nachrechnen, nicht der Protokollzeile glauben** — zweimal: vor dem Kopieren
+(ist die Vorlage noch die Datei, die das Protokoll beschreibt?) und danach (ist die Kopie
+heil angekommen?).
+
+#### Wann es *nicht* geht
+
+Ist der Zwilling ebenfalls weg, ist die Datei weg. Das Protokoll kann nur zeigen, wo etwas
+war und womit es identisch war — es speichert keine Daten.
+
 ### Vor dem Lauf
 
 - **Er dauert.** An einer 5-TB-Bibliothek über 19 Stunden. Der Durchsatz hängt an der
@@ -653,6 +700,52 @@ An `.m3u` holding stream URLs is **not** counted as a broken image.
 - **Delete nothing except proven duplicates** — same checksum, same content.
 - **Leave archives alone where an archive is the correct shape**: arcade, MAME, Neo Geo and
   CPS expect the `.zip` to be the game. Those platforms are listed in `ARCHIV_BLEIBT`.
+
+### The log is the way back — including for deleted files
+
+On 2026-08-12, 256 disc images were broken, among them **all 138 Dreamcast titles**. 230 of
+them were restored **without downloading a byte**. That was only possible because the log
+records more than reading the logging code suggests.
+
+#### Moves: source and **real** destination
+
+```json
+{"art":"verschoben",
+ "von":"/roms/dc/Bomber Hehhe! (JP)/track01.bin",
+ "nach":"/roms/dc/track01 (2).bin"}
+```
+
+The destination carries the **collision suffix**. A flattening is therefore reversible file
+by file, even when a hundred games use the same track names.
+
+#### Deletions: the file it was identical to
+
+```json
+{"art":"dublette_entfernt",
+ "pfad":"/roms/dc/track03 (67).bin",
+ "gleich_wie":"/roms/dc/track03 (7).bin",
+ "sha256":"09b26522…"}
+```
+
+**A file is only ever deleted when it is bit-identical to another.** A deleted file is
+therefore not lost while its twin exists — it can be **copied back**, and the copy is exact
+by construction. In all 555 cases the source was still there.
+
+#### Two conditions, without which this goes wrong
+
+**Restore set members only.** 161,406 of the deleted files are *genuine* duplicates
+(`Krull (CCE) (2).a26` next to `Krull (CCE).a26`) and must stay deleted. The restorable
+count dropped from 1078 to 180 once this was applied properly: files like
+`Alien Breed 3D (Track 1) (2).bin` are second copies that no `.cue` names. The only test
+that counts is **whether an image list in the target folder names the file**.
+
+**Verify the checksum rather than trusting the log line** — twice: before copying (is the
+source still the file the log describes?) and after (did the copy land intact?).
+
+#### When it does *not* work
+
+If the twin is gone too, the file is gone. The log can only show where something went and
+what it was identical to; it stores no data.
 
 ### Before running
 
