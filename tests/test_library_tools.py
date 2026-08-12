@@ -541,3 +541,51 @@ def test_collection_is_refused_when_it_would_take_most_of_the_platform(org, tmp_
     assert not (basis / "_beiwerk").exists(), \
         "bei ueberwiegendem Beiwerk darf nicht eingesammelt werden"
     assert len(list(basis.iterdir())) == 9, "es darf nichts verschoben worden sein"
+
+
+# --- #366: Zusammenhang statt Endung --------------------------------------------------
+
+def test_publisher_year_and_size_together_identify_intellivision(mix):
+    """Die KOMBINATION traegt die Plattform, nicht die Endung. (#366)
+
+    `.bin` bleibt unzugeordnet — die Endung liegt auf einem Dutzend Systemen, und eine
+    falsche Zuordnung kostet mehr als eine ausgelassene. Genau deshalb ordnete der
+    Sortierer unter `Mixed` von 707 Dateien GENAU EINE zu.
+
+    Die 198 `.bin` dort sind aber nicht mehrdeutig: Sie tragen Herausgeber und Jahr im
+    Namen und haben Kassettengroesse.
+    """
+    assert mix.plattform_fuer("Shark! Shark! (1982)(Mattel).bin", 16384) == "intellivision"
+    assert mix.plattform_fuer("Popeye (1983)(Parker Bros).bin", 16384) == "intellivision"
+    assert mix.plattform_fuer("River Raid (1982-83)(Activision).bin", 16384) == "intellivision"
+
+
+def test_the_extension_alone_still_decides_nothing(mix):
+    """Ohne den Zusammenhang bleibt `.bin` liegen. (#366)
+
+    Das ist der Grundsatz, der NICHT aufgeweicht wird: Eine `.bin` ohne Herausgeber, ohne
+    Jahr oder mit Festplattengroesse ist genauso mehrdeutig wie zuvor.
+    """
+    assert mix.plattform_fuer("font.bin", 15288) is None
+    assert mix.plattform_fuer("BL.bin", 10478) is None
+    assert mix.plattform_fuer("Shark! Shark! (1982)(Mattel).bin", 700 * 1024 * 1024) is None
+    assert mix.plattform_fuer("Irgendwas (1982)(Mattel).bin") is None   # ohne Groesse
+
+
+def test_aquarius_is_not_filed_as_intellivision(mix):
+    """Aquarius-Titel bleiben liegen. (#366)
+
+    Der Bestand kommt aus einem Satz „Mattel Intellivision & Aquarius" — beide Systeme sind
+    von Mattel, beide nutzen `.bin`, und ein Aquarius-Titel unter `intellivision` faellt
+    niemandem auf. Am Namen erkennbar ist genau einer; das ist die Grenze dieser Regel und
+    steht so im PR.
+    """
+    # DIESER FALL PRUEFT DEN AUSSCHLUSS WIRKLICH: Herausgeber `(Mattel)` steht in der
+    # Liste, Jahr und Groesse passen — ohne den Ausschluss waere die Datei „intellivision".
+    #
+    # Die erste Fassung dieses Tests nahm `Aquarius BASIC ROM (1982)(Microsoft).bin`. Der
+    # faellt schon durch die Herausgeberliste, denn Microsoft steht nicht darin. Der Test
+    # bestand also aus dem falschen Grund, und die Gegenprobe zeigte es: Den Ausschluss zu
+    # entfernen brach nichts.
+    assert mix.plattform_fuer("Aquarius Cart (1983)(Mattel).bin", 8192) is None
+    assert mix.plattform_fuer("Aquarius BASIC ROM (1982)(Microsoft).bin", 8192) is None

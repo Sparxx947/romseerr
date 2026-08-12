@@ -132,6 +132,22 @@ retronas-mixed-sortieren --trocken /roms
 retronas-mixed-sortieren /roms
 ```
 
+**Der Zusammenhang kann zuordnen, wo die Endung es nicht kann.** Unter `Mixed` lagen 198
+`.bin` — und der Sortierer ordnete von 707 Dateien genau **eine** zu, weil `.bin` auf einem
+Dutzend Systemen vorkommt. Die Dateien tragen ihre Herkunft aber im Namen:
+
+    Shark! Shark! (1982)(Mattel).bin                       16.384
+    Mountain Madness - Super Pro Skiing (1987)(Intv Corp)  16.384
+
+**Herausgeber + Jahr + Größe** zusammen sind eine Signatur. Die Endung bleibt unzugeordnet;
+was trägt, ist die Kombination — der Grundsatz bleibt damit unangetastet. Gemessen: **170**
+statt einer Datei.
+
+*Bekannte Grenze:* Der Bestand stammt aus einem Satz „Mattel Intellivision & Aquarius".
+Beide Systeme sind von Mattel und nutzen `.bin`. Am Namen erkennbare Aquarius-Titel werden
+ausgeschlossen; weiter trägt die Regel nicht. Jeder Schritt steht im Protokoll und lässt
+sich mit `--zurueck` zurücknehmen.
+
 Der Sortierer ordnet **nur eindeutige Endungen** zu. `.bin`, `.iso`, `.rom` und `.img`
 bleiben bewusst liegen: Sie kommen auf einem Dutzend Plattformen vor, und eine falsche
 Zuordnung ist teurer als eine ausgelassene — der Titel läge danach unter der falschen
@@ -281,6 +297,16 @@ The `Mixed` folder — a holding area with no platform — is resolved separatel
 retronas-mixed-sortieren --trocken /roms
 retronas-mixed-sortieren /roms
 ```
+
+**Context can place what an extension cannot.** `Mixed` held 198 `.bin` files and the
+sorter placed exactly **one** of 707, because `.bin` occurs on a dozen systems. But the
+files carry their origin in the name — **publisher + year + size** together are a
+signature. The extension stays unmapped; the combination is what carries the platform, so
+the principle is untouched. Measured: **170** files instead of one.
+
+*Known limit:* the set is "Mattel Intellivision & Aquarius" — both are Mattel and both use
+`.bin`. Aquarius titles recognisable by name are excluded; the rule reaches no further.
+Every step is logged and reversible with `--zurueck`.
 
 It only maps **unambiguous extensions**. `.bin`, `.iso`, `.rom` and `.img` are deliberately
 left alone: they occur on a dozen platforms, and a wrong mapping costs more than a skipped
