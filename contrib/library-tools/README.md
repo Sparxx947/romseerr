@@ -137,6 +137,23 @@ bleiben bewusst liegen: Sie kommen auf einem Dutzend Plattformen vor, und eine f
 Zuordnung ist teurer als eine ausgelassene — der Titel läge danach unter der falschen
 Konsole und fiele niemandem auf, während eine liegengebliebene Datei sichtbar bleibt.
 
+### Beiwerk landet in `_beiwerk/`
+
+Ebene 1 ist die **Spielebene** — RomM zählt dort jeden Eintrag als genau ein Spiel. Bilder,
+Textdateien und `.nfo` standen deshalb als „Spiele" darin: unter `c64` waren es **10.726
+von 57.615 Einträgen**, fast jeder fünfte, davon allein 10.018 `.nfo`.
+
+Sie werden jetzt in einen Unterordner `_beiwerk/` je Plattform eingesammelt. Nichts wird
+gelöscht: Wer die Textdatei zu einem Spiel sucht, findet sie weiterhin — sie zählt nur
+nicht mehr als Titel.
+
+Der Name beginnt mit einem **Unterstrich, nicht mit einem Punkt**. Ein versteckter Ordner
+wäre für Romseerr unsichtbar, aber RomM zählt ihn trotzdem — dann stünde dort wieder ein
+„Spiel", nur ein anderes.
+
+**Arcade ist ausgenommen.** Dort ist das Archiv das Spiel, und MAME-Romsets erwarten ihre
+Begleitdateien an Ort und Stelle.
+
 ### Was die Werkzeuge nicht tun
 
 - **Keine Plattformordner umbenennen.** Die Namen stammen von RetroNAS.
@@ -269,6 +286,21 @@ It only maps **unambiguous extensions**. `.bin`, `.iso`, `.rom` and `.img` are d
 left alone: they occur on a dozen platforms, and a wrong mapping costs more than a skipped
 one — the title would sit under the wrong console unnoticed, while a skipped file stays
 visible.
+
+### Ancillary files go to `_beiwerk/`
+
+Level 1 is the **game level** — RomM counts every entry there as exactly one game, so
+images, text files and `.nfo` were being counted as games: under `c64` that was **10,726 of
+57,615 entries**, nearly one in five, 10,018 of them `.nfo` alone.
+
+They are now collected into a `_beiwerk/` subfolder per platform. Nothing is deleted — the
+text file belonging to a game is still there, it simply no longer counts as a title.
+
+The name starts with an **underscore, not a dot**: a hidden folder would be invisible to
+Romseerr, but RomM would still count it, putting a "game" back on level 1.
+
+**Arcade is exempt**: there the archive is the game, and MAME romsets expect their
+companion files in place.
 
 ### What the tools do not do
 

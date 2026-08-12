@@ -83,6 +83,9 @@ BEIWERK = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".txt", ".nfo", ".pdf",
 # Ein Spiel mit mehr als 12 Disketten ist selten; eine Sammlung hat Hunderte.
 SPIEL_MAX_DATEIEN = 12
 
+# Wohin Beiwerk von Ebene 1 wandert. Unterstrich, nicht Punkt — siehe Schritt 3c. (#399)
+BEIWERK_ORDNER = "_beiwerk"
+
 
 def ist_beiwerk(name):
     return os.path.splitext(name)[1].lower() in BEIWERK
@@ -277,7 +280,8 @@ def umbauen(wurzel, plattform, trocken, protokoll):
         return 1
 
     z = {"entpackt": 0, "archiv_behalten": 0, "verschoben": 0, "spielordner": 0,
-         "dubletten": 0, "beiwerk": 0, "fehler": 0, "befreit": 0}
+         "dubletten": 0, "beiwerk": 0, "fehler": 0, "befreit": 0,
+         "beiwerk_gesammelt": 0}
     arcade = plattform in ARCHIV_BLEIBT
 
     # ---- Schritt 1: Archive entpacken -------------------------------------
@@ -416,6 +420,39 @@ def umbauen(wurzel, plattform, trocken, protokoll):
             else:
                 gesehen[s] = p
 
+    # ---- Schritt 3c: Beiwerk von Ebene 1 einsammeln ------------------------
+    # WARUM (#399): Ebene 1 ist die SPIELEBENE — RomM zaehlt dort jeden Eintrag als genau
+    # ein Spiel. Unter `c64` standen dadurch 10.018 `.nfo`, 1.871 `.svg` und weiteres
+    # Beiwerk als „Spiele": 10.726 von 57.615 Eintraegen, fast jeder fuenfte.
+    #
+    # Jens' Entscheidung (Weg 2): in einen eigenen Unterordner statt loeschen oder liegen
+    # lassen. Ein Ordner mehr auf Ebene 1 statt zehntausend Dateien, und nichts geht
+    # verloren — wer die Textdatei zu einem Spiel sucht, findet sie weiterhin.
+    #
+    # Der Name beginnt mit einem UNTERSTRICH, nicht mit einem Punkt: Ein versteckter
+    # Ordner waere fuer Romseerr unsichtbar (#321), aber RomM zaehlt ihn trotzdem — und
+    # sichtbar zu sein ist hier richtig, es ist kein Werkzeugverzeichnis.
+    #
+    # Level 1 is the game level; ancillary files were counted as games there. They move
+    # into one folder rather than being deleted or left in place.
+    if not arcade:
+        beiwerk_ziel = os.path.join(basis, BEIWERK_ORDNER)
+        for f in sorted(os.listdir(basis)):
+            if f == BEIWERK_ORDNER:
+                continue
+            q = os.path.join(basis, f)
+            if not os.path.isfile(q) or not ist_beiwerk(f):
+                continue
+            if trocken:
+                z["beiwerk_gesammelt"] += 1
+                continue
+            os.makedirs(beiwerk_ziel, exist_ok=True)
+            ziel = freier_name(beiwerk_ziel, f)
+            shutil.move(q, ziel)
+            rechte_setzen(ziel)
+            protokoll.schreiben("verschoben", von=q, nach=ziel)
+            z["beiwerk_gesammelt"] += 1
+
     art = "TROCKEN" if trocken else "AUSGEFUEHRT"
     print(f"\n  === {plattform} ({art}) ===")
     print(f"    Archive entpackt      : {z['entpackt']}")
@@ -426,6 +463,7 @@ def umbauen(wurzel, plattform, trocken, protokoll):
     print(f"    Spielordner belassen  : {z['spielordner']}")
     print(f"    Dubletten entfernt    : {z['dubletten']}")
     print(f"    Sammlungen aufgeloest : {z['befreit']}")
+    print(f"    Beiwerk eingesammelt  : {z['beiwerk_gesammelt']}  (-> {BEIWERK_ORDNER}/)")
     if z["fehler"]:
         print(f"    FEHLER                : {z['fehler']}")
     return 0
