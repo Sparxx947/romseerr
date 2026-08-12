@@ -86,6 +86,22 @@ SPIEL_MAX_DATEIEN = 12
 # Wohin Beiwerk von Ebene 1 wandert. Unterstrich, nicht Punkt — siehe Schritt 3c. (#399)
 BEIWERK_ORDNER = "_beiwerk"
 
+# Plattformen, auf denen eine sonst als Beiwerk geltende Endung DAS SPIELFORMAT ist.
+#
+# BEINAHE-SCHADEN, am Bestand gemessen (#399): PICO-8-Karten sind `.png` — `10002.p8.png`
+# ist ein Spiel, kein Bild. Unter `pico8` liegen 12.629 davon, und ein Lauf haette sie
+# allesamt nach `_beiwerk/` geschoben. Die Regel „Ebene 1 ist die Spielebene" haette die
+# Plattform damit geleert, statt sie aufzuraeumen.
+BEIWERK_AUSNAHME = {
+    "pico8": {".png"},        # `.p8.png` — die Karte IST das Bild
+}
+
+# Anteil, ab dem das Einsammeln als Irrtum gilt und unterbleibt. Sind mehr als die Haelfte
+# der Eintraege auf Ebene 1 „Beiwerk", stimmt nicht der Bestand, sondern die Einordnung —
+# und dann ist Nichtstun die richtige Antwort. Der Fall `pico8` steht oben ausdruecklich;
+# diese Schranke faengt den naechsten, den noch niemand gemessen hat.
+BEIWERK_HOECHSTANTEIL = 0.5
+
 
 def ist_beiwerk(name):
     return os.path.splitext(name)[1].lower() in BEIWERK
@@ -437,12 +453,20 @@ def umbauen(wurzel, plattform, trocken, protokoll):
     # into one folder rather than being deleted or left in place.
     if not arcade:
         beiwerk_ziel = os.path.join(basis, BEIWERK_ORDNER)
-        for f in sorted(os.listdir(basis)):
-            if f == BEIWERK_ORDNER:
-                continue
+        ausnahme = BEIWERK_AUSNAHME.get(plattform, set())
+        oben = [f for f in sorted(os.listdir(basis)) if f != BEIWERK_ORDNER]
+        kandidaten = [f for f in oben
+                      if os.path.isfile(os.path.join(basis, f))
+                      and ist_beiwerk(f)
+                      and os.path.splitext(f)[1].lower() not in ausnahme]
+        # Wenn die Haelfte oder mehr „Beiwerk" waere, ist die Einordnung falsch, nicht der
+        # Bestand. Lieber nichts tun und es sagen.
+        if oben and len(kandidaten) / len(oben) > BEIWERK_HOECHSTANTEIL:
+            print(f"    Beiwerk NICHT eingesammelt: {len(kandidaten)} von {len(oben)} "
+                  f"Eintraegen waeren betroffen — Einordnung pruefen")
+            kandidaten = []
+        for f in kandidaten:
             q = os.path.join(basis, f)
-            if not os.path.isfile(q) or not ist_beiwerk(f):
-                continue
             if trocken:
                 z["beiwerk_gesammelt"] += 1
                 continue
