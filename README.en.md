@@ -829,13 +829,36 @@ app.py                backend + full front-end (single file, no build step)
 Dockerfile            non-root image (USER 1000) + healthcheck
 docker-compose.yml    reference stack (Romseerr + SAB + Prowlarr + JDownloader + RomM)
 .env.example          all configuration values
-requirements.txt      Flask, requests, pywebpush
-scripts/              build_openapi.py
+requirements.txt      runtime packages, pinned exactly — transitive ones included (see below)
+scripts/              build_openapi.py, lock_requirements.py
 tests/                pytest (smoke, i18n JS, OpenAPI coverage, permissions, import …)
 tests/e2e/            browser tests: Playwright + axe-core — see docs/TESTING.md
 docs/                 API.md, ARCHITECTURE.md, openapi.yaml
 .github/              CI/security/release workflows, issue/PR templates, community files
 ```
+
+### Dependencies: pinned exactly, transitive ones included
+
+`/api/version` reports the commit, so that "is the running thing the source?" has an
+answer. With `>=` requirements it only half had one: two builds of the same commit could
+be two different programs. Measured on 2026-08-12, **6 of the 27 packages** in the running
+image had been released within the previous 30 days, `pywebpush` six days earlier — across
+a major version boundary (1.x → 2.4.0) that `>=1.14` explicitly allowed.
+
+So `requirements.txt` carries the **full closure** with `==`, the Dockerfile installs with
+`--no-deps` and verifies with `pip check`. The file is no longer a wish list but the
+content of the image: if something is missing there, the **build** fails instead of an
+import later on. Updates arrive through Dependabot — with `>=` there was nothing for it to
+bump, every build floated to the newest anyway.
+
+```bash
+python3 scripts/lock_requirements.py            # recompute and write the closure
+python3 scripts/lock_requirements.py --check    # only report whether something is newer (exit 1)
+```
+
+Only the `--- direkt / direct ---` section is hand-kept: what `app.py` imports itself. The
+test tooling in `requirements-dev.txt` stays **deliberately open** — a drifting test tool
+turns CI red and is therefore visible, a drifting runtime dependency ships silently.
 
 ---
 

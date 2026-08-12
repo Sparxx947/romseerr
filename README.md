@@ -887,13 +887,38 @@ app.py                Backend + komplettes Frontend (ein File, kein Build-Schrit
 Dockerfile            non-root Image (USER 1000) + Healthcheck
 docker-compose.yml    Referenz-Stack (Romseerr + SAB + Prowlarr + JDownloader + RomM)
 .env.example          alle Konfigurationswerte
-requirements.txt      Flask, requests, pywebpush
-scripts/              build_openapi.py
+requirements.txt      Laufzeit-Pakete, exakt gepinnt — inkl. der transitiven (siehe unten)
+scripts/              build_openapi.py, lock_requirements.py
 tests/                pytest (Smoke, i18n-JS, OpenAPI-Abdeckung, Rechte, Import …)
 tests/e2e/            Browsertests: Playwright + axe-core — siehe docs/TESTING.md
 docs/                 API.md, ARCHITECTURE.md, openapi.yaml
 .github/              CI/Security/Release-Workflows, Issue-/PR-Vorlagen, Community-Dateien
 ```
+
+### Abhängigkeiten: exakt gepinnt, transitive eingeschlossen
+
+`/api/version` meldet den Commit — die Frage „läuft das, was im Repo steht?" soll eine
+Antwort haben. Solange die Pakete mit `>=` offen standen, hatte sie das nur halb: Zwei
+Bauten desselben Commits konnten zwei verschiedene Programme sein. Gemessen am 2026-08-12
+waren **6 der 27 Pakete** im laufenden Image in den 30 Tagen davor erschienen, `pywebpush`
+sechs Tage vorher — und über eine Hauptversionsgrenze hinweg (1.x → 2.4.0), die `>=1.14`
+ausdrücklich erlaubte.
+
+Deshalb steht in `requirements.txt` die **volle Hülle** mit `==`, und der Dockerfile
+installiert mit `--no-deps` und prüft mit `pip check`. Die Datei ist damit nicht mehr eine
+Wunschliste, sondern der Inhalt des Images; fehlt dort etwas, scheitert der **Bau** statt
+später der Import. Hochgezogen wird über Dependabot — mit `>=` gab es dafür nichts zu tun,
+jeder Bau schwamm ohnehin oben.
+
+```bash
+python3 scripts/lock_requirements.py            # Hülle neu berechnen und schreiben
+python3 scripts/lock_requirements.py --check    # nur melden, ob etwas neuer ist (Exit 1)
+```
+
+Von Hand gepflegt wird nur der Abschnitt `--- direkt / direct ---`: das, was `app.py`
+selbst importiert. Die Testwerkzeuge in `requirements-dev.txt` bleiben **bewusst offen** —
+ein driftendes Testwerkzeug wird in der CI rot und damit sichtbar, eine driftende
+Laufzeitabhängigkeit fährt still ins Image.
 
 ---
 

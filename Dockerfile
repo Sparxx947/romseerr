@@ -3,7 +3,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       unar aria2 ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+# --no-deps: requirements.txt fuehrt die VOLLE Huelle exakt gepinnt (#380). Ohne das
+# holt pip Fehlendes selbst nach — in der neuesten Fassung, an der Datei vorbei, und
+# zwei Bauten desselben Commits sind wieder zwei verschiedene Programme.
+# `pip check` faengt eine unvollstaendige Liste HIER, statt sie zur Laufzeit als
+# ImportError auffliegen zu lassen.
+# EN: the file carries the full pinned closure, so pip must not resolve anything itself;
+# `pip check` turns an incomplete list into a build failure instead of a runtime one.
+RUN pip install --no-cache-dir --no-deps -r /app/requirements.txt && pip check
 COPY app.py /app/app.py
 # version.txt wird von release-please gepflegt und zur Laufzeit gelesen (/api/version).
 COPY version.txt /app/version.txt
