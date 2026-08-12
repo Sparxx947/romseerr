@@ -453,6 +453,45 @@ static/icon.svg   App-Icon (PWA)
    Erkennt der Import **nichts**, gibt er `False` zurück, der Job geht auf `error` und der
    Download **bleibt liegen** (#240).
 
+### Wenn ein Ordner EIN Spiel ist (#391, #455)
+
+Für manche Plattformen ist ein Titel kein *File*, sondern ein *Ordner*. Der Import lief
+ursprünglich über `os.walk` und kopierte jede Datei mit passender Endung einzeln — für
+solche Plattformen in beide Richtungen falsch: Bruchstücke aus dem Spielinneren kamen in
+die Bibliothek, der Titel selbst wurde verworfen.
+
+`SPIELORDNER_MUSTER` erkennt sie **am Aufbau, nicht an der Dateizahl**. Ein entpacktes
+Spiel hat Tausende Dateien, eine Sammlung auch; was sie unterscheidet, gibt das Format vor:
+
+| Plattform | verlangte Einträge |
+|---|---|
+| Wii U | `code` + `content` + `meta` |
+| PS3 | `ps3_game` (oder die Datei `ps3_disc.sfb`) |
+| GameCube/Wii | `sys` + `files` |
+| PS Vita | `eboot.bin` + `sce_sys` |
+| Xbox | die Datei `default.xbe` |
+
+Bei der Vita zählt das **Paar**. `eboot.bin` hat jeder Titel — allein darf sie die
+Plattform nicht beanspruchen, sonst würde aus einem Bruchstück ein anerkannter Titel.
+`sce_module` und `PSP2` liegen oft daneben, sind aber optional und stehen deshalb nicht in
+der Bedingung. Gemessen an einem echten Import: Das Release liefert einen **Ordner**,
+dessen Name auf `.vpk` endet; am Namen hängt die Erkennung bewusst nicht, denn andere
+Releases liefern denselben Aufbau unter dem blanken Titel.
+
+Ohne den Eintrag fällt der Import auf „jede Datei einzeln" zurück. Bei der Vita nahm er
+dann genau die `eboot.bin` mit (`.bin` steht in `ROM_EXT`) — 10 MB ohne `param.sfo`, für
+Vita3K unbrauchbar und für Menschen nicht identifizierbar. Und weil jeder Vita-Titel so
+heißt, hätte der nächste Import den vorigen überschrieben.
+
+*EN: for some platforms a title is a folder, not a file. `SPIELORDNER_MUSTER` recognises
+them by their fixed layout rather than by file count — an unpacked game and a collection
+both have thousands of files. For PS Vita the pair `eboot.bin` + `sce_sys` is required:
+every Vita title has an `eboot.bin`, so on its own it must not claim the platform, or a
+fragment would be promoted to a title. `sce_module` and `PSP2` are optional. Without the
+entry the import falls back to copying files one by one and takes the `eboot.bin` alone —
+unusable for Vita3K, unidentifiable for a human, and overwritten by the next import,
+because every Vita title carries that same name.*
+
 ### Der Import muss zwei Dinge aushalten (#240, #241, #242)
 
 **Downloadprogramme benennen fertige Dateien um.** SABnzbds *deobfuscate final filenames*
