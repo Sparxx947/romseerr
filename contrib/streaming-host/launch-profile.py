@@ -742,6 +742,73 @@ def eden_vollbild():
 
 # --------------------------------------------------------------- Azahar (3DS)
 
+def xemu_toml():
+    return os.path.join(CONFIG, ".local", "share", "xemu", "xemu", "xemu.toml")
+
+
+def xemu_apply(pruefen=False):
+    """-> (geaendert, meldung). Bindet Spieler 1 an das GEBRUECKTE Pad. (#304)
+
+    NACHGEMESSEN, nicht vermutet. Alle acht Joystick-Geraete im Container sind identisch:
+
+        js0..js7   bus=0003 vendor=045e product=028e   Microsoft X-Box 360 pad
+
+    Daraus folgt EINE SDL-Kennung, naemlich die, die in dieser Datei ohnehin schon als
+    Kennung des gebrueckten Pads steht. xemus Konfiguration band aber:
+
+        port1 = '000081b84d6963726f736f6674205800'   <- kein anwesendes Geraet
+        port2..4 = '030081b85e0400008e02000000010000'
+
+    Die Kennung auf Port 1 hat Bustyp `0000` und traegt statt Vendor/Product den ASCII-Namen
+    — so bildet SDL eine Kennung, wenn es ein Geraet NICHT identifizieren kann. Sie ist ein
+    Ueberbleibsel; kein aktuelles Geraet hat sie. Ports 2 bis 4 stimmen, ausgerechnet der
+    Platz von Spieler 1 nicht.
+
+    WAS HIER NICHT BEHAUPTET WIRD: dass der Controller deshalb tot ist. Ob xemu auf das
+    erste verfuegbare Pad zurueckfaellt, wenn die gebundene Kennung fehlt, ist nicht
+    gemessen — das braucht jemanden am Pad. Repariert wird es trotzdem: Eine Bindung, die
+    ein nicht vorhandenes Geraet benennt, ist unabhaengig vom Rueckfall falsch.
+
+    NUR PORT 1 WIRD ANGEFASST. Ports 2 bis 4 stehen richtig, und wer sie fuer einen zweiten
+    Spieler umgestellt hat, soll das behalten.
+
+    EN: all eight devices share one SDL GUID; xemu bound port 1 to a GUID no present device
+    carries. Whether xemu falls back is not measured and not claimed — a binding naming an
+    absent device is wrong either way. Only port 1 is touched.
+    """
+    pfad = xemu_toml()
+    if not os.path.isfile(pfad):
+        return False, "xemu.toml gibt es noch nicht — der Emulator legt sie beim ersten Start an"
+    with open(pfad, encoding="utf-8", errors="ignore") as f:
+        zeilen = f.read().splitlines()
+
+    aktuell = ""
+    for z in zeilen:
+        if z.strip().startswith("port1 ="):
+            aktuell = z.split("=", 1)[1].strip().strip("'\"")
+            break
+    if not aktuell:
+        return False, "kein port1-Eintrag — xemu hat noch keine Bindung geschrieben"
+    if aktuell == PAD_GUID:
+        return False, "Spieler 1 liegt bereits auf dem gebrueckten Pad"
+    if pruefen:
+        return True, f"port1 zeigt auf {aktuell[:8]}… statt auf das gebrueckte Pad"
+
+    neu = []
+    for z in zeilen:
+        if z.strip().startswith("port1 ="):
+            vorne = z[:len(z) - len(z.lstrip())]
+            neu.append(f"{vorne}port1 = '{PAD_GUID}'")
+        else:
+            neu.append(z)
+    # Die Kennung muss auch in `gamepad_mappings` stehen, sonst kennt xemu sie nicht.
+    if not any(PAD_GUID in z for z in neu):
+        return False, "die Kennung des gebrueckten Pads steht nicht in gamepad_mappings"
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write("\n".join(neu) + "\n")
+    return True, "Spieler 1 auf das gebrueckte Pad gelegt"
+
+
 def azahar_ini():
     return os.path.join(CONFIG, ".config", "azahar-emu", "qt-config.ini")
 
@@ -749,7 +816,10 @@ def azahar_ini():
 # SDL-Kennung des gebrueckten Pads. Aufbau: Bus 03 (USB), Vendor 045e (Microsoft),
 # Product 028e (Xbox 360 Controller) — jeweils byteweise gedreht. SDL hat sie sich in
 # xemus Konfiguration selbst eingetragen; von dort abgelesen, nicht erfunden.
-AZAHAR_GUID = "030081b85e0400008e02000000010000"
+PAD_GUID = "030081b85e0400008e02000000010000"
+# Frueherer Name; die Kennung ist nicht azahar-spezifisch, sondern die des gebrueckten
+# Pads — alle acht Geraete im Container tragen sie. (#304)
+AZAHAR_GUID = PAD_GUID
 
 # WELCHER PORT: nicht 0. Im Container liegen ACHT identische "Microsoft X-Box 360 pad"
 # (js0..js7) — die vier der Bruecke und vier weitere —, und das gebrueckte Pad ist fuer
@@ -891,7 +961,7 @@ PROFILE = {
     # Es brauchte KEINE Konfigurationsdatei, sondern libusb, den Pulse-Pfad, das
     # Festplattenabbild und vor allem das RICHTIGE BIOS: alle Retail-Dumps bleiben
     # schwarz, erst das gepatchte COMPLEX 4627 mit MCPX 1.0 bootet.
-    "xemu":      {"system": "Xbox",          "controller": None, "bios": None,
+    "xemu":      {"system": "Xbox",          "controller": xemu_apply, "bios": None,
                   # vollbild=None ist KEIN Rueckschritt: Der Tastenweg lag hier falsch.
                   # `--fullscreen` ruft der Agent VOR dem Start auf, damit ein Emulator
                   # seine Konfiguration frisch liest — eine Tastensendung findet dort kein

@@ -219,6 +219,30 @@ startet xemu auch ohne Konfigurationsdatei und ohne `eeprom.bin`, das es sich se
 anlegt. Der anfängliche `Failed to load BIOS '(null)'` war ein Folgefehler der
 fehlenden Platte.
 
+## Controller: eine Kennung, acht Geräte
+
+Alle acht Joystick-Geräte im Container sind **identisch** — `bus=0003 vendor=045e
+product=028e`, „Microsoft X-Box 360 pad". Sie tragen deshalb dieselbe SDL-Kennung
+`030081b85e0400008e02000000010000`. Das ist kein Zufall, sondern die Folge der zwei
+Normierungen davor: Der Browser bildet jedes physische Pad auf das „Standard Gamepad" ab,
+Selkies reicht das als ein virtuelles Xbox-Pad herein.
+
+**Woran das schiefgeht:** Ein Emulator, der sich eine Kennung merkt, kann eine merken, die
+es nicht mehr gibt. Bei xemu stand auf Port 1 — dem Platz von Spieler 1 —
+`000081b84d6963726f736f6674205800`: Bustyp `0000` und der ASCII-Name statt Vendor/Product,
+so bildet SDL eine Kennung für ein Gerät, das es **nicht identifizieren konnte**. Die Ports
+2 bis 4 hatten die richtige.
+
+Ob xemu in so einem Fall auf das erste verfügbare Pad zurückfällt, ist **nicht gemessen**.
+Repariert wird es trotzdem: Eine Bindung, die ein abwesendes Gerät benennt, ist unabhängig
+vom Rückfall falsch. `xemu_apply` legt Port 1 auf die gebrückte Kennung und lässt Ports 2
+bis 4 in Ruhe — wer sie für einen zweiten Spieler gesetzt hat, behält das.
+
+*All eight joystick devices are identical and share one SDL GUID. xemu had player 1 bound to
+a GUID no present device carries — SDL's fallback form for a device it could not identify.
+Whether xemu falls back to the first available pad is not measured; a binding naming an
+absent device is wrong either way.*
+
 ## Vollbild: gemessen, nicht angenommen
 
 Jeder Start misst nach dem Fensterschritt, **wie viel der Fläche der Emulator wirklich

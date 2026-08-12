@@ -744,3 +744,86 @@ def test_every_error_counter_goes_through_the_recording_helper(org):
     assert len(roh) == 1, (
         f"{len(roh)} Stellen zaehlen Fehler direkt hoch; erlaubt ist genau eine — die in "
         "`fehler_merken`, die dabei auch aufzeichnet")
+
+
+# --- #304: xemu bindet Spieler 1 an das gebrueckte Pad ------------------------------
+
+def _profil(tmp_path):
+    """Das Startprofil mit CONFIG auf ein Testverzeichnis geladen."""
+    import types
+    quelle = open(os.path.join(WURZEL, "contrib", "streaming-host", "launch-profile.py"),
+                  encoding="utf-8").read()
+    mod = types.ModuleType("lp_304")
+    mod.__file__ = "launch-profile.py"
+    exec(compile(quelle, "launch-profile.py", "exec"), mod.__dict__)
+    mod.CONFIG = str(tmp_path)
+    return mod
+
+
+def _xemu_toml(tmp_path, port1):
+    p = tmp_path / ".local" / "share" / "xemu" / "xemu"
+    p.mkdir(parents=True, exist_ok=True)
+    (p / "xemu.toml").write_text(
+        "[input]\n"
+        "gamepad_mappings = [\n"
+        "    { gamepad_id = '030081b85e0400008e02000000010000'}\n"
+        "    ]\n"
+        "\n"
+        "[input.bindings]\n"
+        "port1_driver = 'usb-xbox-gamepad'\n"
+        f"port1 = '{port1}'\n"
+        "port2 = '030081b85e0400008e02000000010000'\n", encoding="utf-8")
+    return p / "xemu.toml"
+
+
+def test_xemu_player_one_is_moved_onto_the_bridged_pad(tmp_path):
+    """Spieler 1 darf nicht auf einer Kennung liegen, die kein Geraet traegt. (#304)
+
+    NACHGEMESSEN AM HOST: Alle acht Joystick-Geraete im Container sind identisch
+    (`bus=0003 vendor=045e product=028e`), tragen also EINE SDL-Kennung. xemu band Port 1
+    trotzdem auf `000081b84d6963726f736f6674205800` — Bustyp `0000` und der ASCII-Name
+    statt Vendor/Product, so bildet SDL eine Kennung fuer ein Geraet, das es NICHT
+    identifizieren kann. Ports 2 bis 4 hatten die richtige; ausgerechnet Spieler 1 nicht.
+
+    Ob xemu auf das erste verfuegbare Pad zurueckfaellt, ist NICHT gemessen und wird hier
+    nicht behauptet — das braucht jemanden am Pad. Eine Bindung, die ein abwesendes Geraet
+    benennt, ist unabhaengig davon falsch.
+
+    EN: all eight devices share one GUID; port 1 named one that no device carries.
+    """
+    mod = _profil(tmp_path)
+    pfad = _xemu_toml(tmp_path, "000081b84d6963726f736f6674205800")
+
+    geaendert, meldung = mod.xemu_apply()
+    assert geaendert, f"nichts geaendert: {meldung}"
+    text = pfad.read_text(encoding="utf-8")
+    assert "port1 = '030081b85e0400008e02000000010000'" in text, text
+    # Port 2 bleibt unangetastet — wer ihn fuer einen zweiten Spieler gesetzt hat,
+    # soll das behalten.
+    assert "port2 = '030081b85e0400008e02000000010000'" in text
+
+
+def test_xemu_mapping_is_left_alone_when_it_is_already_right(tmp_path):
+    """Steht Spieler 1 schon richtig, wird nichts geschrieben. (#304)
+
+    Sonst schriebe der Startweg bei JEDEM Start dieselbe Datei neu — Schreibzugriffe ohne
+    Anlass, und jede Aenderung eines Menschen daran waere nach dem naechsten Start weg.
+    """
+    mod = _profil(tmp_path)
+    pfad = _xemu_toml(tmp_path, "030081b85e0400008e02000000010000")
+    vorher = pfad.read_text(encoding="utf-8")
+
+    geaendert, meldung = mod.xemu_apply()
+    assert not geaendert, meldung
+    assert pfad.read_text(encoding="utf-8") == vorher, "die Datei wurde ohne Anlass angefasst"
+
+
+def test_xemu_does_nothing_without_a_config(tmp_path):
+    """Ohne `xemu.toml` wird nichts erfunden. (#304)
+
+    Die Datei entsteht beim ersten Start des Emulators. Sie vorher anzulegen hiesse, eine
+    Struktur zu raten, die xemu danach ohnehin ueberschreibt — und im Zweifel eine falsche.
+    """
+    mod = _profil(tmp_path)
+    geaendert, meldung = mod.xemu_apply()
+    assert not geaendert and "gibt es noch nicht" in meldung, meldung
