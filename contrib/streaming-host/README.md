@@ -686,6 +686,21 @@ neu installiert, bleibt die Firmware erhalten.
 (`firmware_install_dialog.cpp`). Es gibt dort also nichts zu automatisieren außer dem
 Einspielen; die PUP besorgst du dir selbst und lädst sie hoch.
 
+**Bereitgelegt ist nicht eingespielt.** Für **PS3 und PS Vita** ist die Firmware eine
+`.PUP` — ein Update-Paket, das der Emulator *einspielen* muss und nie an Ort und Stelle
+benutzt. Der Katalog nennt deshalb je Eintrag eine **Ablage**: das Verzeichnis, in dem die
+Firmware *danach* liegt (`dev_flash` bei RPCS3, `vs0` bei Vita3K). Erst wenn dort etwas
+liegt, meldet der Status `eingespielt`.
+
+Fehlt diese Angabe, greift im Skript der Zweig *„ohne Ablage ist die Frage gegenstandslos"*
+— und der Status ist **grün für eine Firmware, die der Emulator gar nicht hat**. Genau so
+stand `psvita` auf `installed: true`, während `vs0`, `os0` und `sa0` leer waren: 133 MB
+bereitgelegt, null eingespielt (#479). Aufgefallen ist es erst beim Startversuch, an
+Vita3Ks „Welcome"-Fenster — das war die richtige Meldung, nicht das Problem.
+
+Für PS1, PS2, Dreamcast, Xbox, 3DS, Switch und Wii U gibt es keine Ablage, und das ist
+richtig: Dort **ist** die Firmware die Datei im Verzeichnis, es gibt keinen zweiten Schritt.
+
 **Was geprüft wird — und was nicht.** Geprüft wird die **Größe**. Das schlägt bei
 abgebrochenen Downloads und offensichtlich falschen Dateien an, und genau dafür ist es
 da. Es beweist **nicht**, dass der Inhalt korrekt ist — deshalb heißt der Zustand „ok"
@@ -1545,6 +1560,20 @@ the firmware with it.
 
 **PS Vita:** Vita3K **downloads nothing** — its source opens a file dialog
 (`firmware_install_dialog.cpp`). There is nothing to automate beyond the import.
+
+**Staged is not installed.** For **PS3 and PS Vita** the firmware is a `.PUP` — an update
+package the emulator has to *install*, never used in place. The catalogue therefore names an
+**Ablage** per entry: the directory the firmware ends up in afterwards (`dev_flash` for
+RPCS3, `vs0` for Vita3K). Only once something is there does the status report `installed`.
+
+Without that field the script takes the branch *"no Ablage, so the question is moot"* — and
+the status is **green for firmware the emulator does not have**. That is exactly how
+`psvita` read `installed: true` while `vs0`, `os0` and `sa0` were empty: 133 MB staged, none
+installed (#479). It surfaced only on a launch attempt, as Vita3K's "Welcome" window — which
+was the correct message, not the problem.
+
+PS1, PS2, Dreamcast, Xbox, 3DS, Switch and Wii U have no Ablage, and rightly so: there the
+firmware **is** the file in that directory, with no second step.
 
 **What is checked, and what is not.** Size is checked. That catches truncated downloads
 and obviously wrong files, which is what it is for. It does **not** prove the contents
