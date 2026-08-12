@@ -20,6 +20,7 @@ funktionieren danach nebeneinander.
 
     launch-profile.py --apply pcsx2            # Controller-Belegung setzen
     launch-profile.py --bios pcsx2 Europe      # BIOS zur Region waehlen
+    launch-profile.py --dialogs vita3k         # Startdialoge abstellen
     launch-profile.py --status                 # Stand
 """
 import json
@@ -869,6 +870,94 @@ def vita3k_vollbild(pruefen=False):
     return True, "Titel starten jetzt im Vollbild"
 
 
+# ZWEI MODALE FENSTER FANGEN JEDEN VITA-START AB. (#488)
+#
+# Beide sind dieselbe Klasse Falle wie DuckStations Setup-Wizard: ein Fenster, das im
+# Container niemand sieht und wegklickt, und der Start staut sich dahinter. Gemessen am
+# laufenden Host (2026-08-13, Gravity Rush, Vita3K v0.2.1 4072-80075ce5) an der ECHTEN
+# Vita3K-PID — nicht an der des Wrappers, der eine andere ist (#489):
+#
+#   show-welcome | check-for-updates-mode | Fenster
+#   true         | 1                      | nur "Welcome to Vita3K", kein Spiel, 4,5 % CPU
+#   false        | 1                      | Spiel + "Update Available", 320x183 mittendrauf
+#   false        | 0                      | Spiel, kein Dialog; Fensterschritt meldet "ok",
+#   false        | 1  (Gegenprobe)        | "Update Available" wieder da
+#
+# Die letzte Zeile ist der Grund, warum der zweite Schalter hier steht und nicht als
+# Vermutung im Issue: der Dialog haette auch „einmal je Fassung" sein koennen. Ist er
+# nicht — er kommt mit `1` jedes Mal wieder und bleibt mit `0` weg.
+#
+# WAS HIER NICHT BEHAUPTET WIRD: dass `0` in Vita3Ks Quelltext „nie" heisst. Der Wert ist
+# GEMESSEN, nicht abgelesen — die Aufzaehlung steht nicht in den Zeichenketten der
+# Binaerdatei. Belegt ist: mit `0` kommt der Dialog nicht, und Vita3K schreibt die `0`
+# beim Start unveraendert zurueck, nimmt sie also an.
+#
+# NICHT DABEI: `warn-missing-firmware`. Der dritte Dialog derselben Klasse — hier
+# folgenlos, weil die Firmware vollstaendig ist (#485/#486). Wer ihn vorsorglich
+# abschaltet, verliert die Warnung genau dann, wenn sie einmal berechtigt waere.
+#
+# EN: two modal windows catch every Vita launch; both measured on the running host with a
+# counter-check per switch. `0` is measured to keep the update dialog away — it is NOT
+# claimed to be the source's name for "never".
+VITA3K_DIALOGE = (
+    ("show-welcome", "false", "Willkommensdialog"),
+    ("check-for-updates-mode", "0", "Update-Abfrage"),
+)
+
+
+def vita3k_dialoge(pruefen=False):
+    """-> (geaendert, meldung). Die beiden Startdialoge abstellen. (#488)
+
+    Dieselben drei Regeln wie beim Vollbild oben, und aus denselben Gruenden:
+    NICHTS ANLEGEN, wenn die Datei fehlt; NICHTS ANHAENGEN, wenn ein Schluessel fehlt
+    (eine neue Fassung koennte ihn umbenannt haben — ein angehaengter Eintrag waere
+    wirkungslos und wuerde trotzdem als Erfolg gemeldet); und geprueft wird der WERT,
+    nicht das Vorhandensein.
+
+    Fehlt einer der beiden Schluessel, wird der andere trotzdem gesetzt und der fehlende
+    in der Meldung benannt. Halb wirksam ist besser als gar nicht — solange dabeisteht,
+    welche Haelfte fehlt.
+
+    EN: same three rules as the fullscreen switch above. A missing key is reported, never
+    appended; the other key is still set.
+    """
+    pfad = vita3k_config()
+    if not os.path.isfile(pfad):
+        return False, "config.yml gibt es noch nicht — der Emulator legt sie beim ersten Start an"
+    try:
+        with open(pfad, encoding="utf-8") as f:
+            zeilen = f.read().splitlines()
+    except OSError as e:
+        return False, f"config.yml nicht lesbar: {e.strerror}"
+
+    offen, fehlend = [], []
+    for schluessel, soll, name in VITA3K_DIALOGE:
+        i = next((k for k, z in enumerate(zeilen)
+                  if z.strip().startswith(schluessel + ":")), None)
+        if i is None:
+            fehlend.append(schluessel)
+        elif zeilen[i].split(":", 1)[1].strip().lower() != soll:
+            offen.append((i, schluessel, soll, name))
+
+    hinweis = (f" — steht nicht in der config.yml: {', '.join(fehlend)} (Fassung geaendert?)"
+               if fehlend else "")
+    if not offen:
+        return False, ("die Startdialoge stehen bereits ab" if not fehlend
+                       else "nichts zu setzen" + hinweis)
+    if pruefen:
+        return True, "wuerde abstellen: " + ", ".join(n for *_, n in offen) + hinweis
+
+    for i, schluessel, soll, _ in offen:
+        vorne = zeilen[i][:len(zeilen[i]) - len(zeilen[i].lstrip())]
+        zeilen[i] = f"{vorne}{schluessel}: {soll}"
+    try:
+        with open(pfad, "w", encoding="utf-8") as f:
+            f.write("\n".join(zeilen) + "\n")
+    except OSError as e:
+        return False, f"config.yml nicht schreibbar: {e.strerror}"
+    return True, "abgestellt: " + ", ".join(n for *_, n in offen) + hinweis
+
+
 # SDL-Kennung des gebrueckten Pads. Aufbau: Bus 03 (USB), Vendor 045e (Microsoft),
 # Product 028e (Xbox 360 Controller) — jeweils byteweise gedreht. SDL hat sie sich in
 # xemus Konfiguration selbst eingetragen; von dort abgelesen, nicht erfunden.
@@ -1063,6 +1152,13 @@ PROFILE = {
     # Mensch Bild, Ton und Pad im Spiel bestaetigt hat (#303).
     "vita3k":    {"system": "PS Vita",       "controller": None, "bios": None,
                   "vollbild": vita3k_vollbild,
+                  # EIGENER PLATZ, nicht in `controller` mit hineingelegt (#488). Bei
+                  # DuckStation sitzt der Setup-Wizard im Controller-Schritt, weil dort
+                  # ohnehin dieselbe Datei angefasst wird. Hier gibt es keine
+                  # Controller-Belegung, in die er hineinpasste — dann ist ein Schritt,
+                  # der heisst, was er tut, ehrlicher als ein Sammelplatz. Andere
+                  # Emulatoren duerfen `dialoge` weglassen.
+                  "dialoge": vita3k_dialoge,
                   "geprueft": False},
     # geprueft: Bild, Ton und Gamepad im Spiel bestaetigt (2026-08-10, #119). Dass die
     # Warnung „Adding empty device" verschwindet, war nur der Hinweis — den Nachweis
@@ -1448,6 +1544,19 @@ def main(argv):
         geaendert, msg = sicher(fn)
         print(f"[vollbild] {argv[1]}: {msg}")
         return 0
+    if argv and argv[0] == "--dialogs":
+        if len(argv) < 2 or argv[1] not in PROFILE:
+            print("Aufruf: --dialogs <emulator>", file=sys.stderr); return 1
+        fn = PROFILE[argv[1]].get("dialoge")
+        if not fn:
+            print(f"[dialoge] {argv[1]}: keine bekannten Startdialoge")
+            return 0
+        geaendert, msg = sicher(fn)
+        print(f"[dialoge] {argv[1]}: {msg}")
+        # WIE BEIM VOLLBILD: immer 0. Ein Dialog, der stehen bleibt, kostet das Bild —
+        # den Start zu verweigern kostet das Spiel. / always 0: a leftover dialog costs
+        # the picture, refusing the launch costs the game.
+        return 0
     if argv and argv[0] == "--window":
         if len(argv) < 2 or not argv[1].isdigit():
             print("Aufruf: --window <pid>", file=sys.stderr); return 1
@@ -1486,7 +1595,11 @@ def main(argv):
         print(f"[bios] {argv[1]}: {msg}")
         return 0 if geaendert or "bereits" in msg else 1
     if not argv or argv[0] not in ("--apply", "--status"):
-        print(__doc__.strip().splitlines()[-3], file=sys.stderr)
+        # ALLE Aufrufzeilen, nicht die drittletzte: die stand hier fest verdrahtet und
+        # zeigte nach jeder neuen Zeile im Kopf auf eine andere. (#488)
+        for zeile in __doc__.splitlines():
+            if zeile.strip().startswith("launch-profile.py "):
+                print(zeile.strip(), file=sys.stderr)
         return 2
     if argv[0] == "--status":
         for name, e in PROFILE.items():
