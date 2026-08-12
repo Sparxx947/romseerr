@@ -328,18 +328,25 @@ USENET_CAT = {101010:"nds",101020:"psp",101030:"wii",101035:"switch",101040:"xbo
 SLUG2USE = {}
 for _cid, _slug in USENET_CAT.items(): SLUG2USE.setdefault(_slug, []).append(_cid)
 
-# WO EIN INDEXER NICHT TRENNT (#375). Wii U liegt beim hiesigen Indexer unter den
-# WII-Kategorien — nachgemessen: `Super.Mario.3D.World.USA.WiiU-PoWeRUp` kommt mit
-# {1030, 101030}, und die Standardkategorie fuer Wii U (1130) liefert NULL Treffer.
+# WO EIN INDEXER NICHT TRENNT (#375, #452). Nicht jede Plattform bekommt beim Indexer
+# eine eigene Kategorie; manche fahren in der des Nachbarn mit. Nachgemessen:
 #
-# Ohne diesen Eintrag ist `SLUG2USE["wiiu"]` leer, und die Auswahl „Wii U" schaltet die
-# Usenet-Suche KOMPLETT AB — sieben vorhandene Veroeffentlichungen waren damit
-# unerreichbar. Die Zuordnung am Titel funktioniert laengst: `guess_platform` erkennt
-# `WiiU` zuverlaessig. Es fehlte nur die Erlaubnis, ueberhaupt zu fragen.
+#   Wii U     -> Wii-Kategorien. `Super.Mario.3D.World.USA.WiiU-PoWeRUp` kommt mit
+#                {1030, 101030}; die Standardkategorie fuer Wii U (1130) liefert NULL.
+#   PS Vita   -> PSP-Kategorie 101020. Eine eigene Vita-Kategorie gibt es nicht.
+#
+# Ohne diese Eintraege ist die Kategorienliste des Slugs LEER, und die Auswahl der
+# Plattform schaltet die Usenet-Suche KOMPLETT AB.
+#
+# Wer hier steht, darf ausserdem seine Kategorie am Titel zurueckerobern — siehe
+# `search_usenet`. Ohne das kaeme jeder Treffer unter dem Slug des Vermieters zurueck
+# und fiele aus dem Filter der eigenen Plattform (gemessen: 16 von 16 falsch, #452).
 #
 # Where an indexer does not separate two platforms, the neighbour's categories are the
-# only way in; the title-based classification sorts the results out afterwards.
-SLUG2USE.setdefault("wiiu", []).extend(SLUG2USE.get("wii", []))
+# only way in — and the title is what sorts the results out again afterwards.
+KAT_LEIHE = {"wiiu": "wii", "psvita": "psp"}   # Mieter -> Eigentuemer der Kategorie
+for _mieter, _eigner in KAT_LEIHE.items():
+    SLUG2USE.setdefault(_mieter, []).extend(SLUG2USE.get(_eigner, []))
 
 # Für die Plattform-Vorauswahl in der Oberfläche (Gruppe -> [(slug, Anzeigename)])
 PLATFORMS = [
@@ -1962,6 +1969,24 @@ def worker_catalog():
             log(f"Katalog-Worker: {e}")
         time.sleep(max(600, CATALOG_TTL // 4))
 
+def plattform_aus_kategorie_und_titel(aus_kategorie, titel):
+    """Plattform eines Usenet-Treffers. Die Kategorie des Indexers zaehlt — ausser der Titel
+    nennt eine Plattform, die genau in DIESER Kategorie mitfaehrt (`KAT_LEIHE`, #452).
+
+    Bewusst eng: Ein Titel, der irgendeine fremde Plattform erwaehnt, darf die Kategorie
+    NICHT umwerfen. Nur der eingetragene Mieter darf seine eigene Kategorie zurueckerobern,
+    denn nur dort ist die Kategorie nachweislich zu grob.
+
+    Platform of a usenet hit. The indexer category wins, unless the title names a platform
+    that is a documented tenant of exactly that category."""
+    aus_titel = guess_platform(titel or "")
+    if not aus_kategorie:
+        return aus_titel
+    if aus_titel and KAT_LEIHE.get(aus_titel) == aus_kategorie:
+        return aus_titel
+    return aus_kategorie
+
+
 def search_usenet(q, cats, limit=30):
     out = []
     if not (cfg("prow_url") and cfg("prow_apikey") and cats): return out
@@ -1975,7 +2000,7 @@ def search_usenet(q, cats, limit=30):
             slug = None
             for c in cats:
                 if c in USENET_CAT: slug = USENET_CAT[c]; break
-            if not slug: slug = guess_platform(it.get("title",""))
+            slug = plattform_aus_kategorie_und_titel(slug, it.get("title",""))
             out.append({"source":"usenet","ref":it.get("downloadUrl"),"title":it.get("title","")[:140],
                         "platform":slug,"size":int(it.get("size") or 0),
                         "cover":"", "extra":it.get("indexer","")})
