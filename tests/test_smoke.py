@@ -2815,7 +2815,19 @@ def test_nothing_falls_back_to_the_apt_dolphin():
     aktiv = [z for z in agent.splitlines()
              if "/usr/games/dolphin-emu" in z and not z.strip().startswith("#")]
     assert not aktiv, f"noch ein Rueckfall auf das apt-Paket: {aktiv}"
-    assert 'EMU_GC="$VGL $EMU/dolphin/AppRun' in agent
+    # AUF DIE EIGENSCHAFT PRUEFEN, NICHT AUF DIE SCHREIBWEISE. Die erste Fassung nagelte
+    # `EMU_GC="$VGL $EMU/dolphin/AppRun` woertlich fest und brach, als #440 den Aufruf auf
+    # den Helfer `apprun` umstellte — obwohl Dolphin danach genau dasselbe startet. Ein
+    # Test, der an einer legitimen Umformulierung scheitert, erzieht dazu, ihn anzupassen
+    # statt ihn zu lesen, und das ist der Anfang vom Ende seiner Aussage.
+    #
+    # Was zaehlt: EMU_GC wird GENAU EINMAL gesetzt, aus dem entpackten AppImage unter
+    # $EMU/dolphin — und aus nichts anderem.
+    setzungen = [z.strip() for z in agent.splitlines()
+                 if "export EMU_GC=" in z and not z.strip().startswith("#")]
+    assert len(setzungen) == 1, f"EMU_GC wird {len(setzungen)}-mal gesetzt: {setzungen}"
+    assert "$EMU/dolphin/AppRun" in setzungen[0] or "apprun dolphin" in setzungen[0], \
+        f"Dolphin kommt nicht mehr aus dem entpackten AppImage: {setzungen[0]}"
 
 
 def test_stream_size_and_framerate_are_configured_not_left_to_the_browser():
@@ -8762,3 +8774,112 @@ def test_a_killed_emulator_is_reaped():
     assert re.search(r"^\s*p\.wait\(\)\s*$", nach_kill, re.M), (
         "nach p.kill() wird nicht geerntet — das Kind bleibt als Zombie stehen, und `ps` "
         "zeigt es wie einen laufenden Emulator")
+
+
+# --- #440: ein Update darf den Emulator nicht loeschen ------------------------------
+
+def test_installing_an_emulator_moves_the_new_build_into_place():
+    """Nach `generationen_schieben` muss `.neu` an seinen Platz. (#440)
+
+    OHNE DIESE ZEILE IST EIN UPDATE EINE LOESCHUNG. `generationen_schieben` raeumt die
+    bisherige Fassung nach `.alt1`; der frisch entpackte Baum liegt als `$dir.neu`. Fehlt
+    die Umbenennung, gibt es `$dir` danach NICHT MEHR — und `30-agent` setzt seine
+    `EMU_*`-Variable nur, wenn `$dir/AppRun` existiert. Die ganze Plattform verschwindet.
+
+    Gemessen am 2026-08-12: `ps2` und `ps3` fehlten seit dem 11.08. 10:22 in `/status`,
+    waehrend 17 PS3-Titel in der Bibliothek lagen. Beide waren an dem Tag aktualisiert
+    worden. Kein Fehler, kein Fenster, keine fehlende Datei, nach der jemand gesucht
+    haette — der Streamen-Knopf erschien einfach nicht mehr.
+
+    QUELLTEXTPRUEFUNG, weil der Fehlerfall ein vollstaendiger Installationslauf mit
+    Download und Entpacken waere. Was hier schuetzt, ist die Zusicherung, dass die
+    Umbenennung ueberhaupt vorkommt — und zwar NACH dem Schieben, denn davor wuerde sie
+    von ihm wieder weggeraeumt.
+
+    EN: without the rename an update deletes the emulator: the previous build moves to
+    .alt1 and the new tree stays at .neu, so $dir is gone and the platform disappears.
+    """
+    quelle = open(os.path.join(REPO, "contrib", "streaming-host", "init", "20-emulators"),
+                  encoding="utf-8").read()
+    assert 'mv "$EMU/$dir.neu" "$EMU/$dir"' in quelle, (
+        "die neue Fassung wird nie an ihren Platz geschoben — ein Update loescht damit "
+        "den Emulator, den es aktualisieren sollte")
+
+    # NICHT ab einem Suchbegriff versetzen: `quelle.index("installiere")` traf die
+    # Funktionsdefinition, die NACH ihrem eigenen Aufruf von `generationen_schieben`
+    # steht — die Suche lief ins Leere und der Test brach mit `ValueError` ab, also mit
+    # einem Fehler ueber die Suche statt ueber die geprueste Sache.
+    schieben = quelle.index('generationen_schieben "$dir"\n')
+    umbenennen = quelle.index('mv "$EMU/$dir.neu" "$EMU/$dir"')
+    assert schieben < umbenennen, (
+        "die Umbenennung steht VOR dem Generationenschub — der wuerde sie wieder "
+        "wegraeumen")
+
+
+def test_every_emulator_is_launched_with_appdir_and_appimage():
+    """Entpackte AppImages bekommen APPDIR und APPIMAGE. (#440/#314)
+
+    WARUM: `linuxdeploy` erzeugt bei manchen Emulatoren ein `AppRun.wrapped`, das das
+    Programm nur startet, wenn `$APPIMAGE` gesetzt ist:
+
+        if [ "${APPIMAGE}" != "" ]; then "${APPDIR}/usr/bin/Vita3K" $@ ; fi
+
+    Beim entpackten Baum ist sie leer — der Zweig wird uebersprungen und der Prozess endet
+    mit **Exit 0 und ohne jede Ausgabe**. Am Host nachgestellt: `stdout 0 Bytes, stderr 0
+    Bytes`. Mit gesetzten Variablen startet Vita3K normal und meldet seine Version.
+
+    Betroffen sind vita3k, cemu und rpcs3 — gesetzt wird es aber fuer ALLE. Vier
+    Sonderfaelle waeren die Sorte Wissen, die beim naechsten neuen Emulator fehlt, und
+    `APPDIR` auf den entpackten Baum zu zeigen ist ohnehin richtig.
+
+    EN: some extracted AppImages exit 0 with no output unless $APPIMAGE is set. Applied to
+    every emulator rather than to the three known ones.
+    """
+    quelle = open(os.path.join(REPO, "contrib", "streaming-host", "init", "30-agent"),
+                  encoding="utf-8").read()
+    assert "apprun()" in quelle, "der Helfer, der APPDIR/APPIMAGE setzt, fehlt"
+    assert "APPDIR=" in quelle and "APPIMAGE=" in quelle
+
+    zeilen = [z for z in quelle.splitlines()
+              if re.match(r'\[ -x "\$EMU/[a-z0-9]+/AppRun" \]', z.strip())]
+    assert len(zeilen) >= 10, f"nur {len(zeilen)} Startzeilen gefunden — Muster kaputt?"
+    roh = [z for z in zeilen if "$(apprun " not in z]
+    assert not roh, (
+        "diese Emulatoren werden ohne APPDIR/APPIMAGE gestartet und koennen deshalb "
+        f"stillschweigend nichts tun: {roh}")
+
+
+def test_the_agent_reports_platforms_that_have_no_emulator(appmod):
+    """Was FEHLT, wird genannt — nicht nur, was da ist. (#440)
+
+    DER TEURE ZUSTAND WAR NICHT DER FEHLER, SONDERN SEINE UNSICHTBARKEIT. `/status` nannte
+    seit jeher nur die vorhandenen Plattformen. Als `ps2` und `ps3` verschwanden, sah das
+    aus wie „war nie da" — Romseerr antwortete `not_supported`, der Knopf fehlte, und kein
+    Protokolleintrag sagte, dass hier etwas abhanden gekommen ist.
+
+    Ein Fehlen ist dabei kein Alarm: Wer keinen PS2-Emulator installiert, soll nichts Rotes
+    sehen. Die Auskunft ist eine Tatsache, die den Unterschied zwischen „nicht eingerichtet"
+    und „verschwunden" ueberhaupt erst sichtbar macht.
+
+    EN: the expensive part was not the fault but its invisibility. Reported as a fact, not
+    an alarm.
+    """
+    import importlib.util
+    pfad = os.path.join(REPO, "contrib", "streaming-host", "stream-agent.py")
+    os.environ["STREAM_AGENT_TOKEN"] = "testtoken"
+    os.environ["STREAM_ROMS"] = appmod.ROMS
+    os.environ["EMU_PS2"] = ""                       # nicht eingerichtet
+    os.environ["EMU_PSX"] = "/gibt/es/nicht/AppRun -batch %s"   # eingerichtet, aber weg
+    spec = importlib.util.spec_from_file_location("stream_agent_440", pfad)
+    agent = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(agent)
+    try:
+        fehlt = agent.fehlende_plattformen()
+        assert "ps2" in fehlt, "eine Plattform ohne Startbefehl wird nicht gemeldet"
+        assert "psx" in fehlt, (
+            "eine Plattform, deren AppRun verschwunden ist, wird nicht gemeldet — genau "
+            "der Fall, der ps2 und ps3 einen Tag lang unsichtbar gemacht hat")
+        assert "platforms_missing" in open(pfad, encoding="utf-8").read(), \
+            "die Auskunft steht nicht in /status"
+    finally:
+        os.environ.pop("EMU_PSX", None)
