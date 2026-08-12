@@ -7831,3 +7831,89 @@ def test_a_request_without_a_card_says_so_instead_of_opening_nothing(appmod):
     assert "if(!treffer)" in rumpf, "der Fall ohne Treffer wird nicht behandelt"
     assert i < js.index("openDetail(treffer)"), "openDetail wird ausserhalb gerufen"
     assert i18n_hat("job_no_card") == 5, "der Text fehlt in mindestens einer Sprache"
+
+
+# --- #391: ein entpacktes Spiel ist EIN Titel, kein Haufen Dateien -------------------
+
+def test_an_unpacked_wii_u_game_is_recognised_as_one_title(appmod, tmp_path):
+    """`code`+`content`+`meta` macht einen Ordner zu einem Wii-U-Titel. (#391)
+
+    ERKANNT AN DER STRUKTUR, nicht an einer Dateizahl: Ein entpacktes Spiel hat Tausende
+    Dateien, eine Sammlung auch. Was sie unterscheidet, ist der vom Format vorgegebene
+    Aufbau.
+    """
+    spiel = tmp_path / "Mario Kart 8"
+    for teil in ("code", "content", "meta"):
+        (spiel / teil).mkdir(parents=True)
+    (spiel / "code" / "app.rpx").write_bytes(b"x" * 16)
+    assert appmod.spielordner_slug(str(spiel)) == "wiiu"
+
+    # Eine Sammlung mit ebenso vielen Dateien ist KEIN Titel.
+    sammlung = tmp_path / "Best of C64"
+    sammlung.mkdir()
+    for i in range(20):
+        (sammlung / f"Spiel {i}.d64").write_bytes(b"x" * 8)
+    assert appmod.spielordner_slug(str(sammlung)) == ""
+
+
+def test_the_game_folder_moves_as_one_unit_and_its_files_are_not_scattered(appmod, tmp_path, monkeypatch):
+    """Der Ordner wandert als Ganzes, seine Dateien NICHT einzeln. (#391)
+
+    Der gemessene Schaden: „14 Datei(en) -> 14×wiiu · 170 Nicht-ROM uebersprungen". Die 14
+    waren `.bin`-Bruchstuecke aus dem Spielinneren, die 170 das Spiel. Beide Richtungen
+    falsch — Bruchstuecke in der Bibliothek, Titel verworfen.
+    """
+    roms = tmp_path / "roms"; roms.mkdir()
+    staging = tmp_path / "staging"
+    spiel = staging / "Mario Kart 8"
+    for teil in ("code", "content", "meta"):
+        (spiel / teil).mkdir(parents=True)
+    (spiel / "code" / "app.rpx").write_bytes(b"x" * 16)
+    (spiel / "content" / "Course.bin").write_bytes(b"x" * 16)   # das Bruchstueck von damals
+
+    monkeypatch.setattr(appmod, "ROMS", str(roms))
+    monkeypatch.setattr(appmod, "extract_archives", lambda p: None)
+    monkeypatch.setattr(appmod, "build_index", lambda: None)
+    monkeypatch.setattr(appmod, "in_library", lambda ziel, slug: False)
+    gemeldet = {}
+    monkeypatch.setattr(appmod, "set_state", lambda jid, **kw: gemeldet.update(kw))
+    monkeypatch.setattr(appmod, "get_job", lambda jid: {"id": "1", "platform": "wiiu", "title": "T"})
+    for name in ("romm_scan", "notify_all", "count_import", "save_jobs"):
+        if hasattr(appmod, name):
+            monkeypatch.setattr(appmod, name, lambda *a, **k: None)
+
+    appmod.import_folder("1", str(staging))
+
+    ziel = roms / "wiiu" / "Mario Kart 8"
+    assert ziel.is_dir(), f"der Spielordner kam nicht an: {list((roms).rglob('*'))[:6]}"
+    assert (ziel / "code" / "app.rpx").is_file(), "die ausfuehrbare Datei fehlt"
+    # Und das Entscheidende: KEINE losen Bruchstuecke daneben.
+    lose = [p.name for p in (roms / "wiiu").iterdir() if p.is_file()]
+    assert not lose, f"Bruchstuecke einzeln einsortiert: {lose}"
+
+
+def test_a_ps3_disc_folder_is_also_one_title(appmod, tmp_path):
+    """PS3 wird ebenso erkannt — an `PS3_GAME`. (#391)
+
+    Romseerr behandelt eine PS3-Disc beim STREAMEN laengst als Ordner (#276); beim IMPORT
+    war sie ein Haufen Dateien. Dieselbe Sache, zwei Antworten.
+    """
+    disc = tmp_path / "Titel"
+    (disc / "PS3_GAME" / "USRDIR").mkdir(parents=True)
+    (disc / "PS3_GAME" / "USRDIR" / "EBOOT.BIN").write_bytes(b"x" * 8)
+    assert appmod.spielordner_slug(str(disc)) == "ps3"
+
+
+def test_a_game_folder_inside_a_wrapper_is_still_found(appmod, tmp_path):
+    """Auch eine Ebene tiefer wird der Titel gefunden. (#391)
+
+    Archive entpacken sich oft in einen Zwischenordner. Zwei Ebenen genuegen — tiefer zu
+    suchen hiesse, in den Spielinhalt hineinzulaufen: `content/` hat selbst Unterordner,
+    und einer davon koennte zufaellig `meta` heissen.
+    """
+    tief = tmp_path / "Mario Kart 8 (EUR)" / "Mario Kart 8"
+    for teil in ("code", "content", "meta"):
+        (tief / teil).mkdir(parents=True)
+    gefunden = appmod.spielordner_finden(str(tmp_path))
+    assert [s for _p, s in gefunden] == ["wiiu"], gefunden
+    assert gefunden[0][0].endswith("Mario Kart 8")
