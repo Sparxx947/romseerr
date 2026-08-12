@@ -7952,3 +7952,123 @@ def test_the_ambiguous_home_computer_formats_stay_unmapped(appmod):
     assert appmod.EXT2PLAT.get("prg") == "c64"
     assert appmod.EXT2PLAT.get("z80") == "zxs"
     assert appmod.EXT2PLAT.get("a52") == "atari5200"
+
+
+# --- #396: Massenimport aus dem Einwurfordner ----------------------------------------
+
+def test_a_file_still_being_copied_is_not_imported(appmod, tmp_path, monkeypatch):
+    """Erst wenn Groesse UND Aenderungszeit gleich bleiben, wird angefasst. (#396)
+
+    WARUM ZWEI DURCHLAEUFE statt einer Wartezeit: Ueber SMB dauert eine 5-GB-Kopie
+    Minuten. Eine einzelne Pruefung muesste in der Schleife schlafen — entweder zu kurz,
+    um wahr zu sein, oder sie blockiert alles andere.
+
+    Ein halb kopiertes Abbild zu importieren waere der teuerste Fehler dieses Zweigs: Es
+    laege als Titel in der Bibliothek und startete nie.
+    """
+    f = tmp_path / "Spiel.sfc"
+    f.write_bytes(b"x" * 100)
+    appmod._EINWURF_GESEHEN.clear()
+
+    assert appmod.einwurf_stabil(str(f)) is False, "beim ERSTEN Sehen ist nichts stabil"
+    assert appmod.einwurf_stabil(str(f)) is True, "unveraendert beim zweiten Mal -> stabil"
+
+    f.write_bytes(b"x" * 200)          # waechst weiter
+    os.utime(str(f), (time.time(), time.time()))
+    assert appmod.einwurf_stabil(str(f)) is False, "gewachsen -> nicht stabil"
+
+
+def test_an_ambiguous_extension_is_left_lying_with_a_reason(appmod, tmp_path, monkeypatch):
+    """Was sich nicht bestimmen laesst, bleibt liegen — mit Grund. (#396)
+
+    Ein Download traegt seinen Plattform-Hinweis aus dem Auftrag; eine in den Share gelegte
+    Datei traegt nichts. 25 der 82 anerkannten Endungen sind mehrdeutig. Sie zu raten waere
+    genau der Fehler, den die Bibliothekswerkzeuge vermeiden: Der Titel laege unter der
+    falschen Konsole und fiele niemandem auf.
+    """
+    monkeypatch.setattr(appmod, "IMPORT_SHARE", str(tmp_path))
+    slug, grund = appmod.einwurf_ziel(str(tmp_path / "Irgendwas.bin"), "Irgendwas.bin")
+    assert slug == "", f".bin wurde geraten: {slug}"
+    assert "mehrdeutig" in grund
+
+    slug, grund = appmod.einwurf_ziel(str(tmp_path / "Spiel.sfc"), "Spiel.sfc")
+    assert slug == "snes" and ".sfc" in grund
+
+
+def test_the_folder_name_can_decide_what_the_extension_cannot(appmod, tmp_path, monkeypatch):
+    """Liegt die Datei in einem Plattformordner, entscheidet der. (#396)
+
+    Das ist der Unterschied zwischen „gar nichts geht" und „das Meiste geht": Wer seine
+    Dateien schon nach Systemen sortiert hineinlegt, soll nicht am mehrdeutigen `.bin`
+    scheitern.
+    """
+    monkeypatch.setattr(appmod, "IMPORT_SHARE", str(tmp_path))
+    (tmp_path / "snes").mkdir()
+    slug, grund = appmod.einwurf_ziel(str(tmp_path / "snes" / "Spiel.bin"), "Spiel.bin")
+    assert slug == "snes", f"Ordnername ignoriert: {slug} ({grund})"
+
+
+def test_the_move_copies_first_and_deletes_only_after(appmod, tmp_path, monkeypatch):
+    """Erst kopieren und pruefen, DANN loeschen. (#396)
+
+    Einwurfordner und Bibliothek liegen auf verschiedenen Dateisystemen — hier
+    cache-nvme gegen Array. `os.rename` scheitert dort, und ein abgebrochenes Verschieben
+    hinterliesse eine halbe Datei, die wie ein Titel aussieht.
+    """
+    share = tmp_path / "import"; share.mkdir()
+    roms = tmp_path / "roms"; roms.mkdir()
+    quelle = share / "Spiel.sfc"
+    quelle.write_bytes(b"x" * 64)
+    monkeypatch.setattr(appmod, "ROMS", str(roms))
+
+    assert appmod.einwurf_verschieben(str(quelle), "snes") is True
+    ziel = roms / "snes" / "Spiel.sfc"
+    assert ziel.is_file() and ziel.stat().st_size == 64
+    assert not quelle.exists(), "die Quelle blieb liegen"
+    assert not list((roms / "snes").glob("*.teil")), "ein Zwischenstand blieb liegen"
+
+
+def test_an_existing_title_is_not_overwritten(appmod, tmp_path, monkeypatch):
+    """Liegt der Titel schon da, bleibt die Quelle liegen. (#396)
+
+    Nichts wird geloescht, was nicht angekommen ist — und nichts ueberschrieben, was
+    schon da war. Der Nutzer sieht die Datei weiterhin im Einwurfordner und kann
+    entscheiden.
+    """
+    share = tmp_path / "import"; share.mkdir()
+    roms = tmp_path / "roms"; (roms / "snes").mkdir(parents=True)
+    (roms / "snes" / "Spiel.sfc").write_bytes(b"alt")
+    quelle = share / "Spiel.sfc"; quelle.write_bytes(b"neu")
+    monkeypatch.setattr(appmod, "ROMS", str(roms))
+
+    assert appmod.einwurf_verschieben(str(quelle), "snes") is False
+    assert quelle.exists(), "die Quelle wurde entfernt, obwohl nichts ankam"
+    assert (roms / "snes" / "Spiel.sfc").read_bytes() == b"alt", "der Titel wurde ueberschrieben"
+
+
+def test_a_truncated_copy_does_not_delete_the_source(appmod, tmp_path, monkeypatch):
+    """Bricht die Kopie ab, bleibt die Quelle liegen. (#396)
+
+    WARUM DAS EIGENS GEPRUEFT WIRD: Die Gegenprobe zum Groessenvergleich schlug zuerst
+    NICHT an — im Test gelingt jede Kopie, also aendert das Entfernen der Pruefung nichts
+    Sichtbares. Eine Zusicherung, die nur den Gutfall kennt, sichert nichts zu.
+
+    Hier wird der Abbruch nachgestellt: Die Kopie schreibt weniger, als sie soll. Ohne den
+    Vergleich waere die Quelle danach GELOESCHT und in der Bibliothek laege ein
+    abgeschnittener Titel — der Fehler, der sich nicht mehr einfangen laesst.
+    """
+    import shutil
+    share = tmp_path / "import"; share.mkdir()
+    roms = tmp_path / "roms"; roms.mkdir()
+    quelle = share / "Spiel.sfc"; quelle.write_bytes(b"x" * 1000)
+    monkeypatch.setattr(appmod, "ROMS", str(roms))
+
+    def halbe_kopie(src, dst, *a, **k):
+        with open(src, "rb") as f, open(dst, "wb") as g:
+            g.write(f.read(400))          # abgebrochen
+    monkeypatch.setattr(shutil, "copyfile", halbe_kopie)
+
+    assert appmod.einwurf_verschieben(str(quelle), "snes") is False
+    assert quelle.exists(), "die Quelle wurde geloescht, obwohl die Kopie unvollstaendig war"
+    assert not (roms / "snes" / "Spiel.sfc").exists(), "ein abgeschnittener Titel blieb liegen"
+    assert not list((roms / "snes").glob("*.teil")), "der Zwischenstand blieb liegen"

@@ -136,6 +136,12 @@ JD_WATCH     = "/jd-watch"
 JD_OUT_ROOT  = "/jd-output"                  # Mountpunkt, unter dem Romseerr JDownloaders Ausgabe sieht
 JD_OUT       = JD_OUT_ROOT + "/romseerr"     # Rückfall, wenn sich aus JD_DL_BASE nichts ableiten lässt
 JD_DL_BASE   = os.environ.get("JD_DL_BASE","/output/romseerr")  # Sicht des JD-Containers
+# Einwurfordner fuer den Massenimport (#396). Wer Dateien per SMB hineinlegt, bekommt sie
+# ohne Klick in die Bibliothek — soweit ihre Plattform bestimmbar ist.
+#
+# WARUM UEBERSCHREIBBAR: Wie ROMS. Ohne das laesst sich der Scanner nicht testen, und ein
+# Test, der den echten Einwurfordner braucht, wird nicht geschrieben.
+IMPORT_SHARE = os.environ.get("ROMSEERR_IMPORT", "/import")
 STAGING    = os.path.join(CONFIG_DIR, "staging")
 JOBDB      = os.path.join(CONFIG_DIR, "jobs.json")
 LOGFILE    = os.path.join(CONFIG_DIR, "romseerr.log")
@@ -5420,6 +5426,34 @@ def api_admin_cache_clear():
     log("Cache geleert (Admin)")
     return jsonify({"ok": True})
 
+@app.route("/api/import/status")
+@login_required
+def api_import_status():
+    """Was im Einwurfordner liegt und was damit passieren wird. (#396)
+
+    Ein Trockenlauf: Er verschiebt nichts, er sagt nur, was einsortierbar ist und was
+    nicht — mit Grund. Ohne diese Ansicht waere der Ordner eine Blackbox, in der Dateien
+    verschwinden oder eben nicht, und niemand wuesste warum.
+    """
+    if not os.path.isdir(IMPORT_SHARE):
+        return jsonify({"aktiv": False, "pfad": IMPORT_SHARE,
+                        "msg": "Einwurfordner nicht eingehängt / import share not mounted"})
+    bereit, offen = einwurf_scannen(trocken=True)
+    return jsonify({"aktiv": True, "pfad": IMPORT_SHARE, "takt_sek": EINWURF_TAKT,
+                    "bereit": bereit[:200], "offen": offen[:200],
+                    "bereit_gesamt": len(bereit), "offen_gesamt": len(offen)})
+
+
+@app.route("/api/import/scan", methods=["POST"])
+@admin_required
+def api_import_scan():
+    """Sofort einlesen, statt auf den naechsten Takt zu warten. (#396)"""
+    fertig, offen = einwurf_scannen()
+    if fertig:
+        threading.Thread(target=build_index, daemon=True).start()
+    return jsonify({"ok": True, "eingeordnet": len(fertig), "offen": len(offen)})
+
+
 @app.route("/api/admin/reindex", methods=["POST"])
 @admin_required
 def api_admin_reindex():
@@ -6846,6 +6880,11 @@ OPENAPI = {
             responses={**_R_PERM, "200": {"description": "OK"}})},
         "/api/admin/cache/clear": {"post": _op("IGDB-/Discover-Cache leeren", "Admin",
             responses={**_R_PERM, "200": {"description": "OK"}})},
+        "/api/import/status": {"get": _op(
+            "Stand des Einwurfordners — was einsortierbar ist und was nicht", "Import")},
+        "/api/import/scan": {"post": _op(
+            "Einwurfordner sofort einlesen (Admin)", "Import",
+            responses={**_R_PERM, "200": {"description": "OK"}})},
         "/api/admin/reindex": {"post": _op("Bibliotheks-Index neu aufbauen (Hintergrund)", "Admin",
             responses={**_R_PERM, "200": {"description": "OK"}})},
         "/api/apikey": {"get": _op("API-Key anzeigen", "Admin",
@@ -6964,6 +7003,143 @@ def periodic_index():
     while True:
         time.sleep(600); beat("index"); build_index()
 
+# --- Massenimport aus dem Einwurfordner (#396) --------------------------------------
+#
+# Der Zustand je Datei steht im RAM: Groesse und Aenderungszeit beim letzten Durchlauf.
+# Er muss keinen Neustart ueberleben — nach einem Neustart wird eben einmal mehr gewartet,
+# und das ist billiger als eine Datei, die halb kopiert importiert wird.
+_EINWURF_GESEHEN = {}
+EINWURF_TAKT = int(os.environ.get("IMPORT_SCAN_SEC", "300"))
+
+
+def einwurf_stabil(pfad):
+    """-> True, wenn Groesse UND Aenderungszeit seit dem letzten Durchlauf gleich sind.
+
+    WARUM ZWEI DURCHLAEUFE statt einer Wartezeit: Ueber SMB dauert eine 5-GB-Kopie
+    Minuten. Eine einzelne Pruefung muesste in der Schleife schlafen — entweder zu kurz,
+    um wahr zu sein, oder sie blockiert alles andere. Zwei Durchlaeufe im Abstand des
+    Taktes beantworten dieselbe Frage, ohne zu warten.
+
+    Two passes rather than a sleep: an SMB copy takes minutes, and a single check would
+    either be too short to be true or would block the loop.
+    """
+    try:
+        st = os.stat(pfad)
+    except OSError:
+        _EINWURF_GESEHEN.pop(pfad, None)
+        return False
+    jetzt = (st.st_size, int(st.st_mtime))
+    vorher = _EINWURF_GESEHEN.get(pfad)
+    _EINWURF_GESEHEN[pfad] = jetzt
+    return vorher == jetzt and st.st_size > 0
+
+
+def einwurf_ziel(pfad, name):
+    """-> (slug, grund). Leerer Slug heisst: liegen lassen und sagen warum.
+
+    NICHT RATEN. Ein Download traegt seinen Plattform-Hinweis aus dem Auftrag; eine in den
+    Share gelegte Datei traegt nichts. 25 der 82 anerkannten Endungen sind mehrdeutig —
+    `.bin`, `.iso`, `.chd` liegen je auf einem Dutzend Systemen. Was sich nicht bestimmen
+    laesst, bleibt sichtbar liegen, statt unter der falschen Konsole zu verschwinden.
+    """
+    ext, ziel = rom_endung(name)
+    if not ext:
+        return "", "kein ROM-Format"
+    slug = EXT2PLAT.get(ext)
+    if slug:
+        return slug, f"Endung .{ext}"
+    # Zweiter Weg: der Ordner, in dem die Datei liegt, kann die Plattform nennen.
+    ordner = os.path.basename(os.path.dirname(pfad)).lower()
+    if ordner and ordner != os.path.basename(IMPORT_SHARE).lower():
+        aus_ordner = resolve_slug(FOLDER_ALIASES.get(ordner, ordner))
+        if aus_ordner and aus_ordner in {v for v in EXT2PLAT.values()} | set(STREAMABLE):
+            return aus_ordner, f"Ordner {ordner!r}"
+    # Dritter Weg: der Titel selbst.
+    aus_titel = guess_platform(name)
+    if aus_titel:
+        return aus_titel, "Titel"
+    return "", f".{ext} ist mehrdeutig — Plattform nicht bestimmbar"
+
+
+def einwurf_scannen(trocken=False):
+    """Einen Durchlauf ueber den Einwurfordner. -> (eingeordnet, offen)."""
+    if not os.path.isdir(IMPORT_SHARE):
+        return [], []
+    eingeordnet, offen = [], []
+    for wurzel, dirs, dateien in os.walk(IMPORT_SHARE):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for fn in dateien:
+            if SKIP_FILES.search(fn) or fn.startswith("."):
+                continue
+            quelle = os.path.join(wurzel, fn)
+            slug, grund = einwurf_ziel(quelle, fn)
+            if not slug:
+                offen.append({"datei": os.path.relpath(quelle, IMPORT_SHARE),
+                              "grund": grund})
+                continue
+            if not einwurf_stabil(quelle):
+                offen.append({"datei": os.path.relpath(quelle, IMPORT_SHARE),
+                              "grund": "wird noch kopiert"})
+                continue
+            eingeordnet.append({"datei": os.path.relpath(quelle, IMPORT_SHARE),
+                                "quelle": quelle, "slug": slug, "grund": grund})
+    if trocken:
+        return eingeordnet, offen
+    fertig = []
+    for e in eingeordnet:
+        if einwurf_verschieben(e["quelle"], e["slug"]):
+            fertig.append(e)
+    return fertig, offen
+
+
+def einwurf_verschieben(quelle, slug):
+    """Datei in die Bibliothek verschieben. Erst kopieren, pruefen, DANN loeschen.
+
+    Einwurfordner und Bibliothek liegen auf verschiedenen Dateisystemen — `os.rename`
+    scheitert dort, und ein abgebrochenes Verschieben hinterliesse eine halbe Datei, die
+    wie ein Titel aussieht. Deshalb: nach `.teil` kopieren, Groesse vergleichen, im Ziel
+    umbenennen, und erst danach die Quelle entfernen.
+    """
+    name = os.path.basename(quelle)
+    ziel_ordner = os.path.join(ROMS, slug)
+    try:
+        os.makedirs(ziel_ordner, exist_ok=True)
+        endgueltig = os.path.join(ziel_ordner, name)
+        if os.path.exists(endgueltig):
+            log(f"Einwurf: {name!r} liegt schon unter {slug}/ — Quelle bleibt")
+            return False
+        teil = endgueltig + ".teil"
+        import shutil
+        shutil.copyfile(quelle, teil)
+        if os.path.getsize(teil) != os.path.getsize(quelle):
+            os.remove(teil)
+            raise OSError("Groesse nach dem Kopieren verschieden")
+        os.replace(teil, endgueltig)
+        os.remove(quelle)
+        _EINWURF_GESEHEN.pop(quelle, None)
+        log(f"Einwurf: {name!r} -> {slug}/")
+        return True
+    except Exception as e:
+        log(f"Einwurf-Fehler {name!r}: {e}")
+        return False
+
+
+def periodic_einwurf():
+    """Hintergrundlauf. EIGENE Schleife, nicht an den Index gehaengt.
+
+    Der Index laeuft ueber 127.000 Titel; darauf sollte kein Einwurf warten muessen.
+    """
+    while True:
+        time.sleep(EINWURF_TAKT)
+        try:
+            beat("einwurf")
+            fertig, _offen = einwurf_scannen()
+            if fertig:
+                build_index()
+        except Exception as e:
+            log(f"Einwurf-Lauf-Fehler: {e}")
+
+
 def check_config():
     """Beim Start einmal prüfen und WARNEN (nicht fatal), wenn optionale Dienste fehlen oder
     nicht erreichbar sind — spart Rätselraten, warum z. B. keine Cover oder kein Usenet da sind.
@@ -7043,6 +7219,7 @@ if __name__ == "__main__":
     threading.Thread(target=worker_download, daemon=True).start()
     threading.Thread(target=worker_collect, daemon=True).start()
     threading.Thread(target=periodic_index, daemon=True).start()
+    threading.Thread(target=periodic_einwurf, daemon=True).start()
     threading.Thread(target=check_config, daemon=True).start()
     threading.Thread(target=worker_wishlist, daemon=True).start()
     threading.Thread(target=worker_catalog, daemon=True).start()

@@ -248,6 +248,18 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   verschwindet das Schloss an gesperrten Treffern — sie sind dann ja ladbar. **Ohne**
   Schlüssel wird ein gesperrter Titel gar nicht erst eingereiht, sondern sofort mit Grund
   abgelehnt.
+- 📥 **Massenimport aus einem Einwurfordner.** Dateien per SMB in den Share legen —
+  Romseerr sieht alle 5 Minuten nach und sortiert ein, was sich bestimmen lässt. Eine Datei
+  wird erst angefasst, wenn Größe **und** Änderungszeit seit dem letzten Durchlauf gleich
+  geblieben sind: Über SMB dauert eine 5-GB-Kopie Minuten, und ein halb kopiertes Abbild
+  läge sonst als Titel in der Bibliothek und startete nie.
+  Was sich **nicht** bestimmen lässt, bleibt liegen — mit Grund. 25 der 82 anerkannten
+  Endungen sind mehrdeutig; ein Download bringt seinen Plattform-Hinweis aus der Anfrage
+  mit, eine hineingelegte Datei bringt nichts mit. Der Ordnername darf entscheiden, wo die
+  Endung es nicht kann. Stand und Gründe stehen unter `/api/import/status`.
+  Verschoben wird über **Kopieren, Prüfen, dann Löschen**: Einwurfordner und Bibliothek
+  liegen auf verschiedenen Dateisystemen, und nichts wird gelöscht, was nicht angekommen
+  ist.
 - ⌨️ **Heimcomputer-Formate werden importiert.** `.prg`, `.tap`, `.crt`, `.g64`, `.z80`,
   `.tzx`, `.cdt`, `.adz`, `.a52` und weitere — 16 Formate fehlten in der Endungsliste, und
   damit konnte über Romseerr für C64, VIC-20, ZX Spectrum, CPC, Amiga und Atari 5200
