@@ -87,7 +87,15 @@ KATALOG=(
   # Mindestgroesse: die echte Firmware ist gut 130 MB, eine verirrte kleine .PUP nicht.
   # Sony's file is PSVUPDAT.PUP; the name here was simply wrong, and real downloads
   # carry a prefix.
-  "psvita|PlayStation Vita|vita3k|firmware/psvita|*PSVUPDAT.PUP=>100000000|https://github.com/Vita3K/Vita3K|"
+  # ABLAGE NICHT LEER LASSEN (#479): Eine PUP ist ein UPDATE-PAKET — sie muss in den
+  # Emulator eingespielt werden und wird nie an Ort und Stelle benutzt. Ohne Ablage
+  # greift im Status der Zweig "Ohne Ablage ist die Frage gegenstandslos (true)", und
+  # er meldet GRUEN, obwohl Vita3Ks `vs0`, `os0` und `sa0` LEER waren: 133 MB
+  # bereitgelegt, null eingespielt. Aufgefallen erst beim Startversuch, an Vita3Ks
+  # "Welcome"-Fenster — der Dialog war die richtige Meldung, nicht das Problem.
+  # EN: a PUP is an update package, never used in place. Without an Ablage the status
+  # reports green for firmware the emulator does not have.
+  "psvita|PlayStation Vita|vita3k|firmware/psvita|*PSVUPDAT.PUP=>100000000|https://github.com/Vita3K/Vita3K|.local/share/Vita3K/Vita3K/vs0"
 )
 # Dolphin (GameCube/Wii) fehlt bewusst: es braucht keine Firmware, um zu starten.
 # Dolphin is deliberately absent; it needs no firmware to run.

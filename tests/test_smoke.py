@@ -9444,3 +9444,41 @@ def test_an_incomplete_set_folder_is_not_one_title(appmod):
     with open(os.path.join(ordner, "Unvollstaendig.gdi"), "w") as f:
         f.write("1\n1 0 4 2352 track01.bin 0\n")
     assert appmod.ist_titel_ordner(ordner) is False
+
+
+def test_every_pup_entry_declares_where_it_ends_up():
+    """Wer eine `.PUP` erwartet, MUSS eine Ablage angeben. (#479)
+
+    EINE REGEL STATT EINES EINZELFALLS. Eine PUP ist ein Update-Paket: Sie wird in den
+    Emulator eingespielt und nie an Ort und Stelle benutzt. Fehlt die Ablage, greift im
+    Skript der Zweig
+
+        # Eingespielt? Ohne Ablage im Katalog ist die Frage gegenstandslos (true).
+
+    und der Status meldet GRUEN fuer eine Firmware, die der Emulator gar nicht hat. Genau
+    so stand `psvita` monatelang auf `installed: true`, waehrend Vita3Ks `vs0`, `os0` und
+    `sa0` LEER waren — 133 MB bereitgelegt, null eingespielt. Aufgefallen erst beim
+    Startversuch, an Vita3Ks „Welcome"-Fenster.
+
+    Fuer psx, ps2, dreamcast, xbox, 3ds, switch und wiiu ist die Vorgabe richtig: Dort IST
+    die Firmware die Datei im Verzeichnis, es gibt keinen zweiten Schritt. Deshalb haengt
+    diese Pruefung an der PUP und nicht an einer Plattformliste — die naechste Plattform
+    mit Update-Paket ist damit von selbst mitgeprueft.
+    """
+    pfad = os.path.join(REPO, "contrib/streaming-host/init/25-firmware")
+    text = open(pfad, encoding="utf-8").read()
+    tabelle = re.search(r"KATALOG=\((.*?)\n\)", text, re.S).group(1)
+    ohne = []
+    for zeile in tabelle.strip().splitlines():
+        zeile = zeile.strip()
+        if not zeile.startswith('"'):
+            continue
+        felder = zeile.strip('"').split("|")
+        if len(felder) < 5 or ".PUP" not in felder[4].upper():
+            continue
+        ablage = felder[6] if len(felder) > 6 else ""
+        if not ablage.strip():
+            ohne.append(felder[0])
+    assert not ohne, (
+        f"diese Eintraege erwarten eine .PUP ohne Ablage: {ohne} — ihr Status meldet "
+        "'eingespielt', ohne das je geprueft zu haben")
