@@ -2863,6 +2863,51 @@ def test_flycast_is_launched_in_fullscreen_with_the_right_config_syntax():
         f"`config:pvr.rend=` ist die wirksame Form: {zeile}")
 
 
+def test_scorecard_skips_a_wrong_branch_instead_of_failing(appmod):
+    """Ein Aufruf auf dem falschen Zweig endet gruen, und auf dem richtigen misst er. (#470)
+
+    VORGESCHICHTE: `ossf/scorecard-action` weist jeden anderen Zweig als den Standardzweig
+    ab. Der `push`-Ausloeser wurde deshalb entfernt (#369) — `workflow_dispatch` riss
+    dasselbe Loch von der anderen Seite auf. Ein `gh workflow run --ref dev` liess den
+    Workflow auf ROT stehen, bis zum naechsten Wochenlauf, ohne dass jemand etwas tun
+    konnte.
+
+    ZWEI RICHTUNGEN, und die zweite ist die wichtigere: Ein Waechter, der IMMER
+    ueberspringt, waere gruen und wuerde NIE messen — genau die Sorte Stille, die aus
+    „nicht geprueft" ein „in Ordnung" macht. Deshalb wird hier auch geprueft, dass der
+    Sonst-Zweig auf `nein` setzt und der Vergleich gegen den ECHTEN Standardzweig laeuft
+    statt gegen einen fest eingetippten Namen.
+    """
+    import yaml
+    pfad = os.path.join(REPO, ".github/workflows/scorecard.yml")
+    text = open(pfad, encoding="utf-8").read()
+    schritte = yaml.safe_load(text)["jobs"]["analysis"]["steps"]
+
+    waechter = schritte[0]
+    assert waechter.get("id"), "der erste Schritt traegt keine id — auf die sich `if` beruft"
+    kennung = waechter["id"]
+
+    ohne = [x.get("name") or x.get("uses", "?") for x in schritte[1:] if "if" not in x]
+    assert not ohne, (
+        f"diese Schritte laufen auch auf dem falschen Zweig und faerben ihn rot: {ohne}")
+    for x in schritte[1:]:
+        assert kennung in x["if"], f"die Bedingung beruft sich nicht auf {kennung}: {x['if']}"
+
+    lauf = waechter.get("run", "")
+    # AUF DIE VERGLEICHSZEILE PRUEFEN, nicht auf das Vorkommen irgendwo. Erste Fassung
+    # dieses Tests suchte den Ausdruck im ganzen Skript — und fand ihn in der MELDUNG
+    # darunter, waehrend der Vergleich selbst bereits auf `"main"` festgenagelt war. Die
+    # Sabotage lief gruen durch. (#470)
+    vergleich = [z for z in lauf.splitlines() if "github.ref_name" in z]
+    assert vergleich, "es gibt keine Zeile, die den Zweig vergleicht"
+    assert "github.event.repository.default_branch" in vergleich[0], (
+        "der Standardzweig ist im VERGLEICH fest eingetippt statt abgefragt — beim "
+        f"Umbenennen wuerde der Workflow lautlos alles ueberspringen: {vergleich[0].strip()}")
+    assert "=nein" in lauf, (
+        "der Sonst-Zweig setzt nichts — dann uebersprigne der Waechter IMMER, und der "
+        "Workflow waere gruen, ohne je zu messen")
+
+
 def test_stream_size_and_framerate_are_configured_not_left_to_the_browser():
     """Ohne feste Werte richtet sich der Stream nach dem Browserfenster — hier waren
     das 3828x1902 bei 60 fps, und Bildschirmaufnahme samt Farbkonvertierung kosteten
