@@ -7803,3 +7803,31 @@ def test_the_remaining_write_endpoints_refuse_an_anonymous_caller(appmod):
             durchgelassen.append(f"{methode} {ziel} -> {r.status_code}")
     assert not durchgelassen, ("diese schreibenden Endpunkte antworten einem "
                               "Unangemeldeten: " + ", ".join(durchgelassen))
+
+
+def test_a_request_row_links_to_the_title(appmod):
+    """Die Anfragezeile ist klickbar und fuehrt zur Karte. (#390)
+
+    Vorher war der Titel reiner Text: Nur die Knoepfe rechts reagierten, der Titel selbst
+    war tot. Wer wissen wollte, worum es geht, musste ihn von Hand in die Suche tippen.
+    """
+    js = open(os.path.join(REPO, "static", "js", "index.js"), encoding="utf-8").read()
+    assert "openJobDetail" in js, "es gibt keine Verknuepfung von der Anfrage zur Karte"
+    assert "class=jobt" in js, "der Titel der Anfragezeile ist nicht ausgezeichnet"
+    assert "jt.onclick" in js, "der Titel reagiert auf keinen Klick"
+
+
+def test_a_request_without_a_card_says_so_instead_of_opening_nothing(appmod):
+    """Findet die Suche nichts, wird eine Meldung gezeigt — kein leeres Fenster. (#390)
+
+    Der wahrscheinlichste Klick ist der auf eine FEHLGESCHLAGENE Anfrage, und genau die
+    kann unauffindbar sein: Der Download scheiterte, der Titel kam nie in die Bibliothek.
+    Ein leeres Detailfenster waere schlechter als gar keine Reaktion.
+    """
+    js = open(os.path.join(REPO, "static", "js", "index.js"), encoding="utf-8").read()
+    i = js.index("async function openJobDetail")
+    rumpf = js[i:i + 1400]
+    assert "job_no_card" in rumpf, "kein Text fuer den Fall ohne Treffer"
+    assert "if(!treffer)" in rumpf, "der Fall ohne Treffer wird nicht behandelt"
+    assert i < js.index("openDetail(treffer)"), "openDetail wird ausserhalb gerufen"
+    assert i18n_hat("job_no_card") == 5, "der Text fehlt in mindestens einer Sprache"
