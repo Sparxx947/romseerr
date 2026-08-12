@@ -1,3 +1,63 @@
-flask>=3.0
-requests>=2.31
-pywebpush>=1.14
+# Laufzeit-Abhängigkeiten, exakt gepinnt — die transitiven eingeschlossen. (#380)
+#
+# WARUM EXAKT: `/api/version` meldet den Commit und `provenance: build`. Der Commit war
+# festgenagelt, die Pakete waren es nicht (`flask>=3.0`, `requests>=2.31`,
+# `pywebpush>=1.14`). Zwei Bauten desselben Commits waren damit zwei verschiedene
+# Programme — gemessen am 2026-08-12: 6 der 27 Pakete im laufenden Image waren in den
+# 30 Tagen davor erschienen, `pywebpush` sechs Tage vorher und über eine
+# Hauptversionsgrenze hinweg (1.x → 2.4.0), die `>=1.14` ausdrücklich erlaubte.
+#
+# WARUM AUCH DIE TRANSITIVEN: Der Dockerfile installiert mit `--no-deps`. Diese Datei IST
+# damit das Image; was hier fehlt, fehlt drinnen — und `pip check` sagt es beim Bau, nicht
+# erst im Betrieb. Vorher standen 3 von 27 Paketen irgendwo geschrieben.
+#
+# WARUM DAS DEPENDABOT BRAUCHT: Mit `>=` gab es für Dependabot nichts hochzuziehen — jeder
+# Bau schwamm ohnehin auf der neuesten Fassung. Die Meldung kam, der Pull Request mit Diff
+# und CI-Lauf kam nicht. Jetzt kommt er.
+#
+# ERNEUERN / regenerate (holt die neuesten Fassungen und schreibt die Hülle neu):
+#
+#   python3 scripts/lock_requirements.py            # schreibt diese Datei
+#   python3 scripts/lock_requirements.py --check    # nur melden, ob etwas neuer ist
+#
+# EN: pinned exactly, transitive closure included, because the Dockerfile installs with
+# `--no-deps` — this file is the image. Regenerate with scripts/lock_requirements.py.
+#
+# Testwerkzeuge stehen bewusst ungepinnt in requirements-dev.txt: ein driftendes
+# Testwerkzeug wird in CI rot und damit sichtbar, eine driftende Laufzeitabhängigkeit
+# fährt still ins Image.
+
+# --- direkt / direct ---
+# Was app.py selbst importiert. Hier von Hand pflegen; alles darunter ist erzeugt.
+# `werkzeug`, `cryptography` und `py-vapid` standen bis #380 nicht hier, obwohl app.py
+# sie importiert — sie kamen als Beifang von Flask bzw. pywebpush mit.
+cryptography==50.0.0
+flask==3.1.3
+py-vapid==1.9.4
+pywebpush==2.4.0
+requests==2.34.2
+werkzeug==3.1.8
+
+# --- transitiv / transitive ---
+# Erzeugt, nicht gepflegt: `python3 scripts/lock_requirements.py`.
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.3
+aiosignal==1.4.0
+attrs==26.1.0
+blinker==1.9.0
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.4.9
+click==8.4.2
+frozenlist==1.8.0
+http-ece==1.2.1
+idna==3.18
+itsdangerous==2.2.0
+jinja2==3.1.6
+markupsafe==3.0.3
+multidict==6.7.1
+propcache==0.5.2
+pycparser==3.0
+typing-extensions==4.16.0
+urllib3==2.7.0
+yarl==1.24.5
