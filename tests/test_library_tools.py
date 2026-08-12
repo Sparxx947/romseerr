@@ -589,3 +589,85 @@ def test_aquarius_is_not_filed_as_intellivision(mix):
     # entfernen brach nichts.
     assert mix.plattform_fuer("Aquarius Cart (1983)(Mattel).bin", 8192) is None
     assert mix.plattform_fuer("Aquarius BASIC ROM (1982)(Microsoft).bin", 8192) is None
+
+
+# --- #412: endungslose PRG-Dateien an ihrer Ladeadresse erkennen ---------------------
+
+@pytest.fixture(scope="module")
+def prg():
+    return _laden(os.path.join(WURZEL, "contrib", "library-tools", "retronas-prg-benennen"),
+                  "retronas_prg_benennen")
+
+
+def _prg_datei(ordner, name, adresse, fuellung=500):
+    import struct
+    p = ordner / name
+    p.write_bytes(struct.pack("<H", adresse) + b"\x00" * fuellung)
+    return p
+
+
+def test_a_commodore_load_address_is_recognised(prg, tmp_path):
+    """Die ersten zwei Bytes sagen, dass es ein PRG ist. (#412)
+
+    Gemessen am echten Bestand: `$2001` ist die VIC-20-BASIC-Startadresse, `$1201` und
+    `$1801` die Varianten mit Speichererweiterung, `$0801` der C64. Von 303 endungslosen
+    Dateien unter `vic-20` tragen 190 eine der ersten fuenf, 29 laden auf `$1000` und
+    14 auf `$0401`.
+    """
+    for adr in (0x0801, 0x1001, 0x1201, 0x1801, 0x2001, 0x0401, 0x1000):
+        p = _prg_datei(tmp_path, f"spiel{adr:04x}", adr)
+        gefunden, _wie = prg.ladeadresse(str(p))
+        assert gefunden == adr, f"${adr:04X} nicht erkannt"
+
+
+def test_a_file_without_a_known_address_is_left_alone(prg, tmp_path):
+    """Was keine bekannte Ladeadresse traegt, bleibt unangetastet. (#412)
+
+    DIE REGEL, DIE HALTEN MUSS: Manche der 4.843 Dateien sind womoeglich wirklich Text.
+    Eine `readme` in `readme.prg` zu verwandeln machte aus einer harmlosen Datei ein
+    kaputtes Spiel — dieselbe Asymmetrie wie ueberall hier: eine falsche Zuordnung kostet
+    mehr als eine ausgelassene.
+
+    Am Bestand gemessen: 70 der 303 tragen Adressen wie `$10f1` oder `$6b24`, die keiner
+    Maschine entsprechen.
+    """
+    (tmp_path / "00readme").write_bytes(b"Dies ist Text.\n")
+    assert prg.ladeadresse(str(tmp_path / "00readme"))[0] is None
+    kaputt = _prg_datei(tmp_path, "kaputt", 0x10F1)
+    assert prg.ladeadresse(str(kaputt))[0] is None
+
+
+def test_the_size_must_fit_the_machine(prg, tmp_path):
+    """Ladeadresse plus Groesse muessen in 64 KB passen. (#412)
+
+    Sonst ist es kein Commodore-Programm — die Maschine hat nicht mehr Adressraum. Das
+    faengt grosse Dateien ab, deren erste zwei Bytes zufaellig stimmen.
+    """
+    klein = _prg_datei(tmp_path, "klein", 0x2001, 500)
+    assert prg.plausibel(str(klein), 0x2001) is True
+    riesig = _prg_datei(tmp_path, "riesig", 0x2001, 200000)
+    assert prg.plausibel(str(riesig), 0x2001) is False
+
+
+def test_renaming_is_reversible(prg, tmp_path):
+    """Jede Umbenennung steht im Protokoll und laesst sich zuruecknehmen. (#412)
+
+    Bei 4.843 Dateien ist das keine Kuer: Ohne Rueckweg waere ein Fehler in der Regel nicht
+    mehr einzufangen.
+    """
+    basis = tmp_path / "vic-20"
+    basis.mkdir()
+    for n, a in (("adressdaten", 0x1801), ("Demo", 0x1201)):
+        _prg_datei(basis, n, a)
+    (basis / "00readme").write_bytes(b"Text\n")
+
+    prot_pfad = str(tmp_path / ".umbau" / "prg-test.jsonl")
+    prot = prg.Protokoll(prot_pfad, False)
+    prg.benennen(str(tmp_path), "vic-20", False, prot)
+    prot.zu()
+
+    assert sorted(p.name for p in basis.iterdir()) == \
+        ["00readme", "Demo.prg", "adressdaten.prg"]
+
+    prg.zurueck(prot_pfad)
+    assert sorted(p.name for p in basis.iterdir()) == ["00readme", "Demo", "adressdaten"]
