@@ -40,6 +40,26 @@ release_asset() {  # release_asset <api-url> <regex>
     | grep -E "$2" | head -1
 }
 
+# ENTPACKTE APPIMAGES BRAUCHEN IHRE VARIABLEN — auch im Desktop-Eintrag. (#482)
+#
+# `linuxdeploy` erzeugt ein `AppRun.wrapped`, das das Programm NUR startet, wenn `$APPIMAGE`
+# gesetzt ist. Die Variable setzt die AppImage-Laufzeit, wenn das Abbild sich selbst
+# startet. Wir starten den ENTPACKTEN Baum — dann ist sie leer, der Zweig wird
+# uebersprungen, und der Prozess endet mit **Exit 0 und ohne jede Ausgabe**.
+#
+# Der Agent hat dafuer seit #440 seinen `apprun`-Helfer. Der Desktop-Generator hatte ihn
+# nicht, und deshalb war JEDER der elf Eintraege tot: Ein Klick tat buchstaeblich nichts,
+# ohne dass irgendwo ein Fehler erschien. Aufgefallen erst, als die Vita-Firmware von Hand
+# eingespielt werden musste — und der Desktop der einzige Weg dorthin ist.
+#
+# EN: an extracted AppImage only runs when $APPIMAGE is set; without it the wrapper exits 0
+# in silence. The agent has had a helper for this since #440; the desktop generator did not,
+# so all eleven launchers were dead.
+apprun_befehl() {   # apprun_befehl <ordner> -> Startbefehl mit gesetzten Variablen
+  printf 'env APPDIR=%s/%s APPIMAGE=%s/%s/AppRun %s/%s/AppRun' \
+         "$EMU" "$1" "$EMU" "$1" "$EMU" "$1"
+}
+
 desktop() {  # desktop <name> <system> <befehl>
   mkdir -p /config/.local/share/applications
   cat > "/config/.local/share/applications/$1.desktop" <<DESK
@@ -117,7 +137,7 @@ install_appimage() {  # install_appimage <name> <ordner> <system> <url>
 
   if [ -x "$EMU/$dir/AppRun" ]; then
     if [ "$AUTO_UPDATE" != "true" ] || [ "$have" = "$url" ]; then
-      desktop "$name" "$sys" "$EMU/$dir/AppRun"
+      desktop "$name" "$sys" "$(apprun_befehl "$dir")"
       return 0
     fi
     echo "[emulators] $name: neue Fassung gefunden / newer build found"
@@ -200,7 +220,7 @@ install_appimage() {  # install_appimage <name> <ordner> <system> <url>
     echo "[emulators] $name: konnte $dir.neu nicht an seinen Platz schieben / rename failed"
     return 1; }
   printf '%s' "$url" > "$marker"
-  desktop "$name" "$sys" "$EMU/$dir/AppRun"
+  desktop "$name" "$sys" "$(apprun_befehl "$dir")"
   echo "[emulators] $name: bereit / ready"
 }
 

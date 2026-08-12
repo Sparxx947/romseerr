@@ -9482,3 +9482,28 @@ def test_every_pup_entry_declares_where_it_ends_up():
     assert not ohne, (
         f"diese Eintraege erwarten eine .PUP ohne Ablage: {ohne} — ihr Status meldet "
         "'eingespielt', ohne das je geprueft zu haben")
+
+
+def test_no_desktop_entry_runs_a_bare_apprun():
+    """Kein Desktop-Eintrag startet ein nacktes `AppRun`. (#482)
+
+    Ein entpacktes AppImage laeuft NUR mit gesetztem `$APPIMAGE`; sonst endet es mit
+    Exit 0 und ohne jede Ausgabe. Alle elf Eintraege auf dem Host waren deshalb tot — ein
+    Klick tat buchstaeblich nichts, und nirgends erschien ein Fehler.
+
+    Aufgefallen ist es erst, als die Vita-Firmware von Hand eingespielt werden musste: Der
+    Desktop ist der einzige Weg zur eigenen Oberflaeche eines Emulators, und einige
+    Schritte gibt es nur dort.
+
+    Geprueft wird die EIGENSCHAFT, nicht die Schreibweise: Wer `AppRun` startet, muss
+    vorher `APPIMAGE` setzen. Der Eintrag fuer ein apt-Paket (`/usr/games/...`) braucht das
+    nicht und bleibt unberuehrt.
+    """
+    pfad = os.path.join(REPO, "contrib/streaming-host/init/20-emulators")
+    text = open(pfad, encoding="utf-8").read()
+    aufrufe = [z.strip() for z in text.splitlines()
+               if re.search(r"^\s*(command -v .*&& )?desktop ", z) and not z.strip().startswith("#")]
+    assert aufrufe, "keine desktop-Aufrufe gefunden — sucht der Test noch das Richtige?"
+    schlecht = [z for z in aufrufe if "AppRun" in z and "apprun_befehl" not in z]
+    assert not schlecht, (
+        "diese Eintraege starten ein nacktes AppRun und tun beim Klick nichts: " + str(schlecht))
