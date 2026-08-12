@@ -1,0 +1,207 @@
+#!/usr/bin/env python3
+"""Endungslose Commodore-Programme an ihrer Ladeadresse erkennen und `.prg` anhängen.
+
+WOZU (#412): Unter `vic-20`, `c64` und `amiga` liegen 4.843 Dateien OHNE Endung auf der
+Spielebene. RomM zählt jeden Eintrag dort als ein Spiel — und startbar ist keine davon,
+weil kein Emulator eine Datei ohne Endung erkennt.
+
+Es sind keine Reste. Gelesen aus den Dateien selbst:
+
+    adressdaten   01 18 …    Ladeadresse $1801
+    Demo          01 12 …    Ladeadresse $1201
+    magic draw    01 20 …    Ladeadresse $2001
+
+Die ersten zwei Bytes eines PRG sind die Ladeadresse, niederwertiges Byte zuerst.
+
+DIE REGEL, DIE HALTEN MUSS: Was keine bekannte Ladeadresse trägt, bleibt unangetastet.
+Manche der 4.843 sind womöglich wirklich Textdateien; eine `readme` in `readme.prg` zu
+verwandeln machte aus einer harmlosen Datei ein kaputtes Spiel. Dieselbe Asymmetrie wie
+überall in diesen Werkzeugen: Eine falsche Zuordnung kostet mehr als eine ausgelassene.
+
+    retronas-prg-benennen --trocken /roms vic-20    # zeigen, nichts ändern
+    retronas-prg-benennen /roms vic-20              # umbenennen, mit Protokoll
+    retronas-prg-benennen --alle /roms              # alle Commodore-Plattformen
+    retronas-prg-benennen --zurueck /roms/.umbau/prg-….jsonl
+
+EN: extensionless Commodore programs are recognised by their two-byte load address and get
+a .prg suffix. Anything without a known address is left alone.
+"""
+import argparse
+import json
+import os
+import struct
+import sys
+import time
+
+# Dokumentierte Ladeadressen von Commodore-Programmen. Jede steht für einen realen
+# Speicherausbau — geraten wird hier nichts.
+#
+# Gemessen an den 303 endungslosen Dateien unter `vic-20`: 190 tragen eine der ersten
+# fünf, 29 laden auf $1000 und 14 auf $0401. Die übrigen 70 tragen Adressen wie $10f1
+# oder $6b24, die keiner Maschine entsprechen — sie bleiben liegen.
+LADEADRESSEN = {
+    0x0401: "PET/CBM BASIC",
+    0x0801: "C64 BASIC",
+    0x1001: "VIC-20 BASIC (unerweitert)",
+    0x1201: "VIC-20 +3K",
+    0x1801: "VIC-20 +8K",
+    0x2001: "VIC-20 BASIC (ab +8K)",
+    0x1000: "VIC-20 Block 1",
+    0x2000: "Erweiterungsblock $2000",
+    0x4000: "Erweiterungsblock $4000",
+    0x6000: "Erweiterungsblock $6000",
+    0xA000: "Cartridge-ROM $A000",
+}
+
+# Plattformen, auf denen PRG-Dateien überhaupt vorkommen. Auf anderen wäre eine Datei mit
+# passenden ersten Bytes ein Zufall, kein Programm.
+COMMODORE = ("c64", "vic-20", "c16", "pet", "plus4", "cbm")
+
+
+def ladeadresse(pfad):
+    """-> (adresse, name) wenn die Datei wie ein PRG beginnt, sonst (None, "")."""
+    try:
+        with open(pfad, "rb") as f:
+            kopf = f.read(2)
+    except OSError:
+        return None, ""
+    if len(kopf) < 2:
+        return None, ""
+    adr = struct.unpack("<H", kopf)[0]
+    return (adr, LADEADRESSEN[adr]) if adr in LADEADRESSEN else (None, "")
+
+
+def plausibel(pfad, adr):
+    """Passt die Dateigröße zur Ladeadresse?
+
+    Ein PRG lädt an `adr` und belegt von dort seine Länge. Passt das nicht in 64 KB, ist
+    es kein Commodore-Programm — die Maschine hat nicht mehr Adressraum. Das fängt große
+    Dateien ab, deren erste zwei Bytes zufällig stimmen.
+    """
+    try:
+        groesse = os.path.getsize(pfad)
+    except OSError:
+        return False
+    return 2 < groesse and adr + groesse <= 0x10000
+
+
+class Protokoll:
+    """Jeder Schritt mit Weg hin und zurück. Ohne das wäre eine Umbenennung von
+    Tausenden Dateien nicht rücknehmbar."""
+
+    def __init__(self, pfad, trocken):
+        self.pfad, self.trocken, self.f = pfad, trocken, None
+        if not trocken:
+            os.makedirs(os.path.dirname(pfad), exist_ok=True)
+            self.f = open(pfad, "a", encoding="utf-8", errors="surrogateescape")
+
+    def schreiben(self, art, **werte):
+        if self.f:
+            self.f.write(json.dumps({"art": art, **werte}, ensure_ascii=False) + "\n")
+            self.f.flush()
+
+    def zu(self):
+        if self.f:
+            self.f.close()
+
+
+def freier_name(pfad):
+    """Kollisionsfreier Zielname. `Demo` und `Demo.prg` können beide schon dasein."""
+    if not os.path.exists(pfad):
+        return pfad
+    stamm, endung = os.path.splitext(pfad)
+    for n in range(2, 100000):
+        kandidat = f"{stamm} ({n}){endung}"
+        if not os.path.exists(kandidat):
+            return kandidat
+    raise RuntimeError(f"kein freier Name für {pfad}")
+
+
+def benennen(wurzel, plattform, trocken, prot):
+    basis = os.path.join(wurzel, plattform)
+    if not os.path.isdir(basis):
+        print(f"  {plattform}: kein Ordner")
+        return 0
+    z = {"benannt": 0, "unbekannt": 0, "unplausibel": 0, "fehler": 0}
+    for name in sorted(os.listdir(basis)):
+        q = os.path.join(basis, name)
+        if not os.path.isfile(q) or "." in name:
+            continue
+        adr, _wie = ladeadresse(q)
+        if adr is None:
+            z["unbekannt"] += 1
+            continue
+        if not plausibel(q, adr):
+            z["unplausibel"] += 1
+            continue
+        ziel = freier_name(q + ".prg")
+        if trocken:
+            z["benannt"] += 1
+            continue
+        try:
+            os.rename(q, ziel)
+            prot.schreiben("umbenannt", von=q, nach=ziel, adresse=f"${adr:04X}")
+            z["benannt"] += 1
+        except OSError as e:
+            print(f"    FEHLER {name}: {e}")
+            z["fehler"] += 1
+    art = "TROCKEN" if trocken else "AUSGEFUEHRT"
+    print(f"\n  === {plattform} ({art}) ===")
+    print(f"    umbenannt (.prg)      : {z['benannt']}")
+    print(f"    ohne bekannte Adresse : {z['unbekannt']}  (bleiben liegen)")
+    print(f"    Groesse passt nicht   : {z['unplausibel']}  (bleiben liegen)")
+    if z["fehler"]:
+        print(f"    FEHLER                : {z['fehler']}")
+    return z["benannt"]
+
+
+def zurueck(protokoll):
+    """Das Protokoll rückwärts abarbeiten."""
+    with open(protokoll, encoding="utf-8", errors="surrogateescape") as f:
+        zeilen = [json.loads(z) for z in f if z.strip()]
+    n = 0
+    for e in reversed(zeilen):
+        if e.get("art") != "umbenannt":
+            continue
+        try:
+            os.rename(e["nach"], e["von"])
+            n += 1
+        except OSError as ex:
+            print(f"  {e['nach']}: {ex}")
+    print(f"  {n} Umbenennungen zurückgenommen")
+    return 0
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p.add_argument("plattform", nargs="?", help="eine Plattform; mit --alle weglassen")
+    p.add_argument("--wurzel", default="/roms")
+    p.add_argument("--alle", action="store_true", help="alle Commodore-Plattformen")
+    p.add_argument("--trocken", action="store_true", help="nur berichten")
+    p.add_argument("--zurueck", metavar="PROTOKOLL")
+    a = p.parse_args()
+
+    if a.zurueck:
+        return zurueck(a.zurueck)
+
+    pfad = os.path.join(a.wurzel, ".umbau",
+                        f"prg-{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
+    prot = Protokoll(pfad, a.trocken)
+    gesamt = 0
+    try:
+        ziele = [x for x in COMMODORE
+                 if os.path.isdir(os.path.join(a.wurzel, x))] if a.alle else [a.plattform]
+        if not ziele or ziele == [None]:
+            p.error("eine Plattform nennen oder --alle")
+        for x in ziele:
+            gesamt += benennen(a.wurzel, x, a.trocken, prot)
+    finally:
+        prot.zu()
+    if not a.trocken and gesamt:
+        print(f"\n  Protokoll: {pfad}")
+        print(f"  Zurueck:   retronas-prg-benennen --zurueck {pfad}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

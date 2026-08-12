@@ -170,6 +170,34 @@ wäre für Romseerr unsichtbar, aber RomM zählt ihn trotzdem — dann stünde d
 **Arcade ist ausgenommen.** Dort ist das Archiv das Spiel, und MAME-Romsets erwarten ihre
 Begleitdateien an Ort und Stelle.
 
+### Endungslose Programme benennen
+
+Auf der Spielebene liegen **4.843 Dateien ohne Endung** (c64 4.173, amiga 366, vic-20 303).
+RomM zählt jede als ein Spiel, und startbar ist keine — kein Emulator erkennt eine Datei
+ohne Endung.
+
+Es sind keine Reste, sondern **Commodore-PRG-Dateien**. Die ersten zwei Bytes sind die
+Ladeadresse:
+
+    adressdaten   01 18 …    $1801    VIC-20 +8K
+    Demo          01 12 …    $1201    VIC-20 +3K
+    magic draw    01 20 …    $2001    VIC-20 BASIC
+
+```bash
+retronas-prg-benennen --trocken /roms vic-20    # zeigen, nichts ändern
+retronas-prg-benennen /roms vic-20              # umbenennen, mit Protokoll
+retronas-prg-benennen --alle /roms              # alle Commodore-Plattformen
+retronas-prg-benennen --zurueck /roms/.umbau/prg-….jsonl
+```
+
+**Was keine bekannte Ladeadresse trägt, bleibt liegen.** Von 303 Dateien unter `vic-20`
+tragen 233 eine dokumentierte Adresse; die übrigen 70 haben Werte wie `$10f1`, die keiner
+Maschine entsprechen. Eine `readme` in `readme.prg` zu verwandeln machte aus einer
+harmlosen Datei ein kaputtes Spiel.
+
+Zusätzlich muss **Ladeadresse plus Größe in 64 KB passen** — sonst ist es kein
+Commodore-Programm, sondern eine große Datei mit zufällig passenden ersten Bytes.
+
 ### Was die Werkzeuge nicht tun
 
 - **Keine Plattformordner umbenennen.** Die Namen stammen von RetroNAS.
@@ -327,6 +355,28 @@ Romseerr, but RomM would still count it, putting a "game" back on level 1.
 
 **Arcade is exempt**: there the archive is the game, and MAME romsets expect their
 companion files in place.
+
+### Naming extensionless programs
+
+The game level holds **4,843 files with no extension** (c64 4,173, amiga 366, vic-20 303).
+RomM counts each as a game, and none can be launched — no emulator recognises a file
+without an extension.
+
+They are not leftovers but **Commodore PRG files**; the first two bytes are the load
+address (`$2001` VIC-20 BASIC, `$1201` +3K, `$1801` +8K, `$0801` C64).
+
+```bash
+retronas-prg-benennen --trocken /roms vic-20
+retronas-prg-benennen --alle /roms
+retronas-prg-benennen --zurueck /roms/.umbau/prg-….jsonl
+```
+
+**Anything without a known load address is left alone.** Of 303 files under `vic-20`, 233
+carry a documented address; the other 70 hold values like `$10f1` that match no machine.
+Renaming a readme to `readme.prg` would turn a harmless file into a broken game.
+
+Load address plus size must also fit in 64 KB, which catches large files whose first two
+bytes happen to match.
 
 ### What the tools do not do
 
