@@ -967,7 +967,9 @@ PROFILE = {
     #             Bei DuckStation, PCSX2, Dolphin und RPCS3 genuegte die Automatik NICHT,
     #             deshalb steht diese Zeile hier ausdruecklich: Flycast ist die Ausnahme,
     #             nicht die Regel. (#301, #304)
-    #   Ton     : NICHT geprueft. `geprueft` bezieht sich auf Bild und Gamepad.
+    #   Ton     : ebenfalls von einem Menschen bestaetigt (2026-08-12). Damit ist bei
+    #             Flycast alles drei belegt — Bild, Ton, Gamepad — und nichts davon aus
+    #             einem Protokoll geschlossen.
     "flycast":   {"system": "Dreamcast",     "controller": None, "bios": None, "vollbild": None,
                   "geprueft": True},
     # Fenster und Ton am laufenden Host bestaetigt (2026-08-10, #300) — es brauchte
