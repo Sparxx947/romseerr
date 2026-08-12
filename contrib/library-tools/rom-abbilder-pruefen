@@ -238,14 +238,31 @@ def protokoll_oeffnen(wurzel, plattform):
     return open(p, "a", encoding="utf-8"), p
 
 
-def plattform_pruefen(wurzel, plattform, reparieren, aussortieren, tiefe=2):
+def plattform_pruefen(wurzel, plattform, reparieren, aussortieren, tiefe=None):
+    """`tiefe=None` heisst: den GANZEN Baum ansehen. (#465)
+
+    HIER STAND `tiefe=2`, UND DAS WAR EIN FEHLER, KEIN EINSTELLWERT. Gemessen am Bestand:
+
+      * `dc/MODE/Dreamcast/<Titel>/x.gdi` liegt drei Ebenen tief. Das Werkzeug hat
+        129 von 138 Dreamcast-Titeln NIE ANGESEHEN und daraufhin „2 defekt" gemeldet,
+        waehrend eine unabhaengige Zaehlung 126 fand. Es hat Entwarnung gegeben.
+      * `psp/PSX2PSP/PSX Images/Super Puzzle Fighter 2 Turbo-NTSC/` ebenso — dort lag die
+        gesuchte `.bin` direkt neben ihrer `.cue`, und die Reparatur unterblieb.
+
+    Eine Grenze, die still ganze Bereiche ueberspringt, macht aus „nicht geprueft" ein
+    „in Ordnung". Das ist der teuerste Fehler, den ein Pruefwerkzeug haben kann.
+
+    EN: `tiefe=2` was a bug, not a setting: it silently skipped 129 of 138 Dreamcast titles
+    and reported a clean bill of health. A limit that quietly skips whole areas turns
+    'not checked' into 'fine'.
+    """
     basis = os.path.join(wurzel, plattform)
     if not os.path.isdir(basis):
         return None
     z = collections.Counter()
     protokoll = pfad_protokoll = None
     for w, unter, fs in os.walk(basis):
-        if w.count(os.sep) - basis.count(os.sep) > tiefe:
+        if tiefe is not None and w.count(os.sep) - basis.count(os.sep) > tiefe:
             unter[:] = []
             continue
         if os.path.basename(w) in (DEFEKT_ORDNER, BERICHT_ORDNER):
