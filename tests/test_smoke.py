@@ -2834,6 +2834,35 @@ def test_nothing_falls_back_to_the_apt_dolphin():
         f"Dolphin kommt nicht mehr aus dem entpackten AppImage: {setzungen[0]}"
 
 
+def test_flycast_is_launched_in_fullscreen_with_the_right_config_syntax():
+    """Flycast bekommt Vollbild und Renderer ausdruecklich mitgegeben. (#304)
+
+    NACHGEMESSEN: Seine Konfigurationsdatei war leer — Flycast schreibt erst beim Beenden.
+    Er lief also mit den eingebauten Vorgaben, `fullscreen = no` bei 640x480 auf einem
+    1920x1080-Bildschirm.
+
+    GEPRUEFT WIRD DIE SEKTION, NICHT NUR DER SCHLUESSEL. `-config pvr.rend=4` sieht richtig
+    aus und tut NICHTS: Flycast liest das als Sektion `pvr`, Schluessel `rend`, findet
+    nichts und schweigt. Genau daran waere fast die Fehldiagnose „dieser Build kann kein
+    Vulkan" entstanden. Ein Test, der nur `pvr.rend` sucht, wuerde den stillen Fall
+    durchwinken — deshalb steht hier die volle Form mit `config:`.
+
+    EN: a misspelled `-config` key is silently ignored, so the section prefix is the part
+    that must be pinned. Checking for `pvr.rend` alone would pass the broken form.
+    """
+    agent = open(os.path.join(REPO, "contrib/streaming-host/init/30-agent"),
+                 encoding="utf-8").read()
+    setzungen = [z.strip() for z in agent.splitlines()
+                 if "EMU_DC=" in z and not z.strip().startswith("#")]
+    assert len(setzungen) == 1, f"EMU_DC wird {len(setzungen)}-mal gesetzt: {setzungen}"
+    zeile = setzungen[0]
+    assert "window:fullscreen=yes" in zeile, \
+        f"Flycast startet ohne Vollbild — gemessen 640x480 auf 1920x1080: {zeile}"
+    assert "config:pvr.rend=" in zeile, (
+        "der Renderer ist ohne Sektion angegeben und wird STILL ignoriert — "
+        f"`config:pvr.rend=` ist die wirksame Form: {zeile}")
+
+
 def test_stream_size_and_framerate_are_configured_not_left_to_the_browser():
     """Ohne feste Werte richtet sich der Stream nach dem Browserfenster — hier waren
     das 3828x1902 bei 60 fps, und Bildschirmaufnahme samt Farbkonvertierung kosteten

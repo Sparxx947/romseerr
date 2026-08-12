@@ -146,7 +146,35 @@ apprun() {   # <ordner> -> Kommando-Praefix bis einschliesslich AppRun
 # clear "not installed" into a silent "button there, nothing happens".
 [ -x "$EMU/dolphin/AppRun" ]   && EMU_GC="$(apprun dolphin) -b -e %s" && export EMU_GC
 [ -x "$EMU/switchemu/AppRun" ] && EMU_SWITCH="$(apprun switchemu) -f -g %s" && export EMU_SWITCH
-[ -x "$EMU/flycast/AppRun" ]   && EMU_DC="$(apprun flycast) %s" && export EMU_DC
+# FLYCAST: Vollbild und Vulkan ausdruecklich setzen. (#304)
+#
+# NACHGEMESSEN, nicht angenommen. Flycast schreibt seine Konfiguration erst beim Beenden;
+# die Datei war hier LEER, der Emulator lief also jedes Mal mit den eingebauten Vorgaben:
+#
+#     [window] fullscreen = no, 640x480     auf einem 1920x1080-Bildschirm
+#
+# Mit `window:fullscreen=yes` meldet sein eigenes Protokoll `size 1920 x 1080`, das Fenster
+# liegt auf 0,0 und die bemalte Flaeche betraegt 100 % (xwd-Messung, 57.600 Abtastpunkte).
+#
+# ZUR SYNTAX: `-config SEKTION:schluessel=wert`. Ein falsch geschriebener Schluessel wird
+# STILL ignoriert — `-config pvr.rend=4` liest Flycast als Sektion `pvr`, Schluessel `rend`
+# und tut nichts. Genau daran waere hier fast die Fehldiagnose „Flycast kann kein Vulkan"
+# entstanden. Richtig ist die Sektion `config`.
+#
+# RENDERER: 0 und 3 sind OpenGL, 4 und 5 Vulkan (5 mit Per-Pixel-Sortierung). Gemessen am
+# laufenden Host:
+#     config:pvr.rend=4 -> rend/vulkan/vulkan_context.cpp:271
+#                          N[RENDERER]: Vulkan API 1.1. Device Intel(R) Arc(tm) A310
+# samt `VK_KHR_swapchain`. Auf der Arc ist der Vulkan-Treiber der ausgereiftere Weg.
+#
+# RUECKWEG: Die beiden `-config`-Angaben entfernen — dann gilt wieder OpenGL im Fenster.
+# Beide sind fluechtig, sie landen nicht in der Konfigurationsdatei des Nutzers.
+#
+# EN: measured, not assumed. Flycast only writes its config on exit and the file was empty,
+# so it ran with 640x480 windowed defaults on a 1920x1080 screen. Note the syntax: a
+# misspelled `-config` key is silently ignored, which nearly produced the wrong conclusion
+# that this build has no Vulkan renderer. Rollback: drop both flags.
+[ -x "$EMU/flycast/AppRun" ]   && EMU_DC="$(apprun flycast) -config config:pvr.rend=4 -config window:fullscreen=yes %s" && export EMU_DC
 # `-batch` startet den Titel ohne Umweg ueber die Bibliotheksoberflaeche und beendet
 # DuckStation beim Herunterfahren des Spiels — sonst bliebe ein Fenster stehen, das aus
 # der Ferne niemand schliesst. / EN: -batch boots straight into the title and exits with
