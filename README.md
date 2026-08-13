@@ -788,6 +788,19 @@ Standard-`GITHUB_TOKEN` anlegt, löst keine weiteren Workflows aus, und genau de
 v1.1.0-beta.1 ohne Abbild. `latest` bekommt nur eine Version ohne `-` im Namen, also nie
 eine Vorabversion.
 
+**Dieselbe Regel gilt für das GitHub-Release.** Ein Release, dessen Version ein `-` trägt,
+wird als **Vorabversion** veröffentlicht — `"prerelease": true` in
+`release-please-config.json` sorgt dafür, ohne dass jemand daran denken muss. Beide
+Bedingungen hängen am selben `-`, und ein Test rechnet sie gegeneinander durch: Ein Abbild
+ohne `latest` neben einem Release, das sich `latest` nennt, ist ein Widerspruch. Genau der
+stand bis dahin da — zwei der vier Releases waren als stabil veröffentlicht, während das
+Register denselben Bauten das Tag `latest` verweigerte.
+
+Das hat eine Folge, die leicht zu übersehen ist: Sind **alle** Releases Vorabversionen,
+antwortet `GET /releases/latest` mit **404**. Der Update-Hinweis fragt deshalb bei genau
+diesem 404 ein zweites Mal — bei `/releases?per_page=1`, das auch Vorabversionen kennt.
+Jeder andere Fehler bleibt ein Fehler und führt zu keiner zweiten Anfrage.
+
 **Eine andere Version fahren** heißt für einen ziehenden Container: die Marke am Abbild
 ändern, mehr nicht.
 

@@ -4348,6 +4348,157 @@ def test_latest_tag_cannot_land_on_a_prerelease(appmod):
         "SemVer kennzeichnet Vorabversionen mit '-'; daran muss die Bedingung hängen"
 
 
+# ---- Abbild und GitHub-Release duerfen nicht verschieden ueber „latest" denken (#572)
+#
+# GEMESSEN am 2026-08-13 ueber alle vier Releases: v1.0.0-beta.1 und v1.1.0-beta.1 standen
+# auf `prerelease=true`, v1.2.0-beta.1 und v1.3.0-beta.1 auf `false`. `GET /releases/latest`
+# lieferte also eine Beta, waehrend das Register derselben Fassung das Tag `latest`
+# verweigerte. Zwei Regeln fuer dieselbe Frage, mit gegenteiliger Antwort.
+#
+# Die im Issue vermutete Ursache — die Umstellung der Action von `@v4` auf einen festen
+# SHA — ist WIDERLEGT: v1.1.0-beta.1 entstand bereits unter dem festen SHA
+# (`git show v1.1.0-beta.1:.github/workflows/release-please.yml`) und kam trotzdem als
+# Vorabversion heraus. Aus dem Bot kann die Markierung ohnehin nie gekommen sein — der
+# gebuendelte Code setzt sie nur, wenn die Konfiguration sie verlangt, und dort stand sie
+# in keiner Fassung. Sie wurde von aussen gesetzt; wann genau, gibt die API nicht her.
+#
+# EN: the image and the GitHub release answered the same question differently. The pin was
+# ruled out by measurement; the flag never came from the bot, because it was never
+# configured.
+
+def _vorabregel_der_konfiguration():
+    """Wie release-please die Vorabmarkierung entscheidet — aus der Konfiguration gelesen.
+
+    Der gebuendelte Code der GEPINNTEN Action (dist/index.js bei 5c625bf) lautet:
+
+        prerelease: config.prerelease && (!!version.preRelease || version.major === 0)
+
+    `"prerelease": true` markiert also NICHT pauschal alles, sondern genau die Versionen
+    mit einem SemVer-Vorabteil — plus die gesamte 0.x-Reihe.
+    """
+    cfg = json.load(open(os.path.join(REPO, "release-please-config.json"), encoding="utf-8"))
+    paket = cfg.get("packages", {}).get(".", {})
+    verlangt = paket.get("prerelease", cfg.get("prerelease", False))
+    return lambda version: bool(verlangt) and ("-" in version or version.startswith("0."))
+
+
+def test_beta_releases_are_marked_as_prereleases_by_configuration(appmod):
+    """Die Vorabmarkierung kommt aus der Konfiguration, nicht aus einer Handbewegung. (#572)
+
+    Von den vier bestehenden Releases trugen zwei die Markierung und zwei nicht — bei
+    identischem Workflow und identischer Action. Was niemand konfiguriert hat, kann auch
+    niemand richtig halten.
+    """
+    cfg = json.load(open(os.path.join(REPO, "release-please-config.json"), encoding="utf-8"))
+    paket = cfg.get("packages", {}).get(".", {})
+    assert paket.get("prerelease", cfg.get("prerelease")) is True, \
+        ("release-please-config.json muss `prerelease: true` tragen — sonst entscheidet "
+         "niemand, ob eine Beta als Vorabversion erscheint / nothing decides it")
+
+
+def test_the_image_and_the_github_release_cannot_disagree_about_latest(appmod):
+    """Ein Abbild ohne `latest` und ein Release, das sich `latest` nennt, ist ein
+    Widerspruch — und bisher fiel er niemandem auf. (#572)
+
+    Der Test rechnet BEIDE Regeln auf denselben Versionen durch: die des Abbilds aus
+    `release-image.yml`, die des Releases aus `release-please-config.json`. Laufen sie
+    auseinander, schlaegt er an — egal, welche der beiden Seiten jemand aendert.
+    """
+    zeile = next((z for z in open(os.path.join(REPO, ".github/workflows/release-image.yml"),
+                                  encoding="utf-8").read().split("\n") if "value=latest" in z), "")
+    assert "contains(" in zeile and "'-'" in zeile, \
+        "die Abbild-Regel haengt nicht mehr am '-' — dann stimmt der Vergleich unten nicht"
+    abbild_latest = lambda version: "-" not in version   # noqa: E731  release-image.yml
+    vorab = _vorabregel_der_konfiguration()
+
+    for version in ("1.3.0-beta.1", "1.4.0", "2.0.0-rc.1", "2.0.0", "10.0.0-beta.7"):
+        assert abbild_latest(version) == (not vorab(version)), (
+            f"Abbild und Release widersprechen sich bei {version}: "
+            f"latest={abbild_latest(version)}, prerelease={vorab(version)}")
+
+    # DIE EINE STELLE, AN DER SICH DIE REGELN UNTERSCHEIDEN: release-please markiert die
+    # ganze 0.x-Reihe als Vorabversion, das Abbild gaebe `0.5.0` das Tag `latest`. Hier
+    # unerreichbar, weil das Projekt bei 1.x steht — aber nicht unerwaehnt.
+    # EN: the two rules genuinely differ for 0.x; unreachable here, so it is asserted away.
+    assert vorab("0.5.0") and abbild_latest("0.5.0"), "0.x ist der bekannte Unterschied"
+    haupt = int(open(os.path.join(REPO, "version.txt"), encoding="utf-8").read().split(".")[0])
+    assert haupt >= 1, "bei 0.x waere der Unterschied oben real und muesste aufgeloest werden"
+
+
+def test_the_update_check_survives_a_repo_without_a_stable_release(appmod, monkeypatch):
+    """Markiert man die Betas als Vorabversion, antwortet `/releases/latest` mit 404 —
+    und der Update-Hinweis bliebe fuer immer leer, ohne dass irgendwo etwas scheitert. (#572)
+
+    `latest_release()` schluckt alles ausser HTTP 200 absichtlich still ("ein
+    Versionshinweis darf nie eine Seite kaputt machen"). Genau diese Stille macht den
+    Fehler unsichtbar. Deshalb ist 404 hier KEIN Fehler, sondern die Auskunft „es gibt noch
+    keine stabile Fassung" — und darauf folgt die Liste.
+    """
+    class Antwort:
+        def __init__(self, code, daten): self.status_code, self._d = code, daten
+        def json(self): return self._d
+
+    gefragt = []
+
+    def fake_get(url, **kw):
+        gefragt.append(url)
+        if url.endswith("/releases/latest"):
+            return Antwort(404, {"message": "Not Found"})
+        return Antwort(200, [{"tag_name": "v1.3.0-beta.1", "prerelease": True}])
+
+    monkeypatch.setattr(appmod.requests, "get", fake_get)
+    monkeypatch.setattr(appmod, "_UPDATE", {"ts": 0, "latest": None})
+    assert appmod.latest_release() == "1.3.0-beta.1", \
+        "ohne stabilen Release muss die Liste einspringen, sonst bleibt der Hinweis leer"
+    assert any("per_page=1" in u for u in gefragt), \
+        "der Rueckfall muss die Liste fragen — sie kennt auch Vorabversionen"
+
+
+def test_the_update_check_asks_the_list_only_when_it_has_to(appmod, monkeypatch):
+    """Gibt es eine stabile Fassung, bleibt es bei EINER Anfrage — und die Vorabversionen
+    bleiben aussen vor. (#572)
+
+    Sonst kippte die Behebung ins Gegenteil: Wer eine stabile Fassung faehrt, bekaeme die
+    naechste Beta als Update angeboten.
+    """
+    class Antwort:
+        def __init__(self, code, daten): self.status_code, self._d = code, daten
+        def json(self): return self._d
+
+    gefragt = []
+
+    def fake_get(url, **kw):
+        gefragt.append(url)
+        return Antwort(200, {"tag_name": "v2.0.0", "prerelease": False})
+
+    monkeypatch.setattr(appmod.requests, "get", fake_get)
+    monkeypatch.setattr(appmod, "_UPDATE", {"ts": 0, "latest": None})
+    assert appmod.latest_release() == "2.0.0"
+    assert len(gefragt) == 1 and not any("per_page" in u for u in gefragt), \
+        "bei vorhandener stabiler Fassung darf die Liste gar nicht erst gefragt werden"
+
+
+def test_a_broken_update_endpoint_stays_silent_and_asks_once(appmod, monkeypatch):
+    """Gegenprobe: 500 ist keine Auskunft ueber Vorabversionen, sondern ein Ausfall.
+
+    Darauf darf der Rueckfall NICHT anspringen — sonst verdoppelt jeder Ausfall die Last
+    auf ein Register, das ohnehin gerade nicht antwortet.
+    """
+    class Antwort:
+        def __init__(self, code): self.status_code = code
+        def json(self): return {}
+
+    gefragt = []
+
+    def fake_get(url, **kw):
+        gefragt.append(url); return Antwort(500)
+
+    monkeypatch.setattr(appmod.requests, "get", fake_get)
+    monkeypatch.setattr(appmod, "_UPDATE", {"ts": 0, "latest": None})
+    assert appmod.latest_release() is None, "ein Ausfall darf keine Version erfinden"
+    assert len(gefragt) == 1, "500 ist kein Grund, ein zweites Mal zu fragen"
+
+
 def test_play_cores_flags_a_core_the_player_does_not_ship(appmod, client, monkeypatch):
     """Ein Play-Knopf, dessen Kern fehlt, muss auffallen. (#124)
 
