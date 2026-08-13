@@ -5563,6 +5563,17 @@ def api_metrics():
 
 # ---------- Version / Update-Hinweis ----------
 UPDATE_URL   = "https://api.github.com/repos/Sparxx947/romseerr/releases/latest"
+# ZWEITE ADRESSE, WEIL DIE ERSTE VORABVERSIONEN NICHT KENNT. `/releases/latest` ueberspringt
+# Entwuerfe UND Vorabversionen — in einem Projekt, dessen Releases bisher ausnahmslos Betas
+# sind, antwortet sie mit 404, sobald die Betas korrekt als Vorabversion markiert sind
+# (#572). Der Hinweis bliebe dann fuer immer leer, ohne dass irgendwo etwas scheitert.
+# Die Liste kennt beides und ist nach Erscheinen sortiert, das erste Element ist das
+# neueste Release ueberhaupt. Entwuerfe zeigt sie nur einem angemeldeten Aufrufer mit
+# Schreibrecht — hier fragt niemand angemeldet, sie bleiben also aussen vor.
+#
+# EN: /releases/latest skips pre-releases, so a betas-only project gets a silent 404 once
+# the betas are marked correctly. The list endpoint knows both and is newest-first.
+UPDATE_ANY_URL = "https://api.github.com/repos/Sparxx947/romseerr/releases?per_page=1"
 UPDATE_TTL   = 6 * 3600
 _UPDATE      = {"ts": 0, "latest": None}
 
@@ -5571,6 +5582,20 @@ def _semver(v):
     m = re.match(r"v?(\d+)\.(\d+)\.(\d+)", str(v or ""))
     return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
 
+def _release_tag(url):
+    """Eine Release-Adresse abfragen -> (Version ohne führendes v, HTTP-Status).
+
+    Die beiden Endpunkte antworten verschieden geformt: `/releases/latest` mit EINEM
+    Objekt, `/releases` mit einer Liste. Beides hier auf denselben Nenner bringen, damit
+    der Aufrufer nur noch über den Status entscheidet."""
+    r = requests.get(url, timeout=5, headers={"Accept": "application/vnd.github+json"})
+    if r.status_code != 200:
+        return None, r.status_code
+    daten = r.json() or {}
+    if isinstance(daten, list):
+        daten = daten[0] if daten else {}
+    return (str((daten or {}).get("tag_name") or "").lstrip("v") or None), 200
+
 def latest_release():
     """Neueste veröffentlichte Version von GitHub, gecacht. Fehler sind still — ein
     Update-Hinweis darf nie eine Seite kaputt machen oder verzögert beantworten."""
@@ -5578,11 +5603,16 @@ def latest_release():
     if now - _UPDATE["ts"] < UPDATE_TTL: return _UPDATE["latest"]
     _UPDATE["ts"] = now
     try:
-        r = requests.get(UPDATE_URL, timeout=5,
-                         headers={"Accept": "application/vnd.github+json"})
-        if r.status_code == 200:
-            tag = (r.json() or {}).get("tag_name") or ""
-            _UPDATE["latest"] = tag.lstrip("v") or None
+        tag, code = _release_tag(UPDATE_URL)
+        # 404 ist hier KEIN Ausfall, sondern eine Auskunft: es gibt (noch) keine stabile
+        # Fassung. Nur dann die Liste fragen — sie kennt auch Vorabversionen. Bei jedem
+        # anderen Fehler bleibt es bei einer Anfrage: ein Register, das gerade 500 sagt,
+        # bekommt von uns nicht die doppelte Last.
+        # EN: 404 means "no stable release yet", not "broken" — only then ask the list.
+        if code == 404:
+            tag, _ = _release_tag(UPDATE_ANY_URL)
+        if tag:
+            _UPDATE["latest"] = tag
     except Exception:
         pass
     return _UPDATE["latest"]

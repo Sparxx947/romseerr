@@ -762,6 +762,18 @@ bot with the default `GITHUB_TOKEN` triggers no further workflows, which is exac
 v1.1.0-beta.1 ended up without an image. `latest` is only applied to a version without a `-`
 in its name, so never to a pre-release.
 
+**The same rule governs the GitHub release.** A release whose version carries a `-` is
+published as a **pre-release**; `"prerelease": true` in `release-please-config.json` takes
+care of it, so nobody has to remember. Both conditions hang off the same `-`, and a test
+computes one against the other: an image denied `latest` next to a release calling itself
+latest is a contradiction. That is exactly what stood there — two of the four releases were
+published as stable while the registry refused those same builds the `latest` tag.
+
+This has an easily missed consequence: if **every** release is a pre-release, `GET
+/releases/latest` answers **404**. So the update check asks a second time on that one
+status — `/releases?per_page=1`, which knows pre-releases too. Any other error stays an
+error and triggers no second request.
+
 **Running a different version** means, for a pulling container, changing the image tag and
 nothing else.
 
