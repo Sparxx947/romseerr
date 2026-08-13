@@ -225,7 +225,69 @@ def geraet_anlegen(cfg):
                   product=cfg.product, version=cfg.version), name, tasten, achsen
 
 
-def bediene(pfad, bereit=None):
+# --- Reihenfolge der Geraeteknoten (#535) -------------------------------------------
+#
+# WARUM DAS NOETIG IST: Der Kernel vergibt `/dev/input/jsN` in der Reihenfolge, in der
+# Geraete entstehen. Welcher Socket welchen Knoten bekommt, entscheidet also ein Rennen —
+# und ein Emulator kann die vier Geraete nicht unterscheiden, weil alle dieselbe
+# SDL-Kennung tragen. Er nimmt das erste. Ist das nicht der Socket mit dem Pad, tut der
+# Controller nichts, und zwar ueberall gleichzeitig.
+#
+# AM 2026-08-13 GENAU SO PASSIERT, aus dem Protokoll der Bruecke:
+#
+#     12:58:43,618  selkies_js2.sock  ->  /dev/input/js0
+#     12:58:43,621  selkies_js0.sock  ->  /dev/input/js1   <- das Pad, auf Platz zwei
+#     12:58:43,633  selkies_js1.sock  ->  /dev/input/js2
+#
+# Socket js2 war vier Millisekunden schneller. Eden band daraufhin `port:0` — das stumme
+# Geraet — und der Controller war tot. Nach der Korrektur schrieb Eden `port:1`, und es
+# ging sofort. Die Emulatoren waren nie schuld.
+#
+# WAS VORHER SCHON DA WAR UND NICHT GENUEGTE: `main()` startet die Sockets nacheinander
+# und wartet je auf das angelegte Geraet. Das ordnet den ERSTEN Start. Der Kommentar dort
+# nahm an, spaeter werde „ohnehin genau die Nummer frei, die derselbe Slot vorher hatte" —
+# das stimmt fuer EINE Wiederverbindung und ist falsch, wenn alle vier gleichzeitig neu
+# verbinden. Genau das tut ein Neuladen der Seite.
+#
+# WIE ES JETZT GEHT: Wer sein Geraet anlegen will, wartet, bis er an der Reihe ist. Der
+# Zaehler laeuft 0,1,2,3 und faengt von vorn an. Bei einem Sturm warten alle vier, und die
+# Knoten entstehen in Socket-Reihenfolge.
+#
+# DIE FRIST IST DER PUNKT, nicht das Warten: Verbindet sich ein EINZELNER Socket neu,
+# kaeme er nie an die Reihe — die anderen drei fordern ihren Platz ja nicht an. Nach der
+# Frist legt er trotzdem an und bekommt die Nummer, die er vorher hatte. Damit gilt die
+# alte Annahme genau dort weiter, wo sie richtig war.
+#
+# EN: node numbers are handed out in creation order, and four identical devices give an
+# emulator nothing to choose by — it takes the first. Ordering was enforced at startup
+# only; a page reload reconnects all four at once and the order became a race. Workers
+# now take turns, with a timeout so a lone reconnect is not blocked by peers that never
+# ask for theirs.
+_REIHE = threading.Condition()
+_DRAN = 0
+_REIHE_FRIST = float(os.environ.get("GAMEPAD_ORDER_TIMEOUT", "4"))
+
+
+def _warte_bis_dran(index, anzahl):
+    """Blockiert, bis `index` an der Reihe ist — hoechstens `_REIHE_FRIST` Sekunden."""
+    ende = time.monotonic() + _REIHE_FRIST
+    with _REIHE:
+        while _DRAN != index:
+            rest = ende - time.monotonic()
+            if rest <= 0:
+                return False
+            _REIHE.wait(rest)
+    return True
+
+
+def _naechster_dran(index, anzahl):
+    global _DRAN
+    with _REIHE:
+        _DRAN = (index + 1) % anzahl
+        _REIHE.notify_all()
+
+
+def bediene(pfad, bereit=None, index=0, anzahl=1):
     """Einen Socket bedienen: verbinden, Beschreibung lesen, Geraet anlegen, weiterreichen.
 
     Bricht die Verbindung ab, wird das Geraet abgeraeumt und neu verbunden — Selkies legt
@@ -262,6 +324,13 @@ def bediene(pfad, bereit=None):
             # config and only then adds the client to the list it broadcasts events to.
             # Without it everything looks connected and nothing ever arrives.
             s.sendall(struct.pack("=B", ctypes.sizeof(ctypes.c_long)))
+            # ANSTELLEN, BEVOR DAS GERAET ENTSTEHT (#535): Die Knotennummer haengt an
+            # der Entstehungsreihenfolge, nicht am Socketnamen.
+            if not _warte_bis_dran(index, anzahl):
+                log.info("%s: nach %.0f s nicht an der Reihe — lege trotzdem an "
+                         "(einzelne Wiederverbindung, die Nummer ist ohnehin frei)",
+                         os.path.basename(pfad), _REIHE_FRIST)
+
             ui, name, tasten, achsen = geraet_anlegen(cfg)
             # `ui.device` ist bei python-evdev nicht garantiert gesetzt — es hier
             # ungeprueft zu lesen hat die Verbindung abgeschossen, NACHDEM das Geraet
@@ -288,6 +357,7 @@ def bediene(pfad, bereit=None):
                      "Knoten neu: %s, bereits richtig: %s",
                      os.path.basename(pfad), name, len(tasten), len(achsen), sysname,
                      ", ".join(knoten) or "—", ", ".join(vorhanden) or "—")
+            _naechster_dran(index, anzahl)   # der naechste Socket ist an der Reihe (#535)
             if bereit is not None:
                 bereit.set()          # der naechste Socket darf sein Geraet anlegen
             s.settimeout(None)
@@ -366,7 +436,8 @@ def main():
     # empty slot from blocking the rest.
     for i, pfad in enumerate(SOCKETS):
         bereit = threading.Event()
-        threading.Thread(target=bediene, args=(pfad, bereit), daemon=True).start()
+        threading.Thread(target=bediene, args=(pfad, bereit, i, len(SOCKETS)),
+                         daemon=True).start()
         if not bereit.wait(timeout=5) and i == 0:
             log.info("Slot 0 hat in 5 s kein Geraet angelegt — Reihenfolge nicht garantiert")
     log.info("Bruecke laeuft fuer %d Sockets", len(SOCKETS))

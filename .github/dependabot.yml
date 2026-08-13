@@ -1,14 +1,36 @@
+# Abhaengigkeits-Aktualisierungen. / Dependency updates.
+#
+# WARUM `target-branch: dev` UEBERALL (#554): Ohne diesen Schluessel nimmt Dependabot den
+# Standard-Branch des Repositories, also `main` — und dort wird nicht entwickelt. Der Weg
+# ist `dev` -> Release-PR -> `main`; ein Abhaengigkeits-PR nach `main` gemergt setzt
+# Aenderungen in einen Branch, der sie an `dev` vorbei traegt. Genau die Abweichung, die der
+# Release-Weg vermeiden soll.
+#
+# Gemessen am 2026-08-13: `dev` war 53 Commits vor `main`, `main` hatte keinen eigenen — und
+# elf Dependabot-PRs standen gleichzeitig gegen `main` offen.
+#
+# NICHT „aufraeumen": Der Schluessel sieht ueberfluessig aus, solange man den Standard-Branch
+# fuer den Arbeits-Branch haelt. Er ist es nicht.
+#
+# EN: without target-branch, Dependabot opens against the repository default branch (`main`),
+# where nothing is developed — releases flow dev -> release PR -> main, so a dependency PR
+# merged into main carries changes past dev. Measured 2026-08-13: dev was 53 commits ahead,
+# main had none of its own, and eleven such PRs were open at once. Not redundant; do not tidy
+# it away.
 version: 2
 updates:
   - package-ecosystem: docker
     directory: /
+    target-branch: dev
     schedule:
       interval: weekly
   - package-ecosystem: github-actions
     directory: /
+    target-branch: dev
     schedule:
       interval: weekly
   - package-ecosystem: pip
     directory: /
+    target-branch: dev
     schedule:
       interval: weekly

@@ -328,18 +328,25 @@ USENET_CAT = {101010:"nds",101020:"psp",101030:"wii",101035:"switch",101040:"xbo
 SLUG2USE = {}
 for _cid, _slug in USENET_CAT.items(): SLUG2USE.setdefault(_slug, []).append(_cid)
 
-# WO EIN INDEXER NICHT TRENNT (#375). Wii U liegt beim hiesigen Indexer unter den
-# WII-Kategorien — nachgemessen: `Super.Mario.3D.World.USA.WiiU-PoWeRUp` kommt mit
-# {1030, 101030}, und die Standardkategorie fuer Wii U (1130) liefert NULL Treffer.
+# WO EIN INDEXER NICHT TRENNT (#375, #452). Nicht jede Plattform bekommt beim Indexer
+# eine eigene Kategorie; manche fahren in der des Nachbarn mit. Nachgemessen:
 #
-# Ohne diesen Eintrag ist `SLUG2USE["wiiu"]` leer, und die Auswahl „Wii U" schaltet die
-# Usenet-Suche KOMPLETT AB — sieben vorhandene Veroeffentlichungen waren damit
-# unerreichbar. Die Zuordnung am Titel funktioniert laengst: `guess_platform` erkennt
-# `WiiU` zuverlaessig. Es fehlte nur die Erlaubnis, ueberhaupt zu fragen.
+#   Wii U     -> Wii-Kategorien. `Super.Mario.3D.World.USA.WiiU-PoWeRUp` kommt mit
+#                {1030, 101030}; die Standardkategorie fuer Wii U (1130) liefert NULL.
+#   PS Vita   -> PSP-Kategorie 101020. Eine eigene Vita-Kategorie gibt es nicht.
+#
+# Ohne diese Eintraege ist die Kategorienliste des Slugs LEER, und die Auswahl der
+# Plattform schaltet die Usenet-Suche KOMPLETT AB.
+#
+# Wer hier steht, darf ausserdem seine Kategorie am Titel zurueckerobern — siehe
+# `search_usenet`. Ohne das kaeme jeder Treffer unter dem Slug des Vermieters zurueck
+# und fiele aus dem Filter der eigenen Plattform (gemessen: 16 von 16 falsch, #452).
 #
 # Where an indexer does not separate two platforms, the neighbour's categories are the
-# only way in; the title-based classification sorts the results out afterwards.
-SLUG2USE.setdefault("wiiu", []).extend(SLUG2USE.get("wii", []))
+# only way in — and the title is what sorts the results out again afterwards.
+KAT_LEIHE = {"wiiu": "wii", "psvita": "psp"}   # Mieter -> Eigentuemer der Kategorie
+for _mieter, _eigner in KAT_LEIHE.items():
+    SLUG2USE.setdefault(_mieter, []).extend(SLUG2USE.get(_eigner, []))
 
 # Für die Plattform-Vorauswahl in der Oberfläche (Gruppe -> [(slug, Anzeigename)])
 PLATFORMS = [
@@ -351,7 +358,8 @@ PLATFORMS = [
    ("sg1000","SG-1000")]),
  ("Sony", [("psx","PS1"),("ps2","PS2"),("ps3","PS3"),("ps4","PS4"),("psp","PSP"),("psvita","Vita")]),
  ("Microsoft", [("xbox","Xbox"),("xbox360","Xbox 360"),("xboxone","Xbox One")]),
- ("Sonstige", [("turbografx16","PC Engine"),("neogeo","Neo Geo"),("neogeopocket","NGP"),
+ ("Sonstige", [("turbografx16","PC Engine"),("neogeo","Neo Geo"),
+   ("neo-geo-cd","Neo Geo CD"),("neogeopocket","NGP"),
    ("wonderswan","WonderSwan"),("atari2600","Atari 2600"),("atari5200","Atari 5200"),
    ("atari7800","Atari 7800"),
    ("lynx","Lynx"),("jaguar","Jaguar"),("3do","3DO"),("amiga","Amiga"),
@@ -433,7 +441,7 @@ LIB_GRP_PREFIX = "lib_grp_"
 IGDB_PLAT = {"snes":19,"nes":18,"n64":4,"gb":33,"gbc":22,"gba":24,"nds":20,"3ds":37,"ngc":21,
  "wii":5,"switch":130,"genesis":29,"sms":64,"gamegear":35,"saturn":32,"dreamcast":23,
  "psx":7,"ps2":8,"ps3":9,"psp":38,"xbox":11,"xbox360":12,"arcade":52,"turbografx16":86,
- "atari2600":59,"neogeo":80}
+ "atari2600":59,"neogeo":80,"neo-geo-cd":136}
 # Startseite: Reihenfolge der wichtigsten Konsolen
 DISCOVER_ORDER = ["snes","nes","n64","gb","gba","genesis","psx","ps2","nds","ngc","dreamcast","arcade","switch"]
 # Schlüsselwort -> bevorzugter Slug (für Archive.org-Titel/Sammlung und Fallback)
@@ -472,6 +480,8 @@ KW = [
  (r"\bxbox\b|\bxbe\b", "xbox"),
  (r"turbografx|pc\s*engine|\bpce\b", "turbografx16"),
  (r"neo\s*geo\s*pocket", "neogeopocket"),
+ # VOR dem allgemeinen Muster — sonst schluckt `neo geo` auch die CD. (#518)
+ (r"neo[\s-]*geo[\s-]*cd", "neo-geo-cd"),
  (r"neo\s*geo", "neogeo"),
  (r"wonderswan", "wonderswan"),
  (r"atari\s*2600", "atari2600"),
@@ -921,7 +931,23 @@ FOLDER_ALIASES = {
     "dc": "dreamcast",
     "tg16": "turbografx16",
     "turbografx-cd": "turbografx16",
-    "neogeoaes": "neogeo", "neogeomvs": "neogeo", "neo-geo-cd": "neogeo",
+    "neogeoaes": "neogeo", "neogeomvs": "neogeo",
+    # `neo-geo-cd` steht bewusst NICHT hier (#518). AES und MVS sind dieselbe
+    # Hardware in anderen Gehaeusen; die Neo Geo CD ist eine eigene Konsole mit
+    # eigenem BIOS und CD-Abbildern statt Cartridge-Romsets.
+    #
+    # ENTSCHEIDEND IST ABER NICHT DIE HISTORIE, SONDERN DASS ROMM SIE TRENNT:
+    #
+    #     RomM: Neo Geo AES  neogeoaes    300 ROMs
+    #           Neo Geo CD   neo-geo-cd   100 ROMs
+    #           (eine Plattform `neogeo` gibt es dort gar nicht)
+    #
+    # Solange der Alias stand, fragte `romm_find` nach `neogeo` und bekam nichts:
+    #     romm_find("Aero Fighters 2 (World)", "neogeo")      -> None
+    #     romm_find("Aero Fighters 2 (World)", "neo-geo-cd")  -> Aero Fighters 2
+    # 100 vorhandene, gescannte Titel waren damit unspielbar.
+    # EN: RomM keeps them apart, so aliasing them together made romm_find miss
+    # every CD title.
     "neo-geo-pocket": "neogeopocket", "neo-geo-pocket-color": "neogeopocket",
     "wonderswan-color": "wonderswan",
     "sega32": "sega32x", "sega-32x": "sega32x",
@@ -1017,6 +1043,34 @@ def slug_folders(slug):
     return [slug] + sorted(f for f, z in FOLDER_ALIASES.items() if z == slug)
 
 
+def bibliothek_ordner(slug):
+    """Slug -> Ordner, in den ein Import gehoert. (#454)
+
+    Lesen kannte `FOLDER_ALIASES` laengst, Schreiben nicht: Das Ziel war schlicht
+    `ROMS/<slug>`. Liegt die Bibliothek einer Plattform im Alias-Ordner — RetroNAS nennt
+    GameCube `gc` und Dreamcast `dc` —, dann landete jeder Download DANEBEN statt DARIN,
+    und der Bestand teilte sich lautlos in zwei Ordner. Sichtbar wurde das nicht, weil das
+    Lesen beide wieder zusammenfuegt; auf der Platte war die Plattform trotzdem zweigeteilt,
+    und alles, was die Ordner direkt liest (RomM, RetroNAS' Freigaben, ein blankes `ls`),
+    sah nur eine Haelfte.
+
+    Deshalb: der Ordner, in dem diese Plattform SCHON liegt, sonst der Slug. Die Reihenfolge
+    kommt aus `slug_folders` und damit aus der konstanten Tabelle, nie aus der Eingabe.
+
+    Slug -> the folder an import belongs in. Prefer a folder that already holds this
+    platform's content, so an alias-named library does not get split in two.
+    """
+    for f in slug_folders(slug):
+        p = os.path.join(ROMS, f)
+        try:
+            with os.scandir(p) as eintraege:     # `with`, sonst bleibt der Deskriptor offen
+                if any(eintraege):
+                    return p
+        except OSError:                          # gibt es nicht, ist keiner, nicht lesbar
+            continue
+    return os.path.join(ROMS, slug)
+
+
 INDEX_FEHLER_ZEIGEN = 10   # so viele Plattformnamen stehen in der Schlussmeldung
 
 def _index_fehlertext(fehler):
@@ -1097,6 +1151,35 @@ def build_index():
                         f"{type(err).__name__}: {err}")
             try:
                 for root, dirs, files in os.walk(p, onerror=_lesefehler):
+                    # EIN ORDNER, DER EIN SPIEL IST, IST EIN TITEL — und NICHT sein
+                    # Innenleben. (#477)
+                    #
+                    # Der Import weiss das laengst (`SPIELORDNER_MUSTER`, #391), der Index
+                    # wusste es nicht: Er lief hinein und legte die Bestandteile als Titel
+                    # ab. Am Bestand gemessen, nach einem vollstaendigen Neuaufbau:
+                    #
+                    #   wiiu    31 Eintraege: `app`, `bootDrcTex`, `bootLogoTex`, `bootMovie`
+                    #   psvita  14 Eintraege: `args`, `eboot`, `Gravite`, `icon`
+                    #   ps3     27 Eintraege: `PS3_DISC`, `ICON0`, …
+                    #
+                    # `bootMovie` ist ein Video IN Captain Toad, `Gravite` die `.psarc` IN
+                    # Gravity Rush. Die echten Titel fehlten ganz — und damit fand
+                    # `stream_info` sie nicht, obwohl sie vollstaendig dalagen.
+                    #
+                    # EN: the import path has known this since #391; the index walked into
+                    # the folder and filed its contents as titles, so a complete, present
+                    # title was unreachable through the UI.
+                    if root != p and ist_titel_ordner(root):
+                        name = os.path.basename(root)
+                        n = norm(name)
+                        if n:
+                            s.add(n); allset.add(n)
+                            anzeige = os.path.splitext(name)[0].strip() or name
+                            vorher = namen.get((slug, n))
+                            if vorher is None or len(anzeige) < len(vorher):
+                                namen[(slug, n)] = anzeige
+                        dirs[:] = []       # nicht hineinlaufen
+                        continue
                     for fn in files:
                         n = norm(fn)
                         if not n: continue
@@ -1962,6 +2045,24 @@ def worker_catalog():
             log(f"Katalog-Worker: {e}")
         time.sleep(max(600, CATALOG_TTL // 4))
 
+def plattform_aus_kategorie_und_titel(aus_kategorie, titel):
+    """Plattform eines Usenet-Treffers. Die Kategorie des Indexers zaehlt — ausser der Titel
+    nennt eine Plattform, die genau in DIESER Kategorie mitfaehrt (`KAT_LEIHE`, #452).
+
+    Bewusst eng: Ein Titel, der irgendeine fremde Plattform erwaehnt, darf die Kategorie
+    NICHT umwerfen. Nur der eingetragene Mieter darf seine eigene Kategorie zurueckerobern,
+    denn nur dort ist die Kategorie nachweislich zu grob.
+
+    Platform of a usenet hit. The indexer category wins, unless the title names a platform
+    that is a documented tenant of exactly that category."""
+    aus_titel = guess_platform(titel or "")
+    if not aus_kategorie:
+        return aus_titel
+    if aus_titel and KAT_LEIHE.get(aus_titel) == aus_kategorie:
+        return aus_titel
+    return aus_kategorie
+
+
 def search_usenet(q, cats, limit=30):
     out = []
     if not (cfg("prow_url") and cfg("prow_apikey") and cats): return out
@@ -1975,7 +2076,7 @@ def search_usenet(q, cats, limit=30):
             slug = None
             for c in cats:
                 if c in USENET_CAT: slug = USENET_CAT[c]; break
-            if not slug: slug = guess_platform(it.get("title",""))
+            slug = plattform_aus_kategorie_und_titel(slug, it.get("title",""))
             out.append({"source":"usenet","ref":it.get("downloadUrl"),"title":it.get("title","")[:140],
                         "platform":slug,"size":int(it.get("size") or 0),
                         "cover":"", "extra":it.get("indexer","")})
@@ -2889,9 +2990,85 @@ SPIELORDNER_MUSTER = [
     ("wiiu", {"code", "content", "meta"}),
     ("ps3",  {"ps3_game"}),
     ("ngc",  {"sys", "files"}),          # entpacktes GameCube-/Wii-Abbild
+    # PS Vita: der ausgepackte VPK-Aufbau. `eboot.bin` UND `sce_sys` — beides zusammen,
+    # denn `eboot.bin` allein hat jeder Vita-Titel, und ein einzelnes Bruchstueck duerfte
+    # die Plattform nicht fuer sich beanspruchen. `sce_module`/`PSP2` sind optional und
+    # stehen deshalb NICHT hier. Ohne diesen Eintrag nahm der Import nur die `eboot.bin`
+    # mit (`.bin` steht in ROM_EXT) und liess den Rest des Titels liegen — und weil jeder
+    # Vita-Titel so heisst, ueberschrieb der naechste Import den vorigen. (#455)
+    ("psvita", {"eboot.bin", "sce_sys"}),
 ]
 # Einzelne Dateien, die einen Ordner allein zum Spiel machen.
 SPIELORDNER_DATEI = {"default.xbe": "xbox", "ps3_disc.sfb": "ps3"}
+
+
+# Abbildlisten und was sie nennen — fuer die Frage „ist dieser Ordner EIN Titel?". (#477)
+#
+# WARUM NICHT UEBER `spielordner_slug`: Das liefert einen SLUG, und ein Abbild-Set verraet
+# seine Plattform nicht. Eine `.cue` steht bei psx, saturn, segacd und turbografx-cd; eine
+# `.gdi` bei dc. Fuer den INDEX ist die Plattform aber schon bekannt — dort lautet die
+# Frage nur „ein Titel oder viele?".
+_ABBILDLISTE = (".gdi", ".cue", ".m3u")
+_CUE_FILE = re.compile(r'^\s*FILE\s+(?:"([^"]+)"|(\S+))', re.I | re.M)
+
+
+def _abbild_nennt(pfad):
+    """Dateinamen, die eine Abbildliste nennt. Leer, wenn unlesbar."""
+    endung = os.path.splitext(pfad)[1].lower()
+    try:
+        with open(pfad, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read(200_000)
+    except OSError:
+        return []
+    if endung == ".gdi":
+        namen = []
+        for zeile in text.splitlines()[1:]:
+            teile = zeile.split()
+            if len(teile) >= 6:
+                namen.append(" ".join(teile[4:-1]).strip('"'))
+        return namen
+    if endung == ".cue":
+        return [(a or b) for a, b in _CUE_FILE.findall(text)]
+    return [z.strip() for z in text.splitlines()
+            if z.strip() and not z.lstrip().startswith("#")]
+
+
+def ist_titel_ordner(pfad):
+    """-> True, wenn dieser Ordner GENAU EIN Titel ist. (#477)
+
+    Zwei Wege, und der zweite fehlte:
+
+      1. Ein bekannter Aufbau aus `SPIELORDNER_MUSTER` (Wii U, PS3, GameCube, Vita, Xbox).
+      2. Ein ABBILD-SET: eine `.gdi`/`.cue`/`.m3u` nennt Dateien, die daneben liegen.
+
+    Ohne den zweiten Weg legt der Index einen Dreamcast-Titel als `track01`, `track02`, …
+    ab — dieselbe Sorte Unsinn wie `bootMovie` und `Gravite` vor diesem Fix, nur mit
+    anderen Namen. Dass alle Listen auf denselben Titel reduzieren, wird mitgeprueft:
+    Zwei verschiedene Spiele in einem Ordner sind eine Sammlung, kein Titel.
+
+    EN: two routes — a known layout, or an image list naming files that sit beside it.
+    Without the second, a restored Dreamcast title would be indexed as `track01`, `track02`.
+    """
+    if spielordner_slug(pfad):
+        return True
+    try:
+        eintraege = [e for e in os.scandir(pfad) if e.is_file()]
+    except OSError:
+        return False
+    listen = [e for e in eintraege
+              if os.path.splitext(e.name)[1].lower() in _ABBILDLISTE]
+    if not listen:
+        return False
+    if len({norm(e.name) for e in listen}) != 1:
+        return False                      # zwei Titel in einem Ordner = Sammlung
+    vorhanden = {e.name.lower() for e in eintraege}
+    genannt = []
+    for e in listen:
+        v = _abbild_nennt(e.path)
+        if not v:
+            return False                  # unlesbar oder leer — nicht raten
+        genannt.extend(v)
+    return all(os.path.basename(n).lower() in vorhanden for n in genannt)
 
 
 def spielordner_slug(pfad):
@@ -2983,7 +3160,7 @@ def import_folder(jid, folder):
     schon_drin = []
     for quelle, slug in ordner_titel:
         name = os.path.basename(quelle.rstrip("/")) or os.path.basename(folder)
-        ziel_ordner = os.path.join(ROMS, slug)
+        ziel_ordner = bibliothek_ordner(slug)     # nicht ROMS/<slug> — siehe #454
         os.makedirs(ziel_ordner, exist_ok=True)
         dst = os.path.join(ziel_ordner, name)
         if os.path.exists(dst):
@@ -3045,7 +3222,19 @@ def import_folder(jid, folder):
         if folder.startswith(STAGING): subprocess.run(["rm","-rf",folder])
     except Exception: pass
     build_index()
-    romm_scan()
+    # NUR DIE BETROFFENEN PLATTFORMEN. Ein voller Lauf ueber 45.000 ROMs fuer eine
+    # Handvoll importierter Dateien dauert Stunden und blockiert dabei jeden weiteren
+    # Scan.
+    #
+    # UMRECHNEN, NICHT DURCHREICHEN: `by_plat` traegt Romseerr-SLUGS, RomM erwartet
+    # ORDNERNAMEN (`platform_fs_slugs`). Die beiden weichen ab — `dreamcast` liegt in
+    # `dc`, `ngc` in `gc`. Ungerechnet liefe der Scan ins Leere und meldete trotzdem
+    # Erfolg, also genau der Fehler, den #520 behebt, nur eine Schicht tiefer.
+    ordner = sorted({o for sl in by_plat if sl != UNSORTIERT
+                     for o in slug_folders(sl)})
+    ok, grund = romm_scan(ordner or None)
+    if not ok:
+        log(f"RomM-Scan nicht ausgeloest: {grund}")
     # Nichts importiert UND nichts war schon vorhanden, aber es lagen Nicht-ROM-Dateien vor
     # -> als Fehler melden (mislabeltes Item ohne echte ROM), statt „done" vorzutäuschen. (#61)
     if moved == 0 and not by_plat and skipped:
@@ -3087,15 +3276,80 @@ def import_folder(jid, folder):
     return True
 
 # ---------- Worker: fertige SAB/JD-Downloads einsortieren ----------
-def romm_scan():
-    """Optional: RomM zu einem schnellen Bibliotheks-Scan anstoßen (nur wenn konfiguriert)."""
-    if not (cfg("romm_url") and cfg("romm_user") and cfg("romm_pass")): return
+def romm_scan(fs_slugs=None):
+    """RomM einen Scan anstoßen. -> (ok, grund). Optional auf Ordner begrenzt.
+
+    WAS HIER VORHER STAND UND WARUM ES NIE FUNKTIONIERT HAT (#520): Ein `POST /api/scan`
+    mit einem `except Exception` drumherum. Am laufenden RomM gemessen:
+
+        POST /api/login  -> 200
+        POST /api/scan   -> 403  "CSRF token verification failed"
+        (mit korrektem CSRF-Kopf) -> 404  {"detail":"Not Found"}
+
+    Zwei unabhängige Fehler — und BEIDE unsichtbar, weil `requests` bei 4xx nichts wirft.
+    Der `except`-Zweig wurde nie betreten, `log()` schrieb nie eine Zeile, und jeder
+    Aufrufer hielt einen Scan für angefordert. Ein Aufruf, der zurückkehrt, erfolgreich
+    aussieht und nichts tut.
+
+    DEN SCAN GIBT ES NICHT ALS REST-ENDPUNKT. Er ist ein Socket.IO-Ereignis
+    (`@socket_server.on("scan")`), eingehängt unter `/ws`. Die Aufgabe `scan_library`
+    trägt `manual_run: false`, `POST /api/tasks/run/scan_library` scheitert also mit 400.
+
+    WARUM POLLING UND KEIN WEBSOCKET: Socket.IO spricht auch reines HTTP — OPEN, CONNECT,
+    dann das Ereignis als POST. Damit genügt `requests`, das ohnehin hier ist; ein
+    `websockets`- oder `python-socketio`-Paket wäre eine neue Abhängigkeit für einen
+    Aufruf, der einmal je Import passiert.
+
+    `fs_slugs` begrenzt den Lauf auf einzelne Ordner. Für ein paar importierte Dateien
+    45.000 ROMs anzufassen ist kein Verhältnis — und ein voller Lauf dauert Stunden.
+
+    EN: there is no REST endpoint for the scan; it is a Socket.IO event under `/ws`.
+    The previous code posted to a route that returns 403 and then 404, and reported
+    neither, because requests does not raise on 4xx. Plain HTTP polling keeps this
+    dependency-free.
+    """
+    if not (cfg("romm_url") and cfg("romm_user") and cfg("romm_pass")):
+        return False, "nicht konfiguriert"
+    u = cfg("romm_url").rstrip("/")
+    basis = f"{u}/ws/socket.io/"
+    p = {"EIO": "4", "transport": "polling"}
     try:
         s = requests.Session()
-        s.post(f"{cfg("romm_url")}/api/login", auth=(cfg("romm_user"),cfg("romm_pass")), timeout=10)
-        s.post(f"{cfg("romm_url")}/api/scan", json={"platforms":[], "type":"quick"}, timeout=10)
+        r = s.post(f"{u}/api/login", auth=(cfg("romm_user"), cfg("romm_pass")), timeout=10)
+        # JEDER SCHRITT WIRD GEPRUEFT. Genau das fehlte.
+        if not r.ok:
+            return False, f"Anmeldung: HTTP {r.status_code}"
+        r = s.get(basis, params=p, timeout=15)
+        if not r.ok:
+            return False, f"Socket-Handschlag: HTTP {r.status_code}"
+        m = re.search(r'"sid":"([^"]+)"', r.text or "")
+        if not m:
+            return False, f"keine Sitzungskennung in der Antwort: {(r.text or '')[:60]}"
+        p = dict(p, sid=m.group(1))
+        r = s.post(basis, params=p, data="40", timeout=15)
+        if not r.ok:
+            return False, f"Namensraum: HTTP {r.status_code}"
+        s.get(basis, params=p, timeout=15)          # Bestaetigung abholen
+        auftrag = {"platforms": [], "type": "quick", "apis": [], "roms_ids": [],
+                   "platform_fs_slugs": list(fs_slugs or [])}
+        r = s.post(basis, params=p, data="42" + json.dumps(["scan", auftrag]), timeout=15)
+        if not r.ok:
+            return False, f"Scan-Ereignis: HTTP {r.status_code}"
+        # EINE ABSAGE IST KEINE ZUSAGE. RomM weist ab, solange ein Scan-Auftrag wartet —
+        # und wartende Auftraege stapeln sich, wenn niemand sie abholt. Ohne dieses
+        # Nachlesen sieht die Absage wie ein Erfolg aus, und genau darum geht es hier.
+        r = s.get(basis, params=p, timeout=25)
+        for teil in (r.text or "").split("\x1e"):
+            if teil.startswith("42") and "scan:done_ko" in teil:
+                try:
+                    grund = json.loads(teil[2:])[1]
+                except Exception:
+                    grund = teil[:80]
+                return False, f"RomM lehnt ab: {grund}"
     except Exception as e:
-        log(f"RomM-Scan-Hinweis: {e}")
+        log(f"RomM-Scan fehlgeschlagen: {type(e).__name__}: {e}")
+        return False, str(e)
+    return True, ""
 
 # ---------- Play im Browser: Verweis auf RomMs Spieler (#69) ----------
 # RomM bringt EmulatorJS fest eingebaut mit — kein zusaetzlicher Container, kein CDN.
@@ -3115,7 +3369,7 @@ PLAYABLE = {   # Slug -> EmulatorJS-Kern (nur zur Nachvollziehbarkeit dokumentie
     "neogeopocket": "mednafen_ngp", "wonderswan": "mednafen_wswan", "lynx": "handy",
     "jaguar": "virtualjaguar", "atari2600": "stella2014", "atari7800": "prosystem",
     "3do": "opera", "amiga": "puae", "c64": "vice_x64", "dos": "dosbox_pure",
-    "arcade": "fbneo", "neogeo": "fbneo",
+    "arcade": "fbneo", "neogeo": "fbneo", "neo-geo-cd": "fbneo",
     # Heimcomputer und fruehe Konsolen (#124). Die Kernnamen wurden NICHT aus der
     # libretro-Liste abgeschrieben, sondern in der eingesetzten RomM-Fassung
     # nachgesehen — ein Eintrag auf einen Kern, den der Player nicht mitbringt, waere
@@ -3149,7 +3403,7 @@ PLAYABLE = {   # Slug -> EmulatorJS-Kern (nur zur Nachvollziehbarkeit dokumentie
 # not copied from libretro's catalogue. Intellivision was listed and could not work.
 # Plattformen, deren Kern ohne BIOS startet und dann scheitert — der Nutzer soll das
 # VORHER lesen, statt vor einer schwarzen Flaeche zu sitzen.
-NEEDS_BIOS = {"psx", "3do", "saturn", "amiga", "segacd", "amiga-cd32"}
+NEEDS_BIOS = {"psx", "3do", "saturn", "amiga", "segacd", "amiga-cd32", "neo-geo-cd"}
 # Arcade-Kerne brauchen zum Kern passende Romsets; ein pauschaler Play-Knopf scheitert
 # bei den meisten Dumps. Nicht verstecken, aber ehrlich beschriften.
 CAVEAT = {"arcade": "romset", "neogeo": "romset"}
@@ -3413,37 +3667,74 @@ def stream_find_file(title, slug):
     if not ordner: return None
     want = norm(title)
     if not want: return None
+    # Ordner, die zwar so HEISSEN wie der Titel, aber keinen erkennbaren Titelaufbau
+    # tragen. Sie bleiben die letzte Antwort — aber erst, wenn keine Datei passt.
+    rueckfall = None
     try:
         for name in ordner:
             base = os.path.join(ROMS, name)
             if not os.path.isdir(base): continue
-            # Ein Titel ist nicht immer eine DATEI. Eine PS3-Disc ist ein Ordner mit
-            # PS3_GAME/USRDIR/EBOOT.BIN darin — 10 von 17 Titeln der Testbibliothek.
-            # Ohne diesen Zweig meldete jeder PS3-Titel "not_in_library", der Stream-
-            # Knopf erschien nie, und der Start-Dienst haette ihn klaglos gestartet:
-            # zwei Seiten, die sich widersprechen. (#150; die Dienstseite war #149)
-            # A title is not always a file; a PS3 disc is a folder. Without this the
-            # two sides disagree: Romseerr says "not in library", the launcher starts it.
-            #
-            # ZUERST der Ordner, dann die Dateisuche: eine Disc traegt denselben Namen
-            # wie ein evtl. daneben liegendes Abbild, und der Ordner ist der Titel.
-            for eintrag in sorted(os.listdir(base)):
-                voll = os.path.join(base, eintrag)
-                if os.path.isdir(voll) and norm(eintrag) == want:
-                    return voll
             treffer = []
-            for root, _dirs, files in os.walk(base):
+            # EINE Wanderung fuer Ordner UND Dateien, zwei Ebenen tief — dieselben
+            # zwei, die auch der Index laeuft. Vorher waren es zwei getrennte
+            # Durchgaenge, und beide hatten je einen Fehler. (#477, nach #150/#478)
+            for root, dirs, files in os.walk(base):
+                dirs.sort()              # feste Reihenfolge, sonst haengt das Ergebnis
+                                         # an der Reihenfolge des Dateisystems
+                tief = 0 if root == base else os.path.relpath(root, base).count(os.sep) + 1
+
+                # Ein Titel ist nicht immer eine DATEI. Eine PS3-Disc ist ein Ordner mit
+                # PS3_GAME/USRDIR/EBOOT.BIN darin — 10 von 17 Titeln der Testbibliothek.
+                # Ohne diesen Zweig meldete jeder PS3-Titel "not_in_library", der Stream-
+                # Knopf erschien nie, und der Start-Dienst haette ihn klaglos gestartet:
+                # zwei Seiten, die sich widersprechen. (#150; die Dienstseite war #149)
+                #
+                # ZWEI ERGAENZUNGEN AUS #477, beide am Bestand gemessen (2026-08-13):
+                #
+                # 1. NUR EIN ORDNER, DER WIRKLICH EIN TITEL IST, schlaegt die Datei.
+                #    `ist_titel_ordner` beantwortet genau das seit #478; die Stream-
+                #    Suche hat nie gefragt. In `/roms/dc` liegen nebeneinander
+                #    `Sonic Adventure.cdi` (757 MB, spielbar) und der Ordner
+                #    `Sonic Adventure (PAL)/`, der oben nur eine `.url` und einen
+                #    Unterordner traegt. Beide normalisieren gleich, der Ordner gewann,
+                #    und der Start-Dienst antwortete darauf `Ordner ohne startbaren
+                #    Inhalt` — nachgemessen mit dessen eigenem `_bootdatei`, das ''
+                #    liefert. Die Bibliothek hatte den Titel, der Stream nicht.
+                #
+                # 2. AUCH EINE EBENE TIEFER. Der Index legt Ordner-Titel bis Ebene 2 ab,
+                #    die Suche sah nur Ebene 1. `/roms/ps3/DmC Devil May Cry [+All DLC]
+                #    BLUS30723/Devil May Cry 5/` ist ein PS3-Titel, steht im Index und
+                #    bekam von der Auskunft `not_in_library`.
+                #
+                # EN: only a folder that really IS a title outranks a playable image,
+                # and folder titles are looked for on both levels the index walks.
+                for d in dirs:
+                    if norm(d) != want: continue
+                    voll = os.path.join(root, d)
+                    if ist_titel_ordner(voll):
+                        return voll
+                    if rueckfall is None:
+                        rueckfall = voll
+
                 for fn in files:
                     ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else ""
                     if ext in ROM_EXT and norm(fn) == want:
                         treffer.append(os.path.join(root, fn))
-                if root != base and os.path.relpath(root, base).count(os.sep) >= 1:
-                    break
+
+                # TIEFENBREMSE: `dirs[:] = []` STUTZT den Ast, `break` beendete die
+                # GANZE Wanderung — und genau das stand hier. Sobald irgendwo ein
+                # Ordner auf Ebene 2 auftauchte, war alles danach unsichtbar. Gemessen:
+                # in `/roms/dc` sah die Suche 64 von 173 Dateien (52 der 109
+                # uebersehenen waren ROMs), in `/roms/psx` 2925 von 2993. In `gc` und
+                # `ps2` liegt nichts auf Ebene 2 — deshalb fiel es dort nie auf.
+                # EN: `break` ended the whole walk instead of pruning the branch.
+                if tief >= 1:
+                    dirs[:] = []
             if treffer:
                 return beste_datei(treffer)
     except OSError:
         return None
-    return None
+    return rueckfall
 
 def plattform_kandidaten(title):
     """Alle STREAMBAREN Plattformen, die diesen Titel halten. (#175)
@@ -3661,6 +3952,47 @@ def switch_titel_id(pfad):
     return "", "kein Ticket im Archiv"
 
 
+# Wii U: die ersten acht Hexziffern der Titelkennung sagen, WAS ein Titel ist. (#512)
+# Dieselbe Idee wie `_CIA_ZUBEHOER` beim 3DS (`0004000E`) — nur die Konsolenfamilie
+# daneben. Sie fehlte, und deshalb bot Romseerr ein Update als startbar an, waehrend der
+# Start-Dienst es seit #502 ablehnt: eine Zusage, die die andere Seite nicht haelt.
+_WIIU_ZUBEHOER = {"0005000E": "wiiu_update", "0005000C": "wiiu_dlc",
+                  "0005001B": "wiiu_system"}
+
+
+def wiiu_startbar(ordner):
+    """-> (startbar, grund) fuer einen Wii-U-Titelordner. (#512)
+
+    GELESEN WIRD `code/app.xml`, NICHT `meta/meta.xml`. Die beiden koennen sich
+    widersprechen, und beim einzigen Wii-U-Titel des Bestands tun sie es:
+
+        meta/meta.xml   title_id = 0005000010180700   (behauptet: Basisspiel)
+        code/app.xml    title_id = 0005000E10180700   (Update)
+
+    Cemu liest `app.xml` und antwortet darauf `Unable to mount title` — eine Meldung, die
+    eine Datei nennt und die Ursache verschweigt. Wer `meta.xml` liest, bekommt mit voller
+    Ueberzeugung die falsche Antwort.
+
+    IM ZWEIFEL DURCHLASSEN, wie bei Switch und 3DS: Fehlt `app.xml` oder steht dort keine
+    lesbare Kennung, geht der Titel durch. Eine falsche Absage kostet mehr als ein
+    Fehlversuch.
+
+    EN: reads `code/app.xml`, not `meta/meta.xml` — the two can disagree, and in the one
+    Wii U title here they do. Anything unreadable passes.
+    """
+    xml = os.path.join(ordner, "code", "app.xml")
+    try:
+        with open(xml, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read(8192)
+    except OSError:
+        return True, ""
+    m = re.search(r"<title_id[^>]*>\s*([0-9A-Fa-f]{16})\s*<", text)
+    if not m:
+        return True, ""
+    grund = _WIIU_ZUBEHOER.get(m.group(1).upper()[:8])
+    return (False, grund) if grund else (True, "")
+
+
 def switch_startbar(pfad):
     """-> (startbar, grund) fuer eine Switch-Datei.
 
@@ -3779,6 +4111,13 @@ def stream_info(title, slug, user=""):
         # Dieselbe Frage wie bei 3DS und aus demselben Grund: Ein Update oder ein DLC
         # startet nicht fuer sich, und das steht VOR der Platzvergabe fest. (#427)
         startbar, grund = switch_startbar(path)
+        if not startbar:
+            return {"streamable": False, "reason": grund, "platform": slug}
+    if slug == "wiiu" and os.path.isdir(path):
+        # Dieselbe Frage wie bei Switch und 3DS. Der Start-Dienst lehnt ein Update seit
+        # #502 ab — ohne diese Zeile zeigt Romseerr trotzdem den Knopf, und die Absage
+        # kommt erst NACH dem Klick. (#512)
+        startbar, grund = wiiu_startbar(path)
         if not startbar:
             return {"streamable": False, "reason": grund, "platform": slug}
     if slug == "3ds":
@@ -7236,7 +7575,7 @@ def einwurf_verschieben(quelle, slug):
     umbenennen, und erst danach die Quelle entfernen.
     """
     name = os.path.basename(quelle)
-    ziel_ordner = os.path.join(ROMS, slug)
+    ziel_ordner = bibliothek_ordner(slug)     # nicht ROMS/<slug> — siehe #454
     try:
         os.makedirs(ziel_ordner, exist_ok=True)
         endgueltig = os.path.join(ziel_ordner, name)
