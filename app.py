@@ -5577,10 +5577,48 @@ UPDATE_ANY_URL = "https://api.github.com/repos/Sparxx947/romseerr/releases?per_p
 UPDATE_TTL   = 6 * 3600
 _UPDATE      = {"ts": 0, "latest": None}
 
+def _vorab_rang(teil):
+    """Vorabteil einer Version -> Sortierschluessel nach SemVer 2.0.0 §11.
+
+    Drei Regeln stecken darin, und jede einzelne ist eine, die ein naiver Vergleich
+    falsch macht:
+      * KEIN Vorabteil steht UEBER demselben `1.3.0-beta.1` — deshalb fuehrt der
+        Schluessel mit 1 statt mit 0.
+      * Rein numerische Kennungen werden als Zahl verglichen, nicht als Zeichenkette
+        (`beta.10` > `beta.9`), und rangieren unter den alphabetischen.
+      * Bei gleichem Anfang gewinnt der laengere Vorabteil (`beta.1` > `beta`) — das
+        faellt beim Tupelvergleich von selbst heraus.
+
+    EN: pre-release ordering per SemVer 2.0.0 §11 — absence outranks presence, numeric
+    identifiers compare numerically and rank below alphanumeric ones, and a longer
+    identifier list wins when the shorter one is a prefix of it.
+    """
+    if not teil:
+        return (1,)
+    kennungen = []
+    for s in teil.split("."):
+        kennungen.append((0, int(s), "") if s.isdigit() else (1, 0, s))
+    return (0, tuple(kennungen))
+
 def _semver(v):
-    """'1.2.3' / 'v1.2.3-beta.1' -> (1,2,3). Pre-Release-Suffix wird ignoriert."""
-    m = re.match(r"v?(\d+)\.(\d+)\.(\d+)", str(v or ""))
-    return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
+    """'1.2.3' / 'v1.2.3-beta.1' -> vergleichbarer Sortierschluessel.
+
+    Der Rueckgabewert ist NUR zum Vergleichen da, nicht zum Anzeigen oder Zerlegen —
+    seine Form ist Innenleben. Baumetadaten (`+abc`, §10) zaehlen laut Norm nicht mit und
+    fallen deshalb weg. Unlesbares wird zu `0.0.0` ohne Vorabteil — darunter liegt nur noch
+    eine Vorabversion von 0.0.0, die es nicht gibt. Ein Tag, den niemand deuten kann, kann
+    also praktisch kein Update auslösen.
+
+    EN: returns an opaque comparison key, not a displayable tuple. Build metadata is
+    dropped (§10). Anything unparseable becomes plain 0.0.0 — only a pre-release of 0.0.0
+    would sort below that, and no such version exists — so a garbled tag cannot claim to
+    be newer than what is running.
+    """
+    m = re.match(r"v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?", str(v or ""))
+    if not m:
+        return (0, 0, 0, _vorab_rang(None))
+    haupt, neben, patch, vorab = m.groups()
+    return (int(haupt), int(neben), int(patch), _vorab_rang(vorab))
 
 def _release_tag(url):
     """Eine Release-Adresse abfragen -> (Version ohne führendes v, HTTP-Status).

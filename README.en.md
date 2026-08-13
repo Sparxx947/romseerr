@@ -774,6 +774,20 @@ This has an easily missed consequence: if **every** release is a pre-release, `G
 status — `/releases?per_page=1`, which knows pre-releases too. Any other error stays an
 error and triggers no second request.
 
+And a second one with the same root: once the beta line is what feeds the hint, the
+comparison is almost always **beta against beta**. So the version compare has to read the
+pre-release part rather than discard it — otherwise `1.3.0-beta.2` does not count as an
+update to `1.3.0-beta.1`, and worse: the first stable `1.3.0` would **not** be offered to a
+running `1.3.0-beta.1`. Ordering follows SemVer 2.0.0 §11:
+
+| | | |
+|---|---|---|
+| `1.3.0` > `1.3.0-beta.1` | no pre-release beats any | the jump that matters most |
+| `1.3.0-beta.10` > `1.3.0-beta.9` | numbers compare as numbers | a string compare inverts this |
+| `1.3.0-rc.1` > `1.3.0-beta.1` | alphanumerics among themselves | |
+| `1.3.0-beta.1` > `1.3.0-beta` | more identifiers win on a shared prefix | |
+| `1.3.0+abc` = `1.3.0` | build metadata does not count (§10) | |
+
 **Running a different version** means, for a pulling container, changing the image tag and
 nothing else.
 

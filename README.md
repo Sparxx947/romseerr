@@ -801,6 +801,20 @@ antwortet `GET /releases/latest` mit **404**. Der Update-Hinweis fragt deshalb b
 diesem 404 ein zweites Mal — bei `/releases?per_page=1`, das auch Vorabversionen kennt.
 Jeder andere Fehler bleibt ein Fehler und führt zu keiner zweiten Anfrage.
 
+Und eine zweite, die dieselbe Wurzel hat: Ist die Beta-Reihe die Quelle des Hinweises,
+läuft der Vergleich fast immer **Beta gegen Beta**. Der Versionsvergleich muss den
+Vorabteil deshalb mitlesen, statt ihn wegzuwerfen — sonst gilt `1.3.0-beta.2` nicht als
+Update zu `1.3.0-beta.1`, und schwerer wiegend: die erste stabile `1.3.0` würde einer
+laufenden `1.3.0-beta.1` **nicht** angeboten. Geordnet wird nach SemVer 2.0.0 §11:
+
+| | | |
+|---|---|---|
+| `1.3.0` > `1.3.0-beta.1` | keine Vorabkennung schlägt jede | der Sprung, auf den es ankommt |
+| `1.3.0-beta.10` > `1.3.0-beta.9` | Zahlen als Zahl, nicht als Text | ein Textvergleich dreht das um |
+| `1.3.0-rc.1` > `1.3.0-beta.1` | alphabetisch unter sich | |
+| `1.3.0-beta.1` > `1.3.0-beta` | mehr Kennungen gewinnen bei gleichem Anfang | |
+| `1.3.0+abc` = `1.3.0` | Baumetadaten zählen nicht (§10) | |
+
 **Eine andere Version fahren** heißt für einen ziehenden Container: die Marke am Abbild
 ändern, mehr nicht.
 

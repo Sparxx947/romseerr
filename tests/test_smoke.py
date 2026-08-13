@@ -498,10 +498,67 @@ def test_api_version_public(client, appmod):
 
 
 def test_api_version_semver_compare(appmod):
-    """Der Versionsvergleich für den Update-Hinweis ordnet numerisch, nicht lexikalisch."""
+    """Der Versionsvergleich für den Update-Hinweis ordnet numerisch, nicht lexikalisch.
+
+    Der Test prüft die *Ordnung*, nicht die Darstellung des Rückgabewerts — welche Form
+    der Sortierschlüssel hat, ist Innenleben und darf sich ändern, ohne dass hier etwas
+    nachgezogen werden muss.
+    """
     assert appmod._semver("v1.10.0") > appmod._semver("1.9.9")
-    assert appmod._semver("1.0.0-beta.1") == appmod._semver("1.0.0")   # Suffix ignoriert
-    assert appmod._semver("krumm") == (0, 0, 0)
+    assert appmod._semver("krumm") < appmod._semver("0.0.1")   # unlesbar = ganz unten
+    assert appmod._semver("krumm") == appmod._semver("")       # und beides gleich unten
+
+
+def test_a_newer_beta_of_the_same_version_is_an_update(appmod):
+    """`1.3.0-beta.2` muss über `1.3.0-beta.1` stehen. (#574)
+
+    Bis hierher warf `_semver()` den Vorabteil weg, damit waren beide gleich und der
+    Hinweis blieb aus. Seit #572 sind ALLE Releases dieses Projekts Vorabversionen — der
+    Vergleich läuft also fast immer Beta gegen Beta, genau der Fall, den er nicht konnte.
+    """
+    assert appmod._semver("1.3.0-beta.2") > appmod._semver("1.3.0-beta.1")
+    # Zweistellig gegen einstellig: ein Zeichenkettenvergleich liefert hier das Gegenteil.
+    assert appmod._semver("1.3.0-beta.10") > appmod._semver("1.3.0-beta.9")
+    # Gegenprobe, damit der Hinweis nicht in die andere Richtung kippt.
+    assert not appmod._semver("1.3.0-beta.1") > appmod._semver("1.3.0-beta.2")
+
+
+def test_a_stable_release_outranks_its_own_beta(appmod):
+    """Der Sprung, auf den es am meisten ankommt: `1.3.0` ist ein Update zu
+    `1.3.0-beta.1`, umgekehrt aber nicht. (#574)
+
+    SemVer 2.0.0 §11: eine Version OHNE Vorabteil steht über derselben Version MIT.
+    """
+    assert appmod._semver("1.3.0") > appmod._semver("1.3.0-beta.1")
+    assert not appmod._semver("1.3.0-beta.1") > appmod._semver("1.3.0")
+    # Reihenfolge der Kennungen untereinander: alpha < beta < rc, und weniger Felder
+    # zuerst (`beta` vor `beta.1`). Numerische Kennungen rangieren unter alphabetischen.
+    assert appmod._semver("1.3.0-rc.1") > appmod._semver("1.3.0-beta.1")
+    assert appmod._semver("1.3.0-beta.1") > appmod._semver("1.3.0-alpha.9")
+    assert appmod._semver("1.3.0-beta.1") > appmod._semver("1.3.0-beta")
+    assert appmod._semver("1.3.0-beta") > appmod._semver("1.3.0-1")
+    # Baumetadaten zählen laut §10 nicht mit — `+abc` darf nichts verschieben.
+    assert appmod._semver("1.3.0+abc") == appmod._semver("1.3.0")
+    assert appmod._semver("1.3.0-beta.1+abc") == appmod._semver("1.3.0-beta.1")
+
+
+def test_the_update_hint_offers_the_next_beta_end_to_end(appmod, client, monkeypatch):
+    """Nicht nur die Funktion, sondern die Verdrahtung bis `/api/version?check=1`. (#574)
+
+    `_semver()` hat genau einen Aufrufer, und der bildet den Hinweis, den die Oberfläche
+    anzeigt. Ein Test nur auf der Funktion würde einen falsch herum gedrehten Vergleich
+    an dieser Stelle nicht bemerken.
+    """
+    monkeypatch.setattr(appmod, "VERSION", "1.3.0-beta.1")
+    monkeypatch.setattr(appmod, "_UPDATE", {"ts": 0, "latest": None})
+    monkeypatch.setattr(appmod, "latest_release", lambda: "1.3.0-beta.2")
+    d = client.get("/api/version?check=1").get_json()
+    assert d["latest"] == "1.3.0-beta.2"
+    assert d["update_available"] is True, "die nächste Beta muss angeboten werden"
+
+    monkeypatch.setattr(appmod, "latest_release", lambda: "1.3.0-beta.1")
+    assert client.get("/api/version?check=1").get_json()["update_available"] is False, \
+        "dieselbe Fassung ist kein Update"
 
 
 def test_metrics_requires_auth(client):
