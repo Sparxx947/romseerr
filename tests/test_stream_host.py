@@ -3159,6 +3159,59 @@ def test_dolphin_applies_the_wiimote_too(tmp_path):
         + m.group(1))
 
 
+def test_cemu_gets_a_controller_profile_written(tmp_path):
+    """Ohne diese Datei gibt es GAR KEINE Zuordnung. (#304)
+
+    Am 2026-08-13 nachgesehen: `controllerProfiles` war leer, Cemu nie eingerichtet. Das
+    faellt nicht auf, weil Cemu startet, das Spiel laeuft und der Ton kommt — nur die
+    Eingabe fehlt, und das sieht nach einem toten Controller aus.
+    """
+    m = _profil_modul(tmp_path)
+    geaendert, msg = m.cemu_controller()
+    assert geaendert, msg
+    pfad = tmp_path / ".config" / "Cemu" / "controllerProfiles" / "controller0.xml"
+    text = pfad.read_text(encoding="utf-8")
+    assert "<api>SDLController</api>" in text, text
+    assert m.CEMU_UUID in text, text
+    assert text.count("<entry>") == len(m.CEMU_ZUORDNUNG), text
+    assert "<type>Wii U GamePad</type>" in text, text
+
+
+def test_cemu_never_overwrites_a_hand_made_profile(tmp_path):
+    """Eine bestehende Zuordnung fuer ein ANDERES Geraet bleibt stehen. (#304)
+
+    Wer sein Pad in Cemus Oberflaeche selbst zugewiesen hat, soll das behalten. Eine
+    stillschweigend ueberschriebene Belegung waere kaum zu bemerken.
+    """
+    m = _profil_modul(tmp_path)
+    d = tmp_path / ".config" / "Cemu" / "controllerProfiles"
+    d.mkdir(parents=True, exist_ok=True)
+    eigen = "<emulated_controller><uuid>9_deadbeef</uuid></emulated_controller>\n"
+    (d / "controller0.xml").write_text(eigen, encoding="utf-8")
+    geaendert, msg = m.cemu_controller()
+    assert not geaendert, msg
+    assert (d / "controller0.xml").read_text(encoding="utf-8") == eigen, "fremdes Profil angefasst"
+
+
+def test_the_two_pad_identifiers_cannot_drift_apart():
+    """`CEMU_UUID` traegt die Kennung ein ZWEITES Mal als Zeichenkette. (#304)
+
+    Der Verweis auf `PAD_GUID` ging nicht: Die Konstante steht weiter unten in der Datei,
+    und ein Vorwaertsverweis liess das Modul beim Laden mit `NameError` sterben. Die
+    Doppelung ist also gewollt — aber sie muss zusammenbleiben, sonst zeigt Cemu auf ein
+    Pad, das es nicht gibt, und niemand merkt es.
+    """
+    m = _profil_modul(None) if False else None
+    import importlib.util, importlib.machinery
+    spec = importlib.util.spec_from_loader(
+        "lp_drift", importlib.machinery.SourceFileLoader(
+            "lp_drift", os.path.join(REPO, "contrib/streaming-host/launch-profile.py")))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.CEMU_UUID == "0_" + mod.PAD_GUID, (
+        f"CEMU_UUID={mod.CEMU_UUID} passt nicht zu PAD_GUID={mod.PAD_GUID}")
+
+
 def _cemu_settings(tmp_path, inhalt):
     d = tmp_path / ".config" / "Cemu"
     d.mkdir(parents=True, exist_ok=True)
