@@ -7423,3 +7423,73 @@ def test_an_incomplete_set_folder_is_not_one_title(appmod):
     with open(os.path.join(ordner, "Unvollstaendig.gdi"), "w") as f:
         f.write("1\n1 0 4 2352 track01.bin 0\n")
     assert appmod.ist_titel_ordner(ordner) is False
+
+
+# ---------------------------------------------------------------------------
+# #518: Neo Geo CD ist eine eigene Plattform, weil RomM sie getrennt fuehrt.
+# ---------------------------------------------------------------------------
+
+def test_neo_geo_cd_is_not_folded_into_neogeo(appmod):
+    """`neo-geo-cd` darf nicht auf `neogeo` zeigen. (#518)
+
+    NICHT AUS DER KONSOLENGESCHICHTE begruendet, sondern AM LAUFENDEN ROMM GEMESSEN:
+
+        Neo Geo AES   neogeoaes    300 ROMs
+        Neo Geo CD    neo-geo-cd   100 ROMs
+        eine Plattform `neogeo` gibt es dort GAR NICHT
+
+    Solange der Alias stand, fragte `romm_find` nach `neogeo`:
+
+        romm_find("Aero Fighters 2 (World)", "neogeo")      -> None
+        romm_find("Aero Fighters 2 (World)", "neo-geo-cd")  -> Aero Fighters 2
+
+    100 vorhandene, von RomM gescannte Titel waren damit unspielbar — der Play-Knopf
+    konnte gar nicht erscheinen. AES und MVS bleiben zusammengefasst: das ist dieselbe
+    Hardware in anderen Gehaeusen, und RomM fuehrt sie ebenfalls so.
+
+    EN: not argued from console history but measured against the running RomM, which
+    keeps the CD separate and has no `neogeo` platform at all.
+    """
+    assert appmod.FOLDER_ALIASES.get("neo-geo-cd") is None, (
+        "der Alias ist zurueck — romm_find fragt dann wieder nach einer Plattform, "
+        "die es in RomM nicht gibt")
+    assert appmod.FOLDER_ALIASES.get("neogeoaes") == "neogeo"
+    assert appmod.FOLDER_ALIASES.get("neogeomvs") == "neogeo"
+    assert appmod.folder_slug("neo-geo-cd") == "neo-geo-cd"
+
+
+def test_a_neo_geo_cd_title_is_not_eaten_by_the_neo_geo_pattern(appmod):
+    """Das allgemeine `neo geo`-Muster darf die CD nicht schlucken. (#518)
+
+    `guess_platform` geht die Muster DER REIHE NACH durch und nimmt den ersten Treffer.
+    `neo\\s*geo` passt auch auf `Neo Geo CD`. Ohne einen Eintrag DAVOR landet jede
+    Schreibweise wieder bei `neogeo` — der Alias waere entfernt und die Wirkung
+    dieselbe.
+
+    HIER STAND ZUERST `folder_slug`, UND DAS WAR DIE FALSCHE FUNKTION: Sie reicht
+    unbekannte Ordnernamen unveraendert durch und normalisiert nichts. `KW` beschreibt,
+    was aus einem TITEL oder Releasenamen gelesen wird — dort greift die Reihenfolge.
+    """
+    for text in ("Metal Slug (Neo Geo CD)", "neo-geo-cd", "NeoGeo CD Collection",
+                 "Some Game [neo geo cd]"):
+        assert appmod.guess_platform(text) == "neo-geo-cd", text
+    # Die Gegenrichtung: was wirklich Neo Geo ist, bleibt es.
+    for text in ("Metal Slug (Neo Geo)", "NeoGeo AES romset"):
+        assert appmod.guess_platform(text) == "neogeo", text
+
+
+def test_neo_geo_cd_is_playable_and_says_it_needs_a_bios(appmod):
+    """Kern und BIOS-Hinweis gehoeren zusammen. (#518)
+
+    `fbneo` spielt Neo Geo CD — derselbe Kern wie fuer `neogeo`. Aber anders als ein
+    Cartridge-Romset braucht ein CD-Abbild das System-ROM der Konsole. Ohne den Hinweis
+    oeffnet sich ein Spieler, der schwarz bleibt, und das sieht aus wie ein fehlender
+    Kern.
+
+    Der `romset`-Hinweis von `neogeo` passt hier NICHT und steht deshalb nicht dabei:
+    eine CD ist kein Romset.
+    """
+    assert appmod.PLAYABLE.get("neo-geo-cd") == "fbneo"
+    assert "neo-geo-cd" in appmod.NEEDS_BIOS
+    assert appmod.CAVEAT.get("neo-geo-cd") is None, (
+        "der Arcade-Romset-Hinweis passt nicht auf eine CD")
