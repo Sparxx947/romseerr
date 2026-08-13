@@ -335,6 +335,48 @@ not ship, which cannot work and looks like any other button. `GET /api/play/core
 checks each one. `IGNORE_FOLDERS` hides directories with no game content; content that
 merely lacks a core stays visible.*
 
+### Den RomM-Scan gibt es nicht als REST-Aufruf (#520)
+
+`POST /api/scan` ist **weg**. Wer es trotzdem aufruft, bekommt zwei Absagen
+hintereinander — und `requests` wirft bei keiner davon:
+
+```
+POST /api/login  -> 200
+POST /api/scan   -> 403  "CSRF token verification failed"
+   (mit korrektem CSRF-Kopf)  -> 404  {"detail":"Not Found"}
+```
+
+Der Scan ist ein **Socket.IO-Ereignis**, eingehängt unter `/ws`. Die Aufgabe
+`scan_library` trägt `manual_run: false`, `POST /api/tasks/run/scan_library` scheitert
+also mit 400.
+
+**Ohne neue Abhängigkeit:** Socket.IO spricht auch reines HTTP. `GET` holt das
+OPEN-Paket mit der Sitzungskennung, ein `POST "40"` meldet den Namensraum an, und das
+Ereignis ist ein `POST "42[\"scan\", {…}]"`. Damit genügt `requests`; ein
+`websockets`- oder `python-socketio`-Paket wäre eine neue Abhängigkeit für einen Aufruf,
+der einmal je Import passiert.
+
+**Zwei Dinge, die man leicht falsch macht:**
+
+- **CSRF gilt für REST, nicht für den Socket** — und das Merkmal ist an die
+  Benutzerkennung gebunden. Erst anmelden, dann einen beliebigen GET, *dann* liegt ein
+  brauchbares `romm_csrftoken` vor. Eines von vor der Anmeldung gehört „niemandem" und
+  wird abgewiesen.
+- **`platform_fs_slugs` sind ORDNERNAMEN, keine Slugs.** `dreamcast` liegt in `dc`,
+  `ngc` in `gc`. Ungerechnet läuft der Scan ins Leere und meldet trotzdem Erfolg.
+
+**Und die eigentliche Lehre:** Jeder Schritt prüft seinen Statuscode, und eine Absage
+(`scan:done_ko`) wird gelesen. Die alte Fassung stand in einem `except Exception`, das
+nie betreten wurde — der Aufruf kehrte zurück, sah erfolgreich aus und tat nichts. Das
+ist der dritte Fehler dieser Bauart an einem Tag (#500, #513).
+
+*EN: there is no REST endpoint for the scan any more — 403 then 404, and requests raises
+on neither. It is a Socket.IO event under `/ws`, reachable over plain HTTP polling, so no
+new dependency. CSRF applies to REST only and its token is bound to the user id, so it
+must be fetched after logging in. `platform_fs_slugs` are folder names, not slugs. Every
+step now checks its status code and a refusal is read, because the previous version
+returned, looked successful and did nothing.*
+
 ### Ein Alias ist erst richtig, wenn RomM ihn auch zieht (#518)
 
 `FOLDER_ALIASES` fasst Ordner zusammen, die dieselbe Plattform meinen — `neogeoaes` und
