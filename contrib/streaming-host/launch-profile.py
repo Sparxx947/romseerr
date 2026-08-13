@@ -45,6 +45,12 @@ FLYCAST_RENDERER = "4"
 # xemu OHNE VirtualGL; ohne diesen Eintrag landete OpenGL dann auf dem Software-Rasterer.
 XEMU_RENDERER = "VULKAN"
 
+# Cemus Audio-Backend als Kennziffer. Die Reihenfolge stammt aus Cemus eigener
+# Startausgabe (DirectSound, XAudio 2.8, XAudio 2.7, Cubeb) — abgelesen, nicht geraten.
+# Nur Cubeb ist im Container verfuegbar; die Vorgabe 0 (DirectSound) laesst Cemu stumm
+# laufen, ohne dass etwas fehlschlaegt. (#541)
+CEMU_AUDIO_API = "3"
+
 # PCSX2: Namen aus s_sdl_button_setting_names / s_sdl_axis_setting_names
 # (pcsx2/Input/SDLInputSource.cpp) — abgelesen, nicht geraten.
 PCSX2 = {
@@ -1202,6 +1208,81 @@ def xemu_renderer(pruefen=False):
     return True, f"Renderer auf {XEMU_RENDERER} gesetzt, Rueckweg: {sicherung}"
 
 
+def cemu_settings():
+    return os.path.join(CONFIG, ".config", "Cemu", "settings.xml")
+
+
+def cemu_audio(pruefen=False):
+    """-> (geaendert, meldung). Setzt Cemus Ausgabe auf ein Backend, das es hier gibt. (#541)
+
+    DER FEHLER WAR STILL, und das ist der eigentliche Punkt. Cemu startete, spielte mit
+    60 FPS, nahm den Controller an — und war stumm. Fehlgeschlagen ist dabei nichts; im
+    Protokoll steht genau eine Zeile, und die sieht harmlos aus:
+
+        ------- Init Audio backend -------
+        DirectSound: not supported
+        XAudio 2.8: not supported
+        XAudio 2.7: not supported
+        Cubeb: available
+        ------- Run title -------
+        can't initialize tv audio: failed to find selected device while trying to create audio device
+
+    Gespeichert war `<api>0</api>` — DirectSound, ein Windows-Backend, das Cemu selbst als
+    `not supported` auffuehrt. Es fragt also ein Geraet bei einem Backend an, das es nicht
+    gibt, findet keins, und macht weiter.
+
+    DIE NUMMER IST ABGELESEN, NICHT GERATEN: Cemu druckt seine Backends beim Start in der
+    Reihenfolge der Aufzaehlung — DirectSound, XAudio 2.8, XAudio 2.7, Cubeb — also 0, 1, 2, 3.
+
+    NACHGEMESSEN, nicht angenommen: Nach der Umstellung erscheint Cemu als aktiver
+    Wiedergabestrom am PulseAudio-Server (`Cemu Cubeb`, `Corked: no`), die Fehlerzeile ist
+    weg, und ein Mensch hat den Ton an zwei Titeln bestaetigt.
+
+    WAS HIER BEWUSST NICHT STEHT: eine Aenderung an `<delay>`. Bei einem Titel klang der Ton
+    zerhackt, und der naheliegende Griff waere der Puffer gewesen. Gemessen half er nicht
+    (`<delay>` 2 -> 9 aenderte die Puffer-Latenz nicht einmal, ebensowenig
+    `PULSE_LATENCY_MSEC=120`), und die Gegenprobe mit einem zweiten Titel war am Standardwert
+    makellos: 0 ms Stille in 8 Sekunden gegen 4040 ms beim ersten. Es lag am Titelbildschirm
+    jenes Spiels, nicht an Cemu. Deshalb bleibt der Puffer, wie er ist — eine Einstellung ohne
+    belegte Wirkung ist Ballast, den spaeter niemand mehr einzuordnen weiss.
+
+    EN: Cemu stored `<api>0</api>` (DirectSound), which it lists as unsupported here, so it
+    asked a non-existent backend for a device and silently ran mute — picture, speed and
+    gamepad all fine. The index is read off Cemu's own startup listing. Deliberately does NOT
+    touch `<delay>`: raising it changed nothing measurable, and a second title was clean at
+    the default, so the chopped audio belonged to one title's attract screen.
+    """
+    pfad = cemu_settings()
+    if not os.path.isfile(pfad):
+        return False, "settings.xml gibt es noch nicht — Cemu legt sie beim ersten Beenden an"
+    with open(pfad, encoding="utf-8", errors="ignore") as f:
+        text = f.read()
+
+    # Der Abschnitt zaehlt: `<api>` steht auch unter `<Overlay>` und anderswo. Wer nur nach
+    # `<api>` sucht, trifft irgendeinen und meldet Erfolg fuer den falschen.
+    m = re.search(r"<Audio>(.*?)</Audio>", text, re.S)
+    if not m:
+        return False, "kein <Audio>-Abschnitt in settings.xml"
+    innen = m.group(1)
+    treffer = re.search(r"<api>\s*(\d+)\s*</api>", innen)
+    if not treffer:
+        return False, "kein <api>-Eintrag im Audio-Abschnitt"
+    if treffer.group(1) == CEMU_AUDIO_API:
+        return False, f"Audio steht bereits auf Backend {CEMU_AUDIO_API} (Cubeb)"
+    if pruefen:
+        return True, (f"Audio steht auf Backend {treffer.group(1)} statt {CEMU_AUDIO_API}"
+                      " (Cubeb) — Cemu laeuft dann stumm, ohne dass etwas fehlschlaegt")
+
+    neu_innen = innen[:treffer.start()] + f"<api>{CEMU_AUDIO_API}</api>" + innen[treffer.end():]
+    neu = text[:m.start(1)] + neu_innen + text[m.end(1):]
+    sicherung = pfad + ".vor-audio"
+    if not os.path.exists(sicherung):
+        shutil.copy2(pfad, sicherung)
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write(neu)
+    return True, f"Audio auf Backend {CEMU_AUDIO_API} (Cubeb) gesetzt, Rueckweg: {sicherung}"
+
+
 def azahar_ini():
     return os.path.join(CONFIG, ".config", "azahar-emu", "qt-config.ini")
 
@@ -1538,7 +1619,15 @@ PROFILE = {
                   "einstellungen": [xemu_renderer],
                   "geprueft": True},
     "cemu":      {"system": "Wii U",         "controller": None, "bios": None, "vollbild": None,
-                  "geprueft": False},
+                  # Cemu ordnet ein SDL-Pad selbst zu, sobald es in seiner Oberflaeche
+                  # hinzugefuegt wurde — die Belegung schreibt es dann nach
+                  # `controllerProfiles/controller0.xml`. Der Ton dagegen steht auf einem
+                  # Backend, das es hier nicht gibt, und das faellt nirgends auf. (#541)
+                  "einstellungen": [cemu_audio],
+                  # geprueft: Bild, Ton und Gamepad am laufenden Host bestaetigt
+                  # (2026-08-13) — mit einem Wii-U-BASISSPIEL, nachdem die Bibliothek
+                  # zuvor nur ein Update enthielt (#302).
+                  "geprueft": True},
     # vollbild=None ist hier NACHGEMESSEN, nicht angenommen (#316): Der Fenstertrick
     # genuegt, der gezeichnete Bereich waechst mit. Gemessen am laufenden Emulator ueber
     # die Pixel, nicht ueber die Fenstergeometrie — die meldet den Rahmen, nicht den

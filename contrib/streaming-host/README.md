@@ -718,6 +718,67 @@ Zwei Einstellungen sind dafür nötig und im Compose gesetzt:
 `PULSE_SERVER=unix:/defaults/native` (die Aufnahmebibliothek beachtet
 `PULSE_RUNTIME_PATH` nicht und scheitert sonst an `pa_context_connect()`).
 
+### Zwei Fallen, bei denen nichts fehlschlägt und trotzdem nichts zu hören ist
+
+**Der Client fragt nach dem Ton, nicht der Server.** Wird die Streaming-Pipeline
+zurückgesetzt — etwa nach einer Auflösungsänderung —, baut der Browser sie wieder auf und
+schickt dabei nur `START_VIDEO`. Das Bild kommt zurück, der Ton nicht, und im Protokoll
+steht **kein Fehler**: Aufnahme und Opus-Encoder laufen serverseitig unverändert weiter, es
+fragt nur niemand mehr danach. Ein Neuladen der Seite hilft nicht, weil der Zustand am
+Client hängt; der Tonschalter im Selkies-Seitenmenü aus- und wieder einschalten schickt ein
+neues `START_AUDIO`. Erkennbar am Protokoll:
+
+```bash
+docker logs stream-host --timestamps | grep -i "START_AUDIO\|stopped all streams"
+```
+
+Liegt das letzte `START_AUDIO` **vor** dem letzten „stopped all streams", ist es der Client.
+
+**Cemu wählt ein Backend, das es hier nicht gibt.** Gespeichert war `<api>0</api>` —
+DirectSound, das Cemu in seiner eigenen Startausgabe als `not supported` aufführt.
+Verfügbar ist allein Cubeb. Cemu fragt dann ein Gerät bei einem nicht vorhandenen Backend
+an, findet keins und spielt weiter:
+
+```
+DirectSound: not supported          <- gespeichert war genau dieses
+Cubeb: available
+------- Run title -------
+can't initialize tv audio: failed to find selected device while trying to create audio device
+```
+
+Bild, Geschwindigkeit und Controller sind dabei tadellos. `launch-profile.py` setzt deshalb
+`<api>3</api>` (Cubeb); die Kennziffer stammt aus der Reihenfolge, in der Cemu seine
+Backends auflistet, nicht aus einer Vermutung.
+
+> **Am Puffer wird bewusst nicht gedreht.** Bei einem Titel klang der Ton zerhackt, und
+> `<delay>` wäre der naheliegende Griff gewesen. Gemessen half er nicht — von 2 auf 9
+> erhöht änderte sich die Puffer-Latenz nicht einmal, `PULSE_LATENCY_MSEC=120` ebenso wenig
+> — und ein zweiter Titel war am Standardwert makellos: **0 ms** Stille in 8 Sekunden gegen
+> 4040 ms beim ersten. Es lag am Titelbildschirm jenes Spiels, nicht am Emulator.
+
+Objektiv messen lässt sich das so — echte digitale Nullen zählen, nicht „leise":
+
+```bash
+docker exec -i stream-host bash -c 'parec --device=output.monitor --format=s16le \
+  --rate=48000 --channels=2 --raw > /tmp/q.raw & P=$!; sleep 8; kill $P; \
+  python3 -c "
+import struct
+d=open(\"/tmp/q.raw\",\"rb\").read(); n=len(d)//2
+s=struct.unpack(\"<%dh\"%n, d[:n*2])
+lauf=0; luecken=[]
+for x in s:
+    if x==0: lauf+=1
+    else:
+        if lauf>96: luecken.append(lauf)
+        lauf=0
+print(\"Spitze\", max(abs(v) for v in s), \"| Null-Strecken >1ms:\", len(luecken))
+"'
+```
+
+Eine feste Schwelle wie „leiser als 30" taugt dafür **nicht**: Ein leises Signal fällt
+darunter, ohne dass etwas fehlt — das hat hier einmal eine Stunde in die falsche Richtung
+gekostet.
+
 ---
 
 ## Emulatoren installieren
@@ -2069,6 +2130,46 @@ Browser-side indicators mislead here. Measure in the container with `parec` on
 `output.monitor` and count non-zero bytes: a large number means audio is flowing and
 the problem is the browser (almost always: no HTTPS); zero means the source is
 silent.
+
+### Two traps where nothing fails and there is still no sound
+
+**The client asks for audio, not the server.** When the streaming pipeline is reset — after
+a resolution change, for instance — the browser rebuilds it and sends only `START_VIDEO`.
+Picture returns, audio does not, and **no error is logged**: capture and the Opus encoder
+keep running server-side, nobody is asking for the result. Reloading the page does not help
+because the state lives on the client; toggling audio off and on in the Selkies side menu
+sends a fresh `START_AUDIO`. Visible in the log:
+
+```bash
+docker logs stream-host --timestamps | grep -i "START_AUDIO\|stopped all streams"
+```
+
+If the last `START_AUDIO` predates the last "stopped all streams", it is the client.
+
+**Cemu selects a backend that does not exist here.** It stored `<api>0</api>` — DirectSound,
+which Cemu's own startup listing calls `not supported`. Only Cubeb is available. Cemu then
+asks a non-existent backend for a device, finds none, and carries on:
+
+```
+DirectSound: not supported          <- this is what was stored
+Cubeb: available
+------- Run title -------
+can't initialize tv audio: failed to find selected device while trying to create audio device
+```
+
+Picture, speed and gamepad are all fine meanwhile. `launch-profile.py` therefore writes
+`<api>3</api>` (Cubeb); the index comes from the order Cemu lists its backends in, not from
+a guess.
+
+> **The buffer is deliberately left alone.** One title sounded chopped, and `<delay>` was the
+> obvious lever. It measurably did nothing — raising it from 2 to 9 did not even change the
+> buffer latency, and neither did `PULSE_LATENCY_MSEC=120` — while a second title was clean at
+> the default: **0 ms** of silence in 8 seconds against 4040 ms for the first. It belonged to
+> that title's attract screen, not to the emulator.
+
+Measure it objectively by counting **exact digital zeros**, not "quiet": an absolute
+threshold such as "below 30" marks a quiet signal as dropouts and once sent an hour of
+debugging in the wrong direction.
 
 ## The launch service
 
