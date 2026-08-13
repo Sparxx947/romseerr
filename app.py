@@ -3571,37 +3571,74 @@ def stream_find_file(title, slug):
     if not ordner: return None
     want = norm(title)
     if not want: return None
+    # Ordner, die zwar so HEISSEN wie der Titel, aber keinen erkennbaren Titelaufbau
+    # tragen. Sie bleiben die letzte Antwort — aber erst, wenn keine Datei passt.
+    rueckfall = None
     try:
         for name in ordner:
             base = os.path.join(ROMS, name)
             if not os.path.isdir(base): continue
-            # Ein Titel ist nicht immer eine DATEI. Eine PS3-Disc ist ein Ordner mit
-            # PS3_GAME/USRDIR/EBOOT.BIN darin — 10 von 17 Titeln der Testbibliothek.
-            # Ohne diesen Zweig meldete jeder PS3-Titel "not_in_library", der Stream-
-            # Knopf erschien nie, und der Start-Dienst haette ihn klaglos gestartet:
-            # zwei Seiten, die sich widersprechen. (#150; die Dienstseite war #149)
-            # A title is not always a file; a PS3 disc is a folder. Without this the
-            # two sides disagree: Romseerr says "not in library", the launcher starts it.
-            #
-            # ZUERST der Ordner, dann die Dateisuche: eine Disc traegt denselben Namen
-            # wie ein evtl. daneben liegendes Abbild, und der Ordner ist der Titel.
-            for eintrag in sorted(os.listdir(base)):
-                voll = os.path.join(base, eintrag)
-                if os.path.isdir(voll) and norm(eintrag) == want:
-                    return voll
             treffer = []
-            for root, _dirs, files in os.walk(base):
+            # EINE Wanderung fuer Ordner UND Dateien, zwei Ebenen tief — dieselben
+            # zwei, die auch der Index laeuft. Vorher waren es zwei getrennte
+            # Durchgaenge, und beide hatten je einen Fehler. (#477, nach #150/#478)
+            for root, dirs, files in os.walk(base):
+                dirs.sort()              # feste Reihenfolge, sonst haengt das Ergebnis
+                                         # an der Reihenfolge des Dateisystems
+                tief = 0 if root == base else os.path.relpath(root, base).count(os.sep) + 1
+
+                # Ein Titel ist nicht immer eine DATEI. Eine PS3-Disc ist ein Ordner mit
+                # PS3_GAME/USRDIR/EBOOT.BIN darin — 10 von 17 Titeln der Testbibliothek.
+                # Ohne diesen Zweig meldete jeder PS3-Titel "not_in_library", der Stream-
+                # Knopf erschien nie, und der Start-Dienst haette ihn klaglos gestartet:
+                # zwei Seiten, die sich widersprechen. (#150; die Dienstseite war #149)
+                #
+                # ZWEI ERGAENZUNGEN AUS #477, beide am Bestand gemessen (2026-08-13):
+                #
+                # 1. NUR EIN ORDNER, DER WIRKLICH EIN TITEL IST, schlaegt die Datei.
+                #    `ist_titel_ordner` beantwortet genau das seit #478; die Stream-
+                #    Suche hat nie gefragt. In `/roms/dc` liegen nebeneinander
+                #    `Sonic Adventure.cdi` (757 MB, spielbar) und der Ordner
+                #    `Sonic Adventure (PAL)/`, der oben nur eine `.url` und einen
+                #    Unterordner traegt. Beide normalisieren gleich, der Ordner gewann,
+                #    und der Start-Dienst antwortete darauf `Ordner ohne startbaren
+                #    Inhalt` — nachgemessen mit dessen eigenem `_bootdatei`, das ''
+                #    liefert. Die Bibliothek hatte den Titel, der Stream nicht.
+                #
+                # 2. AUCH EINE EBENE TIEFER. Der Index legt Ordner-Titel bis Ebene 2 ab,
+                #    die Suche sah nur Ebene 1. `/roms/ps3/DmC Devil May Cry [+All DLC]
+                #    BLUS30723/Devil May Cry 5/` ist ein PS3-Titel, steht im Index und
+                #    bekam von der Auskunft `not_in_library`.
+                #
+                # EN: only a folder that really IS a title outranks a playable image,
+                # and folder titles are looked for on both levels the index walks.
+                for d in dirs:
+                    if norm(d) != want: continue
+                    voll = os.path.join(root, d)
+                    if ist_titel_ordner(voll):
+                        return voll
+                    if rueckfall is None:
+                        rueckfall = voll
+
                 for fn in files:
                     ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else ""
                     if ext in ROM_EXT and norm(fn) == want:
                         treffer.append(os.path.join(root, fn))
-                if root != base and os.path.relpath(root, base).count(os.sep) >= 1:
-                    break
+
+                # TIEFENBREMSE: `dirs[:] = []` STUTZT den Ast, `break` beendete die
+                # GANZE Wanderung — und genau das stand hier. Sobald irgendwo ein
+                # Ordner auf Ebene 2 auftauchte, war alles danach unsichtbar. Gemessen:
+                # in `/roms/dc` sah die Suche 64 von 173 Dateien (52 der 109
+                # uebersehenen waren ROMs), in `/roms/psx` 2925 von 2993. In `gc` und
+                # `ps2` liegt nichts auf Ebene 2 — deshalb fiel es dort nie auf.
+                # EN: `break` ended the whole walk instead of pruning the branch.
+                if tief >= 1:
+                    dirs[:] = []
             if treffer:
                 return beste_datei(treffer)
     except OSError:
         return None
-    return None
+    return rueckfall
 
 def plattform_kandidaten(title):
     """Alle STREAMBAREN Plattformen, die diesen Titel halten. (#175)

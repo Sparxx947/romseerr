@@ -1754,6 +1754,106 @@ def test_stream_finds_a_title_that_is_a_folder(appmod, tmp_path, monkeypatch):
     assert gefunden == str(spiel), gefunden
 
 
+# ---------------------------------------------------------------------------
+# #477 Teil 2: Der Index kennt Ordner-Titel seit #478 — die Stream-Suche nicht.
+# Alle drei folgenden Aufbauten sind AM BESTAND GEMESSEN (2026-08-13), nicht erfunden.
+# ---------------------------------------------------------------------------
+
+def test_stream_prefers_the_image_over_a_folder_without_bootable_content(
+        appmod, tmp_path, monkeypatch):
+    """Ein gleichnamiger Ordner darf ein spielbares Abbild nicht verdraengen. (#477)
+
+    GEMESSEN in `/roms/dc`:
+
+        Sonic Adventure.cdi                            757 MB, spielbar
+        Sonic Adventure (PAL)/Replayers.url
+        Sonic Adventure (PAL)/[GDI] Sonic Adventure (PAL)/…gdi
+
+    Beide normalisieren auf `sonic adventure`. Die Suche nahm den ORDNER, weil der
+    Ordnerzweig vor der Dateisuche steht — und der Ordner traegt oben nichts
+    Startbares. Am laufenden Streaming-Host nachgemessen:
+
+        stream_info("Sonic Adventure", "dreamcast") -> /roms/dc/Sonic Adventure (PAL)
+        _bootdatei("/roms/dc/Sonic Adventure (PAL)", "dreamcast") -> ''
+
+    Der Agent haette also `Ordner ohne startbaren Inhalt` gemeldet, waehrend das
+    Abbild danebenliegt. Der Vorrang des Ordners GILT WEITER, aber nur fuer einen
+    Ordner, der wirklich ein Titel ist (`ist_titel_ordner`).
+
+    EN: a same-named folder must not outrank a playable image when the folder holds
+    nothing bootable. Measured on the live host, not invented.
+    """
+    dc = tmp_path / "dc"
+    (dc / "Sonic Adventure (PAL)" / "[GDI] Sonic Adventure (PAL)").mkdir(parents=True)
+    (dc / "Sonic Adventure (PAL)" / "Replayers.url").write_bytes(b"x")
+    abbild = dc / "Sonic Adventure.cdi"
+    abbild.write_bytes(b"x")
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    assert appmod.stream_find_file("Sonic Adventure", "dreamcast") == str(abbild)
+
+
+def test_stream_finds_a_folder_title_one_level_down(appmod, tmp_path, monkeypatch):
+    """Der Index legt Ordner-Titel bis Ebene 2 ab, die Suche sah nur Ebene 1. (#477)
+
+    GEMESSEN in `/roms/ps3`:
+
+        DmC Devil May Cry [+All DLC] BLUS30723/
+            BLUS30723 DLCs/…pkg
+            Devil May Cry 5/PS3_DISC.SFB + PS3_GAME/     <- der Titel
+
+    Der Index fuehrt `Devil May Cry 5`; die Stream-Auskunft sagte dazu am laufenden
+    Dienst `not_in_library`. Genau der Widerspruch, gegen den #150 den Ordnerzweig
+    ueberhaupt eingezogen hat — diesmal eine Ebene tiefer.
+    """
+    spiel = (tmp_path / "ps3" / "DmC Devil May Cry [+All DLC] BLUS30723"
+             / "Devil May Cry 5")
+    (spiel / "PS3_GAME" / "USRDIR").mkdir(parents=True)
+    (spiel / "PS3_GAME" / "USRDIR" / "EBOOT.BIN").write_bytes(b"x")
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    assert appmod.stream_find_file("Devil May Cry 5", "ps3") == str(spiel)
+
+
+def test_stream_file_search_does_not_stop_at_the_first_nested_folder(
+        appmod, tmp_path, monkeypatch):
+    """`break` statt `dirs[:] = []` beendete die GANZE Suche. (#477)
+
+    Die Tiefenbremse brach die Wanderung ab, sobald der erste Ordner auf Ebene 2
+    auftauchte — alles, was danach kam, wurde nie angesehen. AM BESTAND GEMESSEN:
+
+        /roms/dc   64 von 173 Dateien gesehen, 109 uebersehen (52 davon ROMs)
+        /roms/psx  2925 von 2993 gesehen, 68 uebersehen (44 davon ROMs)
+
+    `gc` und `ps2` waren unauffaellig — dort liegt kein Ordner auf Ebene 2, deshalb
+    fiel es nie auf. Der Aufbau hier bildet `dc` nach: ein verschachtelter Ordner,
+    der alphabetisch VOR dem gesuchten Titel steht.
+    """
+    dc = tmp_path / "dc"
+    (dc / "Aaa Verschachtelt" / "Innen").mkdir(parents=True)
+    (dc / "Aaa Verschachtelt" / "Innen" / "egal.bin").write_bytes(b"x")
+    ziel = dc / "Zzz Spaeter Titel" / "Zzz Spaeter Titel.gdi"
+    ziel.parent.mkdir()
+    ziel.write_bytes(b"x")
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    assert appmod.stream_find_file("Zzz Spaeter Titel", "dreamcast") == str(ziel)
+
+
+def test_stream_still_returns_a_folder_when_nothing_else_matches(
+        appmod, tmp_path, monkeypatch):
+    """Kein Titelaufbau, keine passende Datei -> weiterhin der Ordner. (#477)
+
+    Die Ratsche gegen den Uebereifer: 39 Ordner im Bestand sind WEDER Titelordner
+    (`SPIELORDNER_MUSTER` oder Abbild-Set) NOCH enthalten sie einen — `gc/Pikmin
+    (USA) (v1.00)` etwa traegt eine einzelne `.rvz`, die der Start-Dienst selbst
+    aufloest. Fuer die verhaelt sich die Suche unveraendert; wer den Ordnerzweig
+    strenger macht, darf sie nicht verlieren.
+    """
+    ordner = tmp_path / "gc" / "Pikmin (USA) (v1.00)"
+    ordner.mkdir(parents=True)
+    (ordner / "irgendwas-ganz-anderes.rvz").write_bytes(b"x")
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    assert appmod.stream_find_file("Pikmin (USA) (v1.00)", "ngc") == str(ordner)
+
+
 def test_stream_info_reports_a_folder_title_as_streamable(appmod, tmp_path, monkeypatch):
     """Der Befund muss bis zur Auskunft durchschlagen — sonst ist der Knopf weiterhin
     weg, obwohl die Suche den Titel findet. (#150)"""
