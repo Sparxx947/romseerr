@@ -2103,6 +2103,33 @@ def test_ci_also_guards_main():
         assert "dev" in branches and "main" in branches, f"{name}: {branches}"
 
 
+def test_dependabot_opens_its_pull_requests_where_work_happens():
+    """Ohne `target-branch` zielt Dependabot auf den Standard-Branch. (#554)
+
+    Und das ist hier `main`, wo nicht entwickelt wird. Der Weg ist `dev` -> Release-PR ->
+    `main`; ein Abhaengigkeits-PR nach `main` gemergt traegt Aenderungen an `dev` vorbei —
+    genau die Abweichung, die der Release-Weg vermeiden soll.
+
+    GEMESSEN am 2026-08-13: `dev` war 53 Commits vor `main`, `main` hatte keinen eigenen,
+    und elf Dependabot-PRs standen gleichzeitig gegen `main` offen.
+
+    Der Test prueft JEDEN Eintrag, nicht nur den ersten: Eine neue Oekosystem-Zeile ohne
+    `target-branch` faellt sonst still auf den Standard zurueck, und das faellt erst
+    Wochen spaeter beim naechsten Schwung PRs auf.
+
+    EN: without target-branch Dependabot uses the default branch, which is `main` here —
+    where nothing is developed. Every entry is checked, because a new ecosystem line
+    without the key would silently fall back and only surface weeks later.
+    """
+    d = yaml.safe_load(open(os.path.join(REPO, ".github/dependabot.yml"), encoding="utf-8"))
+    eintraege = d.get("updates") or []
+    assert eintraege, "dependabot.yml hat keine Eintraege"
+    falsch = [u.get("package-ecosystem") for u in eintraege if u.get("target-branch") != "dev"]
+    assert not falsch, (
+        "diese Dependabot-Eintraege zielen nicht auf dev und landen damit auf main, "
+        f"wo nicht entwickelt wird: {falsch}")
+
+
 def test_content_policy_checker_comes_from_the_target_branch():
     """Nie aus dem PR selbst — sonst senkt ein Beitrag seine eigene Schranke. Und nicht
     aus dem Standardzweig, sonst pruefte ein Release-PR nach der falschen Regel. (#111)"""
