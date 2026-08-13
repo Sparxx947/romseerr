@@ -1452,6 +1452,43 @@ startet Prozesse — entsprechend ist er gebaut:
 
 Er gehört **nicht ins offene Netz**.
 
+### Wo er herkommt — und warum es dafür keinen Rückfall gibt
+
+Gestartet wird **immer** `/opt/stream-agent.py`, die Einhängung von
+`stack/stream-agent.py`. Was läuft, ist damit das, was im Repo steht.
+
+Fehlt diese Datei, **bricht der Start ab**. Das ist Absicht. Früher wich `init/30-agent`
+still auf `/config/stream-agent.py` aus — und das ist auf gewachsenen Installationen eine
+Altfassung. Hier gemessen:
+
+| Datei | Größe | Zeilen |
+|---|---|---|
+| `/opt/stream-agent.py` | 75.621 B | 1510 |
+| `/config/stream-agent.py` | 6.703 B | 158 |
+
+Die Altfassung kennt weder `psx` noch `psvita`, `ps3` oder `xbox` und verweist auf
+Emulatorpfade, die es nicht mehr gibt. Sie hätte Anfragen beantwortet und **gesund
+ausgesehen**: Der Stream kommt hoch, die Emulatortabelle ist falsch, und nichts im
+Protokoll sagt warum.
+
+**Ein Rückfall ist nur dann ein Netz, wenn das Hineinfallen sichtbar ist.** Ein Container,
+der nicht hochkommt, ist in zehn Minuten repariert; einer, der falsch hochkommt, kostet
+einen Tag. Wer die Meldung `[agent] FEHLT: /opt/stream-agent.py` sieht, prüft die
+Bind-Mounts des Containers.
+
+Liegt auf einer älteren Installation noch ein `/config/stream-agent.py` herum, kann es
+weg — es wird von nichts mehr gelesen.
+
+*EN: the service always runs `/opt/stream-agent.py`, the bind mount of
+`stack/stream-agent.py`, so what runs is what is checked out. If that file is missing the
+init **aborts**. It used to fall back to `/config/stream-agent.py` silently, which on a
+grown installation is a stale copy — measured here at 158 lines against 1510, with no
+`psx`, `psvita`, `ps3` or `xbox` and hardcoded emulator paths that no longer exist. It
+would have answered requests and looked healthy. A fallback is a safety net only when
+falling into it is visible: a container that fails to start is a ten-minute fix, one that
+starts wrong costs a day. A leftover `/config/stream-agent.py` can be deleted; nothing
+reads it.*
+
 ### Das Token wechseln
 
 Das Token ist das Einzige zwischen einer Anfrage und einem gestarteten Prozess auf dem
