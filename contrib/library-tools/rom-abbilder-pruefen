@@ -60,6 +60,11 @@ import sys
 import time
 
 ABBILDLISTE = (".gdi", ".cue", ".m3u")
+# Endungen, die eine SPUR tragen kann. Gebraucht wird das nur fuer Verweise OHNE
+# Endung (#517): `QixNeo.cue` nennt `QixNeo`, und daneben liegt `QixNeo.bin`. Die Liste
+# ist bewusst kurz — sie entscheidet, was als Spur in Frage kommt, und je laenger sie
+# wird, desto eher wird aus einem eindeutigen Treffer eine Auswahl.
+SPUR_ENDUNGEN = (".bin", ".iso", ".img", ".raw", ".mp3", ".wav", ".ogg", ".flac")
 BERICHT_ORDNER = ".abbildpruefung"
 DEFEKT_ORDNER = "_defekt"
 
@@ -117,11 +122,32 @@ def loesung_finden(listenname, vermisst, dateien, belegt):
 
     EN: `belegt` holds the files other lists already claim. Without it, "exactly one .bin in
     the folder" happily rewired a genuinely broken cue onto another game's image.
+
+    DRITTER WEG: DER VERWEIS OHNE ENDUNG. (#517)
+
+    Eine `.cue` darf ihre Spur ohne Endung nennen, und im Bestand tut sie das:
+
+        psp/PSX2PSP/PSX Images/QixNeo.cue     -> "QixNeo"     daneben: QixNeo.bin
+        psp/PSX2PSP/PSX Images/mrdomino.cue   -> "mrdomino"   daneben: mrdomino.bin
+
+    Die erste Zeile dieser Funktion stieg dann sofort aus (`if not endung: return None`),
+    und mit ihr beide Wege darueber. Der leichteste Fall ueberhaupt — ein Name ohne
+    Endung, daneben genau eine Datei, die so heisst — war damit der einzige, den das
+    Werkzeug nie loesen konnte.
+
+    Die Enge bleibt: Gesucht wird nur nach EXAKTEM Stamm, nur unter den Endungen, die
+    ein Datentraeger ueberhaupt tragen kann, und nur wenn genau EINE davon uebrigbleibt
+    und keine andere Liste sie beansprucht. Zwei Kandidaten sind keine Eindeutigkeit.
     """
+    klein = {n.lower(): n for n in dateien}
     endung = os.path.splitext(vermisst)[1].lower()
     if not endung:
-        return None
-    klein = {n.lower(): n for n in dateien}
+        stamm_v = vermisst.lower()
+        treffer = [n for n in dateien
+                   if os.path.splitext(n)[0].lower() == stamm_v
+                   and os.path.splitext(n)[1].lower() in SPUR_ENDUNGEN
+                   and n.lower() not in belegt]
+        return treffer[0] if len(treffer) == 1 else None
     stamm = os.path.splitext(listenname)[0]
     if (stamm + endung).lower() in klein:
         return klein[(stamm + endung).lower()]

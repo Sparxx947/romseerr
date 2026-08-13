@@ -349,6 +349,23 @@ Umgeschrieben wird nur, wenn die gemeinte Datei **eindeutig** ist: Sie trägt de
 Liste selbst (der häufige Fall umbenannter Rips), oder sie ist die einzige Datei dieser
 Endung, **die keine andere Liste beansprucht**.
 
+**Ein dritter Fall: der Verweis ohne Endung.** Eine `.cue` darf ihre Spur ohne Endung
+nennen, und im Bestand tut sie das:
+
+```
+psp/PSX2PSP/PSX Images/QixNeo.cue    -> "QixNeo"     daneben: QixNeo.bin
+psp/PSX2PSP/PSX Images/mrdomino.cue  -> "mrdomino"   daneben: mrdomino.bin
+```
+
+Das war lange der **einzige Fall, den das Werkzeug nie lösen konnte** — die Suche stieg
+bei leerer Endung sofort aus, und beide Wege darüber blieben unerreichbar. Dabei ist es
+der leichteste überhaupt: ein Name ohne Endung, daneben genau eine Datei, die so heißt.
+
+Die Enge bleibt: **exakter** Stamm, nur Endungen, die eine Spur tragen kann
+(`.bin .iso .img .raw .mp3 .wav .ogg .flac`), genau ein Treffer, und nicht von einer
+anderen Liste beansprucht. Zwei Kandidaten sind keine Eindeutigkeit — und eine `.txt`
+mit demselben Namen ist keine Spur (#517).
+
 Der Nachsatz ist der Punkt. Ohne ihn genügte „genau eine `.bin` im Ordner" — und eine
 `.cue`, deren Daten wirklich fehlen, wurde auf das Abbild eines **fremden** Spiels
 umgebogen. An einem Probebestand aufgefallen, bevor das Werkzeug den echten sah. **Ein
@@ -707,6 +724,15 @@ Measured: 11 unambiguously solvable, 106 with genuinely missing data, 83 shared 
 A list is rewritten only when the intended file is **unambiguous**: it carries the list's
 own stem (the common case of a renamed rip), or it is the only file with that extension
 **that no other list claims**.
+
+**A third case: a reference with no extension.** A `.cue` may name its track without one,
+and in the library it does — `QixNeo.cue` names `QixNeo`, and `QixNeo.bin` sits beside it.
+That was for a long time the **only case the tool could never solve**: the search returned
+on the first line when the extension was empty, putting both routes above out of reach,
+even though it is the easiest case there is. The narrowness stays: **exact** stem, only
+extensions a track can carry (`.bin .iso .img .raw .mp3 .wav .ogg .flac`), exactly one
+match, and not already claimed. Two candidates are not unambiguous, and a `.txt` with the
+same name is not a track (#517).
 
 That last clause is the point. Without it, "exactly one `.bin` in the folder" was enough —
 and a `.cue` whose data is genuinely gone got rewired onto **another game's** image. Caught
