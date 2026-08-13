@@ -3094,6 +3094,71 @@ def test_xemu_is_launched_without_virtualgl():
         f"anpassen: {ohne}")
 
 
+def test_dolphin_binds_the_wii_remote_to_the_pad_not_the_pointer(tmp_path):
+    """Dolphin fuehrt GameCube und Wii in GETRENNTEN Dateien. (#297)
+
+    Gesetzt war nur die GameCube-Datei. `WiimoteNew.ini` hing am X11-Zeiger:
+
+        Device = XInput2/0/Virtual core pointer
+        Buttons/A = `Click 1`
+
+    Ein Wii-Titel bekam damit nie eine Eingabe, waehrend derselbe Emulator am GameCube
+    tadellos lief — von aussen nicht von einem kaputten Controller zu unterscheiden.
+    """
+    d = tmp_path / ".config" / "dolphin-emu"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / "WiimoteNew.ini"
+    p.write_text("[Wiimote1]\nDevice = XInput2/0/Virtual core pointer\n"
+                 "Buttons/A = `Click 1`\n\n[Wiimote2]\nDevice = XInput2/0/Virtual core pointer\n",
+                 encoding="utf-8")
+    m = _profil_modul(tmp_path)
+    geaendert, msg = m.dolphin_wiimote()
+    assert geaendert, msg
+    text = p.read_text(encoding="utf-8")
+    assert "Device = evdev/0/Microsoft X-Box 360 pad" in text, text
+    assert "Buttons/A = SOUTH" in text and "`Click 1`" not in text.split("[Wiimote2]")[0], text
+    # Wiimote 2 bleibt unangetastet — nur Anschluss 1 gehoert dem gebrueckten Pad.
+    assert text.split("[Wiimote2]")[1].strip().startswith("Device = XInput2"), text
+
+
+def test_dolphin_wiimote_uses_only_inputs_the_device_really_has(tmp_path):
+    """SELECT und MODE stehen in KEINER GameCube-Belegung. (#297)
+
+    Sie stammen aus einer Messung am Geraet — die Bruecke legt
+    `BTN_SELECT` und `BTN_MODE` an. Waeren sie aus `GCPadNew.ini` abgeleitet worden,
+    blieben Minus und Home leer, und Dolphin haette dazu geschwiegen: Unbekannte
+    Eingaenge werden stillschweigend ignoriert.
+
+    Der Test haelt die Belegung an das, was das Geraet nachweislich kann.
+    """
+    m = _profil_modul(tmp_path)
+    erlaubt_tasten = {"SOUTH", "EAST", "NORTH", "WEST", "TL", "TR",
+                      "SELECT", "START", "MODE", "THUMBL", "THUMBR"}
+    for schluessel, wert in m.DOLPHIN_WIIMOTE:
+        if schluessel in ("Extension",) or "Calibration" in schluessel:
+            continue
+        if wert.startswith("`"):
+            assert re.fullmatch(r"`Axis [0-7][-+]`", wert), f"{schluessel}: {wert}"
+        else:
+            assert wert in erlaubt_tasten, (
+                f"{schluessel} = {wert} — diese Taste legt die Bruecke nicht an")
+
+
+def test_dolphin_applies_the_wiimote_too(tmp_path):
+    """Ein Schreiber, den niemand aufruft, ist wirkungslos. (#297)
+
+    `dolphin_apply` setzte lange nur Dual Core, obwohl es in der Tabelle als
+    Controller-Schritt stand — genau daran kam am GameCube nie ein Pad an.
+    """
+    quelle = open(os.path.join(REPO, "contrib/streaming-host/launch-profile.py"),
+                  encoding="utf-8").read()
+    m = re.search(r"for schritt in \(([^)]*)\):", quelle)
+    assert m, "die Schrittliste in dolphin_apply wurde umgebaut"
+    assert "dolphin_wiimote" in m.group(1), (
+        "dolphin_wiimote wird nicht aufgerufen — die Belegung waere wirkungslos: "
+        + m.group(1))
+
+
 def _cemu_settings(tmp_path, inhalt):
     d = tmp_path / ".config" / "Cemu"
     d.mkdir(parents=True, exist_ok=True)
