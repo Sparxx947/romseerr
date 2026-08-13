@@ -1390,6 +1390,45 @@ def ist_dialog(fid):
     return "_NET_WM_WINDOW_TYPE_DIALOG" in typ
 
 
+def ist_vollbild(fid):
+    """Traegt das Fenster _NET_WM_STATE_FULLSCREEN — steht der Emulator also SELBST
+    im Vollbild?
+
+    WOZU (#493): DuckStation, PCSX2 und Flycast bekommen ihr Vollbild aus der Startzeile
+    beziehungsweise der Konfiguration. Ihr Spielfenster traegt den Zustand dann wirklich —
+    am laufenden Host abgelesen, bei allen dreien:
+
+        _NET_WM_STATE(ATOM) = _NET_WM_STATE_FULLSCREEN, _NET_WM_STATE_FOCUSED
+
+    Das ist die Auskunft, die der Flaechenmessung fehlt. `gezeichneter_anteil()` misst den
+    BILDSCHIRM: ein Titel, der noch die Disc bootet, ist schwarz und misst wenig, obwohl
+    sein Fenster den ganzen Schirm deckt. Genau so kam DuckStation zu einem F11, das sein
+    Vollbild wieder abschaltete.
+
+    Fehlt die Eigenschaft, meldet `xprop` "_NET_WM_STATE:  not found." — kein Leerstring
+    und kein Fehler. Die Pruefung auf den Namen trifft deshalb beides richtig.
+
+    EN: does the emulator hold its own fullscreen? This is the fact the painted-area
+    measurement cannot supply — a title still booting its disc is black yet covers the
+    whole screen.
+    """
+    return "_NET_WM_STATE_FULLSCREEN" in _x("xprop", "-id", fid, "_NET_WM_STATE").stdout
+
+
+def fenstergroesse(fid):
+    """-> "1920x1080" oder "" — die GEMESSENE Groesse des Fensters. (#493)
+
+    WOZU: Der Fensterbefund nannte bisher die BILDSCHIRMgroesse, also das Ziel des
+    Schrittes statt seines Ergebnisses. Gemessen, waehrend ein Titel lief: `/status`
+    meldete "1 Fenster auf 1920x1080", das Fenster war 640x480 gross.
+    EN: the verdict used to quote the screen size — the aim, not the outcome.
+    """
+    g = _x("xdotool", "getwindowgeometry", "--shell", fid).stdout
+    masse = dict(z.split("=", 1) for z in g.strip().splitlines() if "=" in z)
+    b, h = masse.get("WIDTH", "").strip(), masse.get("HEIGHT", "").strip()
+    return f"{b}x{h}" if b and h else ""
+
+
 def fenstername(fid):
     return _x("xdotool", "getwindowname", fid).stdout.strip()
 
@@ -1603,7 +1642,14 @@ def nur_emulator(pid, runden=3, pause=6):
     offen = dialoge(pid)
     if offen:
         return "dialog", offen[0][1]
-    return "ok", f"{len(behandelt)} Fenster auf {b}x{h}, ohne Rahmen, Panel ausgeblendet"
+    # KEINE GROESSE ZUSAGEN, DIE HIER NIEMAND NACHSIEHT (#493): Frueher stand an dieser
+    # Stelle die BILDSCHIRMgroesse `{b}x{h}` — das Ziel des Schrittes, nicht sein Ergebnis.
+    # Gemessen, waehrend ein Titel lief: `/status` meldete "1 Fenster auf 1920x1080",
+    # `xdotool` meldete 640x480. Die Zahl kommt jetzt aus `main`, NACH dem Vollbildschritt,
+    # denn erst dort entstand der Schaden.
+    # EN: the size used to be the screen geometry — the aim, not the outcome. It is
+    # measured in `main` after the fullscreen step, which is where the damage happened.
+    return "ok", f"{len(behandelt)} Fenster, ohne Rahmen, Panel ausgeblendet"
 
 
 def panel_zurueck():
@@ -1743,13 +1789,35 @@ def vollbild_sicherstellen(fensterid=None):
     if vorher is None:
         return None, None, "nicht messbar"
     if vorher >= VOLLBILD_SCHWELLE:
-        return vorher, vorher, "Fenstertrick genuegt"
+        return vorher, vorher, "Flaeche bereits ausgefuellt"
     ziel = fensterid
     if not ziel:
         gefunden = _x("xdotool", "getactivewindow").stdout.split()
         ziel = gefunden[0] if gefunden else None
     if not ziel:
         return vorher, vorher, "kein Fenster fuer F11 gefunden"
+    # DIE MESSUNG OBEN GENUEGT NICHT — sie war der Fehler. (#493)
+    #
+    # `gezeichneter_anteil()` misst den BILDSCHIRM, nicht das Fenster. Ein Titel, der
+    # gerade noch die Disc bootet, ist schwarz: DuckStation kam bei jedem PSX-Start auf
+    # 34,3 %, obwohl sein Fenster den ganzen Schirm deckte und `_NET_WM_STATE_FULLSCREEN`
+    # trug. F11 schaltete daraufhin genau das ab — danach 640x480 in der Ecke, mit
+    # Titelleiste zurueck, und so blieb es.
+    #
+    # Der Erfolg, den das Log danach meldete, war keiner: `34.3 % -> F11 -> 99.3 %`. Die
+    # 99,3 % sind der freigelegte XFCE-DESKTOP. Nachgemessen ohne jeden laufenden
+    # Emulator: 99,27782600308642 % — bitgleich dieselbe Zahl. Die Flaechenmessung kann
+    # ein Spiel nicht vom Hintergrundbild unterscheiden und taugt deshalb nicht als
+    # alleiniges Kriterium.
+    #
+    # Der Fensterzustand kann es, kostet einen `xprop`-Aufruf und ist emulatorunabhaengig:
+    # Wer sein Vollbild selbst haelt, wird in Ruhe gelassen. Wer keinen eigenen Schalter
+    # hat — xemu, Azahar, Eden —, traegt den Zustand nicht und bekommt sein F11 weiterhin.
+    # EN: the painted-area measurement reads the SCREEN, so a black boot screen looks like
+    # a small window, and the "99.3 % after F11" it reported was the bare desktop. The
+    # window state is the fact that distinguishes the two.
+    if ist_vollbild(str(ziel)):
+        return vorher, vorher, "steht im eigenen Vollbild — F11 waere der Ausstieg"
     _x("xdotool", "windowactivate", str(ziel))
     time.sleep(1)
     _x("xdotool", "key", "--window", str(ziel), "F11")
@@ -1802,6 +1870,17 @@ def main(argv):
                       f"{nachher if nachher is None else f'{nachher:.1f} %'}")
             else:
                 print(f"[vollbild] {vorher:.1f} % bemalt — {weg}")
+            # ZULETZT NACHMESSEN (#493). Der Befund oben entsteht, BEVOR der
+            # Vollbildschritt laeuft — und genau der hat den Titel bisher aus seinem
+            # eigenen Vollbild geholt. Eine Groesse, die vor dem Schaden abgelesen wurde,
+            # ist keine Auskunft ueber den Zustand danach.
+            # EN: measured last, because the fullscreen step runs after the window step
+            # and used to be what shrank the window.
+            sichtbar = sichtbare_fenster(int(argv[1]))
+            gemessen = fenstergroesse(sichtbar[0]) if sichtbar else ""
+            if gemessen:
+                msg = f"{msg}, gemessen {gemessen}"
+                print(f"[fenster] groesstes Fenster gemessen: {gemessen}")
         # Maschinenlesbar als LETZTE Zeile, damit der Agent den Befund weiterreichen
         # kann statt ihn nur ins Log zu schreiben (#288). Eine JSON-Zeile statt eines
         # blossen Exit-Codes, weil der Dialogtitel die eigentliche Auskunft ist.

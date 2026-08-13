@@ -325,10 +325,22 @@ Messung ist also nicht zusätzliche Vorsicht, sondern das, was die Korrektur ung
 macht. Und sie gilt für **jeden** Emulator, auch für die, die nie jemand ausprobiert hat —
 sie brauchen keine vorab ausgefüllte Zeile in einer Tabelle.
 
+> **Die Fläche allein genügt nicht — nachgemessen 2026-08-13 (#493, #495).** Sie misst den
+> **Bildschirm**, nicht das Fenster. Ein Titel, der noch bootet, ist schwarz und misst
+> wenig, obwohl sein Fenster den ganzen Schirm deckt; und der leere XFCE-Desktop misst
+> **99,27782600308642 %** — genau den Wert, der oben als Erfolg steht. Deshalb gilt seit
+> #493 zusätzlich: **ein Fenster mit `_NET_WM_STATE_FULLSCREEN` bekommt kein F11.** Für die
+> drei Emulatoren in der Tabelle ändert das nichts, sie tragen den Zustand nicht. Die
+> Zahlen der Tabelle beweisen allerdings weniger, als sie zu beweisen scheinen — das steht
+> in #495.
+
 *Every launch measures the painted share and only corrects when it falls short. Window
 geometry proves nothing here: it reported 1920x1080 in every case that turned out wrong.
 F11 is a toggle, so measuring first is what makes the correction safe — and it covers
-emulators nobody has ever exercised.*
+emulators nobody has ever exercised. Caveat measured on 2026-08-13: the painted share reads
+the SCREEN, so a still-booting black title looks small and the bare desktop measures
+99.27782600308642 % — the very value listed as success above. Since #493 a window carrying
+`_NET_WM_STATE_FULLSCREEN` is therefore left alone; see #495 for the measurement itself.*
 
 ## Was noch überrascht
 
@@ -431,7 +443,7 @@ Controller im Spiel gedrückt.
 
 | Plattform | Emulator | Bild | Ton | Controller | Anmerkung |
 |---|---|---|---|---|---|
-| PlayStation 1 | DuckStation | ✅¹ | ✅ | ✅ | von einem Menschen bestätigt (2026-08-10). ¹**Einschränkung, gemessen 2026-08-13:** Am 2026-08-12/13 startete gar kein Titel — drei modale Fenster, seit #492 stehen alle drei ab. Das Spiel kommt seither ins Bild, aber der Fensterschritt des Dienstes holt DuckStation aus seinem eigenen Vollbild: 1920 × 1080 → **640 × 480 in der Ecke** (#493) |
+| PlayStation 1 | DuckStation | ✅¹ | ✅ | ✅ | von einem Menschen bestätigt (2026-08-10). ¹Am 2026-08-12/13 startete gar kein Titel — drei modale Fenster, seit #492 stehen alle drei ab. Danach stand das Spiel auf 640 × 480 in der Ecke; **behoben seit #493** — nicht der Fensterschritt war es, sondern ein F11, das DuckStations eigenes Vollbild abschaltete. Nach dem Ausrollen gemessen: **39 von 39 Messpunkten über 80 s** unverändert 1920 × 1080, Vollbildzustand durchgehend gesetzt |
 | PlayStation 2 | PCSX2 | ✅ | ✅ | ✅ | |
 | GameCube | Dolphin | ✅ | ✅ | ✅ | |
 | Wii | Dolphin | ✅ | ✅ | (⁠—⁠) | Controller nicht eigens geprüft — gleicher Emulator und gleiche Belegung wie GameCube |
@@ -822,6 +834,103 @@ is next to it: `psx` had been missing from the platform → profile map since #1
 DuckStation profile was never applied on a launch — what was right on the host was right
 by hand. A test now checks that every profile is reachable from some platform. Why the
 shortcut prompt did not appear on 2026-08-10 is unmeasured.*
+
+### Nicht der Fensterschritt war es, sondern das F11 danach (#493)
+
+Nachdem die drei Dialoge abstanden, kam das Spiel ins Bild — aber nur in einem Viertel der
+Fläche: DuckStation stand nach rund 14 Sekunden auf **640 × 480 in der Ecke**, mit
+Titelleiste zurück, und blieb dort. Der Verdacht lag auf dem Fensterschritt
+(`nur_emulator`), der jedes sichtbare Fenster aufzieht. **Der Verdacht war falsch.**
+
+Gemessen wurde, indem dessen vier Aufrufe einzeln auf das Fenster angewandt wurden, ohne
+Agenten daneben:
+
+| Schritt | Geometrie | `_NET_WM_STATE` |
+|---|---|---|
+| Ausgangsstand | 1920 × 1080 | `_NET_WM_STATE_FULLSCREEN` |
+| nach `_MOTIF_WM_HINTS` | 1920 × 1080 | `_NET_WM_STATE_FULLSCREEN` |
+| nach `windowsize` | 1920 × 1080 | `_NET_WM_STATE_FULLSCREEN` |
+| nach `windowmove` | 1920 × 1080 | `_NET_WM_STATE_FULLSCREEN` |
+| nach `windowactivate` | 1920 × 1080 | `_NET_WM_STATE_FULLSCREEN` |
+| nach `windowraise` | 1920 × 1080 | `_NET_WM_STATE_FULLSCREEN` |
+
+Der Täter steht im Agent-Log, bei **jedem** PSX-Start mit denselben Zahlen:
+
+```
+[vollbild] 34.3 % bemalt -> F11 -> 99.3 %
+```
+
+Die 34,3 % messen kein zu kleines Fenster, sondern ein **schwarzes**: DuckStation bootet
+zu diesem Zeitpunkt noch die Disc. F11 schaltet daraufhin das Vollbild ab, das der
+Emulator selbst gesetzt hatte (`-fullscreen` in der Startzeile).
+
+**Und der gemeldete Erfolg war keiner.** Die 99,3 % danach sind der freigelegte
+XFCE-Desktop. Nachgemessen ohne jeden laufenden Emulator: **99,27782600308642 %** —
+bitgleich dieselbe Zahl. Die Flächenmessung kann ein Spiel nicht vom Hintergrundbild
+unterscheiden (#495).
+
+Behoben ist es dort, wo der Schaden entsteht, und emulatorunabhängig: **ein Fenster, das
+`_NET_WM_STATE_FULLSCREEN` trägt, bekommt kein F11.** Der Fensterschritt bleibt
+unverändert; ihn zu ändern gäbe es keinen gemessenen Grund.
+
+Gegenprobe am laufenden Host, mit xemu — dem Fall, für den der Tastenweg gebaut wurde:
+
+```
+t=…214  WINDOW=44040241 X=2 Y=75 WIDTH=1920 HEIGHT=1080  STATE=[_NET_WM_STATE_FOCUSED]
+```
+
+Kein `_NET_WM_STATE_FULLSCREEN`. Der Wächter kann dort also gar nicht zuschlagen, und der
+Fenstertrick zieht xemu weiterhin auf. **Was diese Gegenprobe nicht zeigt:** ob F11 danach
+noch abgeht — die Flächenmessung lag mit 99,3 % über der Schwelle, F11 war also gar nicht
+fällig. Diesen Pfad hält nur der Test fest, nicht eine Messung am Host.
+
+**Die Vermutung des Issues, Flycast und PCSX2 hätten dasselbe Problem, ist widerlegt.**
+Beide durchlaufen denselben Schritt, beide tragen den Vollbildzustand — und beide bleiben:
+
+| Emulator | Fenster beim Start | nach dem Fenster- und Vollbildschritt |
+|---|---|---|
+| DuckStation (PS1) | 1920 × 1080, Vollbild | **640 × 480 auf 1,51** — F11 kam |
+| PCSX2 (PS2) | 1920 × 1080, Vollbild | 1920 × 1080, Vollbild — F11 kam, wirkte nicht |
+| Flycast (Dreamcast) | 1920 × 1080, Vollbild | 1920 × 1080, Vollbild — kein F11 |
+
+PCSX2 bekam das F11 also ebenfalls zu Unrecht (`32.0 % bemalt -> F11 -> 32.0 %`) und hat
+es nur ignoriert. Flycast entging ihm, weil sein Titel in dem Moment ein helles Bild
+zeigte — Glück, keine Sicherheit.
+
+**Zweiter Fund: `/status` sagte die Größe, die es nie nachgesehen hatte.** Gemessen,
+während der Titel lief:
+
+```
+/status   "window": "ok", "1 Fenster auf 1920x1080, ohne Rahmen, Panel ausgeblendet"
+xdotool   Position 1,51   Geometry 640x480
+```
+
+Die Zahl war die **Bildschirm**größe — das Ziel des Schrittes, nicht sein Ergebnis. Der
+Befund nennt jetzt die gemessene Größe des größten Fensters, und zwar **nach** dem
+Vollbildschritt, weil erst dort der Schaden entstand:
+
+```
+[fenster] 1 Fenster, ohne Rahmen, Panel ausgeblendet
+[fenster] groesstes Fenster gemessen: 1920x1080
+```
+
+Was das **nicht** löst: Der Befund bleibt eine Momentaufnahme vom Start. `/status` misst
+nicht bei jedem Abruf nach — der Dienst beantwortet Anfragen der Reihe nach, und ein
+`xdotool`, das in seinen Timeout läuft, hielte auch `/stop` auf.
+
+*EN: with the dialogs gone the game appeared, but at 640 × 480 in the corner. The window
+step was not the culprit — measured, all four of its calls leave `_NET_WM_STATE_FULLSCREEN`
+intact. The F11 afterwards is: the painted-area measurement reads a still-booting black
+screen as 34.3 %, below the threshold, so it toggles off the fullscreen the emulator had
+set itself. The 99.3 % it then reports as success is the bare XFCE desktop — measured with
+no emulator running at all, the same value to the last digit (#495). The fix is
+emulator-agnostic: a window carrying `_NET_WM_STATE_FULLSCREEN` gets no F11; xemu, Azahar
+and Eden do not carry it and still get theirs. The issue's guess that Flycast and PCSX2
+share the problem is refuted by measurement — PCSX2 was wrongly sent F11 too but ignored
+it, and Flycast escaped only because its title happened to show a bright picture. Second
+find: the verdict quoted the SCREEN size, not the window's; it is now measured after the
+fullscreen step. It remains a snapshot taken at launch — /status does not re-measure per
+request, because the service answers sequentially and a hanging xdotool would block /stop.*
 
 ## PS Vita (Vita3K): der Titel wird über seine **Kennung** gestartet
 
@@ -1548,6 +1657,53 @@ which drops the Qt hook in `apprun-hooks/` and breaks the missing-platform check
 for a `…/AppRun` inside the launch command. Anyone switching the Vita launch line to the
 **positional** parameter (a path instead of an id) has to look here first.
 
+### A window already in fullscreen is left alone
+
+The window step pulls every visible window to the full screen, and after it a painted-area
+measurement decides whether to correct with F11 (see *Fullscreen: measured, not assumed*).
+For DuckStation that correction was the damage: the title sat at 1920 × 1080 and dropped to
+**640 × 480 in the corner** about 14 seconds in.
+
+The window step was the obvious suspect and it is **not** the culprit. Measured by applying
+its four calls one at a time to the window, with no agent alongside — `_MOTIF_WM_HINTS`,
+`windowsize`, `windowmove`, `windowactivate`, `windowraise` — the window stayed 1920 × 1080
+and kept `_NET_WM_STATE_FULLSCREEN` throughout. The F11 afterwards is the culprit, and the
+agent log shows it with the same numbers on every PSX launch:
+
+```
+[vollbild] 34.3 % bemalt -> F11 -> 99.3 %
+```
+
+34.3 % does not measure a small window, it measures a **black** one — DuckStation is still
+booting the disc. F11 then switches off the fullscreen the emulator had set itself via
+`-fullscreen`. The 99.3 % reported as success is the uncovered XFCE desktop: measured with
+no emulator running at all, the bare desktop reads 99.27782600308642 %, the same value to
+the last digit (#495).
+
+The fix is emulator-agnostic: **a window carrying `_NET_WM_STATE_FULLSCREEN` gets no F11.**
+The window step is unchanged; there is no measured reason to touch it.
+
+Counter-checked on the running host with xemu, the case the keystroke route was built for:
+its window reports `STATE=[_NET_WM_STATE_FOCUSED]` and no fullscreen atom, so the guard
+cannot fire there and the window trick still pulls it up. What that counter-check does
+**not** show is whether F11 still goes out afterwards — the painted share was 99.3 %, above
+the threshold, so no F11 was due. Only the test covers that path, not a host measurement.
+
+The issue's guess that Flycast and PCSX2 shared the problem is **refuted by measurement**:
+
+| Emulator | at launch | after the window and fullscreen steps |
+|---|---|---|
+| DuckStation (PS1) | 1920 × 1080, fullscreen | **640 × 480 at 1,51** — F11 was sent |
+| PCSX2 (PS2) | 1920 × 1080, fullscreen | 1920 × 1080, fullscreen — F11 sent, ignored |
+| Flycast (Dreamcast) | 1920 × 1080, fullscreen | 1920 × 1080, fullscreen — no F11 |
+
+Second find: `/status` quoted a size it had never looked at — `1 Fenster auf 1920x1080`
+while `xdotool` reported 640 × 480. That number was the **screen** geometry, the aim of the
+step rather than its outcome. The verdict now names the measured size of the largest
+window, taken **after** the fullscreen step, because that is where the damage happened. It
+is still a snapshot from launch time: `/status` does not re-measure per request, because
+the service answers requests sequentially and a hanging `xdotool` would block `/stop` too.
+
 ### Rotating the token
 
 The token is the only thing between a request and a process starting on the host. It lives
@@ -1601,7 +1757,7 @@ pressed in-game.
 
 | Platform | Emulator | Picture | Sound | Controller | Note |
 |---|---|---|---|---|---|
-| PlayStation 1 | DuckStation | ✅¹ | ✅ | ✅ | confirmed by a human (2026-08-10). ¹**Caveat, measured 2026-08-13:** on 2026-08-12/13 no title started at all — three modal windows, all three switched off since #492. The game reaches the screen again, but the service's window step pulls DuckStation out of its own fullscreen: 1920 × 1080 → **640 × 480 in the corner** (#493) |
+| PlayStation 1 | DuckStation | ✅¹ | ✅ | ✅ | confirmed by a human (2026-08-10). ¹on 2026-08-12/13 no title started at all — three modal windows, all three switched off since #492. The game then sat at 640 × 480 in the corner; **fixed since #493** — not the window step but an F11 that switched off DuckStation's own fullscreen. Measured after the rollout: **39 of 39 samples over 80 s** unchanged at 1920 × 1080, fullscreen state held throughout |
 | PlayStation 2 | PCSX2 | ✅ | ✅ | ✅ | |
 | GameCube | Dolphin | ✅ | ✅ | ✅ | |
 | Wii | Dolphin | ✅ | ✅ | (⁠—⁠) | controller not checked separately — same emulator and same mapping as GameCube |
