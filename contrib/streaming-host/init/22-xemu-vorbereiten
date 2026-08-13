@@ -41,6 +41,23 @@ if [ ! -e "$LIB/libusb-1.0.so.0" ]; then
   fi
 fi
 
+# WAS DA IST, NICHT NUR WAS GETAN WURDE. (#525)
+#
+# Vorher schwieg dieser Schritt, wenn die Datei schon lag — und das Containerprotokoll
+# zeigte nur `22-xemu-vorbereiten: exited 0`. Das liest sich wie „alles bereit" und hiess
+# „war schon da". Genau in diesem Zustand startete xemu monatelang nicht, weil zwar die
+# Bibliothek lag, aber niemand dem Lader den Pfad nannte.
+#
+# Ein Schritt, der bei richtigem Zustand stumm ist, laesst sich von einem, der nichts
+# Nuetzliches getan hat, nicht unterscheiden.
+# EN: report the state, not only the action — silence on "already correct" reads exactly
+# like silence on "did nothing useful".
+if [ -e "$LIB/libusb-1.0.so.0" ]; then
+  echo "[xemu] libusb bereit: $LIB/libusb-1.0.so.0 (der Start setzt LD_LIBRARY_PATH=$LIB)"
+else
+  echo "[xemu] FEHLT: $LIB/libusb-1.0.so.0 — xemu wird sofort beenden" >&2
+fi
+
 # ---- 2. Festplattenabbild -----------------------------------------------------------
 mkdir -p "$XDIR"
 if [ ! -s "$XDIR/xbox_hdd.qcow2" ]; then

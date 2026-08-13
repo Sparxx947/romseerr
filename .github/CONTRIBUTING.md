@@ -31,17 +31,50 @@ etwas an `dev` vorbei auf `main` gelangt, und der Release-Lauf bricht laut ab.
 
 ### Wie ein Release entsteht
 1. Der Bot sammelt die Commits auf `dev` und hält einen **Release-PR** offen
-   (Version in `version.txt`, Abschnitt im `CHANGELOG.md`).
-2. Diesen PR mergen = Release: Tag und GitHub-Release entstehen.
-3. Der Lauf spult danach **`main` auf genau diesen Commit** vor.
+   (Version in `version.txt`, Abschnitt im `CHANGELOG.md`). Er ist ein **Entwurf** —
+   GitHub verweigert das Zusammenführen eines Entwurfs, ein Release kostet also eine
+   bewusste Handlung.
+2. Auf „bereit" setzen. **Dann schließen und wieder öffnen** — siehe unten, sonst laufen
+   die Pflichtprüfungen nie und der Merge bleibt blockiert.
+3. Diesen PR mergen = Release: Tag und GitHub-Release entstehen.
+4. Der Lauf spult danach **`main` auf genau diesen Commit** vor.
+
+#### Warum der Release-PR geschlossen und wieder geöffnet werden muss
+
+GitHub löst für Ereignisse, die vom voreingestellten `GITHUB_TOKEN` ausgelöst wurden,
+**keine Workflows** aus. Das verhindert, dass ein Workflow sich selbst endlos anstößt —
+und trifft hier genau den einen PR, der ein öffentliches Artefakt erzeugt: Er bekommt
+**gar keine** Prüfungen, und `dev-ci-gate` verlangt acht davon.
+
+```
+$ gh pr checks <nr>
+no checks reported on the 'release-please--branches--dev' branch
+```
+
+Schließen und wieder öffnen **aus einem Benutzerkonto** löst die Auslöser erneut aus;
+danach laufen alle acht und sind grün. Das ist ein Handgriff, der leicht vergessen wird —
+deshalb steht er hier und nicht in jemandes Kopf.
+
+**`gh pr merge --admin` wäre der falsche Ausweg.** Es übergeht die Prüfungen und erzeugt
+einen Release, der grün aussieht und nie geprüft wurde.
+
+Der strukturelle Ausweg wäre ein PAT oder eine GitHub-App für den Bot, damit seine PRs
+unter einer Kennung entstehen, deren Ereignisse Workflows auslösen. Das kostet ein
+dauerhaftes Geheimnis — und dieses Projekt hält Schlüsselmaterial bewusst klein, dieselbe
+Abwägung wie in `release-image.yml`. Offen als #435.
 
 Die Version wird **nicht von Hand** gesetzt. Auf `dev` steht in `version.txt` eine
 Entwicklungsmarke (`…-dev`); den echten Wert schreibt der Bot im Release-PR. Maßgeblich
 ist `.release-please-manifest.json` — dort steht, worauf zuletzt veröffentlicht wurde.
 
-### Versionszweige — bewusst erst bei Bedarf
+### Versionszweige
 
-Es gibt **keine** `release/x.y`-Zweige, und das ist eine Entscheidung, keine Lücke.
+Seit #187 legt der Release-Lauf **je Release einen Zweig** an: `release/v1.0.0-beta.1`,
+`release/v1.1.0-beta.1`, `release/v1.2.0-beta.1`. Sie sind der Weg, eine ältere Fassung zu
+fahren, und dorthin darf eine nachgezogene Korrektur — so steht es auch in der README.
+
+Der Absatz darunter beschrieb den Stand **davor** und stimmte seit #187 nicht mehr. Er
+bleibt als Begründung stehen, warum es sie vorher nicht gab:
 Sie lohnen sich, wenn mehrere Versionen **gleichzeitig gepflegt** werden müssen — wenn
 also jemand auf einer alten Version festsitzt und trotzdem Fixes braucht. Solange das
 nicht so ist, kosten sie Cherry-Picks und einen weiteren grün zu haltenden Zweig, ohne

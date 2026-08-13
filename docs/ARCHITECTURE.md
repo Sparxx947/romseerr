@@ -231,6 +231,43 @@ lief. Unterschieden wird es an einem Header: `application/x-nzb` gegen `text/htm
 so ein Abruf beim Indexer als *grab* gegen ein Stundenlimit zählt, holt die Prüfung
 höchstens **eine** Datei je Indexer und nur auf ausdrücklichen Aufruf.
 
+#### Wessen Plattform gilt: Kategorie oder Titel? (#452)
+
+Ein Usenet-Treffer trägt zwei Aussagen über seine Plattform — die **Kategorie** des
+Indexers und den **Titel**. Die Kategorie gilt, denn sie ist gepflegt; der Titel ist
+Fließtext. Nur: nicht jede Plattform bekommt eine eigene Kategorie. Zwei fahren beim
+hiesigen Indexer in der des Nachbarn mit, und dort ist die Kategorie nachweislich zu grob:
+
+| Plattform | Kategorie | Kategorie sagt | Titel sagt |
+|---|---|---|---|
+| PS Vita | `101020` | `psp` | `psvita` |
+| Wii U | `101030`, `101060` | `wii` | `wiiu` |
+
+Beides steht in **einer** Tabelle, `KAT_LEIHE` (Mieter → Eigentümer), und sie hat zwei
+Wirkungen. Erstens erbt der Mieter die Kategorien des Eigentümers — ohne das ist seine
+Kategorienliste leer, und `search_usenet` steigt bei `not cats` sofort aus: Die Auswahl
+dieser Plattform **schaltet die Usenet-Suche ab**, lautlos, ohne Fehler. Zweitens darf der
+Mieter seine Kategorie am Titel zurückerobern: Nennt der Titel eine Plattform, die genau
+in der gefundenen Kategorie mitfährt, gewinnt der Titel (`plattform_aus_kategorie_und_titel`).
+
+Die Erlaubnis ist bewusst eng. Titel erwähnen ständig fremde Systeme („PS2 Classics",
+„Dreamcast Port"); dürfte jeder Titeltreffer die Kategorie schlagen, wäre die Zuordnung
+schlechter als vorher. Sie gilt nur für den eingetragenen Mieter und nur für dessen eigene
+Kategorie. Gemessen vor der Änderung: **16 von 16** Treffern kamen unter dem Slug des
+Eigentümers zurück — ein Vita-Download landete im PSP-Ordner, und die Wii-U-Treffer aus
+#375 waren zwar auffindbar, fielen aber aus dem Wii-U-Filter, weil sie `wii` hießen.
+
+*EN: a usenet hit states its platform twice — indexer category and title. The category
+wins, because it is curated. But not every platform gets its own category: PS Vita rides
+in the PSP category, Wii U in the Wii ones. `KAT_LEIHE` (tenant → owner of the category)
+records both facts and does two things. The tenant inherits the owner's categories —
+without that its category list is empty and `search_usenet` bails out at `not cats`,
+silently disabling usenet search for that platform. And the tenant may reclaim its own
+category from the title: if the title names a platform that is a documented tenant of
+exactly the category found, the title wins. Deliberately narrow — a title merely
+mentioning some foreign platform must not reclassify anything, or the result would be
+worse than before. Measured before the change: 16 of 16 hits carried the owner's slug.*
+
 #### Wenn SABnzbd den Download verwirft (#235)
 
 Ein NZB, das SAB nicht laden kann, verlässt die Warteschlange, **ohne** je einen Ordner
@@ -297,6 +334,139 @@ RomM build rather than libretro's catalogue — one entry pointed at a core the 
 not ship, which cannot work and looks like any other button. `GET /api/play/cores` now
 checks each one. `IGNORE_FOLDERS` hides directories with no game content; content that
 merely lacks a core stays visible.*
+
+### Den RomM-Scan gibt es nicht als REST-Aufruf (#520)
+
+`POST /api/scan` ist **weg**. Wer es trotzdem aufruft, bekommt zwei Absagen
+hintereinander — und `requests` wirft bei keiner davon:
+
+```
+POST /api/login  -> 200
+POST /api/scan   -> 403  "CSRF token verification failed"
+   (mit korrektem CSRF-Kopf)  -> 404  {"detail":"Not Found"}
+```
+
+Der Scan ist ein **Socket.IO-Ereignis**, eingehängt unter `/ws`. Die Aufgabe
+`scan_library` trägt `manual_run: false`, `POST /api/tasks/run/scan_library` scheitert
+also mit 400.
+
+**Ohne neue Abhängigkeit:** Socket.IO spricht auch reines HTTP. `GET` holt das
+OPEN-Paket mit der Sitzungskennung, ein `POST "40"` meldet den Namensraum an, und das
+Ereignis ist ein `POST "42[\"scan\", {…}]"`. Damit genügt `requests`; ein
+`websockets`- oder `python-socketio`-Paket wäre eine neue Abhängigkeit für einen Aufruf,
+der einmal je Import passiert.
+
+**Zwei Dinge, die man leicht falsch macht:**
+
+- **CSRF gilt für REST, nicht für den Socket** — und das Merkmal ist an die
+  Benutzerkennung gebunden. Erst anmelden, dann einen beliebigen GET, *dann* liegt ein
+  brauchbares `romm_csrftoken` vor. Eines von vor der Anmeldung gehört „niemandem" und
+  wird abgewiesen.
+- **`platform_fs_slugs` sind ORDNERNAMEN, keine Slugs.** `dreamcast` liegt in `dc`,
+  `ngc` in `gc`. Ungerechnet läuft der Scan ins Leere und meldet trotzdem Erfolg.
+
+**Und die eigentliche Lehre:** Jeder Schritt prüft seinen Statuscode, und eine Absage
+(`scan:done_ko`) wird gelesen. Die alte Fassung stand in einem `except Exception`, das
+nie betreten wurde — der Aufruf kehrte zurück, sah erfolgreich aus und tat nichts. Das
+ist der dritte Fehler dieser Bauart an einem Tag (#500, #513).
+
+*EN: there is no REST endpoint for the scan any more — 403 then 404, and requests raises
+on neither. It is a Socket.IO event under `/ws`, reachable over plain HTTP polling, so no
+new dependency. CSRF applies to REST only and its token is bound to the user id, so it
+must be fetched after logging in. `platform_fs_slugs` are folder names, not slugs. Every
+step now checks its status code and a refusal is read, because the previous version
+returned, looked successful and did nothing.*
+
+### Ein Alias ist erst richtig, wenn RomM ihn auch zieht (#518)
+
+`FOLDER_ALIASES` fasst Ordner zusammen, die dieselbe Plattform meinen — `neogeoaes` und
+`neogeomvs` sind dieselbe Hardware in anderen Gehäusen, und sie zeigen beide auf `neogeo`.
+`neo-geo-cd` zeigte ebenfalls dorthin, und das war falsch.
+
+**Nicht wegen der Konsolengeschichte, sondern weil RomM sie trennt:**
+
+```
+RomM:  Neo Geo AES   neogeoaes    300 ROMs
+       Neo Geo CD    neo-geo-cd   100 ROMs
+       eine Plattform `neogeo` gibt es dort GAR NICHT
+```
+
+`play_info` fragt nicht den eigenen Index, sondern `romm_find()`. Mit dem Alias fragte es
+nach einer Plattform, die RomM nicht kennt:
+
+```
+romm_find("Aero Fighters 2 (World)", "neogeo")      -> None
+romm_find("Aero Fighters 2 (World)", "neo-geo-cd")  -> Aero Fighters 2
+```
+
+100 vorhandene, von RomM gescannte Titel waren damit unspielbar — und der Play-Knopf
+konnte gar nicht erst erscheinen, ohne dass irgendwo etwas rot wurde.
+
+**Die Regel:** Ein Alias darf nur zusammenfassen, was RomM ebenfalls zusammenfasst. Wo die
+beiden auseinandergehen, gewinnt RomM — es hält die Daten, an denen `play_info` hängt.
+
+Dazu gehören drei Kleinigkeiten, die sonst nachziehen müssen: der Kern (`fbneo`, derselbe
+wie für Neo Geo), der **BIOS-Hinweis** (ein CD-Abbild braucht das System-ROM, ein
+Cartridge-Romset nicht) und die Reihenfolge in `KW` — `neo\s*geo` passt auch auf
+`Neo Geo CD`, das genauere Muster muss davor stehen.
+
+*EN: `FOLDER_ALIASES` may only merge what RomM merges. It kept `neo-geo-cd` under
+`neogeo`, but RomM has no `neogeo` platform at all — so `play_info`, which asks
+`romm_find()` rather than the local index, found nothing for 100 present and scanned
+titles, and the play button simply never appeared. Where the two disagree, RomM wins: it
+holds the data play depends on. Three things follow — the core, the BIOS note (a CD image
+needs the system ROM, a cartridge romset does not), and the order in `KW`, where the
+narrower pattern must precede the general one.*
+
+### Beide Seiten müssen dieselbe Frage stellen (#427, #502, #512)
+
+Ob ein Titel startbar ist, beantworten **zwei** Stellen: `stream_info` in Romseerr, bevor
+der Knopf erscheint, und der Start-Dienst, bevor er einen Prozess startet. Das ist
+Absicht, keine Doppelarbeit — ein direkter Aufruf des Dienstes umgeht Romseerr, und wer
+nur dort prüft, hat eine Zusage, die vom gewählten Weg abhängt.
+
+Fragt umgekehrt nur der Dienst, bekommt der Nutzer den Knopf, **belegt einen Platz** und
+liest die Absage erst danach. Genau so lag es bei Wii U: Der Dienst lehnte ein Update
+seit #502 ab, Romseerr bot es weiter an.
+
+| Plattform | Woran erkannt | Quelle |
+|---|---|---|
+| 3DS | Titel-ID `0004000E` / `0004008C` | TMD in der `.cia` |
+| Switch | letzte drei Stellen der Titel-ID | `<rights-id>.tik` in der NSP |
+| Wii U | Titel-ID `0005000E` / `0005000C` / `0005001B` | `code/app.xml` |
+
+Bei Wii U ausdrücklich `code/app.xml` und **nicht** `meta/meta.xml`: Die beiden können
+sich widersprechen, und beim einzigen Wii-U-Titel des Bestands tun sie es —
+`meta.xml` behauptet `00050000…` (Spiel), `app.xml` sagt `0005000E…` (Update). Cemu liest
+`app.xml`. Wer die andere Datei nimmt, bekommt mit voller Überzeugung die falsche Antwort.
+
+**Überall gilt: im Zweifel durchlassen.** Was sich nicht eindeutig als Zubehör ausweist,
+bleibt startbar. Eine falsche Absage nimmt einen vorhandenen Titel dauerhaft aus dem
+Angebot, und danach sucht niemand mehr.
+
+#### Ein Grund ohne Text ist keine Auskunft
+
+Die Kette hat drei Glieder: `app.py` liefert einen Code, `STREAM_GRUND` in `index.js`
+bildet ihn auf einen Schlüssel ab, die Sprachdateien tragen den Satz. Reißt das mittlere
+Glied, fällt der Code stumm in „Streamen gerade nicht möglich" — der Satz existiert, ist
+aber unerreichbar.
+
+Genau das war seit #427 der Fall: `stream_nsp_update` und `stream_nsp_dlc` lagen in
+**allen fünf Sprachen** bereit und fehlten nur in `STREAM_GRUND`. Der Test dagegen sammelte
+nur Codes, die als **wörtlicher String** in `stream_info` stehen — und alle
+Plattformprüfungen liefern ihren Grund über eine Hilfsfunktion, als Variable. Er meldete
+also Erfolg für etwas, das er nicht prüfte (#513). Gesammelt wird jetzt zusätzlich aus den
+`*_startbar`-Funktionen und ihren `_*_ZUBEHOER`-Tabellen.
+
+*EN: two places answer "is this startable" — Romseerr before the button appears and the
+launch service before it starts a process. Deliberately both: calling the service directly
+bypasses Romseerr, and checking only there means the user takes a seat before reading the
+refusal. Wii U reads `code/app.xml`, not `meta/meta.xml`, because the two can disagree and
+here they do. Everywhere: when in doubt, let it through — a wrong refusal removes a title
+that exists. The reason travels through three links (code → `STREAM_GRUND` → translations);
+when the middle one is missing the code falls silently into the generic sentence, which is
+what happened to the Switch texts, and the test that should have caught it only saw reasons
+spelled out literally rather than those returned through a helper.*
 
 ## Benutzerverwaltung
 
@@ -416,6 +586,168 @@ static/icon.svg   App-Icon (PWA)
    Erkennt der Import **nichts**, gibt er `False` zurück, der Job geht auf `error` und der
    Download **bleibt liegen** (#240).
 
+### Ein Ordnername, zwei Namensgeber (#454)
+
+RetroNAS und Romseerr nennen dieselbe Plattform verschieden: `gc` gegen `ngc`, `dc` gegen
+`dreamcast`. `FOLDER_ALIASES` bildet das ab, und **Lesen** benutzt es überall —
+`slug_folders()` liefert alle beitragenden Ordner, `STREAM_DIR` baut darauf auf, der Index
+ordnet `gc`-Dateien dem Slug `ngc` zu.
+
+**Schreiben tat es nicht.** Das Importziel war schlicht `ROMS/<slug>`, an zwei Stellen.
+Liegt die Bibliothek im Alias-Ordner, landete jeder Download also *daneben* statt *darin*:
+
+```
+roms/gc          713 Dateien  561 GB   <- die Bibliothek
+roms/ngc           0 Dateien           <- wohin Importe gingen
+```
+
+Das Tückische daran ist die **Unsichtbarkeit**: Das Lesen fügt beide Ordner wieder
+zusammen, in Romseerr sah alles vollständig aus. Auf der Platte war die Plattform trotzdem
+zweigeteilt, und alles, was die Ordner direkt liest — RomMs Scan, RetroNAS' Freigaben, ein
+blankes `ls` — sah nur eine Hälfte. Eine Messung ist daran schon gescheitert: „diese
+Plattformen haben keinen Inhalt", während GameCube und Dreamcast durchgehend gefüllt waren.
+
+`bibliothek_ordner(slug)` nimmt jetzt den Ordner, in dem die Plattform **schon liegt**, und
+fällt sonst auf den Slug zurück. Ein *leerer* Alias-Ordner zählt dabei nicht — sonst gewänne
+der Streuner gegen die Bibliothek, und genau so herum lagen `ngc` und `dreamcast` auf der
+Anlage. Die Reihenfolge kommt aus `slug_folders` und damit aus der konstanten Tabelle, nie
+aus der Eingabe.
+
+*EN: RetroNAS and Romseerr name the same platform differently (`gc`/`ngc`, `dc`/`dreamcast`).
+Reading resolved this everywhere; writing did not, so downloads landed beside the library
+instead of inside it. The split was invisible, because reading merges both folders again —
+only something reading the directories directly (RomM's scan, RetroNAS' shares, a plain
+`ls`) sees one half. `bibliothek_ordner(slug)` now prefers the folder that already holds
+the platform and falls back to the slug. An empty alias folder does not count, or the stray
+would beat the library.*
+
+### Der Index muss dasselbe wissen wie der Import (#477)
+
+`SPIELORDNER_MUSTER` sagt dem **Import**, dass ein Ordner ein Titel sein kann. Der **Index**
+wusste es nicht: Er lief hinein und legte die Bestandteile als Titel ab. Nach einem
+vollständigen Neuaufbau am echten Bestand gemessen:
+
+```
+wiiu    31 Einträge:  app, bootDrcTex, bootLogoTex, bootMovie
+psvita  14 Einträge:  args, eboot, Gravite, icon
+ps3     27 Einträge:  PS3_DISC, ICON0, …
+```
+
+`bootMovie` ist ein Video **in** Captain Toad, `Gravite` die `.psarc` **in** Gravity Rush.
+Die echten Titel fehlten ganz — und damit fand `stream_info` sie nicht: **ein vollständiger,
+vorhandener Titel war über die Oberfläche unerreichbar.**
+
+`ist_titel_ordner()` beantwortet die Frage jetzt für beide Wege:
+
+| Weg | erkennt |
+|---|---|
+| `spielordner_slug` | bekannter Aufbau — Wii U, PS3, GameCube, Vita, Xbox |
+| Abbild-Set | eine `.gdi`/`.cue`/`.m3u` nennt Dateien, die daneben liegen |
+
+**Warum zwei Wege und nicht einer:** `spielordner_slug` liefert einen *Slug*, und ein
+Abbild-Set verrät seine Plattform nicht — eine `.cue` steht bei psx, saturn, segacd und
+turbografx-cd. Für den Index ist die Plattform aber schon bekannt; dort lautet die Frage nur
+„ein Titel oder viele?". Ohne den zweiten Weg hieße ein wiederhergestellter
+Dreamcast-Titel `track01`, `track02`, `track03`.
+
+**Die Tiefe bleibt bei zwei Ebenen.** Drei wurden gemessen: 32,6 s gegen 106,3 s für 7,6 %
+mehr Dateien — das 3,3-fache für einen Lauf, der periodisch läuft. Titel, die tiefer liegen,
+holt der Bibliotheksumbau auf Ebene 1; das ist seine Aufgabe, nicht die des Index.
+
+*EN: the import path has known since #391 that a folder can be a title; the index did not,
+so it walked in and filed game data as titles — a complete, present title was unreachable
+through the UI. `ist_titel_ordner()` now answers for both a known layout and an image set.
+Two routes rather than one because `spielordner_slug` returns a platform, which an image
+set does not reveal — the index already knows the platform and only asks "one title or
+many?". Depth stays at two levels: three costs 3.3x for 7.6% more files, and normalising
+deeper trees is the library rebuild's job.*
+
+### Zwei Wanderungen über denselben Baum laufen auseinander (#477)
+
+Dass der Index Ordner-Titel kennt, war nur die halbe Miete. `stream_find_file()` lief eine
+**zweite, eigene** Wanderung — und die hatte drei Fehler, jeden davon am Bestand gemessen:
+
+| Fehler | gemessen |
+|---|---|
+| Ordner schlug **immer** die Datei | `Sonic Adventure (PAL)/` (nur eine `.url` + ein Unterordner) verdrängte `Sonic Adventure.cdi`, 757 MB, spielbar |
+| nur Ebene 1 | `ps3/DmC … BLUS30723/Devil May Cry 5/` steht im Index, die Auskunft sagte `not_in_library` |
+| `break` statt `dirs[:] = []` | beendete die **ganze** Wanderung am ersten verschachtelten Ordner: `dc` 64 von 173 Dateien gesehen, `psx` 2925 von 2993 |
+
+Der erste ist der bösartigste, weil beide Seiten *scheinbar* funktionierten: Die Auskunft
+meldete den Titel als streambar und nannte den Ordner — der Start-Dienst öffnete ihn und
+antwortete `Ordner ohne startbaren Inhalt`, während das spielbare Abbild danebenlag.
+
+**Was jetzt gewinnt, ist aber nicht die `.cdi`** (nachgemessen am laufenden Dienst, #501):
+Eine Ebene tiefer liegt `[GDI] Sonic Adventure (PAL)/` mit einer `.gdi` und drei Spuren,
+1,2 GB — ein echtes Abbild-Set und damit ein Titelordner. Der Ordnerzweig zieht es vor,
+bevor die Dateisuche drankommt. Das ist richtig: Beides ist spielbar, und der leere
+Elternordner ist weg. Nur die Erwartung „das Abbild gewinnt" war falsch.
+
+**Die Regel dahinter:** Zwei Wanderungen über denselben Baum driften auseinander. Es gibt
+jetzt **eine**, mit derselben Tiefe wie der Index, und der Ordnerzweig stellt dieselbe Frage
+wie der Index — `ist_titel_ordner()`. Nur ein Ordner, der wirklich ein Titel *ist*, schlägt
+ein spielbares Abbild.
+
+**Die Ratsche gegen den Übereifer:** 39 Ordner im Bestand sind weder Titelaufbau noch
+Abbild-Set und enthalten auch keinen — `gc/Pikmin (USA) (v1.00)` etwa trägt eine einzelne
+`.rvz`, die der Start-Dienst selbst auflöst. Die kommen weiterhin zurück, aber als
+**Rückfall**, erst nachdem keine Datei gepasst hat. Wer den Ordnerzweig strenger macht,
+darf sie nicht verlieren.
+
+*EN: the index knowing about folder titles was only half of it — `stream_find_file()` ran a
+second, separate walk with three measured faults: a folder always outranked a file (an empty
+`Sonic Adventure (PAL)/` beat a playable 757 MB `.cdi`), it only looked one level down, and
+`break` ended the whole walk at the first nested folder instead of pruning that branch (`dc`
+saw 64 of 173 files). The first is the worst kind, because both sides appeared to work: the
+API called the title streamable and named the folder, and the launcher then reported "folder
+with nothing bootable" while the image sat beside it. Two walks over one tree drift apart —
+there is now one, at the index's depth, asking the index's question (`ist_titel_ordner()`).
+A folder that is neither a title layout nor an image set is still returned, but only as a
+fallback once no file matched: 39 such folders exist and must not be lost. Note what wins
+in that first row is not the `.cdi` (#501): one level down sits `[GDI] Sonic Adventure
+(PAL)/` with a `.gdi` and three tracks, 1.2 GB — a real image set, therefore a title folder,
+therefore preferred. Both are playable and the empty parent is gone; only the expectation
+"the image wins" was wrong.*
+
+### Wenn ein Ordner EIN Spiel ist (#391, #455)
+
+Für manche Plattformen ist ein Titel kein *File*, sondern ein *Ordner*. Der Import lief
+ursprünglich über `os.walk` und kopierte jede Datei mit passender Endung einzeln — für
+solche Plattformen in beide Richtungen falsch: Bruchstücke aus dem Spielinneren kamen in
+die Bibliothek, der Titel selbst wurde verworfen.
+
+`SPIELORDNER_MUSTER` erkennt sie **am Aufbau, nicht an der Dateizahl**. Ein entpacktes
+Spiel hat Tausende Dateien, eine Sammlung auch; was sie unterscheidet, gibt das Format vor:
+
+| Plattform | verlangte Einträge |
+|---|---|
+| Wii U | `code` + `content` + `meta` |
+| PS3 | `ps3_game` (oder die Datei `ps3_disc.sfb`) |
+| GameCube/Wii | `sys` + `files` |
+| PS Vita | `eboot.bin` + `sce_sys` |
+| Xbox | die Datei `default.xbe` |
+
+Bei der Vita zählt das **Paar**. `eboot.bin` hat jeder Titel — allein darf sie die
+Plattform nicht beanspruchen, sonst würde aus einem Bruchstück ein anerkannter Titel.
+`sce_module` und `PSP2` liegen oft daneben, sind aber optional und stehen deshalb nicht in
+der Bedingung. Gemessen an einem echten Import: Das Release liefert einen **Ordner**,
+dessen Name auf `.vpk` endet; am Namen hängt die Erkennung bewusst nicht, denn andere
+Releases liefern denselben Aufbau unter dem blanken Titel.
+
+Ohne den Eintrag fällt der Import auf „jede Datei einzeln" zurück. Bei der Vita nahm er
+dann genau die `eboot.bin` mit (`.bin` steht in `ROM_EXT`) — 10 MB ohne `param.sfo`, für
+Vita3K unbrauchbar und für Menschen nicht identifizierbar. Und weil jeder Vita-Titel so
+heißt, hätte der nächste Import den vorigen überschrieben.
+
+*EN: for some platforms a title is a folder, not a file. `SPIELORDNER_MUSTER` recognises
+them by their fixed layout rather than by file count — an unpacked game and a collection
+both have thousands of files. For PS Vita the pair `eboot.bin` + `sce_sys` is required:
+every Vita title has an `eboot.bin`, so on its own it must not claim the platform, or a
+fragment would be promoted to a title. `sce_module` and `PSP2` are optional. Without the
+entry the import falls back to copying files one by one and takes the `eboot.bin` alone —
+unusable for Vita3K, unidentifiable for a human, and overwritten by the next import,
+because every Vita title carries that same name.*
+
 ### Der Import muss zwei Dinge aushalten (#240, #241, #242)
 
 **Downloadprogramme benennen fertige Dateien um.** SABnzbds *deobfuscate final filenames*
@@ -515,6 +847,40 @@ removed individually or in bulk, and expire after `leftover_days` (default 14, 0
 `retry` counts attempts (`tries`) and remembers failed sources (`tried_sources`); from the third attempt it switches source via `alternative_quelle()`, matching titles through `norm()` strictly — switching to a different game would be worse than the failure it fixes. With no match left it returns `409 exhausted` and does **not** re-queue. A successful import resets the counter. `DELETE /api/jobs/{jid}` removes a finished request (`done`, `error`, `denied`; active ones are refused). Failed requests count toward the badge forever otherwise. If a kept download belongs to it, the call either deletes it too (`files: true`) or reports `files_left` — silently orphaning it is the one outcome not allowed, since the request is the only thing mapping that folder to a title. `clear-finished` accepts `states` to limit the sweep to one group. `POST /api/jobs/{jid}/reimport` re-runs the import against the kept folder — as opposed to `/retry`, which re-downloads everything. Both end in `einsortieren()` so import and cleanup cannot drift apart, and the button only appears when the files are actually still there (`reimportable` per failed job). Two guards live in the code rather than the UI: folders belonging to a **running** job are
 never listed, and removal only accepts paths that resolve inside a collect directory and
 carry the `romseerr_` prefix.*
+
+### Kurzmeldungen an einer Zeile überleben das Auffrischen nicht (#449, #459)
+
+Die Anfragenliste zeichnet sich alle vier Sekunden neu und ersetzt dabei `#jobs` vollständig.
+Was an einer **Zeile** hängt, ist danach weg. Das hat zweimal in Folge zugeschlagen, in zwei
+verschiedenen Formen:
+
+| hängt an der Zeile | Folge | Lösung |
+|---|---|---|
+| `onclick` je Zeile | Klick ins Fenster tut nichts (#449) | ein Zuhörer am **Behälter**, `jobKlickBindung` |
+| Meldungstext in `.jobmsg` | Antwort verschwindet, evtl. sofort (#459) | `JOBMELDUNG`-Karte je **Auftrags-Id**, von `loadJobs` wieder eingetragen |
+
+Beide Male war die Ursache dieselbe und die erste Reparatur nur die Hälfte: #419 senkte die
+Zahl der Neuaufbauten, das Fenster blieb. **Nicht seltener machen, sondern woanders
+verankern** — am Behälter, der nicht ersetzt wird, oder am Auftrag, der die Zeile überdauert.
+
+Dazu gehört: **kein stilles Scheitern.** In `openJobDetail` stand ein leerer `catch`; ein
+Netzfehler oder ein 500 aus `/api/search` ließ die Zeile aufhellen und sonst geschah nichts —
+von einem toten Knopf nicht zu unterscheiden. Jeder Ausgang schreibt jetzt eine Meldung.
+
+Für Tests heißt das: `j.innerHTML = j.innerHTML` verwirft **Ereignisbindungen**, erhält aber
+den **Text** — er steht ja im serialisierten HTML. Für die Klickfrage ist dieser Rundlauf
+also der richtige Hebel, für die Meldungsfrage der falsche. Dort braucht es den echten Weg:
+`JOBSTAND` leeren und `loadJobs()` rufen. Mit dem falschen Hebel bestand die Prüfung auch
+gegen den kaputten Stand.
+
+*EN: the requests list replaces `#jobs` wholesale every four seconds, so anything bound to a
+row is lost. Twice in a row this bit: the per-row click handler (#449) and the message text
+in `.jobmsg` (#459). Reducing how often it happens is not a fix — anchor elsewhere: on the
+container, which is never replaced, or on the job id, which outlives the row. And never fail
+silently: the empty `catch` in `openJobDetail` made a broken lookup look like a dead button.
+For tests: an `innerHTML` round-trip discards event handlers but preserves text, so it is the
+right lever for the click question and the wrong one for the message question — there, clear
+`JOBSTAND` and call `loadJobs()`.*
 
 ### Etwas an der Oberfläche ändern
 Datei unter `static/` oder `templates/` bearbeiten, App neu starten (der Hash und damit die

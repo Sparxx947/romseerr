@@ -20,6 +20,8 @@ funktionieren danach nebeneinander.
 
     launch-profile.py --apply pcsx2            # Controller-Belegung setzen
     launch-profile.py --bios pcsx2 Europe      # BIOS zur Region waehlen
+    launch-profile.py --dialogs vita3k         # Startdialoge abstellen
+    launch-profile.py --grundbild              # leeren Desktop aufnehmen (vor dem Start)
     launch-profile.py --status                 # Stand
 """
 import json
@@ -33,6 +35,15 @@ import tempfile
 import time
 
 CONFIG = os.environ.get("FW_CONFIG_ROOT", "/config")
+# Flycasts Renderer-Kennziffern: 0 und 3 sind OpenGL, 4 und 5 Vulkan
+# (5 mit Per-Pixel-Sortierung). 4 ist der Wert, den die Startzeile seit #304
+# mitgibt — hier steht er, damit beide Wege dieselbe Zahl meinen.
+FLYCAST_RENDERER = "4"
+
+# xemus Renderer. Anders als bei Flycast ist das keine Kennziffer, sondern ein Name aus
+# `CONFIG_DISPLAY_RENDERER__COUNT` — im Binary abgelesen, nicht geraten. Seit #498 laeuft
+# xemu OHNE VirtualGL; ohne diesen Eintrag landete OpenGL dann auf dem Software-Rasterer.
+XEMU_RENDERER = "VULKAN"
 
 # PCSX2: Namen aus s_sdl_button_setting_names / s_sdl_axis_setting_names
 # (pcsx2/Input/SDLInputSource.cpp) — abgelesen, nicht geraten.
@@ -493,6 +504,157 @@ def duckstation_apply(pruefen=False):
     return True, ", ".join(getan)
 
 
+# ZWEI MODALE FENSTER FANGEN JEDEN PSX-START AB. (#492)
+#
+# Dieselbe Klasse Falle wie DuckStations Setup-Wizard oben und Vita3Ks Willkommensfenster
+# (#488): ein Fenster, das im Container niemand sieht und wegklickt, und der Start staut
+# sich dahinter. NACHGEMESSEN am laufenden Host (2026-08-13, „Sheep" (PAL), DuckStation
+# 0.1-11609-ga233ec1fb), jeder Schalter mit Gegenprobe:
+#
+#   NoDesktopFile | CheckAtStartup     | Fenster
+#   (fehlt)       | (fehlt)            | nur "DuckStation" 500x193 — KEIN Spielfenster
+#   true          | (fehlt)            | Spiel + "Automatic Updater" 651x474 mittendrauf
+#   true          | false              | Spiel, kein Dialog; Fensterschritt meldet "ok"
+#   true          | true  (Gegenprobe) | "Automatic Updater" wieder da
+#   (entfernt)    | false (Gegenprobe) | "DuckStation" wieder da, kein Spielfenster
+#
+# WOHER DER ERSTE WERT KOMMT: nicht aus den Zeichenketten der Binaerdatei, sondern aus dem
+# Dialog selbst. Er hat ein Kaestchen „Don't ask again"; nach einem Klick darauf schrieb
+# DuckStation GENAU EINE neue Zeile in die settings.ini — `[Main] NoDesktopFile = true`,
+# sonst nichts (Schluesselmengen vorher/nachher verglichen). Der zweite Wert ist am
+# Verhalten gemessen; `[AutoUpdater] CheckAtStartup` steht in der Voreinstellung gar
+# nicht in der Datei.
+#
+# WARUM HIER ANGEHAENGT WIRD UND BEI VITA3K NICHT: Vita3Ks `config.yml` fuehrt JEDEN
+# Schluessel, ein fehlender heisst dort „die Fassung hat ihn umbenannt". DuckStations
+# settings.ini fuehrt nur, was vom Standard abweicht — beide Schalter fehlen im
+# Auslieferungszustand, und „nichts anhaengen" hiesse hier „nie etwas tun". Dass ein
+# angehaengter Eintrag WIRKT, ist gemessen (Zeile 3 und 4 der Tabelle).
+#
+# EN: two modal windows catch every PSX launch. Both values measured on the running host
+# with a counter-check per switch; the first was written by DuckStation itself after
+# ticking "Don't ask again". Unlike Vita3K's config.yml, DuckStation's settings.ini only
+# lists non-default keys, so a missing key must be appended, not reported.
+DUCKSTATION_DIALOGE = (
+    ("Main",        "NoDesktopFile",  "true",  "Verknuepfungs-Abfrage"),
+    ("AutoUpdater", "CheckAtStartup", "false", "Update-Abfrage"),
+)
+
+
+# WARUM NEBEN `_ini_setzen` OBEN: Das aeltere Geschwister nimmt einen PFAD, liest und
+# schreibt selbst und ERSETZT nur einen vorhandenen Schluessel — genau richtig fuer den
+# einen Schalter, den PCSX2 und Dolphin brauchen. Hier sind es ZWEI Schalter in EINER
+# Datei, einer davon in einem Abschnitt, den es noch gar nicht gibt: das braucht eine
+# Zeilenliste, die zwischen den Schritten weitergereicht wird, und einen Anlegeweg.
+# Zwei Aufgaben, zwei Werkzeuge — das aeltere umzubauen haette drei belegte Behebungen
+# angefasst, um eine neue zu bauen.
+# EN: the older `_ini_setzen` takes a path and only replaces existing keys; these work on
+# a line list and can create a missing section.
+def _zeilen_abschnitt(zeilen, name):
+    """-> (erste, hinter_letzter) Zeile INNERHALB von `[name]`, oder None."""
+    kopf = f"[{name}]"
+    i = next((k for k, z in enumerate(zeilen) if z.strip() == kopf), None)
+    if i is None:
+        return None
+    ende = next((k for k in range(i + 1, len(zeilen))
+                 if zeilen[k].lstrip().startswith("[")), len(zeilen))
+    return i + 1, ende
+
+
+def _zeilen_wert(zeilen, abschnitt, schluessel):
+    """-> Wert in Kleinschreibung, oder None. Nur IM genannten Abschnitt gesucht.
+
+    Der Abschnitt gehoert zur Frage: `settings.ini` fuehrt denselben Schluesselnamen in
+    mehreren Abschnitten, und ein Treffer im falschen waere eine falsche Auskunft.
+    """
+    bereich = _zeilen_abschnitt(zeilen, abschnitt)
+    if bereich is None:
+        return None
+    for z in zeilen[bereich[0]:bereich[1]]:
+        if "=" in z and z.split("=")[0].strip() == schluessel:
+            return z.split("=", 1)[1].strip().lower()
+    return None
+
+
+def _zeilen_setzen(zeilen, abschnitt, schluessel, wert):
+    """-> neue Zeilenliste, in der `[abschnitt] schluessel = wert` steht.
+
+    Drei Faelle, und der mittlere ist der, an dem es schiefgeht: eine vorhandene Zeile
+    wird ERSETZT statt eine zweite danebengelegt (zwei widersprechende Eintraege waeren
+    eine Wette darauf, welchen der Emulator liest), ein fehlender Schluessel kommt ans
+    Ende SEINES Abschnitts (ans Dateiende gehaengt gehoerte er der letzten Sektion,
+    nicht `[Main]`), und ein fehlender Abschnitt wird angelegt.
+    """
+    zeile = f"{schluessel} = {wert}"
+    bereich = _zeilen_abschnitt(zeilen, abschnitt)
+    if bereich is None:
+        rand = [] if not zeilen or not zeilen[-1].strip() else [""]
+        return zeilen + rand + [f"[{abschnitt}]", zeile]
+    anfang, ende = bereich
+    for k in range(anfang, ende):
+        if "=" in zeilen[k] and zeilen[k].split("=")[0].strip() == schluessel:
+            return zeilen[:k] + [zeile] + zeilen[k + 1:]
+    # Hinter die letzte NICHT leere Zeile des Abschnitts, nicht hinter dessen Leerzeile:
+    # sonst stuende der Eintrag optisch beim naechsten Abschnitt.
+    letzte = max((k for k in range(anfang, ende) if zeilen[k].strip()), default=anfang - 1)
+    return zeilen[:letzte + 1] + [zeile] + zeilen[letzte + 1:]
+
+
+def duckstation_dialoge(pruefen=False):
+    """-> (geaendert, meldung). Die beiden Startdialoge abstellen. (#492)
+
+    Zwei Regeln wie ueberall hier: NICHTS ANLEGEN, wenn die Datei fehlt — der Emulator
+    schreibt sie beim ersten Start, und eine von uns erfundene koennte Felder vermissen
+    lassen. Und geprueft wird der WERT, nicht das Vorhandensein des Schluessels; genau
+    daran kam der Setup-Wizard zweimal zurueck.
+
+    NICHT HIER, sondern weiter oben in `duckstation_apply`: `SetupWizardIncomplete`. Der
+    sitzt im Gamepad-Schritt, weil der ohnehin dieselbe Datei aufmacht, ist dort gemessen
+    und getestet — ihn nur der Ordnung halber umzuziehen hiesse, eine belegte Behebung
+    gegen eine unbelegte zu tauschen.
+
+    EN: same two rules as everywhere here — never create the file, and go by the value,
+    not by the key. `SetupWizardIncomplete` stays in `duckstation_apply`.
+    """
+    pfad = duckstation_ini()
+    if not os.path.isfile(pfad):
+        return False, "settings.ini gibt es noch nicht — der Emulator legt sie beim ersten Start an"
+    try:
+        with open(pfad, encoding="utf-8", errors="ignore") as f:
+            zeilen = f.read().splitlines()
+    except OSError as e:
+        return False, f"settings.ini nicht lesbar: {e.strerror}"
+
+    # Ohne `[Main]` ist das nicht DuckStations settings.ini. Dieselbe Absage wie im
+    # Gamepad-Schritt: einen Schalter in eine fremde Datei zu schreiben wirkt nicht und
+    # meldete trotzdem Erfolg.
+    if _zeilen_abschnitt(zeilen, "Main") is None:
+        return False, "kein [Main] in der settings.ini — nicht die erwartete Datei"
+
+    offen = [e for e in DUCKSTATION_DIALOGE
+             if _zeilen_wert(zeilen, e[0], e[1]) != e[2]]
+    if not offen:
+        return False, "die Startdialoge stehen bereits ab"
+    if pruefen:
+        return True, "wuerde abstellen: " + ", ".join(n for *_, n in offen)
+
+    sicherung = pfad + ".vor-dialogen"
+    if not os.path.exists(sicherung):
+        try:
+            with open(sicherung, "w", encoding="utf-8") as f:
+                f.write("\n".join(zeilen) + "\n")
+        except OSError:
+            pass                      # ohne Rueckweg, aber nicht ohne Behebung
+    for abschnitt, schluessel, wert, _ in offen:
+        zeilen = _zeilen_setzen(zeilen, abschnitt, schluessel, wert)
+    try:
+        with open(pfad, "w", encoding="utf-8") as f:
+            f.write("\n".join(zeilen) + "\n")
+    except OSError as e:
+        return False, f"settings.ini nicht schreibbar: {e.strerror}"
+    return True, "abgestellt: " + ", ".join(n for *_, n in offen)
+
+
 def dolphin_ini():
     return os.path.join(CONFIG, ".config/dolphin-emu/Dolphin.ini")
 
@@ -742,6 +904,147 @@ def eden_vollbild():
 
 # --------------------------------------------------------------- Azahar (3DS)
 
+def eden_ini():
+    return os.path.join(CONFIG, ".config", "eden", "qt-config.ini")
+
+
+def switchemu_apply(pruefen=False):
+    """-> (geaendert, meldung). MELDET, ob Edens Spieler 1 auf einem Pad liegt. (#298)
+
+    SCHREIBT ABSICHTLICH NICHTS. Das ist keine Faulheit, sondern die Regel aus #304:
+    Vokabular wird gelesen, nicht geraten. Edens Bindungssyntax steht nicht im Programm
+    (`strings` findet keine `engine:`-Zeichenketten), und genau an dieser Abkuerzung ist
+    die DuckStation-Reparatur schon einmal gescheitert — eine plausible Vermutung, die
+    sich als falsch herausstellte.
+
+    WAS HIER GEMESSEN WURDE, am laufenden Host in `qt-config.ini`:
+
+        player_0_button_a="engine:keyboard,code:67,toggle:0"
+        player_0_button_b="engine:keyboard,code:88,toggle:0"
+        player_0_lstick="engine:analog_from_button,…keyboard…"
+
+    70 `player_0_*`-Zeilen, keine einzige `guid:`-Angabe. Spieler 1 liegt auf der
+    TASTATUR. Die bisherige Einstufung „ordnet ein erkanntes SDL-Pad selbst zu" war eine
+    Annahme und ist damit widerlegt.
+
+    Das Fehlerbild ist dasselbe wie bei RPCS3 vor #304: Der Stream geht auf, das Spiel
+    laeuft, und der Controller tut nichts — von aussen nicht von „Emulator kaputt" zu
+    unterscheiden. Ein stiller Defekt wird hier zu einer Zeile im Protokoll; mehr kann
+    diese Funktion ehrlicherweise nicht leisten.
+
+    DER WEG ZUR ECHTEN REPARATUR: Eden einmal selbst ein Pad zuordnen lassen (in seiner
+    Oberflaeche) und die entstandene Datei vergleichen — so wurde Dolphins Schreibweise
+    gefunden. Das braucht einen Menschen an der Oberflaeche, nicht mehr Raten.
+
+    EN: reports, does not write. Eden's binding vocabulary is not readable from the
+    binary, and guessing it is exactly the shortcut that produced a wrong answer for
+    DuckStation. Measured: player 1 is bound to the keyboard, with no guid anywhere —
+    the previous "maps an SDL pad itself" was an assumption and is disproved.
+    """
+    pfad = eden_ini()
+    if not os.path.isfile(pfad):
+        return False, "qt-config.ini gibt es noch nicht — Eden legt sie beim ersten Start an"
+    with open(pfad, encoding="utf-8", errors="ignore") as f:
+        text = f.read()
+    zeilen = [z for z in text.splitlines() if z.startswith("player_0_button_a=")]
+    if not zeilen:
+        return False, "keine Belegung fuer Spieler 1 gefunden — Eden hat noch nichts geschrieben"
+    belegung = zeilen[0].split("=", 1)[1].strip().strip('"')
+    if "guid:" in text or "engine:sdl" in belegung:
+        return False, "Spieler 1 liegt auf einem Pad"
+    # KEINE Reparatur, aber auch kein Schweigen.
+    return False, (f"Spieler 1 liegt auf der TASTATUR ({belegung[:34]}…) — der Controller "
+                   "tut im Spiel nichts. Zuordnung einmal in Edens Oberflaeche vornehmen, "
+                   "dann kann sie hier festgeschrieben werden (#298)")
+
+
+def flycast_cfg():
+    return os.path.join(CONFIG, ".config", "flycast", "emu.cfg")
+
+
+def flycast_apply(pruefen=False):
+    """-> (geaendert, meldung). Schreibt den Vulkan-Renderer in Flycasts Konfiguration.
+
+    WARUM UEBERHAUPT, wo die Startzeile `-config config:pvr.rend=4` doch mitgibt: weil
+    Flycast diesen Wert NICHT uebernimmt. Am laufenden Host nachgemessen — Flycast mit
+    dem Renderer auf der Kommandozeile gestartet, Vulkan bestaetigt:
+
+        rend/vulkan/vulkan_context.cpp: Vulkan API 1.1. Device Intel(R) Arc(tm) A310
+
+    danach sauber beendet (die Datei wurde um 12:48:51 neu geschrieben, es lag also
+    nicht an einem harten Abbruch) — und in `emu.cfg` steht weiterhin NUR:
+
+        [window]
+        fullscreen = yes
+        height = 480 …
+
+    Kein `[config]`-Abschnitt. Ein `-config`-Wert ist fuer Flycast fluechtig und
+    wandert nie in den gespeicherten Satz.
+
+    DIE FOLGE ist keine Kleinigkeit: Ueber den Start-Dienst laeuft Flycast auf Vulkan,
+    ueber den Desktop gestartet auf dem eingebauten Standard. Derselbe Emulator,
+    dasselbe Spiel, zwei Verhaltensweisen — und die Ursache steht in einer Zeile, die
+    niemand sieht.
+
+    DASS ES TRAEGT, IST GEPRUEFT und nicht angenommen: Wert von Hand eingetragen,
+    Flycast gestartet, beendet, Datei erneut gelesen — der Abschnitt stand noch da.
+    Flycast liest ihn also und schreibt ihn zurueck.
+
+    GEPRUEFT WIRD DER WERT, NICHT DER SCHLUESSEL. Genau daran ist die DuckStation-
+    Reparatur einmal gescheitert: Der Assistent kam wieder, weil nur geprueft wurde, ob
+    der Schluessel existiert — und der Emulator ihn beim Beenden auf `true` zurueckschrieb.
+
+    EN: the renderer given on the command line is transient — Flycast never writes it
+    back, so the same title runs on Vulkan through the service and on the built-in
+    default from the desktop. Verified by hand that a value written into the file does
+    survive a full launch/exit cycle. The VALUE is checked, not the key.
+    """
+    pfad = flycast_cfg()
+    if not os.path.isfile(pfad):
+        return False, "emu.cfg gibt es noch nicht — Flycast legt sie beim ersten Beenden an"
+    with open(pfad, encoding="utf-8", errors="ignore") as f:
+        zeilen = f.read().splitlines()
+
+    abschnitt, wert = "", None
+    for z in zeilen:
+        t = z.strip()
+        if t.startswith("[") and t.endswith("]"):
+            abschnitt = t[1:-1]
+        elif abschnitt == "config" and t.replace(" ", "").startswith("pvr.rend="):
+            wert = t.split("=", 1)[1].strip()
+    if wert == FLYCAST_RENDERER:
+        return False, f"Renderer steht bereits auf {FLYCAST_RENDERER} (Vulkan)"
+    if pruefen:
+        return True, (f"Renderer steht auf {wert or 'nichts'} statt {FLYCAST_RENDERER}"
+                      " — ueber den Desktop gestartet liefe Flycast anders")
+
+    neu, gesetzt, in_config = [], False, False
+    for z in zeilen:
+        t = z.strip()
+        if t.startswith("[") and t.endswith("]"):
+            if in_config and not gesetzt:
+                neu.append(f"pvr.rend = {FLYCAST_RENDERER}")
+                gesetzt = True
+            in_config = t == "[config]"
+        if in_config and t.replace(" ", "").startswith("pvr.rend="):
+            neu.append(f"pvr.rend = {FLYCAST_RENDERER}")
+            gesetzt = True
+            continue
+        neu.append(z)
+    if not gesetzt:
+        # Kein `[config]`-Abschnitt vorhanden — er gehoert VOR den Rest, damit er nicht
+        # versehentlich unter `[window]` landet.
+        neu = ["[config]", f"pvr.rend = {FLYCAST_RENDERER}", ""] + neu
+
+    sicherung = pfad + ".vor-renderer"
+    if not os.path.exists(sicherung):
+        shutil.copy2(pfad, sicherung)
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write("\n".join(neu) + "\n")
+    return True, (f"Renderer auf {FLYCAST_RENDERER} (Vulkan) gesetzt, "
+                  f"Rueckweg: {sicherung}")
+
+
 def xemu_toml():
     return os.path.join(CONFIG, ".local", "share", "xemu", "xemu", "xemu.toml")
 
@@ -809,8 +1112,242 @@ def xemu_apply(pruefen=False):
     return True, "Spieler 1 auf das gebrueckte Pad gelegt"
 
 
+def xemu_renderer(pruefen=False):
+    """-> (geaendert, meldung). Schreibt den Vulkan-Renderer in xemus Konfiguration. (#498)
+
+    WARUM: Ohne diesen Eintrag laeuft xemu auf OpenGL. Das war solange folgenlos, wie der
+    Emulator ueber VirtualGL gestartet wurde — seit #498 tut er das NICHT mehr, und ohne
+    Bruecke landet OpenGL auf dem Software-Rasterer. Der Eintrag ist damit kein Feinschliff,
+    sondern die Bedingung dafuer, dass die Startzeile ueberhaupt funktioniert.
+
+    WARUM NICHT AUF DER KOMMANDOZEILE: xemu kennt dafuer keinen Schalter. Gepruefte
+    Schluesselnamen aus dem Binary (`CONFIG_DISPLAY_RENDERER__COUNT`), nicht geraten.
+
+    NACHGEMESSEN, ein Faktor auf einmal, Fenster in allen drei Zeilen 1920x1080:
+
+        Renderer   vglrun   bemalte Flaeche nach Vollbild
+        OpenGL     ja       ~62 %
+        Vulkan     ja       62,9 %
+        Vulkan     nein     100 %
+
+    Die mittlere Zeile ist die wichtige: Vulkan ALLEIN reicht nicht. Solange VirtualGL
+    dazwischen liegt, laeuft die Bildausgabe weiter ueber den abgefangenen GL-Pfad und das
+    Bild bleibt beschnitten. Erst beides zusammen wirkt.
+
+    DASS VULKAN GREIFT, ist am Protokoll geprueft und nicht am Vorhandensein der Zeile:
+
+        Selected physical device: Intel(R) Arc(tm) A310 Graphics (DG2)
+
+    Im OpenGL-Lauf steht diese Zeile kein einziges Mal, im Vulkan-Lauf genau einmal.
+
+    GEPRUEFT WIRD DER WERT, NICHT DER SCHLUESSEL — dieselbe Falle wie bei Flycast und
+    DuckStation: Ein vorhandener Schluessel mit falschem Wert sieht aus wie Erfolg.
+
+    EN: without this entry xemu renders with OpenGL, which was harmless only while it was
+    launched through VirtualGL. Since #498 it no longer is, and unbridged OpenGL falls back
+    to the software rasteriser — so this is a precondition, not a refinement. Vulkan alone
+    does not fix the crop (middle row); both changes are needed. The VALUE is checked.
+    """
+    pfad = xemu_toml()
+    if not os.path.isfile(pfad):
+        return False, "xemu.toml gibt es noch nicht — der Emulator legt sie beim ersten Start an"
+    with open(pfad, encoding="utf-8", errors="ignore") as f:
+        zeilen = f.read().splitlines()
+
+    abschnitt, wert = "", None
+    for z in zeilen:
+        t = z.strip()
+        if t.startswith("[") and t.endswith("]"):
+            abschnitt = t[1:-1]
+        elif abschnitt == "display" and t.replace(" ", "").startswith("renderer="):
+            wert = t.split("=", 1)[1].strip().strip("'\"")
+    if wert == XEMU_RENDERER:
+        return False, f"Renderer steht bereits auf {XEMU_RENDERER}"
+    if pruefen:
+        return True, (f"Renderer steht auf {wert or 'nichts'} statt {XEMU_RENDERER}"
+                      " — ohne VirtualGL waere das der Software-Rasterer")
+
+    # `[display]` MUSS VOR `[display.window]` STEHEN. In TOML ist eine Obertabelle nach
+    # ihren Untertabellen zwar erlaubt, aber sie hier davorzusetzen macht die Datei auch
+    # fuer aeltere Parser eindeutig — und xemu schreibt sie beim Beenden ohnehin neu.
+    neu, gesetzt, in_display = [], False, False
+    for z in zeilen:
+        t = z.strip()
+        if t.startswith("[") and t.endswith("]"):
+            if in_display and not gesetzt:
+                neu.append(f"renderer = '{XEMU_RENDERER}'")
+                gesetzt = True
+            in_display = t == "[display]"
+        if in_display and t.replace(" ", "").startswith("renderer="):
+            neu.append(f"renderer = '{XEMU_RENDERER}'")
+            gesetzt = True
+            continue
+        neu.append(z)
+    if not gesetzt:
+        eingefuegt, fertig = [], False
+        for z in neu:
+            if not fertig and z.strip().startswith("[display"):
+                eingefuegt += ["[display]", f"renderer = '{XEMU_RENDERER}'", ""]
+                fertig = True
+            eingefuegt.append(z)
+        if not fertig:
+            eingefuegt += ["", "[display]", f"renderer = '{XEMU_RENDERER}'"]
+        neu = eingefuegt
+
+    sicherung = pfad + ".vor-renderer"
+    if not os.path.exists(sicherung):
+        shutil.copy2(pfad, sicherung)
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write("\n".join(neu) + "\n")
+    return True, f"Renderer auf {XEMU_RENDERER} gesetzt, Rueckweg: {sicherung}"
+
+
 def azahar_ini():
     return os.path.join(CONFIG, ".config", "azahar-emu", "qt-config.ini")
+
+
+def vita3k_config():
+    return os.path.join(CONFIG, ".config", "Vita3K", "config.yml")
+
+
+def vita3k_vollbild(pruefen=False):
+    """-> (geaendert, meldung). Vita3K startet Titel im Fenster. (#304)
+
+    AM LAUFENDEN HOST ABGELESEN, nicht geraten. Die Datei traegt genau einen Schalter
+    dafuer, und er stand aus:
+
+        boot-apps-full-screen: false      <- der hier
+        backend-renderer: Vulkan          <- steht bereits richtig
+        keyboard-gui-fullscreen: F11      <- der Tastenweg, den wir NICHT brauchen
+
+    Warum nicht der Tastenweg: Der greift erst, wenn ein Fenster da ist, und der Agent
+    ruft die Vorbereitung VOR dem Start auf — dieselbe Falle wie bei xemu (#429). Ein
+    Schalter in der Konfiguration wirkt beim naechsten Start und braucht kein Fenster.
+
+    Vita3K schreibt seine Konfiguration beim Beenden; existiert sie noch nicht, wird hier
+    NICHTS angelegt. Eine von uns erfundene Datei koennte Felder vermissen lassen, die der
+    Emulator erwartet — und der Fehler saehe dann nach einem kaputten Emulator aus.
+
+    EN: read off the running host. `boot-apps-full-screen: false` is the one switch; the
+    renderer is already Vulkan. The keyboard route needs a window, which does not exist
+    when the agent prepares the launch. Nothing is created if the file is absent.
+    """
+    pfad = vita3k_config()
+    if not os.path.isfile(pfad):
+        return False, "config.yml gibt es noch nicht — der Emulator legt sie beim ersten Start an"
+    try:
+        with open(pfad, encoding="utf-8") as f:
+            zeilen = f.read().splitlines()
+    except OSError as e:
+        return False, f"config.yml nicht lesbar: {e.strerror}"
+
+    schluessel = "boot-apps-full-screen:"
+    treffer = [i for i, z in enumerate(zeilen) if z.strip().startswith(schluessel)]
+    if not treffer:
+        # NICHT ANHAENGEN. Fehlt der Schluessel, hat diese Fassung ihn vielleicht anders
+        # benannt — dann waere ein angehaengter Eintrag wirkungslos und wir haetten es
+        # trotzdem als Erfolg gemeldet.
+        return False, f"{schluessel} steht nicht in der config.yml — Fassung geaendert?"
+    i = treffer[0]
+    if zeilen[i].split(":", 1)[1].strip().lower() == "true":
+        return False, "steht bereits auf Vollbild"
+    if pruefen:
+        return True, "wuerde auf Vollbild stellen"
+    zeilen[i] = f"{schluessel} true"
+    try:
+        with open(pfad, "w", encoding="utf-8") as f:
+            f.write("\n".join(zeilen) + "\n")
+    except OSError as e:
+        return False, f"config.yml nicht schreibbar: {e.strerror}"
+    return True, "Titel starten jetzt im Vollbild"
+
+
+# ZWEI MODALE FENSTER FANGEN JEDEN VITA-START AB. (#488)
+#
+# Beide sind dieselbe Klasse Falle wie DuckStations Setup-Wizard: ein Fenster, das im
+# Container niemand sieht und wegklickt, und der Start staut sich dahinter. Gemessen am
+# laufenden Host (2026-08-13, Gravity Rush, Vita3K v0.2.1 4072-80075ce5) an der ECHTEN
+# Vita3K-PID — nicht an der des Wrappers, der eine andere ist (#489):
+#
+#   show-welcome | check-for-updates-mode | Fenster
+#   true         | 1                      | nur "Welcome to Vita3K", kein Spiel, 4,5 % CPU
+#   false        | 1                      | Spiel + "Update Available", 320x183 mittendrauf
+#   false        | 0                      | Spiel, kein Dialog; Fensterschritt meldet "ok",
+#   false        | 1  (Gegenprobe)        | "Update Available" wieder da
+#
+# Die letzte Zeile ist der Grund, warum der zweite Schalter hier steht und nicht als
+# Vermutung im Issue: der Dialog haette auch „einmal je Fassung" sein koennen. Ist er
+# nicht — er kommt mit `1` jedes Mal wieder und bleibt mit `0` weg.
+#
+# WAS HIER NICHT BEHAUPTET WIRD: dass `0` in Vita3Ks Quelltext „nie" heisst. Der Wert ist
+# GEMESSEN, nicht abgelesen — die Aufzaehlung steht nicht in den Zeichenketten der
+# Binaerdatei. Belegt ist: mit `0` kommt der Dialog nicht, und Vita3K schreibt die `0`
+# beim Start unveraendert zurueck, nimmt sie also an.
+#
+# NICHT DABEI: `warn-missing-firmware`. Der dritte Dialog derselben Klasse — hier
+# folgenlos, weil die Firmware vollstaendig ist (#485/#486). Wer ihn vorsorglich
+# abschaltet, verliert die Warnung genau dann, wenn sie einmal berechtigt waere.
+#
+# EN: two modal windows catch every Vita launch; both measured on the running host with a
+# counter-check per switch. `0` is measured to keep the update dialog away — it is NOT
+# claimed to be the source's name for "never".
+VITA3K_DIALOGE = (
+    ("show-welcome", "false", "Willkommensdialog"),
+    ("check-for-updates-mode", "0", "Update-Abfrage"),
+)
+
+
+def vita3k_dialoge(pruefen=False):
+    """-> (geaendert, meldung). Die beiden Startdialoge abstellen. (#488)
+
+    Dieselben drei Regeln wie beim Vollbild oben, und aus denselben Gruenden:
+    NICHTS ANLEGEN, wenn die Datei fehlt; NICHTS ANHAENGEN, wenn ein Schluessel fehlt
+    (eine neue Fassung koennte ihn umbenannt haben — ein angehaengter Eintrag waere
+    wirkungslos und wuerde trotzdem als Erfolg gemeldet); und geprueft wird der WERT,
+    nicht das Vorhandensein.
+
+    Fehlt einer der beiden Schluessel, wird der andere trotzdem gesetzt und der fehlende
+    in der Meldung benannt. Halb wirksam ist besser als gar nicht — solange dabeisteht,
+    welche Haelfte fehlt.
+
+    EN: same three rules as the fullscreen switch above. A missing key is reported, never
+    appended; the other key is still set.
+    """
+    pfad = vita3k_config()
+    if not os.path.isfile(pfad):
+        return False, "config.yml gibt es noch nicht — der Emulator legt sie beim ersten Start an"
+    try:
+        with open(pfad, encoding="utf-8") as f:
+            zeilen = f.read().splitlines()
+    except OSError as e:
+        return False, f"config.yml nicht lesbar: {e.strerror}"
+
+    offen, fehlend = [], []
+    for schluessel, soll, name in VITA3K_DIALOGE:
+        i = next((k for k, z in enumerate(zeilen)
+                  if z.strip().startswith(schluessel + ":")), None)
+        if i is None:
+            fehlend.append(schluessel)
+        elif zeilen[i].split(":", 1)[1].strip().lower() != soll:
+            offen.append((i, schluessel, soll, name))
+
+    hinweis = (f" — steht nicht in der config.yml: {', '.join(fehlend)} (Fassung geaendert?)"
+               if fehlend else "")
+    if not offen:
+        return False, ("die Startdialoge stehen bereits ab" if not fehlend
+                       else "nichts zu setzen" + hinweis)
+    if pruefen:
+        return True, "wuerde abstellen: " + ", ".join(n for *_, n in offen) + hinweis
+
+    for i, schluessel, soll, _ in offen:
+        vorne = zeilen[i][:len(zeilen[i]) - len(zeilen[i].lstrip())]
+        zeilen[i] = f"{vorne}{schluessel}: {soll}"
+    try:
+        with open(pfad, "w", encoding="utf-8") as f:
+            f.write("\n".join(zeilen) + "\n")
+    except OSError as e:
+        return False, f"config.yml nicht schreibbar: {e.strerror}"
+    return True, "abgestellt: " + ", ".join(n for *_, n in offen) + hinweis
 
 
 # SDL-Kennung des gebrueckten Pads. Aufbau: Bus 03 (USB), Vendor 045e (Microsoft),
@@ -941,6 +1478,10 @@ PROFILE = {
     # Erst der Quelltext (`s_button_info`) lieferte A/B/X/Y.
     "duckstation": {"system": "PS1",         "controller": duckstation_apply,
                     "bios": None, "vollbild": None,
+                    # Eigener Platz, wie bei vita3k (#488): die beiden Schalter haengen
+                    # nicht an der Gamepad-Belegung, und einer steht nicht einmal im
+                    # selben Abschnitt der Datei. (#492)
+                    "dialoge": duckstation_dialoge,
                     "geprueft": True},
     "pcsx2":     {"system": "PS2",           "controller": pcsx2_apply,
                   "bios": pcsx2_bios_setzen, "vollbild": pcsx2_vollbild,
@@ -951,8 +1492,27 @@ PROFILE = {
     "dolphin":   {"system": "GameCube/Wii",  "controller": dolphin_apply,
                   "bios": None, "vollbild": None,
                   "geprueft": True},
-    "flycast":   {"system": "Dreamcast",     "controller": None, "bios": None, "vollbild": None,
-                  "geprueft": False},
+    # NACHGEMESSEN am laufenden Host (2026-08-12, #304), nicht angenommen:
+    #   Bild    : Vollbild und Renderer stehen in der STARTZEILE (init/30-agent), nicht
+    #             hier — Flycast nimmt `-config SEKTION:schluessel=wert` entgegen, und
+    #             eine Konfigurationsdatei zu schreiben waere der umstaendlichere Weg.
+    #             Gemessen: 1920x1080 auf 0,0, bemalte Flaeche 100 %.
+    #   BIOS    : `dc_boot.bin` und `dc_flash.bin` liegen bereits richtig — nichts zu tun.
+    #   Dialog  : es gibt keinen Erstlaufdialog, Flycast bootet den Titel direkt
+    #             (`N[BOOT]: Game ID is [T7011D  50]`).
+    #   Gamepad : Flycast oeffnet alle vier virtuellen Pads von selbst und belegt sie
+    #             (`SDL: Opened joystick 0..3 on port 0..3` / `Resetting SDL gamepad to
+    #             default`). Es braucht KEINE Zuordnung von uns — und das ist hier zum
+    #             ersten Mal BELEGT statt angenommen: ein Mensch hat in Fatal Fury -
+    #             Mark of the Wolves gedrueckt und die Figur hat reagiert (2026-08-12).
+    #             Bei DuckStation, PCSX2, Dolphin und RPCS3 genuegte die Automatik NICHT,
+    #             deshalb steht diese Zeile hier ausdruecklich: Flycast ist die Ausnahme,
+    #             nicht die Regel. (#301, #304)
+    #   Ton     : ebenfalls von einem Menschen bestaetigt (2026-08-12). Damit ist bei
+    #             Flycast alles drei belegt — Bild, Ton, Gamepad — und nichts davon aus
+    #             einem Protokoll geschlossen.
+    "flycast":   {"system": "Dreamcast",     "controller": flycast_apply, "bios": None,
+                  "vollbild": None, "geprueft": True},
     # Fenster und Ton am laufenden Host bestaetigt (2026-08-10, #300) — es brauchte
     # KEINE Konfigurationsdatei, nur libusb, den Pulse-Pfad und das Festplattenabbild
     # (init/22-xemu-vorbereiten). Der Controller ist NICHT geprueft.
@@ -970,6 +1530,12 @@ PROFILE = {
                   # Der Tastenweg steht jetzt in `vollbild_sicherstellen()`, das NACH dem
                   # Start misst und nur nachhilft, wenn das Bild zu klein ist. (#429)
                   "vollbild": None,
+                  # EIGENER PLATZ, weil `controller` hier schon belegt ist (#498). Flycast
+                  # schreibt seinen Renderer noch unter `controller` mit — das traegt, solange
+                  # ein Emulator nur EINE Sache zu setzen hat. xemu hat zwei, und zwei Anliegen
+                  # in eine Funktion zu ziehen, damit die Tabelle passt, waere die falsche
+                  # Reihenfolge: Die Tabelle hat sich nach dem Emulator zu richten.
+                  "einstellungen": [xemu_renderer],
                   "geprueft": True},
     "cemu":      {"system": "Wii U",         "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
@@ -981,7 +1547,20 @@ PROFILE = {
                   # Tastenweg: siehe xemu — greift nach dem Start, nicht hier. (#429)
                   "bios": None, "vollbild": None,
                   "geprueft": False},
-    "vita3k":    {"system": "PS Vita",       "controller": None, "bios": None, "vollbild": None,
+    # Am laufenden Host abgelesen (2026-08-12, #304): `backend-renderer` steht bereits auf
+    # Vulkan, `boot-apps-full-screen` stand auf `false`. Der Schalter kommt in die
+    # Konfiguration und NICHT als Tastensendung — die braeuchte ein Fenster, das es zum
+    # Zeitpunkt der Vorbereitung nicht gibt (#429). `geprueft` bleibt False, bis ein
+    # Mensch Bild, Ton und Pad im Spiel bestaetigt hat (#303).
+    "vita3k":    {"system": "PS Vita",       "controller": None, "bios": None,
+                  "vollbild": vita3k_vollbild,
+                  # EIGENER PLATZ, nicht in `controller` mit hineingelegt (#488). Bei
+                  # DuckStation sitzt der Setup-Wizard im Controller-Schritt, weil dort
+                  # ohnehin dieselbe Datei angefasst wird. Hier gibt es keine
+                  # Controller-Belegung, in die er hineinpasste — dann ist ein Schritt,
+                  # der heisst, was er tut, ehrlicher als ein Sammelplatz. Andere
+                  # Emulatoren duerfen `dialoge` weglassen.
+                  "dialoge": vita3k_dialoge,
                   "geprueft": False},
     # geprueft: Bild, Ton und Gamepad im Spiel bestaetigt (2026-08-10, #119). Dass die
     # Warnung „Adding empty device" verschwindet, war nur der Hinweis — den Nachweis
@@ -989,7 +1568,11 @@ PROFILE = {
     "rpcs3":     {"system": "PS3",           "controller": rpcs3_apply,
                   "bios": None, "vollbild": None,
                   "geprueft": True},
-    "switchemu": {"system": "Switch",        "controller": None, "bios": None,
+    # `controller` war None mit der Begruendung „ordnet ein erkanntes SDL-Pad selbst zu".
+    # Das war eine ANNAHME und ist widerlegt: Spieler 1 liegt auf der Tastatur (#298).
+    # Die Funktion repariert nichts — sie macht den stillen Defekt zu einer Zeile im
+    # Protokoll, bis Edens Bindungssyntax gelesen statt geraten werden kann.
+    "switchemu": {"system": "Switch",        "controller": switchemu_apply, "bios": None,
                   # Tastenweg: siehe xemu — greift nach dem Start, nicht hier. (#429)
                   "vollbild": None,
                   "geprueft": False},
@@ -1058,12 +1641,111 @@ def ist_dialog(fid):
     return "_NET_WM_WINDOW_TYPE_DIALOG" in typ
 
 
+def ist_vollbild(fid):
+    """Traegt das Fenster _NET_WM_STATE_FULLSCREEN — steht der Emulator also SELBST
+    im Vollbild?
+
+    WOZU (#493): DuckStation, PCSX2 und Flycast bekommen ihr Vollbild aus der Startzeile
+    beziehungsweise der Konfiguration. Ihr Spielfenster traegt den Zustand dann wirklich —
+    am laufenden Host abgelesen, bei allen dreien:
+
+        _NET_WM_STATE(ATOM) = _NET_WM_STATE_FULLSCREEN, _NET_WM_STATE_FOCUSED
+
+    Das ist die Auskunft, die keine Flaechenmessung liefern kann — auch `emulatoranteil()`
+    nicht: Ein Titel, der noch die Disc bootet, ist schwarz. Schwarz auf hell IST eine
+    Aenderung, schwarz auf schwarz nicht, und in beiden Faellen liegt der Wert unter der
+    Schwelle, obwohl das Fenster den ganzen Schirm deckt. Genau so kam DuckStation zu einem
+    F11, das sein Vollbild wieder abschaltete.
+
+    Fehlt die Eigenschaft, meldet `xprop` "_NET_WM_STATE:  not found." — kein Leerstring
+    und kein Fehler. Die Pruefung auf den Namen trifft deshalb beides richtig.
+
+    EN: does the emulator hold its own fullscreen? This is the fact the painted-area
+    measurement cannot supply — a title still booting its disc is black yet covers the
+    whole screen.
+    """
+    return "_NET_WM_STATE_FULLSCREEN" in _x("xprop", "-id", fid, "_NET_WM_STATE").stdout
+
+
+def fenstergroesse(fid):
+    """-> "1920x1080" oder "" — die GEMESSENE Groesse des Fensters. (#493)
+
+    WOZU: Der Fensterbefund nannte bisher die BILDSCHIRMgroesse, also das Ziel des
+    Schrittes statt seines Ergebnisses. Gemessen, waehrend ein Titel lief: `/status`
+    meldete "1 Fenster auf 1920x1080", das Fenster war 640x480 gross.
+    EN: the verdict used to quote the screen size — the aim, not the outcome.
+    """
+    g = _x("xdotool", "getwindowgeometry", "--shell", fid).stdout
+    masse = dict(z.split("=", 1) for z in g.strip().splitlines() if "=" in z)
+    b, h = masse.get("WIDTH", "").strip(), masse.get("HEIGHT", "").strip()
+    return f"{b}x{h}" if b and h else ""
+
+
 def fenstername(fid):
     return _x("xdotool", "getwindowname", fid).stdout.strip()
 
 
+def nachkommen(pid, grenze=32):
+    """PID und alle Nachkommen, Eltern zuerst. -> [pid, kind, enkel, …]
+
+    WOZU (#489): Vita3Ks `AppRun.wrapped` ist als einziges der Emulator-Verpackungen ein
+    Shell-Skript und startet das Programm als KIND, ohne `exec`. Der Agent verfolgt damit
+    die Shell, und die hat kein Fenster. Am laufenden Host gemessen, bei sichtbar
+    laufendem Spiel:
+
+        xdotool search --pid 11616   (Wrapper)   -> nichts
+        xdotool search --pid 11634   (Vita3K)    -> 46137351 [Vita3K v0.2.1 …]
+                                                    46137358 [GRAVITY RUSH™ (PCSF00024)]
+
+    `/status` meldete dazu `"window": "kein-fenster"`. Das war keine Beobachtung, sondern
+    eine Verwechslung — nachgesehen wurde an der falschen PID.
+
+    WARUM /proc UND NICHT `pgrep -P`: das hier laeuft ohne zusaetzliche Werkzeuge, und
+    ein Baum braucht ohnehin die ganze Tabelle. Threads stehen nicht in /proc auf oberster
+    Ebene, ein Emulator mit vielen Threads bleibt also EIN Eintrag.
+
+    `grenze` ist eine Reissleine, keine Fachaussage: Bei den gemessenen Emulatoren sind es
+    zwei Prozesse. Wer eines Tages ein Programm startet, das Dutzende Kinder aufmacht, soll
+    nicht in Dutzende `xdotool`-Aufrufe laufen — dann lieber unvollstaendig als langsam.
+
+    EN: the agent tracks the wrapper shell, which owns no window; the emulator does.
+    Reading /proc avoids depending on another tool, and `grenze` is a runaway guard.
+    """
+    kinder = {}
+    try:
+        eintraege = os.listdir("/proc")
+    except OSError:
+        return [pid]
+    for name in eintraege:
+        if not name.isdigit():
+            continue
+        try:
+            with open(f"/proc/{name}/stat", encoding="utf-8", errors="replace") as f:
+                daten = f.read()
+        except OSError:
+            continue            # in der Zwischenzeit beendet — kein Fehler
+        # Der Programmname steht in Klammern und darf SELBST Leerzeichen und Klammern
+        # enthalten. Deshalb hinter der LETZTEN `)` aufteilen, nicht am ersten Leerzeichen.
+        schluss = daten.rfind(")")
+        felder = daten[schluss + 2:].split() if schluss > 0 else []
+        if len(felder) < 2:
+            continue
+        try:
+            kinder.setdefault(int(felder[1]), []).append(int(name))
+        except ValueError:
+            continue
+    gefunden = [pid]
+    i = 0
+    while i < len(gefunden) and len(gefunden) < grenze:
+        for k in sorted(kinder.get(gefunden[i], [])):
+            if k not in gefunden:
+                gefunden.append(k)
+        i += 1
+    return gefunden[:grenze]
+
+
 def sichtbare_fenster(pid, mit_dialogen=False):
-    """Sichtbare Fenster des Prozesses, groesstes zuerst.
+    """Sichtbare Fenster des Prozesses UND seiner Nachkommen, groesstes zuerst.
 
     `--onlyvisible` ist wichtig: Emulatoren legen unsichtbare Hilfsfenster an, und ohne
     den Filter erwischt man eines davon. Beim ersten Anlauf hier genau passiert — das
@@ -1074,10 +1756,21 @@ def sichtbare_fenster(pid, mit_dialogen=False):
 
     Dialoge bleiben standardmaessig draussen (siehe `ist_dialog`) — ein aufs Vollbild
     gezogener Fehlerdialog ist schlimmer als gar keine Behandlung.
+
+    GEFRAGT WIRD AUCH BEI DEN KINDPROZESSEN (#489, siehe `nachkommen`): `xdotool --pid`
+    trifft nur die genannte PID, und bei Vita3K ist das die Shell des Wrappers, nicht der
+    Emulator. Fuer die uebrigen Emulatoren aendert sich damit nichts — deren `AppRun`
+    `exec`-t, die verfolgte PID IST das Programm und hat keine Kinder.
     """
-    r = _x("xdotool", "search", "--onlyvisible", "--pid", str(pid))
+    kandidaten = nachkommen(pid)
+    ids = []
+    for kandidat in kandidaten:
+        r = _x("xdotool", "search", "--onlyvisible", "--pid", str(kandidat))
+        for z in r.stdout.split():
+            if z.strip() and z not in ids:
+                ids.append(z)
     mit_flaeche = []
-    for i in [z for z in r.stdout.split() if z.strip()]:
+    for i in ids:
         g = _x("xdotool", "getwindowgeometry", "--shell", i).stdout
         masse = dict(z.split("=", 1) for z in g.strip().splitlines() if "=" in z)
         try:
@@ -1201,7 +1894,14 @@ def nur_emulator(pid, runden=3, pause=6):
     offen = dialoge(pid)
     if offen:
         return "dialog", offen[0][1]
-    return "ok", f"{len(behandelt)} Fenster auf {b}x{h}, ohne Rahmen, Panel ausgeblendet"
+    # KEINE GROESSE ZUSAGEN, DIE HIER NIEMAND NACHSIEHT (#493): Frueher stand an dieser
+    # Stelle die BILDSCHIRMgroesse `{b}x{h}` — das Ziel des Schrittes, nicht sein Ergebnis.
+    # Gemessen, waehrend ein Titel lief: `/status` meldete "1 Fenster auf 1920x1080",
+    # `xdotool` meldete 640x480. Die Zahl kommt jetzt aus `main`, NACH dem Vollbildschritt,
+    # denn erst dort entstand der Schaden.
+    # EN: the size used to be the screen geometry — the aim, not the outcome. It is
+    # measured in `main` after the fullscreen step, which is where the damage happened.
+    return "ok", f"{len(behandelt)} Fenster, ohne Rahmen, Panel ausgeblendet"
 
 
 def panel_zurueck():
@@ -1252,61 +1952,122 @@ def sicher(schritt, *args, **kw):
         return False, "KEIN ZUGRIFF: " + rechte_hinweis(e.filename or "?")
 
 
-def gezeichneter_anteil():
-    """-> Anteil der BEMALTEN Flaeche in Prozent, oder None wenn nicht messbar. (#429)
+# Wo das Grundbild liegt — die Aufnahme des LEEREN Desktops, gegen die gemessen wird.
+# In /tmp, weil es nur fuer diesen Containerlauf gilt: nach einem Neustart koennen
+# Aufloesung oder Hintergrundbild andere sein, und ein altes Grundbild waere dann eine
+# Messlatte, die nichts mehr misst.
+GRUNDBILD = os.path.join(tempfile.gettempdir(), "vollbild-grundbild.xwd")
 
-    WARUM NICHT `xdotool getwindowgeometry`: Die Fenstergroesse ist genau die Zahl, die
-    hier nichts beweist. Bei xemu, Azahar und Eden meldete sie brav 1920x1080, waehrend
-    das Bild 960 Pixel breit war beziehungsweise die untere Haelfte schwarz blieb. Gemessen
-    werden muss der INHALT.
+# Ab hier gilt der Bildschirm als vom Emulator uebernommen. NICHT 100: ein Titel mit
+# anderem Seitenverhaeltnis malt am Rand schwarze Balken, und wo das Grundbild schon
+# schwarz war, zaehlt das nicht als uebernommen. Am laufenden Host gemessen (siehe
+# `emulatoranteil`): leerer Desktop 0,06 %, xemu mit halbem Bild 74,87 %, Flycast im
+# echten Vollbild 99,97 %.
+VOLLBILD_SCHWELLE = 90.0
 
-    WIE: `xwd -root` zieht den Bildschirm, und darin wird der Rahmen der nicht-schwarzen
-    Pixel gesucht. Abgetastet wird ein Raster von 6 Pixeln — bei 1920x1080 sind das rund
-    57.000 Punkte, genug fuer eine Flaechenangabe und schnell genug, um im Startweg zu
-    stehen.
+# Unter diesem Helligkeitswert gilt ein Bildpunkt als schwarz. SCHWELLE 18 STATT 0: ein
+# X-Server liefert am Rand gern ein paar Restwerte; bei 0 waere jeder Punkt „bemalt".
+SCHWARZ = 18
 
-    Braucht nichts, was nicht ohnehin da waere: `xwd` liegt im Basis-Image.
+# Bis zu dieser Abweichung je Farbkanal gilt ein Bildpunkt als UNVERAENDERT.
+#
+# WARUM NICHT 0 (also bitgleich): Grundbild und Messbild werden mit verschiedenen
+# Farbtiefen aufgenommen — der leere Desktop liefert 24 bpp, sobald ein Emulator mit
+# 32-Bit-Visual im Vollbild steht, liefert `xwd -root` 32 bpp. Der Verlauf des
+# Hintergrundbildes wird dabei anders gerastert. Am laufenden Host gemessen, im rechts
+# NEBEN xemu sichtbaren Stueck Hintergrundbild: nur 7,2 % der Punkte sind bitgleich,
+# 63,4 % liegen innerhalb von 8, 85,9 % innerhalb von 16. Auf der weissen Flaeche von
+# xemu dagegen liegt bei Toleranz 16 KEIN einziger Punkt — echter Bildinhalt weicht viel
+# weiter ab als das Rauschen.
+#
+# WARUM 8 UND NICHT 16: Die Toleranz gemessen durchgereicht, drei Zustaende:
+#
+#     Toleranz   leerer Desktop   xemu (Bild 1280x963)   Flycast (echtes Vollbild)
+#          0          0,06 %            95,13 %                  100,00 %
+#          8          0,06 %            74,87 %                   99,97 %
+#         16          0,06 %            64,45 %                   90,62 %
+#         32          0,06 %            44,52 %                   77,52 %
+#
+# 16 trifft xemus wahren Wert besser (1280*963 von 1920*1080 = 59,4 %), bringt aber
+# Flycast auf 90,62 % — einen halben Punkt ueber der Schwelle. Ein dunkler Titel faellt
+# dort unter sie und bekaeme ein F11, das ihm sein Vollbild naehme. 8 laesst den Gutfall
+# bei 99,97 % und meldet xemu trotzdem 15 Punkte unter der Schwelle.
+# EN: baseline and measurement are captured at different colour depths, so a gradient
+# wallpaper dithers differently; 8 keeps the good case at 99.97 % while still flagging
+# xemu 15 points below the threshold.
+FARBTOLERANZ = 8
 
-    EN: measures the painted content, not the window. Window geometry reported 1920x1080
-    in every case that turned out to be wrong.
+# Abgetastet wird jeder 6. Punkt in beiden Richtungen — bei 1920x1080 rund 57.000
+# Punkte, genug fuer eine Flaechenangabe und schnell genug, um im Startweg zu stehen.
+RASTER = 6
+
+
+def _xwd_kopf(daten):
+    """-> Kopfangaben einer `xwd`-Aufnahme, oder None wenn unbrauchbar.
+
+    DIE SCHRITTWEITE KOMMT AUS `bits_per_pixel`, NICHT AUS `bytes_per_line` — und zwar
+    JE AUFNAHME. Am laufenden Host gemessen, zwei Aufnahmen DESSELBEN 1920 Punkte breiten
+    Schirms, wenige Minuten auseinander:
+
+        leerer Desktop         bits_per_pixel 24   bytes_per_line 7680   -> 3 Byte/Punkt
+        Flycast im Vollbild    bits_per_pixel 32   bytes_per_line 7680   -> 4 Byte/Punkt
+
+    `bytes_per_line` ist im ersten Fall AUFGEFUELLT: 1920 * 3 = 5760 genutzte Byte je
+    Zeile, der Rest ist Rand. 7680 / 1920 zu rechnen ergibt 4 und liest damit ueber die
+    Zeile hinaus — nachgestellt und angesehen: das Bild erscheint auf drei Viertel der
+    Breite gestaucht, mit einem schwarzen Streifen rechts, und 25 % der Punkte lesen sich
+    als reines Schwarz. Mit 3 Byte dekodiert dieselbe Datei sauber (0 % Nullpunkte) und
+    deckt sich Punkt fuer Punkt mit dem, was `ffmpeg` aus ihr macht.
+
+    Dass sich der Wert zwischen zwei Aufnahmen aendert, ist der Grund fuer das „je
+    Aufnahme": Grundbild und Messbild koennen verschiedene Schrittweiten haben.
+
+    EN: derive the stride from bits_per_pixel, per capture. bytes_per_line is padded — a
+    24-bpp 1920-wide row uses 5760 of its 7680 bytes, and dividing gives 4, which reads
+    past the row: the image decodes squeezed into three quarters of the width with a black
+    band on the right.
     """
+    if len(daten) < 100:
+        return None
+    k = struct.unpack(">25I", daten[:100])
+    kopfgroesse, version, format_ = k[0], k[1], k[2]
+    breite, hoehe, bpp, bytes_pro_zeile, ncolors = k[4], k[5], k[11], k[12], k[19]
+    if version != 7 or format_ != 2 or not breite or not hoehe or not bytes_pro_zeile:
+        return None
+    return {"start": kopfgroesse + ncolors * 12, "breite": breite, "hoehe": hoehe,
+            "zeile": bytes_pro_zeile, "schritt": max(1, bpp // 8),
+            "r": k[14], "g": k[15], "b": k[16]}
+
+
+def _punkt(daten, kopf, x, y):
+    o = kopf["start"] + y * kopf["zeile"] + x * kopf["schritt"]
+    return int.from_bytes(daten[o:o + kopf["schritt"]], "little")
+
+
+def _farbe(wert, kopf):
+    return (((wert & kopf["r"]) >> 16) & 0xFF, ((wert & kopf["g"]) >> 8) & 0xFF,
+            wert & kopf["b"] & 0xFF)
+
+
+def _helligkeit(wert, kopf):
+    return max(_farbe(wert, kopf))
+
+
+def _gleiche_farbe(a, ka, b, kb):
+    """Zwei Bildpunkte, die dasselbe zeigen — bis auf FARBTOLERANZ je Kanal."""
+    fa, fb = _farbe(a, ka), _farbe(b, kb)
+    return all(abs(fa[i] - fb[i]) <= FARBTOLERANZ for i in range(3))
+
+
+def _bildschirm_aufnehmen():
+    """-> Rohdaten einer `xwd -root`-Aufnahme, oder None. `xwd` liegt im Basis-Image."""
     ziel = os.path.join(tempfile.gettempdir(), "vollbild-messung.xwd")
     try:
         r = _x("xwd", "-root", "-silent", "-out", ziel)
         if r.returncode != 0 or not os.path.isfile(ziel):
             return None
-        d = open(ziel, "rb").read()
-        if len(d) < 100:
-            return None
-        k = struct.unpack(">25I", d[:100])
-        kopfgroesse, version, format_ = k[0], k[1], k[2]
-        breite, hoehe, bpp, bytes_pro_zeile = k[4], k[5], k[11], k[12]
-        rmask, gmask, bmask, ncolors = k[14], k[15], k[16], k[19]
-        if version != 7 or format_ != 2 or not breite or not hoehe:
-            return None
-        start = kopfgroesse + ncolors * 12
-        schritt = max(1, bpp // 8)
-        x0 = y0 = 1 << 30
-        x1 = y1 = -1
-        for y in range(0, hoehe, 6):
-            zeile = start + y * bytes_pro_zeile
-            for x in range(0, breite, 6):
-                o = zeile + x * schritt
-                w = int.from_bytes(d[o:o + schritt], "little")
-                # SCHWELLE 18 statt 0: Ein Emulator zeichnet selten reines Schwarz, und
-                # ein X-Server liefert am Rand gern ein paar Restwerte. Bei 0 waere jede
-                # Flaeche „bemalt" und die Messung wertlos.
-                if ((w & rmask) or (w & gmask) or (w & bmask)) and \
-                   max(((w & rmask) >> 16) & 0xFF, ((w & gmask) >> 8) & 0xFF,
-                       w & bmask & 0xFF) > 18:
-                    if x < x0: x0 = x
-                    if y < y0: y0 = y
-                    if x > x1: x1 = x
-                    if y > y1: y1 = y
-        if x1 < 0:
-            return 0.0
-        return (x1 - x0 + 1) * (y1 - y0 + 1) / (breite * hoehe) * 100
-    except (OSError, struct.error, ValueError):
+        return open(ziel, "rb").read()
+    except OSError:
         return None
     finally:
         try:
@@ -1315,10 +2076,144 @@ def gezeichneter_anteil():
             pass
 
 
-# Ab hier gilt die Flaeche als ausgefuellt. NICHT 100: Passt das Seitenverhaeltnis des
-# Titels nicht zum Bildschirm, laesst der Emulator zu Recht schwarze Balken stehen. Was
-# #316 sucht, ist der Fall „halbe Flaeche", nicht ein paar Pixel Rand.
-VOLLBILD_SCHWELLE = 90.0
+def desktop_ist_frei():
+    """-> (True, "") wenn ausser Panel und Desktop kein Fenster im Bild steht.
+
+    `_NET_CLIENT_LIST` fuehrt die verwalteten Programmfenster. Am laufenden Host im
+    Leerlauf abgelesen — genau zwei, und beide sind Moebel, kein Programm:
+
+        _NET_CLIENT_LIST(WINDOW): window id # 0x1a00003, 0x1c00017
+        0x1a00003 [xfce4-panel] _NET_WM_WINDOW_TYPE_DOCK
+        0x1c00017 [Desktop]     _NET_WM_WINDOW_TYPE_DESKTOP
+
+    EN: the managed-window list is empty of applications when only the panel and the
+    desktop are up.
+    """
+    liste = _x("xprop", "-root", "_NET_CLIENT_LIST").stdout
+    for fid in re.findall(r"0x[0-9a-fA-F]+", liste):
+        typ = _x("xprop", "-id", fid, "_NET_WM_WINDOW_TYPE").stdout
+        if "_NET_WM_WINDOW_TYPE_DESKTOP" in typ or "_NET_WM_WINDOW_TYPE_DOCK" in typ:
+            continue
+        return False, (fenstername(fid) or fid)
+    return True, ""
+
+
+def grundbild_aufnehmen():
+    """Den LEEREN Desktop aufnehmen, gegen den spaeter gemessen wird. -> (ok, meldung)
+
+    WOZU (#495): Ohne Vergleichsbild kann keine Flaechenmessung ein Spiel von einem
+    Hintergrundbild unterscheiden — beide sind „bemalt". Mit ihm ist die Frage
+    beantwortbar und kostet einen zweiten `xwd`-Aufruf.
+
+    ZWEI SPERREN, und beide sind noetig:
+
+    1. Steht ein Programmfenster im Bild, wird NICHT aufgenommen. Ein Grundbild mit dem
+       Spiel darin waere die perfekte Taeuschung: jeder folgende Start saehe aus, als
+       haette der Emulator nichts uebernommen — also genau die Fehlmessung, gegen die
+       das Grundbild gebaut ist. Das alte bleibt dann liegen; der Desktop aendert sich
+       nicht, ein Grundbild von vorhin ist so gut wie eines von jetzt.
+    2. Ein fast ganz schwarzer Schirm wird abgelehnt. So sieht es aus, wenn X oder XFCE
+       noch hochfahren — und gegen ein schwarzes Grundbild misst spaeter JEDER Emulator
+       100 %, also nie wieder eine Korrektur.
+
+    EN: two guards. A baseline WITH a game in it would mark every later launch as "the
+    emulator took nothing over"; an all-black one (X still starting) would mark every
+    launch as perfect. Both would silently disable the correction.
+    """
+    frei, stoerer = desktop_ist_frei()
+    if not frei:
+        return False, f"nicht aufgenommen — ein Fenster steht im Bild: {stoerer}"
+    daten = _bildschirm_aufnehmen()
+    kopf = _xwd_kopf(daten) if daten else None
+    if not kopf:
+        return False, "Bildschirm nicht lesbar"
+    punkte = nicht_schwarz = 0
+    for y in range(0, kopf["hoehe"], RASTER):
+        for x in range(0, kopf["breite"], RASTER):
+            punkte += 1
+            if _helligkeit(_punkt(daten, kopf, x, y), kopf) > SCHWARZ:
+                nicht_schwarz += 1
+    anteil = nicht_schwarz / punkte * 100 if punkte else 0.0
+    if anteil < 5:
+        return False, (f"nur {anteil:.1f} % des Schirms sind nicht schwarz — "
+                       "faehrt die Oberflaeche noch hoch?")
+    try:
+        with open(GRUNDBILD, "wb") as f:
+            f.write(daten)
+    except OSError as e:
+        return False, f"nicht schreibbar: {e.__class__.__name__}"
+    return True, (f"Grundbild aufgenommen: {kopf['breite']}x{kopf['hoehe']}, "
+                  f"{anteil:.1f} % nicht schwarz")
+
+
+def emulatoranteil():
+    """-> Anteil des Bildschirms in Prozent, den der EMULATOR uebernommen hat, oder None.
+
+    DIE ALTE MESSUNG WAR NICHT UNGENAU, SONDERN VERKEHRT HERUM (#495). Sie suchte den
+    Rahmen der nicht-schwarzen Punkte auf dem Bildschirm — und ein Hintergrundbild ist
+    nicht schwarz. Am laufenden Host gemessen, drei Zustaende:
+
+        leerer Desktop, kein Emulator        99,28 %
+        xemu, Bild 1280x963 auf dem Desktop  99,28 %   <- bitgleich derselbe Wert
+        Flycast, echtes Vollbild             73,56 %   <- der Gutfall misst WENIGER
+
+    Der leere Desktop stand also ueber der Schwelle und ein wirklich bildschirmfuellender
+    Emulator darunter.
+
+    WIE ES JETZT GEHT: verglichen wird Punkt fuer Punkt mit dem Grundbild des leeren
+    Desktops (`grundbild_aufnehmen`). Ein Punkt zaehlt als „noch Desktop", wenn er
+    unveraendert ist (bis auf FARBTOLERANZ) UND im Grundbild nicht schwarz war — schwarz
+    auf schwarz ist keine Auskunft, das malt ein Emulator genauso. Der Rest gehoert dem
+    Emulator. Dieselben drei Zustaende, am laufenden Host gemessen:
+
+        leerer Desktop                        0,06 %
+        xemu, Bild 1280x963                  74,87 %   (wahrer Wert 59,4 %)
+        Flycast, echtes Vollbild             99,97 %
+
+    WARUM NICHT EINFACH AUF DIE FENSTERGEOMETRIE BESCHRAENKEN, wie #495 vorschlug: weil
+    der Desktop INNERHALB des Fensters liegt. xemus X-Fenster ist wirklich 1920x1080
+    (`xwininfo` bestaetigt es), bemalt wird davon aber nur rund 1280x963 — der Rest bleibt
+    unberuehrt und zeigt weiter, was vorher da war. Auf die Fenstergeometrie beschraenkt
+    gemessen kam derselbe Fehlwert heraus: 99,64 %.
+
+    WAS DIE ZAHL NICHT IST: eine genaue Flaechenangabe. xemu deckt 1280*963 von 1920*1080,
+    also 59,4 % — gemeldet werden 74,87 %, weil das Rauschen im Hintergrundbild (siehe
+    FARBTOLERANZ) zulasten des Desktops geht. Gebraucht wird hier eine Entscheidung
+    „fuellt aus / fuellt nicht aus", und dafuer ist der Abstand zur Schwelle gross genug.
+    Wer die Zahl als Flaechenmass liest, liest zu viel hinein.
+
+    EN: the old measurement was inverted, not merely imprecise — a bare desktop scored
+    above the threshold and a genuinely fullscreen emulator below it. Restricting it to
+    the window geometry does not help, because xemu leaves most of its own window
+    unpainted and the wallpaper shows through there.
+    """
+    try:
+        grund = open(GRUNDBILD, "rb").read()
+    except OSError:
+        return None
+    jetzt = _bildschirm_aufnehmen()
+    if not jetzt:
+        return None
+    try:
+        kg, kj = _xwd_kopf(grund), _xwd_kopf(jetzt)
+        if not kg or not kj:
+            return None
+        if (kg["breite"], kg["hoehe"]) != (kj["breite"], kj["hoehe"]):
+            # Aufloesung gewechselt: das Grundbild misst nicht mehr denselben Schirm.
+            return None
+        punkte = desktop = 0
+        for y in range(0, kg["hoehe"], RASTER):
+            for x in range(0, kg["breite"], RASTER):
+                punkte += 1
+                wg = _punkt(grund, kg, x, y)
+                if _helligkeit(wg, kg) > SCHWARZ and \
+                   _gleiche_farbe(wg, kg, _punkt(jetzt, kj, x, y), kj):
+                    desktop += 1
+        if not punkte:
+            return None
+        return 100 - desktop / punkte * 100
+    except (struct.error, ValueError):
+        return None
 
 
 def vollbild_sicherstellen(fensterid=None):
@@ -1337,22 +2232,44 @@ def vollbild_sicherstellen(fensterid=None):
     out. Measuring first is what makes the correction safe — and it means an emulator nobody
     has ever exercised is handled on its first launch.
     """
-    vorher = gezeichneter_anteil()
+    vorher = emulatoranteil()
     if vorher is None:
+        # Kein Grundbild, kein Vergleich — und lieber nichts tun als auf gut Glueck ein
+        # F11 schicken. Es ist ein Umschalter: geraten waere hier schlimmer als warten.
         return None, None, "nicht messbar"
     if vorher >= VOLLBILD_SCHWELLE:
-        return vorher, vorher, "Fenstertrick genuegt"
+        return vorher, vorher, "Bildschirm bereits uebernommen"
     ziel = fensterid
     if not ziel:
         gefunden = _x("xdotool", "getactivewindow").stdout.split()
         ziel = gefunden[0] if gefunden else None
     if not ziel:
         return vorher, vorher, "kein Fenster fuer F11 gefunden"
+    # DIE MESSUNG OBEN GENUEGT NICHT — sie war der Fehler. (#493)
+    #
+    # Ein Titel, der gerade noch die Disc bootet, ist schwarz: DuckStation kam bei jedem
+    # PSX-Start auf 34,3 %, obwohl sein Fenster den ganzen Schirm deckte und
+    # `_NET_WM_STATE_FULLSCREEN` trug. F11 schaltete daraufhin genau das ab — danach
+    # 640x480 in der Ecke, mit Titelleiste zurueck, und so blieb es.
+    #
+    # Am Grundbild aendert das nichts: ein schwarz gemaltes Bild deckt den Desktop zwar
+    # zu, zaehlt hier aber nicht als uebernommen (schwarz auf hell ist eine Aenderung,
+    # schwarz auf schwarz nicht — siehe `emulatoranteil`). Der Bootschirm bleibt also ein
+    # Grund fuer ein F11, das dem Emulator sein eigenes Vollbild nehmen wuerde.
+    #
+    # Der Fensterzustand entscheidet das, kostet einen `xprop`-Aufruf und ist
+    # emulatorunabhaengig: Wer sein Vollbild selbst haelt, wird in Ruhe gelassen. Wer
+    # keinen eigenen Schalter hat — xemu, Azahar, Eden —, traegt den Zustand nicht und
+    # bekommt sein F11 weiterhin.
+    # EN: a title still booting its disc is black, which no area measurement can tell from
+    # a small window. The window state is the fact that distinguishes the two.
+    if ist_vollbild(str(ziel)):
+        return vorher, vorher, "steht im eigenen Vollbild — F11 waere der Ausstieg"
     _x("xdotool", "windowactivate", str(ziel))
     time.sleep(1)
     _x("xdotool", "key", "--window", str(ziel), "F11")
     time.sleep(2)
-    nachher = gezeichneter_anteil()
+    nachher = emulatoranteil()
     return vorher, nachher, "F11"
 
 
@@ -1366,6 +2283,19 @@ def main(argv):
             return 2                       # 2 = Rueckfall noetig
         geaendert, msg = sicher(fn)
         print(f"[vollbild] {argv[1]}: {msg}")
+        return 0
+    if argv and argv[0] == "--dialogs":
+        if len(argv) < 2 or argv[1] not in PROFILE:
+            print("Aufruf: --dialogs <emulator>", file=sys.stderr); return 1
+        fn = PROFILE[argv[1]].get("dialoge")
+        if not fn:
+            print(f"[dialoge] {argv[1]}: keine bekannten Startdialoge")
+            return 0
+        geaendert, msg = sicher(fn)
+        print(f"[dialoge] {argv[1]}: {msg}")
+        # WIE BEIM VOLLBILD: immer 0. Ein Dialog, der stehen bleibt, kostet das Bild —
+        # den Start zu verweigern kostet das Spiel. / always 0: a leftover dialog costs
+        # the picture, refusing the launch costs the game.
         return 0
     if argv and argv[0] == "--window":
         if len(argv) < 2 or not argv[1].isdigit():
@@ -1381,17 +2311,43 @@ def main(argv):
             vorher, nachher, weg = vollbild_sicherstellen()
             anteil = nachher
             if vorher is None:
-                print("[vollbild] nicht messbar — Bildschirm nicht lesbar")
+                # NICHT VERSCHWEIGEN. Ohne Grundbild unterbleibt die Korrektur — das ist
+                # die sichere Seite, aber es ist auch der Zustand, in dem xemu wieder mit
+                # halbem Bild dasteht. Wer das Log liest, muss es sehen.
+                print("[vollbild] nicht messbar — kein Grundbild oder Schirm nicht lesbar")
             elif weg == "F11":
-                print(f"[vollbild] {vorher:.1f} % bemalt -> F11 -> "
+                print(f"[vollbild] {vorher:.1f} % vom Emulator -> F11 -> "
                       f"{nachher if nachher is None else f'{nachher:.1f} %'}")
             else:
-                print(f"[vollbild] {vorher:.1f} % bemalt — {weg}")
+                print(f"[vollbild] {vorher:.1f} % vom Emulator — {weg}")
+            # ZULETZT NACHMESSEN (#493). Der Befund oben entsteht, BEVOR der
+            # Vollbildschritt laeuft — und genau der hat den Titel bisher aus seinem
+            # eigenen Vollbild geholt. Eine Groesse, die vor dem Schaden abgelesen wurde,
+            # ist keine Auskunft ueber den Zustand danach.
+            # EN: measured last, because the fullscreen step runs after the window step
+            # and used to be what shrank the window.
+            sichtbar = sichtbare_fenster(int(argv[1]))
+            gemessen = fenstergroesse(sichtbar[0]) if sichtbar else ""
+            if gemessen:
+                msg = f"{msg}, gemessen {gemessen}"
+                print(f"[fenster] groesstes Fenster gemessen: {gemessen}")
         # Maschinenlesbar als LETZTE Zeile, damit der Agent den Befund weiterreichen
         # kann statt ihn nur ins Log zu schreiben (#288). Eine JSON-Zeile statt eines
         # blossen Exit-Codes, weil der Dialogtitel die eigentliche Auskunft ist.
-        print(json.dumps({"window": zustand, "detail": msg, "bemalt": anteil}))
+        # `emulator` statt des frueheren `bemalt`: der Wert misst nicht mehr, wieviel
+        # Farbe auf dem Schirm ist, sondern wieviel davon der Emulator uebernommen hat.
+        # Denselben Namen weiterzufuehren hiesse, die alte Bedeutung mitzuschleppen.
+        print(json.dumps({"window": zustand, "detail": msg, "emulator": anteil}))
         return 0 if zustand == "ok" else 1
+    if argv and argv[0] == "--grundbild":
+        # VOR dem Start des Emulators aufzurufen — danach steht sein Fenster im Bild und
+        # die Aufnahme wird (zu Recht) verweigert.
+        _ok, msg = grundbild_aufnehmen()
+        print(f"[grundbild] {msg}")
+        # IMMER 0. Ohne Grundbild unterbleibt spaeter nur die Vollbildkorrektur; den
+        # Start deswegen abzubrechen kostet das Spiel. / always 0: a missing baseline
+        # only disables the fullscreen correction, it must not fail the launch.
+        return 0
     if argv and argv[0] == "--desktop":
         panel_zurueck(); print("[fenster] Panel wieder eingeblendet"); return 0
     if argv and argv[0] == "--bios":
@@ -1405,7 +2361,11 @@ def main(argv):
         print(f"[bios] {argv[1]}: {msg}")
         return 0 if geaendert or "bereits" in msg else 1
     if not argv or argv[0] not in ("--apply", "--status"):
-        print(__doc__.strip().splitlines()[-3], file=sys.stderr)
+        # ALLE Aufrufzeilen, nicht die drittletzte: die stand hier fest verdrahtet und
+        # zeigte nach jeder neuen Zeile im Kopf auf eine andere. (#488)
+        for zeile in __doc__.splitlines():
+            if zeile.strip().startswith("launch-profile.py "):
+                print(zeile.strip(), file=sys.stderr)
         return 2
     if argv[0] == "--status":
         for name, e in PROFILE.items():
@@ -1423,10 +2383,20 @@ def main(argv):
     if ziel not in PROFILE:
         print(f"kein Profil fuer '{ziel}' / no profile for it", file=sys.stderr)
         return 1
+    # WEITERE EINSTELLUNGEN ZUERST. Sie entscheiden, WIE der Emulator startet (xemus
+    # Renderer etwa), waehrend die Controllerbindung nur beeinflusst, was er dann
+    # entgegennimmt. Scheitert eine davon, soll das sichtbar sein, bevor irgendjemand
+    # den Controller fuer die Ursache haelt.
+    fehler = False
+    for fn_extra in PROFILE[ziel].get("einstellungen") or []:
+        _, msg = sicher(fn_extra)
+        print(f"[einstellungen] {ziel}: {msg}")
+        fehler = fehler or msg.startswith("KEIN ZUGRIFF")
+
     fn = PROFILE[ziel]["controller"]
     if not fn:
         print(f"[controller] {ziel}: ordnet ein erkanntes SDL-Pad selbst zu")
-        return 0
+        return 1 if fehler else 0
     geaendert, msg = sicher(fn)
     print(f"[controller] {ziel}: {msg}")
     # Ein Rechtefehler ist KEIN Erfolg. Frueher verliess er das Programm als Traceback,
@@ -1434,7 +2404,7 @@ def main(argv):
     # BIOS und ohne Vollbild — das Ergebnis war ein Dialog statt eines Spiels.
     # EN: a permission error is not success; it used to leave as a traceback while the
     # exit code stayed 0 and the emulator came up unconfigured.
-    return 1 if msg.startswith("KEIN ZUGRIFF") else 0
+    return 1 if (fehler or msg.startswith("KEIN ZUGRIFF")) else 0
 
 
 if __name__ == "__main__":
