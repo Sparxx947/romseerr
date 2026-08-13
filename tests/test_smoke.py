@@ -2556,15 +2556,6 @@ def test_romseerr_sends_a_library_relative_path(appmod, client, monkeypatch):
 
 # ------------------------------------------------ Controller-Profile (#119)
 
-def _profil_modul(config_root):
-    import importlib.util
-    alt = dict(os.environ); os.environ["FW_CONFIG_ROOT"] = str(config_root)
-    try:
-        pfad = os.path.join(REPO, "contrib/streaming-host/controller-profile.py")
-        spec = importlib.util.spec_from_file_location("controller_profile_test", pfad)
-        m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
-    finally:
-        os.environ.clear(); os.environ.update(alt)
 
 
 def _pcsx2_ini(tmp_path, inhalt):
@@ -2573,7 +2564,7 @@ def _pcsx2_ini(tmp_path, inhalt):
     return d / "PCSX2.ini"
 
 
-def test_controller_profile_keeps_the_keyboard(tmp_path):
+def test_pcsx2_profile_keeps_the_keyboard(tmp_path):
     """PCSX2 speichert Alternativen als WIEDERHOLTE Schluessel (`&` ist der Akkord).
     Die Gamepad-Belegung kommt deshalb NEBEN die Tastatur, nicht an ihre Stelle —
     sonst nimmt ein Profil dem Betreiber weg, was vorher ging. (#119)"""
@@ -2587,7 +2578,7 @@ def test_controller_profile_keeps_the_keyboard(tmp_path):
     assert "Cross = SDL-0/FaceSouth" in text
 
 
-def test_controller_profile_is_idempotent(tmp_path):
+def test_pcsx2_profile_is_idempotent(tmp_path):
     """Es laeuft vor JEDEM Start. Ein zweiter Lauf darf die Datei nicht weiter
     aufblaehen — sonst waechst die Konfiguration mit jeder Partie. (#119)"""
     ini = _pcsx2_ini(tmp_path, "[Pad1]\nType = DualShock2\nUp = Keyboard/Up\n\n[Pad2]\n")
@@ -2599,7 +2590,7 @@ def test_controller_profile_is_idempotent(tmp_path):
     assert ini.read_text(encoding="utf-8") == nach_erstem
 
 
-def test_controller_profile_keeps_the_original_backup(tmp_path):
+def test_pcsx2_profile_keeps_the_original_backup(tmp_path):
     """Die Sicherung ist der Ausgangsstand vor dem ERSTEN Eingriff. Wuerde sie bei
     jedem Lauf ueberschrieben, sicherte sie ab dem zweiten Lauf nichts mehr. (#119)"""
     ini = _pcsx2_ini(tmp_path, "[Pad1]\nType = DualShock2\nUp = Keyboard/Up\n\n[Pad2]\n")
@@ -2613,7 +2604,7 @@ def test_controller_profile_keeps_the_original_backup(tmp_path):
     assert open(sicherung, encoding="utf-8").read() == inhalt, "Sicherung wurde ueberschrieben"
 
 
-def test_controller_profile_refuses_unknown_target(tmp_path):
+def test_pcsx2_profile_refuses_unknown_target(tmp_path):
     m = _profil_modul(tmp_path)
     assert m.main(["--apply", "gibtsnicht"]) == 1
     assert m.main([]) == 2
