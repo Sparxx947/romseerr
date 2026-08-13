@@ -408,6 +408,32 @@ Skripte werden kommentarlos ignoriert. Das Compose hängt das Verzeichnis richti
 `--cap-add SYS_ADMIN` — viel zu viel für einen Spielestarter. `init/20-emulators`
 entpackt AppImages stattdessen (`--appimage-extract`) und startet `AppRun`.
 
+**Root-eigene Reste sperren Emulatoren aus, ohne es zu sagen.** Der Dienst lief früher
+als `root`; was er damals anlegte, gehört bis heute `root`, und der als `abc` laufende
+Emulator kommt nicht daran. `init/30-agent` heilt das bei jedem Start — aber nur in den
+Bäumen, die dort aufgezählt sind: `/config/.config`, `/config/.local/share` und
+`/config/.cache`.
+
+Der dritte fehlte lange, und das kostete zwei Fehldiagnosen (#509):
+
+| Betroffen | Wirkung |
+|---|---|
+| `/config/.cache/Cemu` | Cemu zeigt einen modalen Dialog *„Cemu can't write to /config/.cache/Cemu!"* und kommt nie bis zu seiner Initialisierung — kein Protokoll, kein Fenster. Der Dialog reagiert auf **keine** Taste und keinen Klick. |
+| `/config/.cache/mesa_shader_cache` | 3044 Dateien, nie beschreibbar. Jeder Emulator übersetzt seine Shader bei **jedem** Start neu. Das sieht aus wie „die erste Minute ruckelt eben". |
+
+**Die Liste bleibt ausdrücklich und wird kein `chown -R /config`.** `/config/agent-token`
+gehört root mit Absicht und muss `root:600` bleiben — es ist das Einzige zwischen einer
+Anfrage und einem gestarteten Prozess auf dem Host.
+
+*EN: the service used to run as root, so what it created then is still root-owned and the
+emulator, running as `abc`, cannot touch it. `init/30-agent` heals this at every start,
+but only in the trees listed there. `/config/.cache` was missing for a long time and cost
+two misdiagnoses: Cemu opens a modal "can't write" dialog that no keystroke dismisses and
+never initialises, and the Mesa shader cache — 3044 files — was never writable, so every
+emulator recompiled its shaders on every run, which merely looks like a slow first minute.
+The list stays explicit rather than becoming `chown -R /config`, because `/config/agent-token`
+must remain root:600.*
+
 **Es gibt genau einen primären Client.** Verbindet sich ein zweiter Browser mit
 derselben URL, wird der erste ohne Vorwarnung getrennt
 (`Received KILL message from server: a new primary client connected`). Für Zuschauer

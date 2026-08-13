@@ -315,8 +315,33 @@ fi
 # Dolphins Verzeichnis (nicht beschreibbar), PCSX2.ini mit Modus 600 (nicht lesbar),
 # RPCS3s input_configs. Nur die tatsaechlich root-eigenen Dateien anfassen — ein
 # pauschales `chown -R` ueber /config waere langsam und wuerde Fremdes mitnehmen.
+#
+# `/config/.cache` FEHLTE HIER UND HAT CEMU BLOCKIERT (#509). Gemessen am 2026-08-13:
+#
+#     drwxr-xr-x 2 root root  /config/.cache/Cemu     (angelegt 2026-08-10)
+#     3044 Dateien unter /config/.cache gehoerten root
+#
+# Cemu oeffnete daraufhin einen modalen Dialog — „Cemu can't write to
+# /config/.cache/Cemu!" — und kam nie bis zu seiner eigenen Initialisierung: kein
+# Protokoll, kein Hauptfenster, und der Dialog reagierte weder auf Return noch auf
+# Leertaste, Escape oder einen Klick auf seinen Knopf. Von aussen sah das nach einem
+# kaputten Startpfad aus (#502) und war eine Rechtefrage.
+#
+# Der groesste Teil der 3044 war `mesa_shader_cache`: Der Shader-Zwischenspeicher der
+# GPU war nie beschreibbar, also hat JEDER Emulator bei JEDEM Start neu uebersetzt.
+# Das faellt niemandem auf — es sieht aus wie „die erste Minute ruckelt eben".
+#
+# WARUM DIE LISTE AUSDRUECKLICH BLEIBT und kein `chown -R /config` wird:
+# `/config/agent-token` gehoert root und MUSS `root:600` bleiben — es ist das Einzige
+# zwischen einer Anfrage und einem gestarteten Prozess auf dem Host. Ein pauschaler
+# Lauf wuerde es `abc` uebergeben.
+#
 # EN: heal what the root-run agent left behind, touching only root-owned files.
-for baum in /config/.config /config/.local/share; do
+# `/config/.cache` was missing and is what blocked Cemu (#509): 3044 root-owned files,
+# a modal dialog no keystroke would dismiss, and a shader cache that was never
+# writable. The list stays explicit rather than becoming `chown -R /config`, because
+# `/config/agent-token` must remain root:600.
+for baum in /config/.config /config/.local/share /config/.cache; do
   [ -d "$baum" ] || continue
   find "$baum" -user 0 -exec chown "${PUID:-abc}:${PGID:-users}" {} + 2>/dev/null || true
 done
