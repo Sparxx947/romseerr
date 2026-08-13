@@ -2908,3 +2908,95 @@ def test_the_status_reports_the_load_from_the_launch_not_from_now():
     assert '_current.get("last")' in antwort, antwort[:200]
     assert "hostlast()" not in antwort, (
         "die Statusantwort misst neu statt zu berichten, was beim Start galt")
+
+
+# ---------------------------------------------------------------------------
+# #304: Flycast bekommt seinen Renderer geschrieben, nicht nur mitgegeben.
+# ---------------------------------------------------------------------------
+
+def _flycast_cfg(tmp_path, inhalt):
+    d = tmp_path / ".config" / "flycast"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "emu.cfg").write_text(inhalt, encoding="utf-8")
+    return d / "emu.cfg"
+
+
+def test_flycast_gets_its_renderer_written_not_only_passed(tmp_path):
+    """Der Renderer von der Startzeile ist fluechtig. (#304)
+
+    AM LAUFENDEN HOST GEMESSEN. Flycast mit `-config config:pvr.rend=4` gestartet,
+    Vulkan bestaetigt:
+
+        rend/vulkan/vulkan_context.cpp: Vulkan API 1.1. Device Intel(R) Arc(tm) A310
+
+    sauber beendet — die Datei wurde dabei NEU GESCHRIEBEN (12:48:51), es lag also nicht
+    an einem harten Abbruch — und in `emu.cfg` stand danach weiterhin nur:
+
+        [window]
+        fullscreen = yes
+        height = 480 …
+
+    Kein `[config]`-Abschnitt. Ein `-config`-Wert wandert bei Flycast nie in den
+    gespeicherten Satz.
+
+    Die Folge ist keine Kleinigkeit: ueber den Start-Dienst laeuft Flycast auf Vulkan,
+    vom Desktop gestartet auf dem eingebauten Standard. Derselbe Emulator, dasselbe
+    Spiel, zwei Verhaltensweisen.
+
+    EN: the renderer passed on the command line is transient and never written back, so
+    the same title behaves differently depending on how it was started.
+    """
+    p = _flycast_cfg(tmp_path, "[window]\nfullscreen = yes\nwidth = 640\n")
+    m = _profil_modul(tmp_path)
+    geaendert, msg = m.flycast_apply()
+    assert geaendert, msg
+    text = p.read_text(encoding="utf-8")
+    assert "[config]" in text and "pvr.rend = 4" in text, text
+    # Der Rest der Datei bleibt stehen — Flycast schreibt dort seine Fenstergeometrie.
+    assert "fullscreen = yes" in text and "width = 640" in text, text
+
+
+def test_flycast_checks_the_value_not_the_key(tmp_path):
+    """Ein vorhandener Schluessel mit falschem Wert ist kein „schon gesetzt". (#304)
+
+    Genau daran ist die DuckStation-Reparatur einmal gescheitert: Der Erstlauf-Assistent
+    kam wieder, weil nur geprueft wurde, OB der Schluessel existiert — und der Emulator
+    ihn beim Beenden auf `true` zurueckschrieb. Der Wert entscheidet, nicht die Anwesenheit.
+    """
+    m = _profil_modul(tmp_path)
+    p = _flycast_cfg(tmp_path, "[config]\npvr.rend = 0\n\n[window]\nfullscreen = yes\n")
+    geaendert, _ = m.flycast_apply()
+    assert geaendert, "ein falscher Wert wurde als gesetzt durchgewinkt"
+    assert "pvr.rend = 4" in p.read_text(encoding="utf-8")
+
+    # Die Gegenrichtung: steht er richtig, wird NICHT geschrieben.
+    geaendert, msg = m.flycast_apply()
+    assert not geaendert, msg
+
+
+def test_flycast_does_not_put_the_renderer_in_the_wrong_section(tmp_path):
+    """Der Schluessel gehoert unter `[config]`, sonst liest Flycast ihn nicht. (#304)
+
+    Ein `pvr.rend` unter `[window]` ist wirkungslos. Er wird deshalb NICHT als „schon
+    gesetzt" gewertet — und auch nicht entfernt: Fremde Schluessel in fremden
+    Abschnitten anzufassen ist nicht Aufgabe dieser Funktion.
+    """
+    m = _profil_modul(tmp_path)
+    p = _flycast_cfg(tmp_path, "[window]\npvr.rend = 9\nfullscreen = yes\n")
+    geaendert, _ = m.flycast_apply()
+    assert geaendert, "der wirkungslose Schluessel wurde fuer gesetzt gehalten"
+    text = p.read_text(encoding="utf-8")
+    assert text.startswith("[config]\npvr.rend = 4"), text
+    assert "pvr.rend = 9" in text, "der fremde Schluessel wurde stillschweigend entfernt"
+
+
+def test_flycast_says_so_when_the_config_does_not_exist_yet(tmp_path):
+    """Ohne Datei wird nichts erfunden. (#304)
+
+    Flycast legt `emu.cfg` erst beim ersten Beenden an. Eine Datei zu schreiben, bevor
+    der Emulator je lief, hiesse zu raten, welche Abschnitte er sonst noch erwartet.
+    """
+    m = _profil_modul(tmp_path)
+    geaendert, msg = m.flycast_apply()
+    assert not geaendert
+    assert "gibt es noch nicht" in msg, msg
