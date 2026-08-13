@@ -408,6 +408,41 @@ Skripte werden kommentarlos ignoriert. Das Compose hängt das Verzeichnis richti
 `--cap-add SYS_ADMIN` — viel zu viel für einen Spielestarter. `init/20-emulators`
 entpackt AppImages stattdessen (`--appimage-extract`) und startet `AppRun`.
 
+**Ein Wii-U-Titel hat oben keine Startdatei.** Er trägt `code/`, `content/`, `meta/` —
+nichts mit einer bekannten Endung. Der Start-Dienst löst deshalb `code/*.rpx` auf; der
+Name ist je Titel anders (`Kinopio.rpx` bei Captain Toad), ein fester Pfad genügt nicht.
+Liegen **mehrere** `.rpx` darin, sagt er ab statt zu raten.
+
+Dabei wird bewusst **kein `glob`** benutzt: Bibliotheksnamen tragen eckige Klammern —
+`Captain Toad Treasure Tracker [AKBP01]` — und `[AKBP01]` ist für `glob` eine
+Zeichenklasse, kein Text. Das Muster passt dann auf nichts, und zwar lautlos.
+
+**Updates und DLC werden abgelehnt, bevor Cemu ratlos wird.** Die ersten acht Hexziffern
+der Titelkennung sagen, was vorliegt:
+
+| Präfix | Bedeutung | startbar |
+|---|---|---|
+| `00050000` | Basisspiel | ja |
+| `0005000E` | Update | nein — patcht ein Basisspiel |
+| `0005000C` | DLC | nein |
+| `0005001B` | Systemtitel | nein |
+
+Sie steht im Klartext in `code/app.xml`. **Gelesen wird `app.xml`, nicht `meta.xml`** —
+die beiden können sich widersprechen, und genau das war der Fall beim einzigen
+Wii-U-Titel des Bestands: `meta.xml` behauptete `00050000…` (Spiel), `app.xml` sagte
+`0005000E…` (Update). Cemu antwortet darauf mit `Unable to mount title` und nennt eine
+Datei — eine Meldung, die zur Suche am Pfad verleitet, wo nichts ist.
+
+*EN: a Wii U title has no boot file at its top level, so the launcher resolves
+`code/*.rpx`; the name differs per title and several matches are refused rather than
+guessed at. Deliberately without `glob`, because library folder names contain `[...]`,
+which glob reads as a character class — the pattern then matches nothing, silently.
+Updates (`0005000E`) and DLC (`0005000C`) are refused by name, read from `code/app.xml`
+in plain text. `app.xml` rather than `meta.xml`, because the two can disagree — and did:
+the only Wii U title here claims to be a game in `meta.xml` and is an update in
+`app.xml`. Cemu's answer to that, `Unable to mount title`, names a file and hides the
+cause.*
+
 **Root-eigene Reste sperren Emulatoren aus, ohne es zu sagen.** Der Dienst lief früher
 als `root`; was er damals anlegte, gehört bis heute `root`, und der als `abc` laufende
 Emulator kommt nicht daran. `init/30-agent` heilt das bei jedem Start — aber nur in den
