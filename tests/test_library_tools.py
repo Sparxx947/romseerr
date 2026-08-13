@@ -1403,3 +1403,81 @@ def test_a_genuinely_damaged_archive_is_still_a_failure(org, tmp_path, monkeypat
 
     assert "fehler" in prot.arten, \
         "ein beschaedigtes Archiv wurde stillschweigend uebergangen"
+
+
+# --- #517: Verweise ohne Endung ------------------------------------------------------
+
+def test_a_cue_that_names_its_track_without_an_extension_is_solvable(abb, tmp_path):
+    """`QixNeo.cue` nennt `QixNeo`, daneben liegt `QixNeo.bin`. (#517)
+
+    AM BESTAND GEMESSEN, in `psp/PSX2PSP/PSX Images`:
+
+        QixNeo.cue     -> vermisst ["QixNeo"]      QixNeo.bin     liegt daneben
+        mrdomino.cue   -> vermisst ["mrdomino"]    mrdomino.bin   liegt daneben
+
+    `loesung_finden` stieg in der ERSTEN Zeile aus:
+
+        endung = os.path.splitext(vermisst)[1].lower()
+        if not endung:
+            return None
+
+    Damit war der leichteste Fall ueberhaupt — ein Name ohne Endung und genau eine Datei
+    daneben, die so heisst — der einzige, den das Werkzeug nie loesen konnte. Beide Wege
+    darueber (Stamm der Liste, einzige freie Datei der Endung) waren unerreichbar.
+
+    EN: a cue may name its track without an extension, and in the library it does. The
+    function returned before either of its two routes could run.
+    """
+    d = tmp_path / "psx"
+    d.mkdir()
+    (d / "QixNeo.cue").write_text('FILE "QixNeo" BINARY\n  TRACK 01 MODE2/2352\n')
+    (d / "QixNeo.bin").write_bytes(b"x" * 64)
+    assert abb.loesung_finden("QixNeo.cue", "QixNeo", os.listdir(d), set()) == "QixNeo.bin"
+
+
+def test_an_extensionless_reference_is_not_guessed_at(abb, tmp_path):
+    """Zwei Kandidaten sind keine Eindeutigkeit. (#517)
+
+    Die Enge ist der Punkt, nicht die Nachsicht. Ein geratener Verweis sieht heil aus
+    und ist es nicht — dieselbe Falle, an der die erste Fassung von `loesung_finden`
+    schon einmal eine kaputte `.cue` auf das Abbild eines FREMDEN Spiels umgebogen hat.
+
+    Drei Ratschen in einem Test, weil sie dieselbe Frage aus drei Richtungen stellen.
+
+    DIESER TEST UNTERSCHEIDET NICHT. Am Stand vor #517 ist er ebenfalls gruen, weil die
+    Funktion fuer endungslose Verweise IMMER `None` lieferte — also auch hier. Er haelt
+    fest, dass der neue Weg nicht uebereifrig wird; als Beleg, dass die Reparatur wirkt,
+    taugt er nicht. Das tun die beiden anderen.
+    """
+    d = tmp_path / "psx"
+    d.mkdir()
+    (d / "QixNeo.cue").write_text('FILE "QixNeo" BINARY\n')
+
+    # 1. zwei moegliche Spuren -> keine Antwort
+    (d / "QixNeo.bin").write_bytes(b"x")
+    (d / "QixNeo.iso").write_bytes(b"x")
+    assert abb.loesung_finden("QixNeo.cue", "QixNeo", os.listdir(d), set()) is None
+
+    # 2. die einzige Spur gehoert schon einer anderen Liste
+    (d / "QixNeo.iso").unlink()
+    assert abb.loesung_finden("QixNeo.cue", "QixNeo", os.listdir(d),
+                              {"qixneo.bin"}) is None
+
+    # 3. der Stamm muss EXAKT stimmen — kein Anfang, kein Enthaltensein
+    assert abb.loesung_finden("QixNeo.cue", "Qix", os.listdir(d), set()) is None
+
+
+def test_ancillary_files_are_not_mistaken_for_a_track(abb, tmp_path):
+    """Eine `.txt` mit demselben Stamm ist keine Spur. (#517)
+
+    Ohne die Endungsliste waere `QixNeo.txt` ein zweiter Kandidat gewesen — und aus
+    einem eindeutigen Treffer eine Auswahl geworden, also gar keine Loesung mehr.
+    Beiwerk liegt in dieser Bibliothek ueberall neben den Spielen.
+    """
+    d = tmp_path / "psx"
+    d.mkdir()
+    (d / "QixNeo.cue").write_text('FILE "QixNeo" BINARY\n')
+    (d / "QixNeo.txt").write_text("Beschreibung")
+    (d / "QixNeo.nfo").write_text("x")
+    (d / "QixNeo.bin").write_bytes(b"x")
+    assert abb.loesung_finden("QixNeo.cue", "QixNeo", os.listdir(d), set()) == "QixNeo.bin"
