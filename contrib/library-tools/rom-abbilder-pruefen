@@ -1,0 +1,420 @@
+#!/usr/bin/env python3
+"""Abbildlisten (`.gdi`, `.cue`, `.m3u`) auf ihre Datendateien pruefen — und aufraeumen.
+
+WOZU
+----
+Ein Disc-Abbild besteht aus einer kleinen Textliste und mehreren Datendateien. Fehlt eine
+davon oder zeigt die Liste auf den falschen Namen, ist der Titel unspielbar — und zwar
+LAUTLOS: In der Bibliothek steht er weiterhin, RomM zaehlt ihn mit, und erst der Emulator
+sagt `Sector Read miss`.
+
+ZWEI FRAGEN, NICHT EINE
+-----------------------
+Die naheliegende Pruefung — „nennt die Liste Dateien, die es nicht gibt?" — hat eine blinde
+Stelle, die am Bestand gemessen wurde:
+
+    /roms/dc  ->  0 Defekte gemeldet, obwohl ALLE 138 Titel kaputt waren.
+
+Denn dort waren die Spielordner flachgelegt worden, und die Spurnamen sind bei jedem
+Dreamcast-Spiel dieselben (`track01.bin`). Im flachen Ordner EXISTIERT der Name also — jede
+Liste fand einen Treffer, nur den falschen. Namenspraesenz ist nicht dasselbe wie die
+richtige Datei.
+
+Deshalb stellt dieses Werkzeug ZWEI Fragen:
+
+  1. FEHLEND   — nennt die Liste Dateien, die im selben Ordner nicht liegen?
+  2. GETEILT   — nennen MEHRERE Listen im selben Ordner DIESELBE Datei?
+
+Frage 2 findet den Kollisionsschaden, den Frage 1 grundsaetzlich nicht sehen kann.
+
+WAS ES TUT UND WAS NICHT
+------------------------
+Ohne Schalter: nur berichten. Nichts wird angefasst.
+
+  --reparieren    schreibt eine `.cue`/`.gdi` um, aber NUR wenn die gemeinte Datei
+                  eindeutig ist: Sie traegt den Stamm der Liste selbst, oder es gibt
+                  genau eine Datei dieser Endung im Ordner. Alles andere bleibt liegen —
+                  ein geratener Verweis ist schlimmer als ein offensichtlich kaputter.
+
+  --aussortieren  verschiebt unbrauchbare Saetze nach `<plattform>/_defekt/`.
+                  VERSCHIEBEN, NICHT LOESCHEN: Die vorhandenen Spuren sind echte Daten,
+                  und ob sie ersetzbar sind, entscheidet der Betreiber, nicht ein Skript.
+
+Jede Aenderung wird nach `.abbildpruefung/<plattform>-<zeit>.jsonl` protokolliert, mit
+Quelle und echtem Ziel — derselbe Aufbau wie beim Umbau-Werkzeug, damit der Rueckweg
+eindeutig ist.
+
+EN: checks disc image lists against their data files and asks two questions, not one —
+missing references AND references shared between several lists. The second is the only way
+to see a flattened library, where every generic `track01.bin` resolves to the wrong file.
+Reports by default; repairs only unambiguous cases; moves unusable sets aside rather than
+deleting them.
+"""
+import argparse
+import collections
+import json
+import os
+import re
+import shutil
+import sys
+import time
+
+ABBILDLISTE = (".gdi", ".cue", ".m3u")
+# Endungen, die eine SPUR tragen kann. Gebraucht wird das nur fuer Verweise OHNE
+# Endung (#517): `QixNeo.cue` nennt `QixNeo`, und daneben liegt `QixNeo.bin`. Die Liste
+# ist bewusst kurz — sie entscheidet, was als Spur in Frage kommt, und je laenger sie
+# wird, desto eher wird aus einem eindeutigen Treffer eine Auswahl.
+SPUR_ENDUNGEN = (".bin", ".iso", ".img", ".raw", ".mp3", ".wav", ".ogg", ".flac")
+BERICHT_ORDNER = ".abbildpruefung"
+DEFEKT_ORDNER = "_defekt"
+
+_CUE_DATEI = re.compile(r'^\s*FILE\s+(?:"([^"]+)"|(\S+))', re.I | re.M)
+
+
+def verweise_lesen(pfad):
+    """-> [Dateiname, …], die diese Liste nennt. Leere Liste, wenn unlesbar.
+
+    `.gdi`: erste Zeile ist die Spurzahl, danach je Spur
+            `<nr> <lba> <typ> <sektorgroesse> <datei> <offset>`. Der Name kann Leerzeichen
+            enthalten — deshalb vier Felder vorn und eines hinten abziehen, statt auf
+            Feld 5 zu zeigen.
+    `.cue`: `FILE "name" BINARY`, mit oder ohne Anfuehrungszeichen.
+    `.m3u`: je Zeile ein Verweis, `#` ist Kommentar.
+    """
+    endung = os.path.splitext(pfad)[1].lower()
+    try:
+        with open(pfad, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read(200_000)
+    except OSError:
+        return []
+    if endung == ".gdi":
+        namen = []
+        for zeile in text.splitlines()[1:]:
+            teile = zeile.split()
+            if len(teile) >= 6:
+                namen.append(" ".join(teile[4:-1]).strip('"'))
+        return namen
+    if endung == ".cue":
+        return [(a or b) for a, b in _CUE_DATEI.findall(text)]
+    return [z.strip() for z in text.splitlines()
+            if z.strip() and not z.lstrip().startswith("#")]
+
+
+def ist_adresse(name):
+    """`.m3u`-Dateien enthalten oft Stream-Adressen. Das ist kein defektes Abbild."""
+    return name.startswith(("http://", "https://", "rtsp://", "mms://"))
+
+
+def loesung_finden(listenname, vermisst, dateien, belegt):
+    """-> Dateiname im Ordner, der eindeutig gemeint ist — oder None.
+
+    Zwei Wege, beide bewusst eng:
+      1. Die Datei traegt den STAMM DER LISTE und die vermisste Endung. Das ist der
+         haeufige Fall umbenannter Rips: `Sexy Parodius (Japan).cue` sucht
+         `Sexy Parodius (J) [SLPM-86009].bin`, daneben liegt `Sexy Parodius (Japan).bin`.
+      2. Es gibt genau eine Datei dieser Endung, die KEINE ANDERE LISTE beansprucht.
+
+    `belegt` ist der Punkt, an dem die erste Fassung falsch lag. Ohne diese Einschraenkung
+    genuegte „genau eine `.bin` im Ordner", und eine `.cue`, deren Daten wirklich fehlen,
+    wurde auf das Abbild eines FREMDEN Spiels umgebogen. Am Probebestand gemessen:
+    `Verloren.cue` (Daten weg) bekam `Spiel (Japan).bin` zugewiesen. Ein geratener Verweis
+    sieht heil aus und ist es nicht — das ist schlechter als ein sichtbar kaputter.
+
+    EN: `belegt` holds the files other lists already claim. Without it, "exactly one .bin in
+    the folder" happily rewired a genuinely broken cue onto another game's image.
+
+    DRITTER WEG: DER VERWEIS OHNE ENDUNG. (#517)
+
+    Eine `.cue` darf ihre Spur ohne Endung nennen, und im Bestand tut sie das:
+
+        psp/PSX2PSP/PSX Images/QixNeo.cue     -> "QixNeo"     daneben: QixNeo.bin
+        psp/PSX2PSP/PSX Images/mrdomino.cue   -> "mrdomino"   daneben: mrdomino.bin
+
+    Die erste Zeile dieser Funktion stieg dann sofort aus (`if not endung: return None`),
+    und mit ihr beide Wege darueber. Der leichteste Fall ueberhaupt — ein Name ohne
+    Endung, daneben genau eine Datei, die so heisst — war damit der einzige, den das
+    Werkzeug nie loesen konnte.
+
+    Die Enge bleibt: Gesucht wird nur nach EXAKTEM Stamm, nur unter den Endungen, die
+    ein Datentraeger ueberhaupt tragen kann, und nur wenn genau EINE davon uebrigbleibt
+    und keine andere Liste sie beansprucht. Zwei Kandidaten sind keine Eindeutigkeit.
+    """
+    klein = {n.lower(): n for n in dateien}
+    endung = os.path.splitext(vermisst)[1].lower()
+    if not endung:
+        stamm_v = vermisst.lower()
+        treffer = [n for n in dateien
+                   if os.path.splitext(n)[0].lower() == stamm_v
+                   and os.path.splitext(n)[1].lower() in SPUR_ENDUNGEN
+                   and n.lower() not in belegt]
+        return treffer[0] if len(treffer) == 1 else None
+    stamm = os.path.splitext(listenname)[0]
+    if (stamm + endung).lower() in klein:
+        return klein[(stamm + endung).lower()]
+    frei = [n for n in dateien
+            if n.lower().endswith(endung) and n.lower() not in belegt]
+    if len(frei) == 1:
+        return frei[0]
+    return None
+
+
+def ordner_pruefen(pfad, dateien):
+    """-> (befunde, geteilt) fuer EINEN Ordner.
+
+    `befunde`: je defekter Liste ein Eintrag mit Ursache und moeglicher Loesung.
+    `geteilt` : Namen, die mehr als eine Liste nennt — der Kollisionsfall.
+    """
+    listen = [f for f in dateien if f.lower().endswith(ABBILDLISTE)]
+    befunde = []
+    zaehler = collections.Counter()
+    klein = {n.lower() for n in dateien}
+
+    # ERST ALLE ANSPRUECHE SAMMELN, DANN ERST LOESEN. Was eine Liste bereits richtig nennt
+    # oder ueber ihren eigenen Stamm findet, ist vergeben und steht keiner anderen mehr zur
+    # Verfuegung. Ohne diese Reihenfolge greift eine kaputte Liste nach fremden Daten.
+    gelesen = {}
+    belegt = set()
+    for f in listen:
+        genannt = verweise_lesen(os.path.join(pfad, f))
+        gelesen[f] = genannt
+        stamm = os.path.splitext(f)[0].lower()
+        for x in genannt:
+            if ist_adresse(x):
+                continue
+            n = os.path.basename(x).lower()
+            zaehler[n] += 1
+            if n in klein:
+                belegt.add(n)
+            else:
+                # Der Stamm-Treffer ist ein Anspruch, auch wenn er noch nicht gilt.
+                ersatz = stamm + os.path.splitext(n)[1]
+                if ersatz in klein:
+                    belegt.add(ersatz)
+
+    for f in listen:
+        genannt = gelesen.get(f) or []
+        if not genannt:
+            continue
+        fehlend = [n for n in genannt
+                   if not ist_adresse(n) and os.path.basename(n).lower() not in klein]
+        if not fehlend:
+            continue
+        eigener = os.path.splitext(f)[0].lower()
+        loesungen = {}
+        for n in fehlend:
+            # Der eigene Stamm-Treffer darf nicht an `belegt` scheitern.
+            ohne_eigenen = belegt - {eigener + os.path.splitext(n)[1].lower()}
+            l = loesung_finden(f, os.path.basename(n), dateien, ohne_eigenen)
+            if l:
+                loesungen[n] = l
+        if len(loesungen) == len(fehlend):
+            ursache = "umbenannt"
+        elif loesungen:
+            ursache = "teilweise"
+        else:
+            ursache = "fehlend"
+        befunde.append({"liste": f, "fehlend": fehlend, "loesungen": loesungen,
+                        "ursache": ursache})
+
+    geteilt = sorted(n for n, c in zaehler.items() if c > 1)
+    return befunde, geteilt
+
+
+def liste_umschreiben(pfad, loesungen):
+    """Ersetzt Verweise in einer `.cue`/`.gdi`/`.m3u`. -> (True, "") oder (False, Grund).
+
+    WARUM EIN GRUND UND KEIN BLOSSES False (#465): Die erste Fassung gab bei jedem Fehler
+    stumm `False` zurueck. Am echten Bestand meldete der Lauf daraufhin
+    „11 gefunden, 0 repariert" — ohne ein Wort dazu, dass JEDER Schreibversuch an
+    `Permission denied` gescheitert war (Container als uid 1000, Bibliothek 99:users).
+    Das las sich wie „nichts zu tun" und war „nichts ging".
+
+    EN: returns a reason instead of a bare False — silently swallowing OSError turned
+    'every write was denied' into a report reading like 'nothing needed doing'.
+
+    Textersetzung auf dem ganzen Namen, nicht zeilenweise geparst: Die Formate
+    unterscheiden sich, der Dateiname darin nicht. Eine Sicherung bleibt als `.vor-fix`
+    liegen — eine kaputte Liste ist ersetzbar, eine falsch reparierte faellt niemandem auf.
+    """
+    try:
+        with open(pfad, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError as e:
+        return False, f"nicht lesbar: {e.strerror}"
+    neu = text
+    for alt, ersatz in loesungen.items():
+        # HOECHSTENS EINE ERSETZUNG JE VERWEIS. (#521)
+        #
+        # Hier standen zwei `replace` hintereinander, und das zweite lief auf dem
+        # Ergebnis des ersten. Solange `alt` eine Endung trug, war das folgenlos: Nach
+        # `Alt.bin` -> `Neu.bin` kommt `Alt.bin` im Text nicht mehr vor.
+        #
+        # Seit #517 kann `alt` ein Verweis OHNE Endung sein — und dann ist er ein
+        # PRAEFIX seines eigenen Ersatzes:
+        #
+        #     FILE "QixNeo" BINARY
+        #       1. QixNeo -> QixNeo.bin   =>  FILE "QixNeo.bin" BINARY
+        #       2. QixNeo -> QixNeo.bin   =>  FILE "QixNeo.bin.bin" BINARY
+        #
+        # Am echten Bestand passiert, an `QixNeo.cue` und `mrdomino.cue`, und aus den
+        # `.vor-fix`-Sicherungen zurueckgeholt. Der zweite Versuch (Basisname) ist fuer
+        # Listen gedacht, die ihre Spur mit Pfad nennen — er darf nur greifen, wenn der
+        # volle Verweis GAR NICHT im Text steht.
+        #
+        # EN: at most one replacement per reference. The second call ran on the result of
+        # the first, which was harmless only while `alt` carried an extension; an
+        # extensionless reference is a prefix of its own replacement.
+        for kandidat in (alt, os.path.basename(alt)):
+            if kandidat and kandidat != ersatz and kandidat in neu:
+                neu = neu.replace(kandidat, ersatz)
+                break
+    if neu == text:
+        return False, "Verweis steht so nicht im Text"
+    try:
+        if not os.path.exists(pfad + ".vor-fix"):
+            shutil.copy2(pfad, pfad + ".vor-fix")
+        with open(pfad, "w", encoding="utf-8") as f:
+            f.write(neu)
+    except OSError as e:
+        return False, f"nicht schreibbar: {e.strerror}"
+    return True, ""
+
+
+def protokoll_oeffnen(wurzel, plattform):
+    d = os.path.join(wurzel, BERICHT_ORDNER)
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, f"{plattform}-{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
+    return open(p, "a", encoding="utf-8"), p
+
+
+def plattform_pruefen(wurzel, plattform, reparieren, aussortieren, tiefe=None):
+    """`tiefe=None` heisst: den GANZEN Baum ansehen. (#465)
+
+    HIER STAND `tiefe=2`, UND DAS WAR EIN FEHLER, KEIN EINSTELLWERT. Gemessen am Bestand:
+
+      * `dc/MODE/Dreamcast/<Titel>/x.gdi` liegt drei Ebenen tief. Das Werkzeug hat
+        129 von 138 Dreamcast-Titeln NIE ANGESEHEN und daraufhin „2 defekt" gemeldet,
+        waehrend eine unabhaengige Zaehlung 126 fand. Es hat Entwarnung gegeben.
+      * `psp/PSX2PSP/PSX Images/Super Puzzle Fighter 2 Turbo-NTSC/` ebenso — dort lag die
+        gesuchte `.bin` direkt neben ihrer `.cue`, und die Reparatur unterblieb.
+
+    Eine Grenze, die still ganze Bereiche ueberspringt, macht aus „nicht geprueft" ein
+    „in Ordnung". Das ist der teuerste Fehler, den ein Pruefwerkzeug haben kann.
+
+    EN: `tiefe=2` was a bug, not a setting: it silently skipped 129 of 138 Dreamcast titles
+    and reported a clean bill of health. A limit that quietly skips whole areas turns
+    'not checked' into 'fine'.
+    """
+    basis = os.path.join(wurzel, plattform)
+    if not os.path.isdir(basis):
+        return None
+    z = collections.Counter()
+    protokoll = pfad_protokoll = None
+    for w, unter, fs in os.walk(basis):
+        if tiefe is not None and w.count(os.sep) - basis.count(os.sep) > tiefe:
+            unter[:] = []
+            continue
+        if os.path.basename(w) in (DEFEKT_ORDNER, BERICHT_ORDNER):
+            unter[:] = []
+            continue
+        befunde, geteilt = ordner_pruefen(w, fs)
+        if geteilt:
+            z["geteilt"] += len(geteilt)
+        for b in befunde:
+            z[b["ursache"]] += 1
+            if reparieren and b["ursache"] == "umbenannt":
+                ok, grund = liste_umschreiben(os.path.join(w, b["liste"]), b["loesungen"])
+                if not ok:
+                    # LAUT SCHEITERN. Ein Fehlschlag, der nur eine Zahl nicht erhoeht,
+                    # liest sich wie „nichts zu tun". (#465)
+                    z["fehlgeschlagen"] += 1
+                    print(f"    FEHLER {plattform}/{b['liste']}: {grund}", file=sys.stderr)
+                else:
+                    z["repariert"] += 1
+                    if protokoll is None:
+                        protokoll, pfad_protokoll = protokoll_oeffnen(wurzel, plattform)
+                    protokoll.write(json.dumps(
+                        {"art": "umgeschrieben", "liste": os.path.join(w, b["liste"]),
+                         "ersetzt": b["loesungen"]}, ensure_ascii=False) + "\n")
+            elif aussortieren and b["ursache"] in ("fehlend", "teilweise"):
+                ziel = os.path.join(basis, DEFEKT_ORDNER)
+                os.makedirs(ziel, exist_ok=True)
+                mitnehmen = [b["liste"]] + [n for n in fs
+                                            if os.path.splitext(n)[0] == os.path.splitext(b["liste"])[0]
+                                            and n != b["liste"]]
+                for n in mitnehmen:
+                    quelle = os.path.join(w, n)
+                    endziel = os.path.join(ziel, n)
+                    if os.path.exists(endziel):
+                        continue
+                    try:
+                        shutil.move(quelle, endziel)
+                    except OSError as e:
+                        z["fehlgeschlagen"] += 1
+                        print(f"    FEHLER {plattform}/{n}: nicht verschiebbar "
+                              f"({e.strerror})", file=sys.stderr)
+                        continue
+                    z["aussortiert"] += 1
+                    if protokoll is None:
+                        protokoll, pfad_protokoll = protokoll_oeffnen(wurzel, plattform)
+                    protokoll.write(json.dumps(
+                        {"art": "verschoben", "von": quelle, "nach": endziel},
+                        ensure_ascii=False) + "\n")
+    if protokoll:
+        protokoll.close()
+    z["protokoll"] = pfad_protokoll or ""
+    return z
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p.add_argument("wurzel", help="ROM-Wurzel, z. B. /roms")
+    p.add_argument("plattformen", nargs="*",
+                   help="Plattformordner; ohne Angabe alle")
+    p.add_argument("--reparieren", action="store_true",
+                   help="eindeutig gemeinte Verweise umschreiben")
+    p.add_argument("--aussortieren", action="store_true",
+                   help="unbrauchbare Saetze nach _defekt/ VERSCHIEBEN (nicht loeschen)")
+    a = p.parse_args(argv)
+
+    if not os.path.isdir(a.wurzel):
+        print(f"gibt es nicht: {a.wurzel}", file=sys.stderr)
+        return 2
+    plattformen = a.plattformen or sorted(
+        d for d in os.listdir(a.wurzel)
+        if os.path.isdir(os.path.join(a.wurzel, d)) and not d.startswith("."))
+
+    gesamt = collections.Counter()
+    print(f"  {'Plattform':22s} {'umbenannt':>10s} {'teilweise':>10s} {'fehlend':>8s} {'geteilt':>8s}")
+    for plattform in plattformen:
+        z = plattform_pruefen(a.wurzel, plattform, a.reparieren, a.aussortieren)
+        if not z:
+            continue
+        if any(z[k] for k in ("umbenannt", "teilweise", "fehlend", "geteilt")):
+            print(f"  {plattform[:22]:22s} {z['umbenannt']:10d} {z['teilweise']:10d} "
+                  f"{z['fehlend']:8d} {z['geteilt']:8d}")
+        for k in ("umbenannt", "teilweise", "fehlend", "geteilt", "repariert",
+                  "aussortiert", "fehlgeschlagen"):
+            gesamt[k] += z[k]
+
+    print()
+    print(f"  umbenannt (eindeutig loesbar): {gesamt['umbenannt']}")
+    print(f"  teilweise loesbar            : {gesamt['teilweise']}")
+    print(f"  Daten fehlen                 : {gesamt['fehlend']}")
+    print(f"  geteilte Verweise            : {gesamt['geteilt']}"
+          + ("   <- Kollisionsschaden, siehe #462" if gesamt["geteilt"] else ""))
+    if a.reparieren:
+        print(f"  repariert                    : {gesamt['repariert']}")
+    if a.aussortieren:
+        print(f"  nach {DEFEKT_ORDNER}/ verschoben     : {gesamt['aussortiert']}")
+    if gesamt["fehlgeschlagen"]:
+        print(f"  FEHLGESCHLAGEN               : {gesamt['fehlgeschlagen']}"
+              "   <- Gruende stehen oben auf stderr")
+    if not (a.reparieren or a.aussortieren):
+        print("\n  Nichts wurde angefasst. `--reparieren` und `--aussortieren` wirken.")
+    return 1 if (gesamt["fehlend"] or gesamt["geteilt"]
+                 or gesamt["fehlgeschlagen"]) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

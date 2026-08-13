@@ -42,6 +42,12 @@ ENDUNG_PLATTFORM = {
     ".sms": "sms", ".gg": "gamegear",
     ".md": "genesis", ".smd": "genesis", ".gen": "genesis",
     ".int": "intellivision",
+    # `.caq` ist das Kassettenformat des Mattel Aquarius und liegt auf keinem anderen
+    # System. Es fehlte, und deshalb blieben 13 Titel in `Mixed` liegen (#515) — sie
+    # stammen aus derselben `Mattel Intellivision & Aquarius ROMs`-Sammlung, deren
+    # Intellivision-Haelfte ueber `.int` sauber einsortiert wurde. Zwischen 52
+    # Werbescans faellt ein Kassettenabzug niemandem auf.
+    ".caq": "aquarius",
     ".a26": "atari2600", ".a78": "atari7800",
     ".col": "colecovision",
     ".z64": "n64", ".v64": "n64", ".n64": "n64",

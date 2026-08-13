@@ -35,12 +35,23 @@ on:
   workflow_dispatch:
   push:
     branches: [dev]
+# OBEN NUR LESEN. (#434)
+#
+# Scorecard bemaengelt jedes Schreibrecht auf Workflow-Ebene, und zu Recht: Es gilt fuer
+# JEDEN Job der Datei, auch fuer solche, die es nie brauchen. Hier hatten drei der vier
+# Jobs ohnehin eigene Bloecke — nur `release-please` selbst lebte vom Vorgabewert.
+#
+# Top level read-only; the one job that needs to write says so itself.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   release-please:
+    # release-please legt einen PR an und erzeugt beim Zusammenfuehren Release und Tag —
+    # dafuer braucht genau dieser Job beides. (#434)
+    permissions:
+      contents: write
+      pull-requests: write
     runs-on: ubuntu-latest
     outputs:
       released: ${{ steps.rp.outputs.releases_created }}
