@@ -544,6 +544,12 @@ Der erste ist der bösartigste, weil beide Seiten *scheinbar* funktionierten: Di
 meldete den Titel als streambar und nannte den Ordner — der Start-Dienst öffnete ihn und
 antwortete `Ordner ohne startbaren Inhalt`, während das spielbare Abbild danebenlag.
 
+**Was jetzt gewinnt, ist aber nicht die `.cdi`** (nachgemessen am laufenden Dienst, #501):
+Eine Ebene tiefer liegt `[GDI] Sonic Adventure (PAL)/` mit einer `.gdi` und drei Spuren,
+1,2 GB — ein echtes Abbild-Set und damit ein Titelordner. Der Ordnerzweig zieht es vor,
+bevor die Dateisuche drankommt. Das ist richtig: Beides ist spielbar, und der leere
+Elternordner ist weg. Nur die Erwartung „das Abbild gewinnt" war falsch.
+
 **Die Regel dahinter:** Zwei Wanderungen über denselben Baum driften auseinander. Es gibt
 jetzt **eine**, mit derselben Tiefe wie der Index, und der Ordnerzweig stellt dieselbe Frage
 wie der Index — `ist_titel_ordner()`. Nur ein Ordner, der wirklich ein Titel *ist*, schlägt
@@ -564,7 +570,11 @@ API called the title streamable and named the folder, and the launcher then repo
 with nothing bootable" while the image sat beside it. Two walks over one tree drift apart —
 there is now one, at the index's depth, asking the index's question (`ist_titel_ordner()`).
 A folder that is neither a title layout nor an image set is still returned, but only as a
-fallback once no file matched: 39 such folders exist and must not be lost.*
+fallback once no file matched: 39 such folders exist and must not be lost. Note what wins
+in that first row is not the `.cdi` (#501): one level down sits `[GDI] Sonic Adventure
+(PAL)/` with a `.gdi` and three tracks, 1.2 GB — a real image set, therefore a title folder,
+therefore preferred. Both are playable and the empty parent is gone; only the expectation
+"the image wins" was wrong.*
 
 ### Wenn ein Ordner EIN Spiel ist (#391, #455)
 
