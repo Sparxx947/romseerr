@@ -295,29 +295,70 @@ absent device is wrong either way.*
 
 ## Vollbild: gemessen, nicht angenommen
 
-Jeder Start misst nach dem Fensterschritt, **wie viel der Fläche der Emulator wirklich
-bemalt**, und hilft nur nach, wenn zu wenig herauskommt:
+Jeder Start misst nach dem Fensterschritt, **wie viel des Bildschirms der Emulator
+übernommen hat**, und hilft nur nach, wenn zu wenig herauskommt:
 
 ```
-[fenster]  8 Fenster auf 1920x1080, ohne Rahmen, Panel ausgeblendet
-[vollbild] 53.3 % bemalt -> F11 -> 99.3 %
+[grundbild] Grundbild aufgenommen: 1920x1080, 75.0 % nicht schwarz
+[fenster]   8 Fenster auf 1920x1080, ohne Rahmen, Panel ausgeblendet
+[vollbild]  71.7 % vom Emulator -> F11 -> 100.0 %
 ```
 
 **Die Fenstergröße beweist hier nichts.** `xdotool getwindowgeometry` meldete in jedem
 Fall, der sich als falsch herausstellte, brav `1920x1080` — während das Bild kleiner war.
-Gemessen wird deshalb der Inhalt: `xwd -root` zieht den Bildschirm, und darin wird der
-Rahmen der nicht-schwarzen Pixel gesucht.
+Gemessen wird deshalb der Bildinhalt.
 
-Gemessen am laufenden Host:
+**Und die bemalte Fläche allein beweist ebensowenig (#495).** Bis 2026-08-13 wurde in einer
+`xwd -root`-Aufnahme der Rahmen der nicht-schwarzen Bildpunkte gesucht — aber ein
+Hintergrundbild ist nicht schwarz. Am laufenden Host gemessen, drei Zustände:
 
-| Emulator | Fenstertrick | nach F11 |
+| Zustand | alte Messung | neue Messung |
 |---|---|---|
-| Azahar (3DS) | 53,3 % — untere Hälfte schwarz | **99,3 %** |
-| Eden (Switch) | 88,6 % — gleichmäßiger Rand von ~36 px | **99,3 %** |
-| xemu | 960 von 1920 breit | wirkt |
+| leerer Desktop, kein Emulator | 99,28 % | **0,06 %** |
+| xemu, Bild 1280 × 963 auf dem Desktop | 99,28 % | **74,87 %** |
+| Flycast, echtes Vollbild | 73,56 % | **99,97 %** |
 
-Eden ist der lehrreiche Fall: Ein Rand von 36 Pixeln fällt beim Zusehen nicht auf und wäre
-nie als Fehler gemeldet worden.
+Die alte Zahl war also nicht bloß ungenau, sondern **verkehrt herum**: Der leere Desktop
+stand über der Schwelle, ein wirklich bildschirmfüllender Emulator darunter.
+
+Deshalb wird jetzt gegen ein **Grundbild** gemessen. Der Agent nimmt es zwischen dem
+Beenden des Vortitels und dem Start des neuen auf — der einzige Augenblick, in dem der
+Desktop wirklich leer ist. Ein Bildpunkt zählt als „noch Desktop", wenn er unverändert ist
+**und** im Grundbild nicht schwarz war; schwarz auf schwarz ist keine Auskunft, das malt
+ein Emulator genauso. Der Rest gehört dem Emulator.
+
+Die Aufnahme **lehnt sich selbst ab**, wenn `_NET_CLIENT_LIST` außer Panel und Desktop noch
+ein Fenster führt oder der Schirm fast ganz schwarz ist. Beides wäre eine perfekte
+Täuschung: Ein Grundbild mit dem Spiel darin ließe jeden folgenden Start als „nichts
+übernommen" erscheinen, ein schwarzes jeden als „alles übernommen". Fehlt das Grundbild,
+unterbleibt die Korrektur und das Log sagt es (`[vollbild] nicht messbar`).
+
+> **Zwei Fallen beim Lesen der Aufnahme, beide gemessen.**
+>
+> **Die Zeilenlänge ist aufgefüllt.** Der xwd-Kopf nennt `bits_per_pixel` 24 und
+> `bytes_per_line` 7680 bei 1920 Punkten Breite — genutzt sind davon 1920 × 3 = 5760 Byte,
+> der Rest ist Rand. Die Schrittweite muss deshalb aus `bits_per_pixel` kommen. Wer sie aus
+> `bytes_per_line / Breite` rechnet, liest über die Zeile hinaus: das Bild erscheint auf
+> drei Viertel der Breite gestaucht, rechts schwarz, und 25 % der Punkte lesen sich als
+> reines Schwarz. *(Genau dieser Irrweg stand in einer Zwischenfassung dieses Abschnitts,
+> mit reproduzierbaren Zahlen. Aufgefallen ist er erst, als das dekodierte Bild angesehen
+> wurde statt nur gerechnet.)*
+>
+> **Bitgleichheit ist zu spröde.** Grundbild und Messbild entstehen bei verschiedenen
+> Farbtiefen — der leere Desktop liefert 24 bpp, ein Emulator mit 32-Bit-Visual im Vollbild
+> bringt `xwd -root` auf 32 bpp —, und der Verlauf des Hintergrundbildes wird dabei anders
+> gerastert. Im sichtbaren Stück Hintergrundbild neben xemu sind nur **7,2 %** der Punkte
+> bitgleich, 63,4 % liegen innerhalb von 8, 85,9 % innerhalb von 16; auf xemus weißer
+> Fläche liegt bei Toleranz 16 **kein einziger**. Ohne Toleranz meldete die Messung für
+> diesen Zustand 95,13 % statt 74,87 %. Die Toleranz steht auf **8**: 16 träfe xemus wahren
+> Wert (59,4 %) besser, brächte Flycast aber auf 90,62 % — einen halben Punkt über der
+> Schwelle.
+
+Und der im Issue vorgeschlagene Weg, die Messung **auf die Fenstergeometrie zu
+beschränken**, wurde nachgemessen und **verworfen**: xemus X-Fenster *ist* 1920 × 1080
+(`xwininfo` bestätigt es), bemalt wird davon aber nur rund 1280 × 963. Der Rest bleibt
+unberührt und zeigt weiter das Hintergrundbild — der Desktop liegt also *innerhalb* des
+Fensters. Auf die Fenstergeometrie beschränkt kam derselbe Fehlwert heraus: **99,64 %**.
 
 **Warum erst gemessen und dann F11 — nicht einfach immer F11:** F11 ist ein **Umschalter**.
 Ein Emulator, bei dem der Fenstertrick schon gewirkt hat, fiele dadurch wieder heraus. Die
@@ -325,22 +366,37 @@ Messung ist also nicht zusätzliche Vorsicht, sondern das, was die Korrektur ung
 macht. Und sie gilt für **jeden** Emulator, auch für die, die nie jemand ausprobiert hat —
 sie brauchen keine vorab ausgefüllte Zeile in einer Tabelle.
 
-> **Die Fläche allein genügt nicht — nachgemessen 2026-08-13 (#493, #495).** Sie misst den
-> **Bildschirm**, nicht das Fenster. Ein Titel, der noch bootet, ist schwarz und misst
-> wenig, obwohl sein Fenster den ganzen Schirm deckt; und der leere XFCE-Desktop misst
-> **99,27782600308642 %** — genau den Wert, der oben als Erfolg steht. Deshalb gilt seit
-> #493 zusätzlich: **ein Fenster mit `_NET_WM_STATE_FULLSCREEN` bekommt kein F11.** Für die
-> drei Emulatoren in der Tabelle ändert das nichts, sie tragen den Zustand nicht. Die
-> Zahlen der Tabelle beweisen allerdings weniger, als sie zu beweisen scheinen — das steht
-> in #495.
+> **Was die Fläche auch jetzt nicht kann (#493).** Ein Titel, der noch die Disc bootet, ist
+> schwarz. Schwarz auf hell *ist* eine Änderung, schwarz auf schwarz nicht — der Bootschirm
+> bleibt damit ein Anlass für ein F11, das dem Emulator sein eigenes Vollbild nähme.
+> Deshalb gilt weiterhin: **ein Fenster mit `_NET_WM_STATE_FULLSCREEN` bekommt kein F11.**
+> Nachgemessen: xemu, Azahar und Eden tragen den Zustand nicht, DuckStation, PCSX2 und
+> Flycast schon.
+>
+> **Die alte Prüftabelle aus #429 ist damit hinfällig** (Azahar 53,3 %, Eden 88,6 %, xemu
+> 960 von 1920). Ihre Zahlen stammen aus der Messung mit dem verschobenen Lesen und belegen
+> nicht, was sie zu belegen scheinen. Neu erhoben ist bisher nur xemu.
 
-*Every launch measures the painted share and only corrects when it falls short. Window
-geometry proves nothing here: it reported 1920x1080 in every case that turned out wrong.
-F11 is a toggle, so measuring first is what makes the correction safe — and it covers
-emulators nobody has ever exercised. Caveat measured on 2026-08-13: the painted share reads
-the SCREEN, so a still-booting black title looks small and the bare desktop measures
-99.27782600308642 % — the very value listed as success above. Since #493 a window carrying
-`_NET_WM_STATE_FULLSCREEN` is therefore left alone; see #495 for the measurement itself.*
+*Every launch measures how much of the screen the emulator has taken over and only corrects
+when it falls short. Window geometry proves nothing here — it reported 1920x1080 in every
+case that turned out wrong — and neither does the painted area on its own: measured on the
+running host, a bare desktop scored 99.28 % while a genuinely fullscreen Flycast scored
+73.56 %. The number was inverted, not merely imprecise. The measurement now compares the
+screen against a baseline picture of the empty desktop, taken by the agent between stopping
+the previous title and starting the new one; a point counts as "still desktop" when it is
+unchanged (within a per-channel tolerance of 8) AND was not black in the baseline. The
+capture refuses itself while any application window is listed in `_NET_CLIENT_LIST` or
+while the screen is nearly all black, because a baseline with the game in it would mark
+every later launch as perfect. Two traps when reading the capture, both measured: the row
+length is padded, so the pixel stride must come from `bits_per_pixel` and not from
+`bytes_per_line / width` — the latter reads past the row and decodes the image squeezed
+into three quarters of the width; and exact pixel equality is too brittle, because baseline
+and measurement are captured at different colour depths and a gradient wallpaper dithers
+differently (only 7.2 % of visibly unchanged wallpaper points are bit-identical). Finally,
+restricting the measurement to the window geometry — the fix proposed in #495 — was
+measured and rejected, because xemu leaves most of its own 1920x1080 window unpainted and
+the wallpaper shows through inside it (99.64 %). F11 remains a toggle, so a window carrying
+`_NET_WM_STATE_FULLSCREEN` is still left alone.*
 
 ## Was noch überrascht
 
@@ -869,6 +925,13 @@ XFCE-Desktop. Nachgemessen ohne jeden laufenden Emulator: **99,27782600308642 %*
 bitgleich dieselbe Zahl. Die Flächenmessung kann ein Spiel nicht vom Hintergrundbild
 unterscheiden (#495).
 
+> *Nachtrag zu dieser Zahl:* Sie ist der obere Anschlag dieser Messung, nicht eine
+> Eigenschaft des Desktops — 1915 × 1075 von 1920 × 1080 ist der größte Rahmen, den ein
+> 6er-Raster überhaupt aufspannen kann. Jede vollständig bemalte Fläche liefert sie, das
+> Hintergrundbild ebenso wie ein bildschirmfüllender Emulator. Genau darum ging es: die
+> beiden Zustände waren ununterscheidbar. Einzelheiten unter *Vollbild: gemessen, nicht
+> angenommen*.
+
 Behoben ist es dort, wo der Schaden entsteht, und emulatorunabhängig: **ein Fenster, das
 `_NET_WM_STATE_FULLSCREEN` trägt, bekommt kein F11.** Der Fensterschritt bleibt
 unverändert; ihn zu ändern gäbe es keinen gemessenen Grund.
@@ -995,6 +1058,10 @@ Gemessen am laufenden Host, jeder Schalter mit Gegenprobe — die Fenster gehör
 | `false` | `0` | Spiel, kein Dialog — 99,3 % der Fläche bemalt |
 | `false` | `1` (Gegenprobe) | `Update Available` wieder da |
 
+> Die Spalte „99,3 % der Fläche bemalt" belegt **nur, dass kein Dialog mehr im Weg stand**
+> — nicht, dass der Titel den Schirm füllte. Ein leerer Desktop lieferte dieselbe Zahl
+> (#495).
+
 Dass `0` in Vita3Ks Quelltext „nie" heißt, wird hier **nicht** behauptet: der Wert ist
 gemessen, nicht abgelesen. Belegt ist, dass der Dialog damit wegbleibt und Vita3K die `0`
 annimmt.
@@ -1015,7 +1082,8 @@ in the middle of the game window. Both are switches in
 (and on the real Vita3K PID, not the wrapper's, see #489): `true`/`1` gives only the
 welcome dialog at 4.5 % CPU and no game; `false`/`1` boots the game but puts "Update
 Available" on top; `false`/`0` gives the game with no dialog and 99.3 % of the screen
-painted; switching back to `1` brings the dialog back. It is NOT claimed that `0` is the
+painted (which proves only that no dialog was in the way — a bare desktop returned the same
+number, #495); switching back to `1` brings the dialog back. It is NOT claimed that `0` is the
 source's name for "never" — that value is measured, not read. Two traps when reproducing
 by hand: Vita3K rewrites its `config.yml` at STARTUP, so an edit made while it runs is
 lost; and `warn-missing-firmware` deliberately stays `true` — it is the third dialog of the
@@ -1677,8 +1745,13 @@ agent log shows it with the same numbers on every PSX launch:
 34.3 % does not measure a small window, it measures a **black** one — DuckStation is still
 booting the disc. F11 then switches off the fullscreen the emulator had set itself via
 `-fullscreen`. The 99.3 % reported as success is the uncovered XFCE desktop: measured with
-no emulator running at all, the bare desktop reads 99.27782600308642 %, the same value to
-the last digit (#495).
+no emulator running at all, the bare desktop read the same value to the last digit (#495).
+
+*(That value, 99.27782600308642 %, is the ceiling of this measurement rather than a
+property of the desktop: 1915 × 1075 of 1920 × 1080 is the largest box a 6-pixel raster can
+span, so any fully painted surface returns it — wallpaper and fullscreen game alike. Which
+is the point: the two states were indistinguishable. See* The fullness measurement compares
+against a picture of the empty desktop *below.)*
 
 The fix is emulator-agnostic: **a window carrying `_NET_WM_STATE_FULLSCREEN` gets no F11.**
 The window step is unchanged; there is no measured reason to touch it.
@@ -1703,6 +1776,62 @@ step rather than its outcome. The verdict now names the measured size of the lar
 window, taken **after** the fullscreen step, because that is where the damage happened. It
 is still a snapshot from launch time: `/status` does not re-measure per request, because
 the service answers requests sequentially and a hanging `xdotool` would block `/stop` too.
+
+### The fullness measurement compares against a picture of the empty desktop
+
+Until 2026-08-13 the measurement looked for the bounding box of the non-black points in an
+`xwd -root` capture. A wallpaper is not black, so it could not tell a game from an empty
+desktop. Measured on the running host, three states:
+
+| State | old measurement | new measurement |
+|---|---|---|
+| bare desktop, no emulator | 99.28 % | **0.06 %** |
+| xemu, picture 1280 × 963 on the desktop | 99.28 % | **74.87 %** |
+| Flycast, genuinely fullscreen | 73.56 % | **99.97 %** |
+
+The old number was **inverted**, not merely imprecise: the bare desktop sat above the
+threshold and a genuinely fullscreen emulator below it.
+
+The measurement now compares the screen against a **baseline** capture of the empty
+desktop. The agent takes it between stopping the previous title and starting the new one —
+the only moment the desktop is actually empty — via `launch-profile.py --grundbild`. A
+point counts as "still desktop" when it is unchanged **and** was not black in the baseline;
+black on black says nothing, an emulator paints that too. Everything else belongs to the
+emulator.
+
+The capture refuses itself in two situations, and both guards are needed. If
+`_NET_CLIENT_LIST` holds anything besides the panel and the desktop, a baseline would
+contain the game and mark every later launch as "the emulator took nothing over". If the
+screen is nearly all black, X or XFCE is still coming up and every later launch would score
+100 %. Either way the old baseline stays and the log says so; with no baseline at all the
+correction is skipped and the log reads `[vollbild] nicht messbar`.
+
+Two side findings from the same measurement:
+
+* **The row length is padded, and exact equality is too brittle.** The xwd header reports
+  `bits_per_pixel` 24 and `bytes_per_line` 7680 for a 1920-point-wide screen, of which
+  1920 × 3 = 5760 bytes carry image. The stride must come from `bits_per_pixel`; deriving
+  it from `bytes_per_line / width` reads past the row and decodes the image squeezed into
+  three quarters of the width with a black band on the right. *(That wrong turn was in an
+  intermediate version of this section, with reproducible numbers behind it. It only showed
+  up once the decoded image was looked at instead of merely computed.)* Separately, only
+  **7.2 %** of the wallpaper points visibly unchanged next to xemu are bit-identical
+  between the two captures, because the baseline is 24 bpp and a capture taken with a
+  32-bit-visual window fullscreen is 32 bpp, which dithers the gradient differently. Points
+  count as unchanged within a per-channel tolerance of 8; without it this state measured
+  95.13 % instead of 74.87 %.
+* **Restricting the measurement to the window geometry — the fix proposed in #495 — was
+  measured and rejected.** xemu's X window really is 1920 × 1080 (`xwininfo` confirms it),
+  but only about 1280 × 963 of it is ever painted. The rest is left untouched and still
+  shows the wallpaper, so the desktop lies *inside* the window. Restricted to the window
+  geometry the measurement returned the same wrong value: **99.64 %**.
+
+The check table from #429 (Azahar 53.3 %, Eden 88.6 %, xemu 960 of 1920) proves less than
+it appears to: its numbers come from a measurement that cannot tell a game from the
+wallpaper. Only xemu has been measured again so far — 62.07 % before F11, 95.13 % after,
+and the window then carried `_NET_WM_STATE_FULLSCREEN`, which it had not before. That also
+settles the question #493 left open: F11 does still reach an emulator without a fullscreen
+switch of its own.
 
 ### Rotating the token
 

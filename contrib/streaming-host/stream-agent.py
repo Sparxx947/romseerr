@@ -1194,6 +1194,27 @@ def launch(path, platform, rel="", region=""):
     umgebung = start_umgebung(platform)
     with _lock:
         _stop_locked()
+        # DAS GRUNDBILD MUSS GENAU HIER STEHEN (#495). Die Vollbildmessung vergleicht den
+        # Schirm mit einer Aufnahme des LEEREN Desktops — ohne die kann sie ein Spiel
+        # nicht von einem Hintergrundbild unterscheiden. Frueher aufgenommen stuende der
+        # VORTITEL im Bild (die Profilschritte oben laufen, waehrend er noch laeuft),
+        # spaeter der neue. Zwischen `_stop_locked()` und `Popen` ist das einzige
+        # Zeitfenster, in dem der Desktop wirklich leer ist.
+        #
+        # Schlaegt es fehl, wird trotzdem gestartet: ohne Grundbild unterbleibt nur die
+        # Vollbildkorrektur, und die Aufnahme lehnt sich selbst ab, wenn noch ein Fenster
+        # im Bild steht — das alte Grundbild bleibt dann liegen und ist genauso gut, denn
+        # der Desktop aendert sich nicht.
+        # EN: between stopping the old emulator and starting the new one is the only
+        # moment the desktop is actually empty. A failure here costs the fullscreen
+        # correction, never the launch.
+        if os.path.isfile(PROFILE_SCRIPT):
+            try:
+                r = subprocess.run([sys.executable, PROFILE_SCRIPT, "--grundbild"],
+                                   capture_output=True, text=True, timeout=30)
+                print((r.stdout + r.stderr).strip(), flush=True)
+            except (subprocess.TimeoutExpired, OSError) as e:
+                print(f"[grundbild] {e.__class__.__name__}", flush=True)
         try:
             # Kein shell=True: die Argumentliste geht unveraendert an execve.
             #
