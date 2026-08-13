@@ -32,18 +32,21 @@ on:
         required: false
         type: string
 
+# OBEN NUR LESEN. Der einzige Job nennt seine Schreibrechte selbst. (#434)
 permissions:
   contents: read
-  packages: write
-  # Fuer die signierte Herkunftsbescheinigung: id-token holt das kurzlebige
-  # OIDC-Token, mit dem Sigstore ohne dauerhaften Schluessel signiert.
-  # For the signed provenance attestation; Sigstore signs with a short-lived
-  # OIDC token, so no long-lived key has to exist anywhere.
-  id-token: write
-  attestations: write
+
 
 jobs:
   publish:
+    # packages: veroeffentlicht das Abbild. id-token + attestations: die signierte
+    # Herkunftsbescheinigung — Sigstore signiert mit einem kurzlebigen OIDC-Token, damit
+    # nirgends ein dauerhafter Schluessel liegen muss. (#434)
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     name: Build & push (GHCR, multi-arch)
     runs-on: ubuntu-latest
     steps:
@@ -58,7 +61,7 @@ jobs:
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
 
       - name: Log in to GHCR
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
