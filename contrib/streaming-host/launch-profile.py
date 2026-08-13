@@ -21,6 +21,7 @@ funktionieren danach nebeneinander.
     launch-profile.py --apply pcsx2            # Controller-Belegung setzen
     launch-profile.py --bios pcsx2 Europe      # BIOS zur Region waehlen
     launch-profile.py --dialogs vita3k         # Startdialoge abstellen
+    launch-profile.py --grundbild              # leeren Desktop aufnehmen (vor dem Start)
     launch-profile.py --status                 # Stand
 """
 import json
@@ -1400,10 +1401,11 @@ def ist_vollbild(fid):
 
         _NET_WM_STATE(ATOM) = _NET_WM_STATE_FULLSCREEN, _NET_WM_STATE_FOCUSED
 
-    Das ist die Auskunft, die der Flaechenmessung fehlt. `gezeichneter_anteil()` misst den
-    BILDSCHIRM: ein Titel, der noch die Disc bootet, ist schwarz und misst wenig, obwohl
-    sein Fenster den ganzen Schirm deckt. Genau so kam DuckStation zu einem F11, das sein
-    Vollbild wieder abschaltete.
+    Das ist die Auskunft, die keine Flaechenmessung liefern kann — auch `emulatoranteil()`
+    nicht: Ein Titel, der noch die Disc bootet, ist schwarz. Schwarz auf hell IST eine
+    Aenderung, schwarz auf schwarz nicht, und in beiden Faellen liegt der Wert unter der
+    Schwelle, obwohl das Fenster den ganzen Schirm deckt. Genau so kam DuckStation zu einem
+    F11, das sein Vollbild wieder abschaltete.
 
     Fehlt die Eigenschaft, meldet `xprop` "_NET_WM_STATE:  not found." — kein Leerstring
     und kein Fehler. Die Pruefung auf den Namen trifft deshalb beides richtig.
@@ -1700,61 +1702,122 @@ def sicher(schritt, *args, **kw):
         return False, "KEIN ZUGRIFF: " + rechte_hinweis(e.filename or "?")
 
 
-def gezeichneter_anteil():
-    """-> Anteil der BEMALTEN Flaeche in Prozent, oder None wenn nicht messbar. (#429)
+# Wo das Grundbild liegt — die Aufnahme des LEEREN Desktops, gegen die gemessen wird.
+# In /tmp, weil es nur fuer diesen Containerlauf gilt: nach einem Neustart koennen
+# Aufloesung oder Hintergrundbild andere sein, und ein altes Grundbild waere dann eine
+# Messlatte, die nichts mehr misst.
+GRUNDBILD = os.path.join(tempfile.gettempdir(), "vollbild-grundbild.xwd")
 
-    WARUM NICHT `xdotool getwindowgeometry`: Die Fenstergroesse ist genau die Zahl, die
-    hier nichts beweist. Bei xemu, Azahar und Eden meldete sie brav 1920x1080, waehrend
-    das Bild 960 Pixel breit war beziehungsweise die untere Haelfte schwarz blieb. Gemessen
-    werden muss der INHALT.
+# Ab hier gilt der Bildschirm als vom Emulator uebernommen. NICHT 100: ein Titel mit
+# anderem Seitenverhaeltnis malt am Rand schwarze Balken, und wo das Grundbild schon
+# schwarz war, zaehlt das nicht als uebernommen. Am laufenden Host gemessen (siehe
+# `emulatoranteil`): leerer Desktop 0,06 %, xemu mit halbem Bild 74,87 %, Flycast im
+# echten Vollbild 99,97 %.
+VOLLBILD_SCHWELLE = 90.0
 
-    WIE: `xwd -root` zieht den Bildschirm, und darin wird der Rahmen der nicht-schwarzen
-    Pixel gesucht. Abgetastet wird ein Raster von 6 Pixeln — bei 1920x1080 sind das rund
-    57.000 Punkte, genug fuer eine Flaechenangabe und schnell genug, um im Startweg zu
-    stehen.
+# Unter diesem Helligkeitswert gilt ein Bildpunkt als schwarz. SCHWELLE 18 STATT 0: ein
+# X-Server liefert am Rand gern ein paar Restwerte; bei 0 waere jeder Punkt „bemalt".
+SCHWARZ = 18
 
-    Braucht nichts, was nicht ohnehin da waere: `xwd` liegt im Basis-Image.
+# Bis zu dieser Abweichung je Farbkanal gilt ein Bildpunkt als UNVERAENDERT.
+#
+# WARUM NICHT 0 (also bitgleich): Grundbild und Messbild werden mit verschiedenen
+# Farbtiefen aufgenommen — der leere Desktop liefert 24 bpp, sobald ein Emulator mit
+# 32-Bit-Visual im Vollbild steht, liefert `xwd -root` 32 bpp. Der Verlauf des
+# Hintergrundbildes wird dabei anders gerastert. Am laufenden Host gemessen, im rechts
+# NEBEN xemu sichtbaren Stueck Hintergrundbild: nur 7,2 % der Punkte sind bitgleich,
+# 63,4 % liegen innerhalb von 8, 85,9 % innerhalb von 16. Auf der weissen Flaeche von
+# xemu dagegen liegt bei Toleranz 16 KEIN einziger Punkt — echter Bildinhalt weicht viel
+# weiter ab als das Rauschen.
+#
+# WARUM 8 UND NICHT 16: Die Toleranz gemessen durchgereicht, drei Zustaende:
+#
+#     Toleranz   leerer Desktop   xemu (Bild 1280x963)   Flycast (echtes Vollbild)
+#          0          0,06 %            95,13 %                  100,00 %
+#          8          0,06 %            74,87 %                   99,97 %
+#         16          0,06 %            64,45 %                   90,62 %
+#         32          0,06 %            44,52 %                   77,52 %
+#
+# 16 trifft xemus wahren Wert besser (1280*963 von 1920*1080 = 59,4 %), bringt aber
+# Flycast auf 90,62 % — einen halben Punkt ueber der Schwelle. Ein dunkler Titel faellt
+# dort unter sie und bekaeme ein F11, das ihm sein Vollbild naehme. 8 laesst den Gutfall
+# bei 99,97 % und meldet xemu trotzdem 15 Punkte unter der Schwelle.
+# EN: baseline and measurement are captured at different colour depths, so a gradient
+# wallpaper dithers differently; 8 keeps the good case at 99.97 % while still flagging
+# xemu 15 points below the threshold.
+FARBTOLERANZ = 8
 
-    EN: measures the painted content, not the window. Window geometry reported 1920x1080
-    in every case that turned out to be wrong.
+# Abgetastet wird jeder 6. Punkt in beiden Richtungen — bei 1920x1080 rund 57.000
+# Punkte, genug fuer eine Flaechenangabe und schnell genug, um im Startweg zu stehen.
+RASTER = 6
+
+
+def _xwd_kopf(daten):
+    """-> Kopfangaben einer `xwd`-Aufnahme, oder None wenn unbrauchbar.
+
+    DIE SCHRITTWEITE KOMMT AUS `bits_per_pixel`, NICHT AUS `bytes_per_line` — und zwar
+    JE AUFNAHME. Am laufenden Host gemessen, zwei Aufnahmen DESSELBEN 1920 Punkte breiten
+    Schirms, wenige Minuten auseinander:
+
+        leerer Desktop         bits_per_pixel 24   bytes_per_line 7680   -> 3 Byte/Punkt
+        Flycast im Vollbild    bits_per_pixel 32   bytes_per_line 7680   -> 4 Byte/Punkt
+
+    `bytes_per_line` ist im ersten Fall AUFGEFUELLT: 1920 * 3 = 5760 genutzte Byte je
+    Zeile, der Rest ist Rand. 7680 / 1920 zu rechnen ergibt 4 und liest damit ueber die
+    Zeile hinaus — nachgestellt und angesehen: das Bild erscheint auf drei Viertel der
+    Breite gestaucht, mit einem schwarzen Streifen rechts, und 25 % der Punkte lesen sich
+    als reines Schwarz. Mit 3 Byte dekodiert dieselbe Datei sauber (0 % Nullpunkte) und
+    deckt sich Punkt fuer Punkt mit dem, was `ffmpeg` aus ihr macht.
+
+    Dass sich der Wert zwischen zwei Aufnahmen aendert, ist der Grund fuer das „je
+    Aufnahme": Grundbild und Messbild koennen verschiedene Schrittweiten haben.
+
+    EN: derive the stride from bits_per_pixel, per capture. bytes_per_line is padded — a
+    24-bpp 1920-wide row uses 5760 of its 7680 bytes, and dividing gives 4, which reads
+    past the row: the image decodes squeezed into three quarters of the width with a black
+    band on the right.
     """
+    if len(daten) < 100:
+        return None
+    k = struct.unpack(">25I", daten[:100])
+    kopfgroesse, version, format_ = k[0], k[1], k[2]
+    breite, hoehe, bpp, bytes_pro_zeile, ncolors = k[4], k[5], k[11], k[12], k[19]
+    if version != 7 or format_ != 2 or not breite or not hoehe or not bytes_pro_zeile:
+        return None
+    return {"start": kopfgroesse + ncolors * 12, "breite": breite, "hoehe": hoehe,
+            "zeile": bytes_pro_zeile, "schritt": max(1, bpp // 8),
+            "r": k[14], "g": k[15], "b": k[16]}
+
+
+def _punkt(daten, kopf, x, y):
+    o = kopf["start"] + y * kopf["zeile"] + x * kopf["schritt"]
+    return int.from_bytes(daten[o:o + kopf["schritt"]], "little")
+
+
+def _farbe(wert, kopf):
+    return (((wert & kopf["r"]) >> 16) & 0xFF, ((wert & kopf["g"]) >> 8) & 0xFF,
+            wert & kopf["b"] & 0xFF)
+
+
+def _helligkeit(wert, kopf):
+    return max(_farbe(wert, kopf))
+
+
+def _gleiche_farbe(a, ka, b, kb):
+    """Zwei Bildpunkte, die dasselbe zeigen — bis auf FARBTOLERANZ je Kanal."""
+    fa, fb = _farbe(a, ka), _farbe(b, kb)
+    return all(abs(fa[i] - fb[i]) <= FARBTOLERANZ for i in range(3))
+
+
+def _bildschirm_aufnehmen():
+    """-> Rohdaten einer `xwd -root`-Aufnahme, oder None. `xwd` liegt im Basis-Image."""
     ziel = os.path.join(tempfile.gettempdir(), "vollbild-messung.xwd")
     try:
         r = _x("xwd", "-root", "-silent", "-out", ziel)
         if r.returncode != 0 or not os.path.isfile(ziel):
             return None
-        d = open(ziel, "rb").read()
-        if len(d) < 100:
-            return None
-        k = struct.unpack(">25I", d[:100])
-        kopfgroesse, version, format_ = k[0], k[1], k[2]
-        breite, hoehe, bpp, bytes_pro_zeile = k[4], k[5], k[11], k[12]
-        rmask, gmask, bmask, ncolors = k[14], k[15], k[16], k[19]
-        if version != 7 or format_ != 2 or not breite or not hoehe:
-            return None
-        start = kopfgroesse + ncolors * 12
-        schritt = max(1, bpp // 8)
-        x0 = y0 = 1 << 30
-        x1 = y1 = -1
-        for y in range(0, hoehe, 6):
-            zeile = start + y * bytes_pro_zeile
-            for x in range(0, breite, 6):
-                o = zeile + x * schritt
-                w = int.from_bytes(d[o:o + schritt], "little")
-                # SCHWELLE 18 statt 0: Ein Emulator zeichnet selten reines Schwarz, und
-                # ein X-Server liefert am Rand gern ein paar Restwerte. Bei 0 waere jede
-                # Flaeche „bemalt" und die Messung wertlos.
-                if ((w & rmask) or (w & gmask) or (w & bmask)) and \
-                   max(((w & rmask) >> 16) & 0xFF, ((w & gmask) >> 8) & 0xFF,
-                       w & bmask & 0xFF) > 18:
-                    if x < x0: x0 = x
-                    if y < y0: y0 = y
-                    if x > x1: x1 = x
-                    if y > y1: y1 = y
-        if x1 < 0:
-            return 0.0
-        return (x1 - x0 + 1) * (y1 - y0 + 1) / (breite * hoehe) * 100
-    except (OSError, struct.error, ValueError):
+        return open(ziel, "rb").read()
+    except OSError:
         return None
     finally:
         try:
@@ -1763,10 +1826,144 @@ def gezeichneter_anteil():
             pass
 
 
-# Ab hier gilt die Flaeche als ausgefuellt. NICHT 100: Passt das Seitenverhaeltnis des
-# Titels nicht zum Bildschirm, laesst der Emulator zu Recht schwarze Balken stehen. Was
-# #316 sucht, ist der Fall „halbe Flaeche", nicht ein paar Pixel Rand.
-VOLLBILD_SCHWELLE = 90.0
+def desktop_ist_frei():
+    """-> (True, "") wenn ausser Panel und Desktop kein Fenster im Bild steht.
+
+    `_NET_CLIENT_LIST` fuehrt die verwalteten Programmfenster. Am laufenden Host im
+    Leerlauf abgelesen — genau zwei, und beide sind Moebel, kein Programm:
+
+        _NET_CLIENT_LIST(WINDOW): window id # 0x1a00003, 0x1c00017
+        0x1a00003 [xfce4-panel] _NET_WM_WINDOW_TYPE_DOCK
+        0x1c00017 [Desktop]     _NET_WM_WINDOW_TYPE_DESKTOP
+
+    EN: the managed-window list is empty of applications when only the panel and the
+    desktop are up.
+    """
+    liste = _x("xprop", "-root", "_NET_CLIENT_LIST").stdout
+    for fid in re.findall(r"0x[0-9a-fA-F]+", liste):
+        typ = _x("xprop", "-id", fid, "_NET_WM_WINDOW_TYPE").stdout
+        if "_NET_WM_WINDOW_TYPE_DESKTOP" in typ or "_NET_WM_WINDOW_TYPE_DOCK" in typ:
+            continue
+        return False, (fenstername(fid) or fid)
+    return True, ""
+
+
+def grundbild_aufnehmen():
+    """Den LEEREN Desktop aufnehmen, gegen den spaeter gemessen wird. -> (ok, meldung)
+
+    WOZU (#495): Ohne Vergleichsbild kann keine Flaechenmessung ein Spiel von einem
+    Hintergrundbild unterscheiden — beide sind „bemalt". Mit ihm ist die Frage
+    beantwortbar und kostet einen zweiten `xwd`-Aufruf.
+
+    ZWEI SPERREN, und beide sind noetig:
+
+    1. Steht ein Programmfenster im Bild, wird NICHT aufgenommen. Ein Grundbild mit dem
+       Spiel darin waere die perfekte Taeuschung: jeder folgende Start saehe aus, als
+       haette der Emulator nichts uebernommen — also genau die Fehlmessung, gegen die
+       das Grundbild gebaut ist. Das alte bleibt dann liegen; der Desktop aendert sich
+       nicht, ein Grundbild von vorhin ist so gut wie eines von jetzt.
+    2. Ein fast ganz schwarzer Schirm wird abgelehnt. So sieht es aus, wenn X oder XFCE
+       noch hochfahren — und gegen ein schwarzes Grundbild misst spaeter JEDER Emulator
+       100 %, also nie wieder eine Korrektur.
+
+    EN: two guards. A baseline WITH a game in it would mark every later launch as "the
+    emulator took nothing over"; an all-black one (X still starting) would mark every
+    launch as perfect. Both would silently disable the correction.
+    """
+    frei, stoerer = desktop_ist_frei()
+    if not frei:
+        return False, f"nicht aufgenommen — ein Fenster steht im Bild: {stoerer}"
+    daten = _bildschirm_aufnehmen()
+    kopf = _xwd_kopf(daten) if daten else None
+    if not kopf:
+        return False, "Bildschirm nicht lesbar"
+    punkte = nicht_schwarz = 0
+    for y in range(0, kopf["hoehe"], RASTER):
+        for x in range(0, kopf["breite"], RASTER):
+            punkte += 1
+            if _helligkeit(_punkt(daten, kopf, x, y), kopf) > SCHWARZ:
+                nicht_schwarz += 1
+    anteil = nicht_schwarz / punkte * 100 if punkte else 0.0
+    if anteil < 5:
+        return False, (f"nur {anteil:.1f} % des Schirms sind nicht schwarz — "
+                       "faehrt die Oberflaeche noch hoch?")
+    try:
+        with open(GRUNDBILD, "wb") as f:
+            f.write(daten)
+    except OSError as e:
+        return False, f"nicht schreibbar: {e.__class__.__name__}"
+    return True, (f"Grundbild aufgenommen: {kopf['breite']}x{kopf['hoehe']}, "
+                  f"{anteil:.1f} % nicht schwarz")
+
+
+def emulatoranteil():
+    """-> Anteil des Bildschirms in Prozent, den der EMULATOR uebernommen hat, oder None.
+
+    DIE ALTE MESSUNG WAR NICHT UNGENAU, SONDERN VERKEHRT HERUM (#495). Sie suchte den
+    Rahmen der nicht-schwarzen Punkte auf dem Bildschirm — und ein Hintergrundbild ist
+    nicht schwarz. Am laufenden Host gemessen, drei Zustaende:
+
+        leerer Desktop, kein Emulator        99,28 %
+        xemu, Bild 1280x963 auf dem Desktop  99,28 %   <- bitgleich derselbe Wert
+        Flycast, echtes Vollbild             73,56 %   <- der Gutfall misst WENIGER
+
+    Der leere Desktop stand also ueber der Schwelle und ein wirklich bildschirmfuellender
+    Emulator darunter.
+
+    WIE ES JETZT GEHT: verglichen wird Punkt fuer Punkt mit dem Grundbild des leeren
+    Desktops (`grundbild_aufnehmen`). Ein Punkt zaehlt als „noch Desktop", wenn er
+    unveraendert ist (bis auf FARBTOLERANZ) UND im Grundbild nicht schwarz war — schwarz
+    auf schwarz ist keine Auskunft, das malt ein Emulator genauso. Der Rest gehoert dem
+    Emulator. Dieselben drei Zustaende, am laufenden Host gemessen:
+
+        leerer Desktop                        0,06 %
+        xemu, Bild 1280x963                  74,87 %   (wahrer Wert 59,4 %)
+        Flycast, echtes Vollbild             99,97 %
+
+    WARUM NICHT EINFACH AUF DIE FENSTERGEOMETRIE BESCHRAENKEN, wie #495 vorschlug: weil
+    der Desktop INNERHALB des Fensters liegt. xemus X-Fenster ist wirklich 1920x1080
+    (`xwininfo` bestaetigt es), bemalt wird davon aber nur rund 1280x963 — der Rest bleibt
+    unberuehrt und zeigt weiter, was vorher da war. Auf die Fenstergeometrie beschraenkt
+    gemessen kam derselbe Fehlwert heraus: 99,64 %.
+
+    WAS DIE ZAHL NICHT IST: eine genaue Flaechenangabe. xemu deckt 1280*963 von 1920*1080,
+    also 59,4 % — gemeldet werden 74,87 %, weil das Rauschen im Hintergrundbild (siehe
+    FARBTOLERANZ) zulasten des Desktops geht. Gebraucht wird hier eine Entscheidung
+    „fuellt aus / fuellt nicht aus", und dafuer ist der Abstand zur Schwelle gross genug.
+    Wer die Zahl als Flaechenmass liest, liest zu viel hinein.
+
+    EN: the old measurement was inverted, not merely imprecise — a bare desktop scored
+    above the threshold and a genuinely fullscreen emulator below it. Restricting it to
+    the window geometry does not help, because xemu leaves most of its own window
+    unpainted and the wallpaper shows through there.
+    """
+    try:
+        grund = open(GRUNDBILD, "rb").read()
+    except OSError:
+        return None
+    jetzt = _bildschirm_aufnehmen()
+    if not jetzt:
+        return None
+    try:
+        kg, kj = _xwd_kopf(grund), _xwd_kopf(jetzt)
+        if not kg or not kj:
+            return None
+        if (kg["breite"], kg["hoehe"]) != (kj["breite"], kj["hoehe"]):
+            # Aufloesung gewechselt: das Grundbild misst nicht mehr denselben Schirm.
+            return None
+        punkte = desktop = 0
+        for y in range(0, kg["hoehe"], RASTER):
+            for x in range(0, kg["breite"], RASTER):
+                punkte += 1
+                wg = _punkt(grund, kg, x, y)
+                if _helligkeit(wg, kg) > SCHWARZ and \
+                   _gleiche_farbe(wg, kg, _punkt(jetzt, kj, x, y), kj):
+                    desktop += 1
+        if not punkte:
+            return None
+        return 100 - desktop / punkte * 100
+    except (struct.error, ValueError):
+        return None
 
 
 def vollbild_sicherstellen(fensterid=None):
@@ -1785,11 +1982,13 @@ def vollbild_sicherstellen(fensterid=None):
     out. Measuring first is what makes the correction safe — and it means an emulator nobody
     has ever exercised is handled on its first launch.
     """
-    vorher = gezeichneter_anteil()
+    vorher = emulatoranteil()
     if vorher is None:
+        # Kein Grundbild, kein Vergleich — und lieber nichts tun als auf gut Glueck ein
+        # F11 schicken. Es ist ein Umschalter: geraten waere hier schlimmer als warten.
         return None, None, "nicht messbar"
     if vorher >= VOLLBILD_SCHWELLE:
-        return vorher, vorher, "Flaeche bereits ausgefuellt"
+        return vorher, vorher, "Bildschirm bereits uebernommen"
     ziel = fensterid
     if not ziel:
         gefunden = _x("xdotool", "getactivewindow").stdout.split()
@@ -1798,31 +1997,29 @@ def vollbild_sicherstellen(fensterid=None):
         return vorher, vorher, "kein Fenster fuer F11 gefunden"
     # DIE MESSUNG OBEN GENUEGT NICHT — sie war der Fehler. (#493)
     #
-    # `gezeichneter_anteil()` misst den BILDSCHIRM, nicht das Fenster. Ein Titel, der
-    # gerade noch die Disc bootet, ist schwarz: DuckStation kam bei jedem PSX-Start auf
-    # 34,3 %, obwohl sein Fenster den ganzen Schirm deckte und `_NET_WM_STATE_FULLSCREEN`
-    # trug. F11 schaltete daraufhin genau das ab — danach 640x480 in der Ecke, mit
-    # Titelleiste zurueck, und so blieb es.
+    # Ein Titel, der gerade noch die Disc bootet, ist schwarz: DuckStation kam bei jedem
+    # PSX-Start auf 34,3 %, obwohl sein Fenster den ganzen Schirm deckte und
+    # `_NET_WM_STATE_FULLSCREEN` trug. F11 schaltete daraufhin genau das ab — danach
+    # 640x480 in der Ecke, mit Titelleiste zurueck, und so blieb es.
     #
-    # Der Erfolg, den das Log danach meldete, war keiner: `34.3 % -> F11 -> 99.3 %`. Die
-    # 99,3 % sind der freigelegte XFCE-DESKTOP. Nachgemessen ohne jeden laufenden
-    # Emulator: 99,27782600308642 % — bitgleich dieselbe Zahl. Die Flaechenmessung kann
-    # ein Spiel nicht vom Hintergrundbild unterscheiden und taugt deshalb nicht als
-    # alleiniges Kriterium.
+    # Am Grundbild aendert das nichts: ein schwarz gemaltes Bild deckt den Desktop zwar
+    # zu, zaehlt hier aber nicht als uebernommen (schwarz auf hell ist eine Aenderung,
+    # schwarz auf schwarz nicht — siehe `emulatoranteil`). Der Bootschirm bleibt also ein
+    # Grund fuer ein F11, das dem Emulator sein eigenes Vollbild nehmen wuerde.
     #
-    # Der Fensterzustand kann es, kostet einen `xprop`-Aufruf und ist emulatorunabhaengig:
-    # Wer sein Vollbild selbst haelt, wird in Ruhe gelassen. Wer keinen eigenen Schalter
-    # hat — xemu, Azahar, Eden —, traegt den Zustand nicht und bekommt sein F11 weiterhin.
-    # EN: the painted-area measurement reads the SCREEN, so a black boot screen looks like
-    # a small window, and the "99.3 % after F11" it reported was the bare desktop. The
-    # window state is the fact that distinguishes the two.
+    # Der Fensterzustand entscheidet das, kostet einen `xprop`-Aufruf und ist
+    # emulatorunabhaengig: Wer sein Vollbild selbst haelt, wird in Ruhe gelassen. Wer
+    # keinen eigenen Schalter hat — xemu, Azahar, Eden —, traegt den Zustand nicht und
+    # bekommt sein F11 weiterhin.
+    # EN: a title still booting its disc is black, which no area measurement can tell from
+    # a small window. The window state is the fact that distinguishes the two.
     if ist_vollbild(str(ziel)):
         return vorher, vorher, "steht im eigenen Vollbild — F11 waere der Ausstieg"
     _x("xdotool", "windowactivate", str(ziel))
     time.sleep(1)
     _x("xdotool", "key", "--window", str(ziel), "F11")
     time.sleep(2)
-    nachher = gezeichneter_anteil()
+    nachher = emulatoranteil()
     return vorher, nachher, "F11"
 
 
@@ -1864,12 +2061,15 @@ def main(argv):
             vorher, nachher, weg = vollbild_sicherstellen()
             anteil = nachher
             if vorher is None:
-                print("[vollbild] nicht messbar — Bildschirm nicht lesbar")
+                # NICHT VERSCHWEIGEN. Ohne Grundbild unterbleibt die Korrektur — das ist
+                # die sichere Seite, aber es ist auch der Zustand, in dem xemu wieder mit
+                # halbem Bild dasteht. Wer das Log liest, muss es sehen.
+                print("[vollbild] nicht messbar — kein Grundbild oder Schirm nicht lesbar")
             elif weg == "F11":
-                print(f"[vollbild] {vorher:.1f} % bemalt -> F11 -> "
+                print(f"[vollbild] {vorher:.1f} % vom Emulator -> F11 -> "
                       f"{nachher if nachher is None else f'{nachher:.1f} %'}")
             else:
-                print(f"[vollbild] {vorher:.1f} % bemalt — {weg}")
+                print(f"[vollbild] {vorher:.1f} % vom Emulator — {weg}")
             # ZULETZT NACHMESSEN (#493). Der Befund oben entsteht, BEVOR der
             # Vollbildschritt laeuft — und genau der hat den Titel bisher aus seinem
             # eigenen Vollbild geholt. Eine Groesse, die vor dem Schaden abgelesen wurde,
@@ -1884,8 +2084,20 @@ def main(argv):
         # Maschinenlesbar als LETZTE Zeile, damit der Agent den Befund weiterreichen
         # kann statt ihn nur ins Log zu schreiben (#288). Eine JSON-Zeile statt eines
         # blossen Exit-Codes, weil der Dialogtitel die eigentliche Auskunft ist.
-        print(json.dumps({"window": zustand, "detail": msg, "bemalt": anteil}))
+        # `emulator` statt des frueheren `bemalt`: der Wert misst nicht mehr, wieviel
+        # Farbe auf dem Schirm ist, sondern wieviel davon der Emulator uebernommen hat.
+        # Denselben Namen weiterzufuehren hiesse, die alte Bedeutung mitzuschleppen.
+        print(json.dumps({"window": zustand, "detail": msg, "emulator": anteil}))
         return 0 if zustand == "ok" else 1
+    if argv and argv[0] == "--grundbild":
+        # VOR dem Start des Emulators aufzurufen — danach steht sein Fenster im Bild und
+        # die Aufnahme wird (zu Recht) verweigert.
+        _ok, msg = grundbild_aufnehmen()
+        print(f"[grundbild] {msg}")
+        # IMMER 0. Ohne Grundbild unterbleibt spaeter nur die Vollbildkorrektur; den
+        # Start deswegen abzubrechen kostet das Spiel. / always 0: a missing baseline
+        # only disables the fullscreen correction, it must not fail the launch.
+        return 0
     if argv and argv[0] == "--desktop":
         panel_zurueck(); print("[fenster] Panel wieder eingeblendet"); return 0
     if argv and argv[0] == "--bios":

@@ -196,14 +196,20 @@ def test_f11_is_not_sent_to_a_window_that_is_already_in_its_own_fullscreen(tmp_p
     zu diesem Zeitpunkt noch die Disc. F11 schaltet daraufhin das eigene Vollbild AB, und
     danach steht der Titel auf 640x480 in der Ecke, mit Titelleiste zurueck.
 
-    Die Flaechenmessung kann diesen Fall nicht unterscheiden: sie misst den BILDSCHIRM,
-    nicht das Fenster. Der leere XFCE-Desktop allein misst 99,27782600308642 % — bitgleich
-    mit dem Wert, den das Log oben als Erfolg fuehrt. Der Zustand des Fensters kann es,
-    und den gibt es umsonst.
+    Keine Flaechenmessung kann diesen Fall unterscheiden — auch die seit #495 nicht, die
+    gegen ein Grundbild des leeren Desktops misst: Ein schwarz gemaltes Bild deckt den
+    Desktop zwar zu, aber schwarz auf schwarz ist keine Aenderung, und der Bootschirm
+    bleibt damit ein Anlass fuer ein F11. Der Zustand des Fensters entscheidet es, und den
+    gibt es umsonst.
+
+    (Die 99,27782600308642 %, die hier frueher als „Wert des leeren Desktops" standen, sind
+    der obere Anschlag jener Messung — 1915 * 1075 von 1920 * 1080 ist der groesste Rahmen,
+    den ein 6er-Raster aufspannen kann. Jede vollstaendig bemalte Flaeche liefert ihn, das
+    Hintergrundbild wie ein bildschirmfuellender Emulator.)
 
     EN: the window step is not the culprit — measured, all four of its calls leave the
-    fullscreen state intact. The F11 afterwards is, because the painted-area measurement
-    reads a black boot screen as "too small" and cannot tell a game apart from the desktop.
+    fullscreen state intact. The F11 afterwards is, because no area measurement can tell
+    a black boot screen from a small window. The window state can.
     """
     m = _profil_modul(tmp_path)
     x = _FensterAttrappe([("0x1", 1920, 1080, NORMAL, "Spyro the Dragon")],
@@ -211,7 +217,7 @@ def test_f11_is_not_sent_to_a_window_that_is_already_in_its_own_fullscreen(tmp_p
     monkeypatch.setattr(m, "_x", x)
     monkeypatch.setattr(m.time, "sleep", lambda *_a: None)
     # Der Bildschirm ist noch schwarz — genau die Lage, in der bisher F11 kam.
-    monkeypatch.setattr(m, "gezeichneter_anteil", lambda: 34.3)
+    monkeypatch.setattr(m, "emulatoranteil", lambda: 34.3)
 
     vorher, nachher, weg = m.vollbild_sicherstellen()
 
@@ -232,7 +238,7 @@ def test_f11_still_reaches_an_emulator_without_a_fullscreen_switch(tmp_path, mon
     x = _FensterAttrappe([("0x1", 1920, 1080, NORMAL, "xemu | Halo")])   # kein Vollbild
     monkeypatch.setattr(m, "_x", x)
     monkeypatch.setattr(m.time, "sleep", lambda *_a: None)
-    monkeypatch.setattr(m, "gezeichneter_anteil", lambda: 34.3)
+    monkeypatch.setattr(m, "emulatoranteil", lambda: 34.3)
 
     _vorher, _nachher, weg = m.vollbild_sicherstellen()
 
@@ -263,7 +269,7 @@ def test_the_window_verdict_reports_the_measured_size_not_the_requested_one(tmp_
     x = _FensterAttrappe([("0x1", 640, 480, NORMAL, "Spyro the Dragon")])
     monkeypatch.setattr(m, "_x", x)
     monkeypatch.setattr(m.time, "sleep", lambda *_a: None)
-    monkeypatch.setattr(m, "gezeichneter_anteil", lambda: 99.3)
+    monkeypatch.setattr(m, "emulatoranteil", lambda: 99.3)
 
     m.main(["--window", "4711"])
 
@@ -361,7 +367,7 @@ def test_fullscreen_is_measured_before_it_is_corrected():
     assert m, "vollbild_sicherstellen fehlt"
     koerper = m.group(1)
 
-    mess = koerper.index("gezeichneter_anteil()")
+    mess = koerper.index("emulatoranteil()")
     taste = koerper.index('"F11"')
     assert mess < taste, "F11 wird geschickt, bevor gemessen wurde"
 
@@ -370,3 +376,256 @@ def test_fullscreen_is_measured_before_it_is_corrected():
     assert "VOLLBILD_SCHWELLE" in koerper, "es gibt keine Schwelle, ab der nichts passiert"
     assert re.search(r">= VOLLBILD_SCHWELLE:\s*\n\s*return", koerper), \
         "ueber der Schwelle wird nicht frueh zurueckgekehrt — F11 traefe auch den Gutfall"
+
+
+# --- #495: die Messung muss ein Spiel vom leeren Desktop unterscheiden ---------------
+
+def _xwd(breite, hoehe, punkte, bpp=24, zeilenbreite=0):
+    """Eine xwd-Aufnahme bauen, wie `xwd -root` sie schreibt. `punkte(x, y) -> (r, g, b)`.
+
+    WOZU EIGENE DATEN STATT EINER AUFNAHME: Diese Tests duerfen keinen X-Server brauchen —
+    in der CI gibt es keinen. Der Kopf ist deshalb derselbe, den der laufende Host
+    liefert, nachgemessen: Version 7, Format 2 (ZPixmap), 256 Farbeintraege, Masken
+    0xff0000/0x00ff00/0x0000ff.
+
+    `bpp` und `zeilenbreite` sind ABSICHTLICH getrennt einstellbar: der laufende Host
+    liefert eine 24-bpp-Aufnahme mit einer auf 1920*4 AUFGEFUELLTEN Zeile — 5760 der 7680
+    Byte je Zeile tragen Bild, der Rest ist Rand.
+    """
+    import struct
+    kopfgroesse = 100 + 7            # 100 Byte Kopf + "xwd\0" o. ae.; Laenge steht im Kopf
+    px = max(1, bpp // 8)
+    zeile = zeilenbreite or breite * px
+    k = [0] * 25
+    k[0] = kopfgroesse; k[1] = 7; k[2] = 2; k[3] = 24
+    k[4] = breite; k[5] = hoehe
+    k[11] = bpp; k[12] = zeile
+    k[14], k[15], k[16] = 0xFF0000, 0x00FF00, 0x0000FF
+    k[19] = 0                        # keine Farbtabelle
+    daten = bytearray(struct.pack(">25I", *k) + b"xwd\0\0\0\0")
+    for y in range(hoehe):
+        z = bytearray(zeile)
+        for x in range(breite):
+            r, g, b = punkte(x, y)
+            o = x * px
+            z[o] = b; z[o + 1] = g; z[o + 2] = r
+        daten += z
+    return bytes(daten)
+
+
+def _schreib(pfad, inhalt):
+    with open(pfad, "wb") as f:
+        f.write(inhalt)
+
+
+BLAU = lambda _x, _y: (60, 70, 120)          # Hintergrundbild
+WEISS = lambda _x, _y: (255, 255, 255)       # ein Emulator, der den Schirm gefuellt hat
+
+
+def test_the_measurement_tells_a_running_emulator_from_the_bare_desktop(tmp_path,
+                                                                       monkeypatch):
+    """Der Abnahmepunkt von #495, und der Grund, warum es das Issue gibt.
+
+    AM LAUFENDEN HOST GEMESSEN, drei Zustaende, alte Messung (`gezeichneter_anteil`):
+
+        leerer Desktop, kein Emulator      99,28 %
+        xemu, Bild 1280x963 auf dem Desktop 99,28 %   <- BITGLEICH derselbe Wert
+        Flycast, echtes Vollbild            73,56 %   <- der Gutfall misst WENIGER
+
+    Die Zahl war damit nicht bloss ungenau, sondern verkehrt herum: Der leere Desktop
+    stand ueber der Schwelle, ein wirklich bildschirmfuellender Emulator darunter.
+    Die Ursache ist der Messgegenstand — gesucht wurde der Rahmen der nicht-schwarzen
+    Bildpunkte auf dem BILDSCHIRM, und ein Hintergrundbild ist nicht schwarz.
+
+    Gemessen wird deshalb gegen ein GRUNDBILD des leeren Desktops. Dieselben drei
+    Zustaende, neue Messung:
+
+        leerer Desktop                       0,06 %
+        xemu, Bild 1280x963                 74,87 %
+        Flycast, echtes Vollbild            99,97 %
+
+    EN: the old number was not merely imprecise but inverted — the bare desktop scored
+    above the threshold and a genuinely fullscreen emulator below it. The measurement now
+    compares against a captured picture of the empty desktop.
+    """
+    m = _profil_modul(tmp_path)
+    grund = str(tmp_path / "grund.xwd")
+    monkeypatch.setattr(m, "GRUNDBILD", grund)
+    _schreib(grund, _xwd(120, 90, BLAU))
+
+    # 1. Nichts laeuft: der Schirm zeigt weiter das Grundbild.
+    monkeypatch.setattr(m, "_bildschirm_aufnehmen", lambda: _xwd(120, 90, BLAU))
+    leer = m.emulatoranteil()
+
+    # 2. Ein Emulator hat den Schirm uebernommen.
+    monkeypatch.setattr(m, "_bildschirm_aufnehmen", lambda: _xwd(120, 90, WEISS))
+    voll = m.emulatoranteil()
+
+    assert leer is not None and voll is not None, (leer, voll)
+    assert leer < m.VOLLBILD_SCHWELLE <= voll, (leer, voll, m.VOLLBILD_SCHWELLE)
+
+
+def test_the_measurement_sees_the_desktop_next_to_a_half_screen_emulator(tmp_path,
+                                                                        monkeypatch):
+    """Der Fall, wegen dessen es den Tastenweg ueberhaupt gibt: xemu. (#429, #495)
+
+    Am laufenden Host gemessen, Fable ueber xemu gestartet: `xdotool` meldet ein Fenster
+    von 1920x1080, `xwininfo` bestaetigt es — bemalt wird davon aber nur rund 1280x963.
+    Der Rest des Fensters bleibt UNBEMALT und zeigt weiter die Bildpunkte, die vorher da
+    waren, also das Hintergrundbild. Deshalb hilft es auch nicht, die Messung auf die
+    Fenstergeometrie zu beschraenken (im Issue vorgeschlagen und hier widerlegt): der
+    Desktop liegt INNERHALB des Fensters.
+
+    Gegen das Grundbild gemessen faellt genau dieser Teil heraus.
+    """
+    m = _profil_modul(tmp_path)
+    grund = str(tmp_path / "grund.xwd")
+    monkeypatch.setattr(m, "GRUNDBILD", grund)
+    _schreib(grund, _xwd(120, 90, BLAU))
+    # Zwei Drittel der Breite gehoeren dem Emulator, der Rest zeigt das Hintergrundbild.
+    halb = lambda x, y: (255, 255, 255) if x < 80 else BLAU(x, y)
+    monkeypatch.setattr(m, "_bildschirm_aufnehmen", lambda: _xwd(120, 90, halb))
+
+    anteil = m.emulatoranteil()
+
+    assert anteil is not None
+    assert 60 < anteil < 75, anteil
+    assert anteil < m.VOLLBILD_SCHWELLE, "der halbe Desktop ginge als Vollbild durch"
+
+
+def test_a_padded_line_length_does_not_shift_the_reading(tmp_path, monkeypatch):
+    """Die Schrittweite kommt aus `bits_per_pixel`, NICHT aus `bytes_per_line`. (#495)
+
+    Am laufenden Host gemessen, zwei Aufnahmen DESSELBEN 1920 Punkte breiten Schirms:
+
+        leerer Desktop            bits_per_pixel 24   bytes_per_line 7680
+        Flycast im Vollbild       bits_per_pixel 32   bytes_per_line 7680
+
+    Im ersten Fall ist die Zeile AUFGEFUELLT: 1920 * 3 = 5760 genutzte Byte, der Rest ist
+    Rand. `bytes_per_line // breite` ergibt dort 4 und liest ueber die Zeile hinaus.
+    Nachgestellt und ANGESEHEN — die Datei einmal so und einmal mit 3 Byte dekodiert:
+
+        3 Byte je Punkt   sauberes Bild, 0 % Nullpunkte, deckungsgleich mit `ffmpeg`
+        4 Byte je Punkt   auf drei Viertel der Breite gestaucht, rechts schwarz, 25 % Null
+
+    (Dieser Test stand einmal genau andersherum da. Die Annahme „24 bpp liegen trotzdem in
+    32-Bit-Zellen" klang plausibel, die Zahlen dazu waren reproduzierbar — und beides war
+    falsch. Aufgefallen ist es erst, als das dekodierte Bild angesehen wurde statt nur
+    gerechnet. Wer die Schrittweite anfasst, dekodiere zuerst ein Bild und sehe es an.)
+
+    EN: derive the stride from bits_per_pixel. bytes_per_line is padded, and dividing it by
+    the width reads past the row — visible as an image squeezed into three quarters of the
+    width. This test once asserted the opposite; the numbers were reproducible and wrong.
+    """
+    m = _profil_modul(tmp_path)
+    grund = str(tmp_path / "grund.xwd")
+    monkeypatch.setattr(m, "GRUNDBILD", grund)
+    # 24 bpp = 3 Byte je Punkt, Zeile aber auf 4 Byte je Punkt aufgefuellt — genau die
+    # Aufnahme des leeren Desktops.
+    aufnahme = _xwd(120, 90, BLAU, bpp=24, zeilenbreite=120 * 4)
+    _schreib(grund, aufnahme)
+    monkeypatch.setattr(m, "_bildschirm_aufnehmen", lambda: aufnahme)
+
+    kopf = m._xwd_kopf(aufnahme)
+    assert kopf["schritt"] == 3, kopf
+    # Dieselbe Aufnahme gegen sich selbst: der Emulator hat NICHTS uebernommen. Laege die
+    # Leseposition daneben, faende die Messung im Rand lauter Schwarz und meldete es als
+    # uebernommene Flaeche.
+    assert m.emulatoranteil() == 0.0, m.emulatoranteil()
+
+
+def test_dithering_between_two_colour_depths_is_not_mistaken_for_a_game(tmp_path,
+                                                                       monkeypatch):
+    """Bitgleichheit ist zu sproede — gemessen, nicht angenommen. (#495)
+
+    Grundbild und Messbild entstehen bei VERSCHIEDENEN Farbtiefen: der leere Desktop
+    liefert 24 bpp, sobald ein Emulator mit 32-Bit-Visual im Vollbild steht, liefert
+    `xwd -root` 32 bpp. Der Verlauf des Hintergrundbildes wird dabei anders gerastert. Am
+    laufenden Host gemessen, im rechts neben xemu SICHTBAREN Stueck Hintergrundbild:
+
+        bitgleich          7,2 %
+        Abweichung <=  8  63,4 %
+        Abweichung <= 16  85,9 %
+
+    Auf xemus weisser Flaeche liegt bei Toleranz 16 dagegen KEIN einziger Punkt — echter
+    Bildinhalt weicht viel weiter ab als das Rauschen. Ohne Toleranz meldete die Messung
+    fuer genau diesen Zustand 95,13 % statt 74,87 %: der sichtbare Desktop ging als
+    Emulator durch, und der Bildschirmabzug daneben zeigte ihn.
+
+    EN: baseline and measurement are captured at different colour depths, so a gradient
+    wallpaper dithers differently. Exact equality reported 95.13 % for a screen that was
+    visibly one third desktop.
+    """
+    m = _profil_modul(tmp_path)
+    grund = str(tmp_path / "grund.xwd")
+    monkeypatch.setattr(m, "GRUNDBILD", grund)
+    _schreib(grund, _xwd(120, 90, BLAU, bpp=24, zeilenbreite=120 * 4))
+    # Dasselbe Bild, um wenige Stufen verschoben — und mit der anderen Farbtiefe.
+    verrauscht = lambda x, y: tuple(min(255, c + 3 + (x + y) % 5) for c in BLAU(x, y))
+    monkeypatch.setattr(m, "_bildschirm_aufnehmen",
+                        lambda: _xwd(120, 90, verrauscht, bpp=32))
+
+    assert m.emulatoranteil() == 0.0, (
+        "das Rauschen zwischen zwei Farbtiefen wurde als Emulator gezaehlt")
+
+
+def test_the_baseline_is_refused_while_a_program_window_is_on_screen(tmp_path, monkeypatch):
+    """Ein Grundbild MIT Spiel darin waere die perfekte Taeuschung. (#495)
+
+    Es wuerde jeden folgenden Start als „Emulator hat nichts uebernommen" ausweisen —
+    also genau die Fehlmessung erzeugen, gegen die es gebaut ist. Aufgenommen wird
+    deshalb nur, wenn `_NET_CLIENT_LIST` ausser Panel und Desktop nichts fuehrt.
+
+    Am laufenden Host abgelesen, im Leerlauf:
+
+        _NET_CLIENT_LIST(WINDOW): window id # 0x1a00003, 0x1c00017
+        0x1a00003 [xfce4-panel] _NET_WM_WINDOW_TYPE_DOCK
+        0x1c00017 [Desktop]     _NET_WM_WINDOW_TYPE_DESKTOP
+
+    EN: a baseline WITH the game in it would mark every later launch as "the emulator took
+    nothing over" — the very mismeasurement it exists to prevent.
+    """
+    m = _profil_modul(tmp_path)
+    grund = str(tmp_path / "grund.xwd")
+    monkeypatch.setattr(m, "GRUNDBILD", grund)
+
+    class _MitFenster:
+        def __call__(self, *args, **_kw):
+            class R:
+                stdout = ""; stderr = ""; returncode = 0
+            r = R()
+            a = list(args)
+            if a[:3] == ["xprop", "-root", "_NET_CLIENT_LIST"]:
+                r.stdout = "_NET_CLIENT_LIST(WINDOW): window id # 0x1a00003, 0x2a00031"
+            elif a[0] == "xprop" and "_NET_WM_WINDOW_TYPE" in a:
+                r.stdout = ("_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_DOCK"
+                            if a[2] == "0x1a00003"
+                            else "_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_NORMAL")
+            elif a[:2] == ["xdotool", "getwindowname"]:
+                r.stdout = "xemu | v0.8.136"
+            return r
+
+    monkeypatch.setattr(m, "_x", _MitFenster())
+    monkeypatch.setattr(m, "_bildschirm_aufnehmen", lambda: _xwd(120, 90, BLAU))
+
+    ok, meldung = m.grundbild_aufnehmen()
+
+    assert not ok, meldung
+    assert "xemu" in meldung, meldung
+    assert not os.path.exists(grund), "es wurde trotzdem ein Grundbild geschrieben"
+
+
+def test_the_agent_takes_the_baseline_before_it_starts_the_emulator():
+    """Das Grundbild muss VOR dem Start aufgenommen werden — danach ist es wertlos.
+
+    Geprueft wird am Quelltext, weil der Agent hier keinen X-Server hat. Der Aufruf muss
+    NACH `_stop_locked()` stehen (sonst steht der Vortitel noch im Bild) und VOR
+    `subprocess.Popen` (sonst der neue).
+    """
+    quelle = open(os.path.join(REPO, "contrib/streaming-host/stream-agent.py"),
+                  encoding="utf-8").read()
+    assert "--grundbild" in quelle, "der Agent nimmt nie ein Grundbild auf"
+    halt = quelle.index("_stop_locked()\n", quelle.index("umgebung = start_umgebung"))
+    grund = quelle.index("--grundbild", halt)
+    start = quelle.index("subprocess.Popen", halt)
+    assert halt < grund < start, "das Grundbild wird nicht zwischen Stoppen und Starten geholt"
