@@ -1026,11 +1026,49 @@ def hostlast():
     try:
         # `ps` statt /proc-Eigenbau: die Prozentwerte sind dieselben, die ein Mensch
         # beim Nachsehen bekommt — und genau die stehen spaeter im Bericht.
-        r = subprocess.run(["ps", "-eo", "pcpu,comm", "--sort=-pcpu"],
+        #
+        # DIE MESSUNG DARF SICH NICHT SELBST SEHEN. (#529)
+        #
+        # `ps` rechnet %CPU als Rechenzeit ueber die LEBENSDAUER. Ein Prozess, der
+        # Millisekunden alt ist und ein paar davon verbraucht hat, steht damit bei
+        # nahezu 100 % — der `ps`-Aufruf selbst landet also zuverlaessig auf Platz eins
+        # und der eigene Interpreter meist auf Platz zwei. Direkt nach dem Ausrollen
+        # gemessen:
+        #
+        #     100,0 %  ps          <- die Messung
+        #      73,3 %  python3     <- der Messende
+        #      25,0 %  xfce4-panel
+        #
+        # Die Liste hat FUENF Plaetze. Zwei davon an die Messung zu verlieren heisst,
+        # dass zwei echte Verbraucher aus der Aufzeichnung fallen — und die gibt es nur,
+        # um genau die zu nennen. Dieselbe Falle wie bei `pgrep`/`pkill`, die die eigene
+        # Sitzung treffen.
+        #
+        # Der Agent bleibt sichtbar, wenn er WIRKLICH beschaeftigt ist; weg muss die
+        # Beobachtung, nicht der Beobachter.
+        # EN: ps computes %CPU over process lifetime, so the measuring call itself scores
+        # ~100 % and takes a slot the record exists to give to real consumers.
+        r = subprocess.run(["ps", "-eo", "pid,ppid,pcpu,comm", "--sort=-pcpu"],
                            capture_output=True, text=True, timeout=5)
-        zeilen = [z.split(None, 1) for z in r.stdout.splitlines()[1:6] if z.strip()]
-        daten["top"] = [{"cpu": float(a), "name": b.strip()}
-                        for a, b in zeilen if a.replace(".", "", 1).isdigit()]
+        selbst = {str(os.getpid())}
+        top = []
+        for z in r.stdout.splitlines()[1:]:
+            teile = z.split(None, 3)
+            if len(teile) < 4:
+                continue
+            pid, ppid, pcpu, name = teile
+            if not pcpu.replace(".", "", 1).isdigit():
+                continue
+            # Der `ps`-Prozess selbst (Kind dieses Prozesses) und dieser Prozess,
+            # SOLANGE er nur misst — beides gehoert nicht in die Auskunft.
+            if name.strip() == "ps" and ppid in selbst:
+                continue
+            if pid in selbst:
+                continue
+            top.append({"cpu": float(pcpu), "name": name.strip()})
+            if len(top) >= 5:
+                break
+        daten["top"] = top
     except Exception:                                        # noqa: BLE001
         daten["top"] = []
     return daten
