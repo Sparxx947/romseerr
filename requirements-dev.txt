@@ -21,4 +21,4 @@ pytest-playwright>=0.5
 axe-playwright-python>=0.1.8
 
 # Vertragstest gegen die eigene OpenAPI-Spezifikation
-schemathesis>=4.0
+schemathesis>=4.24.3
