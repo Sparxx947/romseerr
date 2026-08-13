@@ -499,9 +499,54 @@ def test_api_version_public(client, appmod):
 
 def test_api_version_semver_compare(appmod):
     """Der Versionsvergleich für den Update-Hinweis ordnet numerisch, nicht lexikalisch."""
-    assert appmod._semver("v1.10.0") > appmod._semver("1.9.9")
-    assert appmod._semver("1.0.0-beta.1") == appmod._semver("1.0.0")   # Suffix ignoriert
-    assert appmod._semver("krumm") == (0, 0, 0)
+    sv = appmod._semver
+    assert sv("v1.10.0") > sv("1.9.9")
+    assert sv("krumm") < sv("0.0.1")          # unlesbar ist das Kleinste, nie ein Update
+    assert sv("1.2.3") == sv("v1.2.3")        # führendes v ist Schmuck
+    assert sv("1.2.3+abc") == sv("1.2.3")     # Build-Metadaten zählen laut SemVer nicht mit
+
+
+def test_semver_ordnet_vorabversionen(appmod):
+    """Der Vorabteil entscheidet mit — sonst ist die ganze Beta-Reihe eine einzige Version.
+
+    Seit #572 sind alle Releases dieses Projekts Vorabversionen, der Hinweis vergleicht also
+    fast immer Beta gegen Beta. Genau diese drei Zeilen konnte er nicht (#574). Die Regeln
+    stehen in SemVer 2.0.0 §11 und werden hier der Reihe nach durchgerechnet.
+
+    EN: pre-releases decide, otherwise the whole beta series collapses into one version.
+    """
+    sv = appmod._semver
+    # 1. Dieselbe Version, höherer Vorabteil -> Update. Numerisch, nicht als Zeichenkette:
+    #    beta.10 steht ÜBER beta.9, obwohl "10" < "9" buchstabiert.
+    assert sv("1.3.0-beta.2") > sv("1.3.0-beta.1")
+    assert sv("1.3.0-beta.10") > sv("1.3.0-beta.9")
+    # 2. Der Sprung, auf den es am meisten ankommt: stabil schlägt die eigene Beta.
+    assert sv("1.3.0") > sv("1.3.0-beta.1")
+    #    ... und rückwärts gilt es nicht — eine Beta ist kein Update zur fertigen Fassung.
+    assert not sv("1.3.0-beta.1") > sv("1.3.0")
+    # 3. Der Zahlenteil bleibt vorrangig: eine ältere Beta einer neueren Version gewinnt.
+    assert sv("1.4.0-beta.1") > sv("1.3.0")
+    # 4. Rangfolge innerhalb der Vorabteile: alpha < beta < rc, Zahl vor Wort,
+    #    und mehr Bezeichner schlagen weniger bei gleichem Anfang.
+    assert sv("1.0.0-alpha") < sv("1.0.0-beta") < sv("1.0.0-rc.1") < sv("1.0.0")
+    assert sv("1.0.0-1") < sv("1.0.0-alpha")          # rein numerisch rangiert unter Wort
+    assert sv("1.0.0-alpha") < sv("1.0.0-alpha.1")    # längerer Vorabteil steht höher
+    # 5. Gleichheit bleibt Gleichheit — sonst meldete jede Instanz sich selbst als veraltet.
+    assert not sv("1.3.0-beta.1") > sv("1.3.0-beta.1")
+
+
+def test_update_hinweis_zwischen_zwei_betas(appmod, client, monkeypatch):
+    """Der Weg durch /api/version?check=1, nicht nur die Vergleichsfunktion. (#574)
+
+    EN: exercises the whole /api/version?check=1 path, not just the compare helper.
+    """
+    monkeypatch.setattr(appmod, "VERSION", "1.3.0-beta.1")
+    for veroeffentlicht, erwartet in (("1.3.0-beta.2", True), ("1.3.0", True),
+                                      ("1.3.0-beta.1", False), ("1.2.0", False)):
+        monkeypatch.setattr(appmod, "latest_release", lambda v=veroeffentlicht: v)
+        d = client.get("/api/version?check=1").get_json()
+        assert d["latest"] == veroeffentlicht
+        assert d["update_available"] is erwartet, f"{veroeffentlicht} gegen 1.3.0-beta.1"
 
 
 def test_metrics_requires_auth(client):
