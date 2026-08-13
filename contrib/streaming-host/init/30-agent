@@ -112,7 +112,147 @@ EMU=/config/emulators
 STREAM_AGENT_TOKEN="$(cat "$TOKFILE")"; export STREAM_AGENT_TOKEN
 export STREAM_AGENT_PORT="${AGENT_PORT:-8901}"
 export STREAM_ROMS=/roms
-[ -x "$EMU/pcsx2/AppRun" ]     && export EMU_PS2="$VGL $EMU/pcsx2/AppRun -- %s"
+# ENTPACKTE APPIMAGES BRAUCHEN IHRE EIGENEN VARIABLEN. (#440)
+#
+# `linuxdeploy` erzeugt bei manchen Emulatoren ein `AppRun.wrapped`, das das Programm NUR
+# startet, wenn `$APPIMAGE` gesetzt ist:
+#
+#     if [ "${APPIMAGE}" != "" ]; then "${APPDIR}/usr/bin/Vita3K" $@ ; fi
+#
+# Die Variable setzt die AppImage-Laufzeit, wenn das Abbild sich selbst startet. Wir starten
+# aber den ENTPACKTEN Baum — dann ist sie leer, der Zweig wird uebersprungen, und der Prozess
+# endet mit **Exit 0 und ohne jede Ausgabe**. Genau das war das „oeffnet kein Fenster" aus
+# #136, und es sah nach einem defekten Emulator aus statt nach einer Verpackungsluecke.
+#
+# Betroffen sind vita3k, cemu und rpcs3. Gesetzt wird es fuer ALLE, nicht nur fuer die drei:
+# `APPDIR` auf den entpackten Baum zu zeigen ist das, was die Laufzeit ohnehin taete — es ist
+# also richtig und nicht bloss harmlos. Vier Sonderfaelle waeren die Sorte Wissen, die beim
+# naechsten neuen Emulator fehlt.
+#
+# EN: some extracted AppImages only run when $APPIMAGE is set — otherwise they exit 0 with no
+# output at all. Set for every emulator rather than for the three known ones.
+apprun() {   # <ordner> -> Kommando-Praefix bis einschliesslich AppRun
+  printf 'env APPDIR=%s/%s APPIMAGE=%s/%s/AppRun %s %s/%s/AppRun' \
+         "$EMU" "$1" "$EMU" "$1" "$VGL" "$EMU" "$1"
+}
+
+# OHNE VIRTUALGL — FUER EMULATOREN, DIE MIT VULKAN SELBST AN DIE GPU KOMMEN (#498).
+#
+# VirtualGL ist die Bruecke fuer OpenGL: Es faengt den GL-Aufruf ab, laesst ihn auf der
+# Arc laufen und liest das Ergebnis zurueck ins X-Fenster. Fuer Vulkan braucht es das
+# nicht — Vulkan findet die Karte ohne Hilfe. Und die Rueckleseschicht hat einen Fehler,
+# der das Bild beschneidet: Nach einer Fenstergroessenaenderung liest sie weiter in der
+# alten Groesse, sodass nur die alte Ecke bemalt wird (VirtualGL/virtualgl#287).
+#
+# NACHGEMESSEN, ein Faktor auf einmal, Fenster in allen drei Zeilen 1920x1080:
+#
+#     Renderer   vglrun   bemalte Flaeche nach Vollbild
+#     OpenGL     ja       ~62 %
+#     Vulkan     ja       62,9 %
+#     Vulkan     nein     100 %
+#
+# Die bemalte Flaeche wird gegen eine Aufnahme des leeren Desktops verglichen, ist also
+# das tatsaechlich gezeichnete Rechteck und keine Fenstergeometrie.
+#
+# DIE HARDWARE BLEIBT: Ohne `vglrun` waehlt xemu weiterhin die Karte, nicht den
+# Software-Rasterer —
+#
+#     Available physical devices:
+#     - Intel(R) Arc(tm) A310 Graphics (DG2)
+#     - llvmpipe (LLVM 21.1.8, 256 bits)
+#     Selected physical device: Intel(R) Arc(tm) A310 Graphics (DG2)
+#
+# NUR FUER XEMU — und das ist eine Frage des BEWEISES, nicht der Technik.
+#
+# Der naheliegende Schluss waere, VirtualGL ueberall wegzunehmen. Dafuer spricht eine
+# Messung im Container: OpenGL erreicht die Karte auch OHNE `vglrun`, weil DRI3 hier
+# inzwischen funktioniert —
+#
+#     DISPLAY=:1 glxinfo -B          -> Mesa Intel(R) Arc(tm) A310 Graphics (DG2)
+#     vglrun -d /dev/dri/card2 …     -> derselbe Renderer
+#
+# Das ist ein Hinweis, aber kein Nachweis fuer zehn Emulatoren: `glxinfo` ist ein
+# denkbar einfacher GL-Kunde, waehrend die Emulatoren GLX, EGL und Vulkan gemischt und
+# ueber AppImage-eigene Bibliotheken nutzen. xemu ist der einzige, der Ende zu Ende
+# gepruefte Fall — Bild, Ton und Controller von einem Menschen bestaetigt.
+#
+# Der breite Schnitt gehoert in ein eigenes Vorhaben mit eigener Messung, nicht als
+# Nebenwirkung eines xemu-Fixes.
+#
+# EN: dropping VirtualGL everywhere is plausible — DRI3 works and plain glxinfo reaches
+# the GPU without vglrun — but that is one simple GL client, not ten emulators mixing
+# GLX, EGL and Vulkan through their own bundled libraries. xemu is the one measured
+# end to end. The wider change deserves its own measurement.
+#
+# EN: VirtualGL bridges OpenGL to the GPU; Vulkan needs no bridge, and VirtualGL's readback
+# does not follow a window resize, which crops the picture. Measured one factor at a time:
+# only dropping vglrun fixes it, and the discrete GPU is still selected. Scoped to xemu,
+# which was measured — every other emulator still presents through the GL path.
+apprun_ohne_vgl() {   # <ordner> -> wie apprun, aber ohne VirtualGL
+  printf 'env APPDIR=%s/%s APPIMAGE=%s/%s/AppRun %s/%s/AppRun' \
+         "$EMU" "$1" "$EMU" "$1" "$EMU" "$1"
+}
+
+# OHNE DEN WRAPPER, DIREKT AUF DIE BINAERDATEI (#489).
+#
+# Bei den meisten Emulatoren IST `AppRun.wrapped` das Programm und wird `exec`-t — die
+# PID bleibt dieselbe. Bei Vita3K ist es ein Shell-Skript, das das Programm als KIND
+# startet, ohne `exec`. Nachgemessen:
+#
+#     head -c2 AppRun.wrapped:   vita3k "#!"      rpcs3 "\177E"   cemu "\177E"
+#
+#     #!/bin/sh
+#     if [ "${APPIMAGE}" != "" ]; then
+#         export PATH="$APPDIR/usr/bin:$PATH"
+#         "${APPDIR}/usr/bin/Vita3K" $@        <- kein exec, $@ ohne Anfuehrungszeichen
+#     fi
+#
+# Der Agent merkt sich damit die PID der SHELL, und daran haengen drei Folgen:
+#
+#   /stop wirkt nicht      Der Emulator ueberlebt als Waise (PPid 1); erst `kill -9`
+#                          beendet ihn. Der Dienst haelt sich fuer frei, der naechste
+#                          Start laeuft gegen einen Emulator, der die GPU noch haelt.
+#   Fensterpruefung irrt   `kein sichtbares Fenster zum Prozess` — an der ECHTEN PID
+#                          fand dasselbe Werkzeug `Welcome to Vita3K` (#488).
+#   Leerzeichen zerfallen  `$@` unquotiert: aus `x PCSF00024` wird `x`. Fuer eine
+#                          Titelkennung folgenlos, fuer einen Pfad nicht (#481).
+#
+# Der Wrapper tut nachweislich nur zweierlei — `PATH` setzen und starten. Beides steht
+# hier, also faellt nichts weg.
+#
+# EN: for most emulators AppRun.wrapped IS the binary and is exec'd; for Vita3K it is a
+# shell script that starts the binary as a CHILD without exec, so the agent tracks the
+# shell. /stop then fails, the window check looks at the wrong pid, and unquoted "$@"
+# splits arguments. The wrapper only sets PATH and runs — both are reproduced here.
+apprun_direkt() {   # <ordner> <programm> -> Kommando bis einschliesslich Binaerdatei
+  printf 'env APPDIR=%s/%s APPIMAGE=%s/%s/AppRun PATH=%s/%s/usr/bin:%s %s %s/%s/usr/bin/%s' \
+         "$EMU" "$1" "$EMU" "$1" "$EMU" "$1" "$PATH" "$VGL" "$EMU" "$1" "$2"
+}
+
+# RATSCHE: MELDEN, WENN EIN ANDERER EMULATOR EBENFALLS EINEN SKRIPT-WRAPPER BEKOMMT.
+#
+# Dass nur Vita3K betroffen ist, ist eine MESSUNG VON HEUTE, keine Eigenschaft von
+# AppImages. `linuxdeploy` erzeugt je nach Bauart mal ein ELF, mal ein Skript — ein
+# Update kann das jederzeit drehen, und dann ist derselbe Fehler wieder da, nur woanders
+# und ohne Hinweis. Die Meldung kostet nichts und macht aus einem stummen Rueckfall eine
+# Zeile im Protokoll.
+# EN: only Vita3K is affected TODAY; linuxdeploy may emit a script for any emulator after
+# an update, and the bug would come back silently elsewhere.
+for _e in "$EMU"/*/AppRun.wrapped; do
+  [ -f "$_e" ] || continue
+  _n=$(basename "$(dirname "$_e")")
+  [ "$_n" = "vita3k" ] && continue          # bekannt und behandelt
+  if [ "$(head -c 2 "$_e" 2>/dev/null)" = "#!" ]; then
+    echo "[agent] HINWEIS: $_n/AppRun.wrapped ist ein Skript, kein Programm — der" \
+         "Start-Dienst verfolgt dann die Shell statt des Emulators (#489). /stop und" \
+         "die Fensterpruefung greifen dort nicht." >&2
+    echo "[agent] NOTE: $_n uses a shell wrapper; the service tracks the shell, not the" \
+         "emulator (#489)." >&2
+  fi
+done
+unset _e _n
+
+[ -x "$EMU/pcsx2/AppRun" ]     && EMU_PS2="$(apprun pcsx2) -- %s" && export EMU_PS2
 # NUR die AppImage. Der frueher hier stehende Rueckfall auf /usr/games/dolphin-emu
 # ist bewusst entfernt: das apt-Paket startet, legt seine Konfiguration an und oeffnet
 # NIE ein Fenster (#165). Ein Rueckfall auf etwas, das nachweislich nicht funktioniert,
@@ -120,25 +260,139 @@ export STREAM_ROMS=/roms
 # stummes "Knopf da, nichts passiert".
 # Only the AppImage: falling back to something that provably does not work turns a
 # clear "not installed" into a silent "button there, nothing happens".
-[ -x "$EMU/dolphin/AppRun" ]   && export EMU_GC="$VGL $EMU/dolphin/AppRun -b -e %s"
-[ -x "$EMU/switchemu/AppRun" ] && export EMU_SWITCH="$VGL $EMU/switchemu/AppRun -f -g %s"
-[ -x "$EMU/flycast/AppRun" ]   && export EMU_DC="$VGL $EMU/flycast/AppRun %s"
+[ -x "$EMU/dolphin/AppRun" ]   && EMU_GC="$(apprun dolphin) -b -e %s" && export EMU_GC
+[ -x "$EMU/switchemu/AppRun" ] && EMU_SWITCH="$(apprun switchemu) -f -g %s" && export EMU_SWITCH
+# FLYCAST: Vollbild und Vulkan ausdruecklich setzen. (#304)
+#
+# NACHGEMESSEN, nicht angenommen. Flycast schreibt seine Konfiguration erst beim Beenden;
+# die Datei war hier LEER, der Emulator lief also jedes Mal mit den eingebauten Vorgaben:
+#
+#     [window] fullscreen = no, 640x480     auf einem 1920x1080-Bildschirm
+#
+# Mit `window:fullscreen=yes` meldet sein eigenes Protokoll `size 1920 x 1080`, das Fenster
+# liegt auf 0,0 und die bemalte Flaeche betraegt 100 % (xwd-Messung, 57.600 Abtastpunkte).
+#
+# ZUR SYNTAX: `-config SEKTION:schluessel=wert`. Ein falsch geschriebener Schluessel wird
+# STILL ignoriert — `-config pvr.rend=4` liest Flycast als Sektion `pvr`, Schluessel `rend`
+# und tut nichts. Genau daran waere hier fast die Fehldiagnose „Flycast kann kein Vulkan"
+# entstanden. Richtig ist die Sektion `config`.
+#
+# RENDERER: 0 und 3 sind OpenGL, 4 und 5 Vulkan (5 mit Per-Pixel-Sortierung). Gemessen am
+# laufenden Host:
+#     config:pvr.rend=4 -> rend/vulkan/vulkan_context.cpp:271
+#                          N[RENDERER]: Vulkan API 1.1. Device Intel(R) Arc(tm) A310
+# samt `VK_KHR_swapchain`. Auf der Arc ist der Vulkan-Treiber der ausgereiftere Weg.
+#
+# RUECKWEG: Die beiden `-config`-Angaben entfernen — dann gilt wieder OpenGL im Fenster.
+# Beide sind fluechtig, sie landen nicht in der Konfigurationsdatei des Nutzers.
+#
+# EN: measured, not assumed. Flycast only writes its config on exit and the file was empty,
+# so it ran with 640x480 windowed defaults on a 1920x1080 screen. Note the syntax: a
+# misspelled `-config` key is silently ignored, which nearly produced the wrong conclusion
+# that this build has no Vulkan renderer. Rollback: drop both flags.
+[ -x "$EMU/flycast/AppRun" ]   && EMU_DC="$(apprun flycast) -config config:pvr.rend=4 -config window:fullscreen=yes %s" && export EMU_DC
 # `-batch` startet den Titel ohne Umweg ueber die Bibliotheksoberflaeche und beendet
 # DuckStation beim Herunterfahren des Spiels — sonst bliebe ein Fenster stehen, das aus
 # der Ferne niemand schliesst. / EN: -batch boots straight into the title and exits with
 # it, instead of leaving a window nobody can close remotely.
-[ -x "$EMU/duckstation/AppRun" ] && export EMU_PSX="$VGL $EMU/duckstation/AppRun -batch -fullscreen %s"
-[ -x "$EMU/xemu/AppRun" ]      && export EMU_XBOX="$VGL $EMU/xemu/AppRun -dvd_path %s"
-[ -x "$EMU/cemu/AppRun" ]      && export EMU_WIIU="$VGL $EMU/cemu/AppRun -g %s"
-[ -x "$EMU/azahar/AppRun" ]    && export EMU_3DS="$VGL $EMU/azahar/AppRun %s"
-[ -x "$EMU/vita3k/AppRun" ]    && export EMU_VITA="$VGL $EMU/vita3k/AppRun -r %s"
-[ -x "$EMU/rpcs3/AppRun" ]     && export EMU_PS3="$VGL $EMU/rpcs3/AppRun --no-gui %s"
+[ -x "$EMU/duckstation/AppRun" ] && EMU_PSX="$(apprun duckstation) -batch -fullscreen %s" && export EMU_PSX
+# XEMU BRAUCHT EINE BIBLIOTHEK, DIE NICHT AUF DEM SUCHPFAD LIEGT (#525).
+#
+# `init/22-xemu-vorbereiten` leiht `libusb-1.0.so.0` aus einem anderen Emulator-AppImage
+# und legt sie nach `/config/lib`. Nur wusste davon niemand:
+#
+#     ldconfig -p | grep -c libusb   -> 0
+#     /etc/ld.so.conf.d/*.conf       -> kein Eintrag fuer /config
+#
+# Ohne den Pfad endet xemu SOFORT:
+#
+#     error while loading shared libraries: libusb-1.0.so.0
+#
+# Von aussen ist das nicht von „der Emulator kann die Plattform nicht" zu unterscheiden:
+# Der Stream geht auf und bleibt leer. Am laufenden Host beidseitig nachgemessen — ohne
+# den Pfad der Abbruch, mit ihm ein Fenster „xemu | v0.8.136".
+#
+# WARUM HIER UND NICHT IN `ld.so.conf`: Ein Eintrag im Systempfad gilt fuer ALLE
+# Programme im Container und ueberschreibt im Zweifel Bibliotheken, die ein anderes
+# AppImage selbst mitbringt. Der Bedarf ist auf xemu beschraenkt, die Ausnahme also auch.
+#
+# EN: the init borrows libusb into /config/lib, but nothing put that on the loader's
+# path, so xemu exited immediately — indistinguishable from "platform not supported".
+# Scoped to xemu rather than added to ld.so.conf, which would affect every process.
+#
+# OHNE VIRTUALGL, MIT VULKAN (#498). Begruendung und Messung stehen bei `apprun_ohne_vgl`;
+# den passenden Renderer schreibt `launch-profile.py` in die `xemu.toml`, weil xemu dafuer
+# keinen Schalter auf der Kommandozeile kennt. Beides gehoert zusammen: ohne den Renderer
+# faellt xemu ohne VirtualGL auf den Software-Rasterer zurueck.
+[ -x "$EMU/xemu/AppRun" ]      && EMU_XBOX="env LD_LIBRARY_PATH=/config/lib $(apprun_ohne_vgl xemu) -dvd_path %s" && export EMU_XBOX
+[ -x "$EMU/cemu/AppRun" ]      && EMU_WIIU="$(apprun cemu) -g %s" && export EMU_WIIU
+[ -x "$EMU/azahar/AppRun" ]    && EMU_3DS="$(apprun azahar) %s" && export EMU_3DS
+# VITA3K: `%s` IST HIER KEIN PFAD, SONDERN DIE TITELKENNUNG. (#481)
+#
+# `-r` ist `--installed-path` und nimmt laut eigener Hilfe eine Kennung aus der Menge der
+# INSTALLIERTEN Titel — `TEXT:{PCSF00024}`. Mit dem Pfad endet der Start vor jedem Fenster:
+#
+#     CLI parsing error: --installed-path: /roms/psvita/Gravity not in {PCSF00024}
+#     [E] [main]: Failed to initialise config                            (Exit 4)
+#
+# Der Agent setzt deshalb bei `psvita` die Kennung aus `sce_sys/param.sfo` ein, nicht den
+# Pfad. Wer diese Zeile auf den POSITIONALEN Parameter umstellt (`… %s`), bekaeme etwas
+# anderes: der installiert und startet, und die Kennung waere dort falsch. Beides zusammen
+# muss geaendert werden oder gar nichts.
+# EN: `%s` here is the title id, not a path — the agent substitutes it for psvita.
+# VITA3K: die Binaerdatei direkt, nicht ueber AppRun (#489, Begruendung bei apprun_direkt).
+# Fehlt sie, wird der Wrapper genommen — aber MIT ANSAGE. Ein stiller Rueckfall auf einen
+# Startweg, bei dem `/stop` nachweislich nicht wirkt, ist genau die Sorte Netz, in die man
+# faellt ohne es zu merken (#500).
+# EN: run the binary directly; fall back to AppRun only with a message, never silently.
+if [ -x "$EMU/vita3k/usr/bin/Vita3K" ]; then
+  EMU_VITA="$(apprun_direkt vita3k Vita3K) -r %s" && export EMU_VITA
+elif [ -x "$EMU/vita3k/AppRun" ]; then
+  echo "[agent] HINWEIS: vita3k/usr/bin/Vita3K fehlt — Start ueber AppRun. /stop beendet" \
+       "den Emulator dann NICHT und die Fensterpruefung sieht die Shell (#489)." >&2
+  echo "[agent] NOTE: falling back to vita3k/AppRun; /stop will not stop the emulator." >&2
+  EMU_VITA="$(apprun vita3k) -r %s" && export EMU_VITA
+fi
+[ -x "$EMU/rpcs3/AppRun" ]     && EMU_PS3="$(apprun rpcs3) --no-gui %s" && export EMU_PS3
 
 pkill -f stream-agent.py 2>/dev/null || true
 # Aus dem eingehaengten Repo starten, nicht aus /config: was laeuft, ist damit
 # immer das, was im Repo steht. / Run the mounted file, so running == checked out.
 AGENT=/opt/stream-agent.py
-[ -f "$AGENT" ] || AGENT=/config/stream-agent.py   # Rueckfall fuer Altbestand
+# KEIN RUECKFALL AUF /config (#500). Hier stand:
+#
+#     [ -f "$AGENT" ] || AGENT=/config/stream-agent.py   # Rueckfall fuer Altbestand
+#
+# Am laufenden Host nachgemessen, was dieser Rueckfall gestartet haette:
+#
+#     /opt/stream-agent.py      75621 Byte   1510 Zeilen   (aus dem Repo eingehaengt)
+#     /config/stream-agent.py    6703 Byte    158 Zeilen   (7. August, verwaist)
+#
+# Die Altfassung kennt weder `psx` noch `psvita`, `ps3` oder `xbox`, verdrahtet
+# Emulatorpfade, die es nicht mehr gibt (`/usr/games/dolphin-emu`), und hat nichts von
+# der Absicherung: keine Pfadeingrenzung, keine Titelkennung (#481), keinen Umgang mit
+# den modalen Fenstern (#490, #494, #496).
+#
+# EIN RUECKFALL IST NUR DANN EIN NETZ, WENN DAS HINEINFALLEN SICHTBAR IST. Dieser hier
+# startet einen alten Prozess, der Anfragen beantwortet und gesund aussieht: Der Stream
+# kommt hoch, die Emulatortabelle ist falsch, und nichts im Protokoll sagt warum. Ein
+# Container, der NICHT hochkommt, ist in zehn Minuten repariert; einer, der falsch
+# hochkommt, kostet einen Tag.
+#
+# Ausloesen wuerde es nur, wenn die Einhaengung von `stack/stream-agent.py` fehlt — und
+# genau dann soll es knallen statt leise zu funktionieren.
+#
+# EN: no fallback to /config. A fallback is a safety net only when falling into it is
+# visible; this one silently started a 158-line agent from August that answers requests
+# and looks healthy. Refuse loudly instead.
+if [ ! -f "$AGENT" ]; then
+  echo "[agent] FEHLT: $AGENT — der Start-Dienst wird NICHT gestartet." >&2
+  echo "[agent] Erwartet wird die Einhaengung von 'stack/stream-agent.py' nach" >&2
+  echo "[agent] '/opt/stream-agent.py'. Fehlt sie, pruefe die Bind-Mounts des" >&2
+  echo "[agent] Containers — frueher wich das hier still auf eine Altfassung aus." >&2
+  echo "[agent] MISSING: $AGENT — refusing to start rather than running a stale copy." >&2
+  exit 1
+fi
 
 # ALTBESTAND HEILEN, bevor der Dienst startet. Solange er als root lief, gehoerten die
 # Konfigurationen der Emulatoren root — und ein im Desktop gestarteter Emulator (der
@@ -146,8 +400,33 @@ AGENT=/opt/stream-agent.py
 # Dolphins Verzeichnis (nicht beschreibbar), PCSX2.ini mit Modus 600 (nicht lesbar),
 # RPCS3s input_configs. Nur die tatsaechlich root-eigenen Dateien anfassen — ein
 # pauschales `chown -R` ueber /config waere langsam und wuerde Fremdes mitnehmen.
+#
+# `/config/.cache` FEHLTE HIER UND HAT CEMU BLOCKIERT (#509). Gemessen am 2026-08-13:
+#
+#     drwxr-xr-x 2 root root  /config/.cache/Cemu     (angelegt 2026-08-10)
+#     3044 Dateien unter /config/.cache gehoerten root
+#
+# Cemu oeffnete daraufhin einen modalen Dialog — „Cemu can't write to
+# /config/.cache/Cemu!" — und kam nie bis zu seiner eigenen Initialisierung: kein
+# Protokoll, kein Hauptfenster, und der Dialog reagierte weder auf Return noch auf
+# Leertaste, Escape oder einen Klick auf seinen Knopf. Von aussen sah das nach einem
+# kaputten Startpfad aus (#502) und war eine Rechtefrage.
+#
+# Der groesste Teil der 3044 war `mesa_shader_cache`: Der Shader-Zwischenspeicher der
+# GPU war nie beschreibbar, also hat JEDER Emulator bei JEDEM Start neu uebersetzt.
+# Das faellt niemandem auf — es sieht aus wie „die erste Minute ruckelt eben".
+#
+# WARUM DIE LISTE AUSDRUECKLICH BLEIBT und kein `chown -R /config` wird:
+# `/config/agent-token` gehoert root und MUSS `root:600` bleiben — es ist das Einzige
+# zwischen einer Anfrage und einem gestarteten Prozess auf dem Host. Ein pauschaler
+# Lauf wuerde es `abc` uebergeben.
+#
 # EN: heal what the root-run agent left behind, touching only root-owned files.
-for baum in /config/.config /config/.local/share; do
+# `/config/.cache` was missing and is what blocked Cemu (#509): 3044 root-owned files,
+# a modal dialog no keystroke would dismiss, and a shader cache that was never
+# writable. The list stays explicit rather than becoming `chown -R /config`, because
+# `/config/agent-token` must remain root:600.
+for baum in /config/.config /config/.local/share /config/.cache; do
   [ -d "$baum" ] || continue
   find "$baum" -user 0 -exec chown "${PUID:-abc}:${PGID:-users}" {} + 2>/dev/null || true
 done

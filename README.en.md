@@ -442,8 +442,14 @@ docker run -d --name romseerr -p 8770:8770 \
   --env-file .env \
   -v /path/to/rom-library:/roms \
   -v ./config:/config \
-  ghcr.io/sparxx947/romseerr:latest
+  ghcr.io/sparxx947/romseerr:1.2.0-beta.1
 ```
+
+> **Do not use `:latest` while there is no stable release.** The tag is only applied to
+> stable versions — a pre-release must not move it. Since every release so far has been a
+> beta, `:latest` still points at a build from **2026-08-07 07:33** (`bd87e6c`), which
+> predates v1.0.0-beta.1. Following it gets you an image belonging to no release at all.
+> Use the version number until the first stable one appears.
 
 The container runs **non-root** and ships a **healthcheck** on `/health`.
 

@@ -7,10 +7,15 @@ on:
   pull_request:
   schedule:
     - cron: "0 6 * * 1"   # wöchentlich Montag / weekly Monday
+# OBEN NUR LESEN, Schreibrechte am Job. (#434)
+#
+# `security-events: write` brauchen nur die Jobs, die SARIF hochladen — auf Workflow-Ebene
+# galt es fuer alle, auch fuer die, die nichts hochladen. Scorecard bemaengelt genau das,
+# und die enge Fassung ist ohnehin die ehrlichere Beschreibung dessen, was hier passiert.
+#
+# Top level read-only; only the jobs that upload SARIF ask for security-events.
 permissions:
   contents: read
-  security-events: write
-  pull-requests: read   # gitleaks liest auf PRs die Commit-Liste / gitleaks reads PR commits
 
 env:
   # WELCHEN STAND EIN GEPLANTER LAUF PRUEFT (#358): Geplante Laeufe starten IMMER auf dem
@@ -29,6 +34,9 @@ env:
 
 jobs:
   codeql:
+    permissions:
+      contents: read
+      security-events: write
     # CodeQL ist auf öffentlichen Repos kostenlos; auf privaten braucht es GHAS.
     # Daher auf privaten Repos überspringen (statt rot). / skipped on private repos.
     name: CodeQL (Python)
@@ -45,6 +53,8 @@ jobs:
       - uses: github/codeql-action/analyze@c4dd10e44af883a891fe31ced449bcb4a6728b9b  # v3
 
   bandit:
+    permissions:
+      contents: read
     name: Bandit (SAST)
     runs-on: ubuntu-latest
     steps:
@@ -58,6 +68,9 @@ jobs:
       - run: bandit -r app.py -ll
 
   trivy:
+    permissions:
+      contents: read
+      security-events: write
     name: Trivy (deps, secrets, misconfig)
     runs-on: ubuntu-latest
     steps:
@@ -73,6 +86,9 @@ jobs:
           ignore-unfixed: true
 
   gitleaks:
+    permissions:
+      contents: read
+      pull-requests: read   # liest auf PRs die Commit-Liste / reads PR commits
     name: Gitleaks (secret scan)
     runs-on: ubuntu-latest
     steps:
@@ -95,12 +111,14 @@ jobs:
       # The config must exist in every scanned tree, main included: without it gitleaks
       # aborts before writing results.sarif and the action fails on the upload instead,
       # which looks like an action bug and is not one.
-      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e  # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: ${{ github.workspace }}/.gitleaks.toml
 
   dependency-review:
+    permissions:
+      contents: read
     # Blockiert PRs, die Abhängigkeiten mit bekannten Schwachstellen einführen.
     # Nur auf PRs (vergleicht Base vs. Head). / Only on PRs.
     name: Dependency review

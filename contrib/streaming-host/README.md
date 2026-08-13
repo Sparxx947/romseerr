@@ -23,7 +23,7 @@ nur die Landkarte, damit man weiß, wo man nachsieht.
 | Datei | Wozu |
 |---|---|
 | `docker-compose.yml` | der Stack: Selkies-Desktop, Start-Dienst, optional `acme` (certbot) und `seat2` |
-| `stream-agent.py` | der **Start-Dienst**, den Romseerr aufruft: `/status`, Titel öffnen, 3DS entschlüsseln, CIA installieren |
+| `stream-agent.py` | der **Start-Dienst**, den Romseerr aufruft: `/status`, Titel öffnen, 3DS entschlüsseln, CIA installieren, PS-Vita-Titelkennung auflösen |
 | `launch-profile.py` | **Startprofil je Emulator**: Controller-Belegung und regionsrichtiges BIOS. Eine Zuordnung je Emulator genügt für alle Pads, weil Browser und Selkies bereits auf ein Xbox-Pad normieren |
 | `emu-setup` | einen Emulator **ohne Spiel** öffnen, um Tasten zu belegen — mit derselben Umgebung wie ein Spielstart. Vom Desktop oder über SSH gestartet sieht er das Pad überhaupt nicht |
 | `selkies-uinput-bridge.py` | die **uinput-Brücke**: macht aus dem virtuellen Pad ein Gerät, das die Emulatoren finden |
@@ -50,7 +50,7 @@ Every file carries a bilingual header explaining why it exists; this table is on
 | File | Purpose |
 |---|---|
 | `docker-compose.yml` | the stack: Selkies desktop, launch service, optional `acme` and `seat2` |
-| `stream-agent.py` | the **launch service** Romseerr calls: `/status`, opening titles, 3DS decryption, CIA install |
+| `stream-agent.py` | the **launch service** Romseerr calls: `/status`, opening titles, 3DS decryption, CIA install, resolving the PS Vita title id |
 | `launch-profile.py` | **per-emulator launch profile**: controller mapping and region-correct BIOS. One mapping per emulator covers every pad, because the browser and Selkies already normalise to an Xbox pad |
 | `emu-setup` | open an emulator **without a game** to bind keys, with the same environment a launch gets. Started from the desktop or over SSH it cannot see the pad at all |
 | `selkies-uinput-bridge.py` | the **uinput bridge**: turns the virtual pad into a device emulators can find |
@@ -189,6 +189,50 @@ setzt für Xbox deshalb `LD_LIBRARY_PATH` auf beide Pfade.
 > System-`libpulsecommon` — `undefined symbol: pa_in_valgrind`, und der Ton bleibt
 > wieder weg. Es wird deshalb **genau eine Datei** geliehen, kein Verzeichnis.
 
+#### Und ein drittes: xemu läuft als einziger **ohne VirtualGL**, dafür mit Vulkan
+
+VirtualGLs Rückleseschicht folgt einer Fenstergrößenänderung nicht: Sie liest weiter in
+der alten Größe, sodass nur die alte Ecke bemalt wird und der Rest das stehen lässt, was
+vorher auf dem Schirm war. Beim Vollbild sah das aus wie ein Emulator, der sein Bild
+nicht skaliert. Gemeldet als [VirtualGL/virtualgl#287](https://github.com/VirtualGL/virtualgl/issues/287);
+der Betreuer hat als Ursache bestätigt, dass die `ConfigureNotify`-Ereignisse nie
+ankommen, auf die VirtualGL dafür wartet.
+
+Nachgemessen, **ein Faktor auf einmal** — Fenster in allen drei Zeilen 1920×1080, die
+bemalte Fläche gegen eine Aufnahme des leeren Desktops verglichen:
+
+| Renderer | `vglrun` | bemalte Fläche nach Vollbild |
+|---|---|---|
+| OpenGL | ja | ~62 % |
+| Vulkan | ja | 62,9 % |
+| **Vulkan** | **nein** | **100 %** |
+
+Die mittlere Zeile ist die wichtige: **Vulkan allein genügt nicht.** Solange VirtualGL
+dazwischenliegt, geht die Bildausgabe weiter über den abgefangenen GL-Pfad. Beides
+zusammen wirkt — deshalb setzt `launch-profile.py` zusätzlich `renderer = 'VULKAN'` in
+die `xemu.toml`; einen Schalter auf der Kommandozeile kennt xemu dafür nicht.
+
+Die Karte bleibt dabei in Betrieb, das ist am Protokoll geprüft und nicht angenommen:
+
+```
+Available physical devices:
+- Intel(R) Arc(tm) A310 Graphics (DG2)
+- llvmpipe (LLVM 21.1.8, 256 bits)
+Selected physical device: Intel(R) Arc(tm) A310 Graphics (DG2)
+```
+
+> **Warum nur xemu?** Weil nur xemu Ende zu Ende geprüft ist — Bild, Ton und Controller
+> von einem Menschen bestätigt. Dass OpenGL die Karte auch ohne VirtualGL erreicht, ist
+> im Container gemessen (`glxinfo -B` meldet ohne `vglrun` dieselbe Arc, DRI3 funktioniert
+> also), aber `glxinfo` ist ein einfacher GL-Kunde und kein Emulator mit eigenen
+> Bibliotheken. Der breite Schnitt gehört in ein eigenes Vorhaben mit eigener Messung.
+
+**Was das nicht behebt:** xemu ruckelt weiterhin, und das hat einen anderen Grund. Der
+Engpass ist **ein einziger Thread** (21.351 Ticks gegen 3.757 beim nächsten), die Kerne
+liegen bei 1995 MHz gegen eine Obergrenze von 2500 MHz, weil mehrere andere Lasten laufen
+— und die Arc langweilt sich bei 28 bis 44 %. Das ist eine Grenze der Einzelkernleistung,
+kein Grafikproblem.
+
 ### Und vor allem: das richtige BIOS
 
 **Alle Retail-BIOS-Dumps führen zu einem schwarzen Bild** oder zum Hinweis „Ihre Xbox
@@ -219,6 +263,56 @@ startet xemu auch ohne Konfigurationsdatei und ohne `eeprom.bin`, das es sich se
 anlegt. Der anfängliche `Failed to load BIOS '(null)'` war ein Folgefehler der
 fehlenden Platte.
 
+## Ein Update darf den Emulator nicht löschen
+
+`installiere()` entpackt nach `<name>.neu` und ruft dann `generationen_schieben`, das die
+bisherige Fassung nach `.alt1` räumt. **Ohne die abschließende Umbenennung `.neu` → `<name>`
+ist ein Update eine Löschung** — genau das war bis 2026-08-12 der Fall.
+
+Die Folge war unsichtbar: `init/30-agent` setzt `EMU_<PLATTFORM>` nur, wenn
+`<name>/AppRun` existiert. Fehlt das Verzeichnis, entsteht die Variable nicht, und die
+**ganze Plattform** fällt aus der Liste des Agenten. Gemessen: `ps2` und `ps3` fehlten einen
+Tag lang, während 17 PS3-Titel in der Bibliothek lagen. Kein Fehler, kein Fenster, keine
+fehlende Datei — der Streamen-Knopf erschien einfach nicht mehr.
+
+Merkregel: **Wer zuletzt aktualisiert wurde, war der Kaputte.**
+
+`/status` nennt deshalb jetzt auch `platforms_missing`, und der Agent schreibt es beim Start
+ins Protokoll. Ein Fehlen ist kein Alarm — wer keinen PS2-Emulator installiert, soll nichts
+Rotes sehen. Es macht nur den Unterschied zwischen „nicht eingerichtet" und „abhanden
+gekommen" überhaupt sichtbar.
+
+*Without the final rename an update deletes the emulator it was meant to update, and the
+platform silently disappears from the agent. `/status` now also reports what is missing.*
+
+## Entpackte AppImages brauchen `APPDIR` und `APPIMAGE`
+
+`linuxdeploy` erzeugt bei manchen Emulatoren ein `AppRun.wrapped`, das das Programm **nur**
+startet, wenn `$APPIMAGE` gesetzt ist:
+
+```sh
+if [ "${APPIMAGE}" != "" ]; then "${APPDIR}/usr/bin/Vita3K" $@ ; fi
+```
+
+Diese Variable setzt die AppImage-Laufzeit, wenn das Abbild sich selbst startet. Hier läuft
+aber der **entpackte Baum** — dann ist sie leer, der Zweig wird übersprungen, und der Prozess
+endet mit **Exit 0 und ohne jede Ausgabe**:
+
+```
+$ timeout 20 /config/emulators/vita3k/AppRun > out 2> err
+exit=0    stdout: 0 Bytes    stderr: 0 Bytes
+```
+
+Das war das „öffnet kein Fenster" — und es sah nach einem defekten Emulator aus statt nach
+einer Verpackungslücke. Mit gesetzten Variablen startet Vita3K normal.
+
+Betroffen sind **vita3k, cemu und rpcs3**. Gesetzt wird es über den Helfer `apprun()` für
+**alle** Emulatoren: `APPDIR` auf den entpackten Baum zu zeigen ist ohnehin richtig, und drei
+Sonderfälle wären die Sorte Wissen, die beim nächsten neuen Emulator fehlt.
+
+*Some extracted AppImages only run when `$APPIMAGE` is set and otherwise exit 0 with no
+output at all. Set for every emulator rather than for the three known ones.*
+
 ## Controller: eine Kennung, acht Geräte
 
 Alle acht Joystick-Geräte im Container sind **identisch** — `bus=0003 vendor=045e
@@ -245,29 +339,70 @@ absent device is wrong either way.*
 
 ## Vollbild: gemessen, nicht angenommen
 
-Jeder Start misst nach dem Fensterschritt, **wie viel der Fläche der Emulator wirklich
-bemalt**, und hilft nur nach, wenn zu wenig herauskommt:
+Jeder Start misst nach dem Fensterschritt, **wie viel des Bildschirms der Emulator
+übernommen hat**, und hilft nur nach, wenn zu wenig herauskommt:
 
 ```
-[fenster]  8 Fenster auf 1920x1080, ohne Rahmen, Panel ausgeblendet
-[vollbild] 53.3 % bemalt -> F11 -> 99.3 %
+[grundbild] Grundbild aufgenommen: 1920x1080, 75.0 % nicht schwarz
+[fenster]   8 Fenster auf 1920x1080, ohne Rahmen, Panel ausgeblendet
+[vollbild]  71.7 % vom Emulator -> F11 -> 100.0 %
 ```
 
 **Die Fenstergröße beweist hier nichts.** `xdotool getwindowgeometry` meldete in jedem
 Fall, der sich als falsch herausstellte, brav `1920x1080` — während das Bild kleiner war.
-Gemessen wird deshalb der Inhalt: `xwd -root` zieht den Bildschirm, und darin wird der
-Rahmen der nicht-schwarzen Pixel gesucht.
+Gemessen wird deshalb der Bildinhalt.
 
-Gemessen am laufenden Host:
+**Und die bemalte Fläche allein beweist ebensowenig (#495).** Bis 2026-08-13 wurde in einer
+`xwd -root`-Aufnahme der Rahmen der nicht-schwarzen Bildpunkte gesucht — aber ein
+Hintergrundbild ist nicht schwarz. Am laufenden Host gemessen, drei Zustände:
 
-| Emulator | Fenstertrick | nach F11 |
+| Zustand | alte Messung | neue Messung |
 |---|---|---|
-| Azahar (3DS) | 53,3 % — untere Hälfte schwarz | **99,3 %** |
-| Eden (Switch) | 88,6 % — gleichmäßiger Rand von ~36 px | **99,3 %** |
-| xemu | 960 von 1920 breit | wirkt |
+| leerer Desktop, kein Emulator | 99,28 % | **0,06 %** |
+| xemu, Bild 1280 × 963 auf dem Desktop | 99,28 % | **74,87 %** |
+| Flycast, echtes Vollbild | 73,56 % | **99,97 %** |
 
-Eden ist der lehrreiche Fall: Ein Rand von 36 Pixeln fällt beim Zusehen nicht auf und wäre
-nie als Fehler gemeldet worden.
+Die alte Zahl war also nicht bloß ungenau, sondern **verkehrt herum**: Der leere Desktop
+stand über der Schwelle, ein wirklich bildschirmfüllender Emulator darunter.
+
+Deshalb wird jetzt gegen ein **Grundbild** gemessen. Der Agent nimmt es zwischen dem
+Beenden des Vortitels und dem Start des neuen auf — der einzige Augenblick, in dem der
+Desktop wirklich leer ist. Ein Bildpunkt zählt als „noch Desktop", wenn er unverändert ist
+**und** im Grundbild nicht schwarz war; schwarz auf schwarz ist keine Auskunft, das malt
+ein Emulator genauso. Der Rest gehört dem Emulator.
+
+Die Aufnahme **lehnt sich selbst ab**, wenn `_NET_CLIENT_LIST` außer Panel und Desktop noch
+ein Fenster führt oder der Schirm fast ganz schwarz ist. Beides wäre eine perfekte
+Täuschung: Ein Grundbild mit dem Spiel darin ließe jeden folgenden Start als „nichts
+übernommen" erscheinen, ein schwarzes jeden als „alles übernommen". Fehlt das Grundbild,
+unterbleibt die Korrektur und das Log sagt es (`[vollbild] nicht messbar`).
+
+> **Zwei Fallen beim Lesen der Aufnahme, beide gemessen.**
+>
+> **Die Zeilenlänge ist aufgefüllt.** Der xwd-Kopf nennt `bits_per_pixel` 24 und
+> `bytes_per_line` 7680 bei 1920 Punkten Breite — genutzt sind davon 1920 × 3 = 5760 Byte,
+> der Rest ist Rand. Die Schrittweite muss deshalb aus `bits_per_pixel` kommen. Wer sie aus
+> `bytes_per_line / Breite` rechnet, liest über die Zeile hinaus: das Bild erscheint auf
+> drei Viertel der Breite gestaucht, rechts schwarz, und 25 % der Punkte lesen sich als
+> reines Schwarz. *(Genau dieser Irrweg stand in einer Zwischenfassung dieses Abschnitts,
+> mit reproduzierbaren Zahlen. Aufgefallen ist er erst, als das dekodierte Bild angesehen
+> wurde statt nur gerechnet.)*
+>
+> **Bitgleichheit ist zu spröde.** Grundbild und Messbild entstehen bei verschiedenen
+> Farbtiefen — der leere Desktop liefert 24 bpp, ein Emulator mit 32-Bit-Visual im Vollbild
+> bringt `xwd -root` auf 32 bpp —, und der Verlauf des Hintergrundbildes wird dabei anders
+> gerastert. Im sichtbaren Stück Hintergrundbild neben xemu sind nur **7,2 %** der Punkte
+> bitgleich, 63,4 % liegen innerhalb von 8, 85,9 % innerhalb von 16; auf xemus weißer
+> Fläche liegt bei Toleranz 16 **kein einziger**. Ohne Toleranz meldete die Messung für
+> diesen Zustand 95,13 % statt 74,87 %. Die Toleranz steht auf **8**: 16 träfe xemus wahren
+> Wert (59,4 %) besser, brächte Flycast aber auf 90,62 % — einen halben Punkt über der
+> Schwelle.
+
+Und der im Issue vorgeschlagene Weg, die Messung **auf die Fenstergeometrie zu
+beschränken**, wurde nachgemessen und **verworfen**: xemus X-Fenster *ist* 1920 × 1080
+(`xwininfo` bestätigt es), bemalt wird davon aber nur rund 1280 × 963. Der Rest bleibt
+unberührt und zeigt weiter das Hintergrundbild — der Desktop liegt also *innerhalb* des
+Fensters. Auf die Fenstergeometrie beschränkt kam derselbe Fehlwert heraus: **99,64 %**.
 
 **Warum erst gemessen und dann F11 — nicht einfach immer F11:** F11 ist ein **Umschalter**.
 Ein Emulator, bei dem der Fenstertrick schon gewirkt hat, fiele dadurch wieder heraus. Die
@@ -275,10 +410,37 @@ Messung ist also nicht zusätzliche Vorsicht, sondern das, was die Korrektur ung
 macht. Und sie gilt für **jeden** Emulator, auch für die, die nie jemand ausprobiert hat —
 sie brauchen keine vorab ausgefüllte Zeile in einer Tabelle.
 
-*Every launch measures the painted share and only corrects when it falls short. Window
-geometry proves nothing here: it reported 1920x1080 in every case that turned out wrong.
-F11 is a toggle, so measuring first is what makes the correction safe — and it covers
-emulators nobody has ever exercised.*
+> **Was die Fläche auch jetzt nicht kann (#493).** Ein Titel, der noch die Disc bootet, ist
+> schwarz. Schwarz auf hell *ist* eine Änderung, schwarz auf schwarz nicht — der Bootschirm
+> bleibt damit ein Anlass für ein F11, das dem Emulator sein eigenes Vollbild nähme.
+> Deshalb gilt weiterhin: **ein Fenster mit `_NET_WM_STATE_FULLSCREEN` bekommt kein F11.**
+> Nachgemessen: xemu, Azahar und Eden tragen den Zustand nicht, DuckStation, PCSX2 und
+> Flycast schon.
+>
+> **Die alte Prüftabelle aus #429 ist damit hinfällig** (Azahar 53,3 %, Eden 88,6 %, xemu
+> 960 von 1920). Ihre Zahlen stammen aus der Messung mit dem verschobenen Lesen und belegen
+> nicht, was sie zu belegen scheinen. Neu erhoben ist bisher nur xemu.
+
+*Every launch measures how much of the screen the emulator has taken over and only corrects
+when it falls short. Window geometry proves nothing here — it reported 1920x1080 in every
+case that turned out wrong — and neither does the painted area on its own: measured on the
+running host, a bare desktop scored 99.28 % while a genuinely fullscreen Flycast scored
+73.56 %. The number was inverted, not merely imprecise. The measurement now compares the
+screen against a baseline picture of the empty desktop, taken by the agent between stopping
+the previous title and starting the new one; a point counts as "still desktop" when it is
+unchanged (within a per-channel tolerance of 8) AND was not black in the baseline. The
+capture refuses itself while any application window is listed in `_NET_CLIENT_LIST` or
+while the screen is nearly all black, because a baseline with the game in it would mark
+every later launch as perfect. Two traps when reading the capture, both measured: the row
+length is padded, so the pixel stride must come from `bits_per_pixel` and not from
+`bytes_per_line / width` — the latter reads past the row and decodes the image squeezed
+into three quarters of the width; and exact pixel equality is too brittle, because baseline
+and measurement are captured at different colour depths and a gradient wallpaper dithers
+differently (only 7.2 % of visibly unchanged wallpaper points are bit-identical). Finally,
+restricting the measurement to the window geometry — the fix proposed in #495 — was
+measured and rejected, because xemu leaves most of its own 1920x1080 window unpainted and
+the wallpaper shows through inside it (99.64 %). F11 remains a toggle, so a window carrying
+`_NET_WM_STATE_FULLSCREEN` is still left alone.*
 
 ## Was noch überrascht
 
@@ -289,6 +451,236 @@ Skripte werden kommentarlos ignoriert. Das Compose hängt das Verzeichnis richti
 **AppImages brauchen FUSE, Container haben keins.** Der naheliegende „Fix" wäre
 `--cap-add SYS_ADMIN` — viel zu viel für einen Spielestarter. `init/20-emulators`
 entpackt AppImages stattdessen (`--appimage-extract`) und startet `AppRun`.
+
+**Ein Wii-U-Titel hat oben keine Startdatei.** Er trägt `code/`, `content/`, `meta/` —
+nichts mit einer bekannten Endung. Der Start-Dienst löst deshalb `code/*.rpx` auf; der
+Name ist je Titel anders (`Kinopio.rpx` bei Captain Toad), ein fester Pfad genügt nicht.
+Liegen **mehrere** `.rpx` darin, sagt er ab statt zu raten.
+
+Dabei wird bewusst **kein `glob`** benutzt: Bibliotheksnamen tragen eckige Klammern —
+`Captain Toad Treasure Tracker [AKBP01]` — und `[AKBP01]` ist für `glob` eine
+Zeichenklasse, kein Text. Das Muster passt dann auf nichts, und zwar lautlos.
+
+**Updates und DLC werden abgelehnt, bevor Cemu ratlos wird.** Die ersten acht Hexziffern
+der Titelkennung sagen, was vorliegt:
+
+| Präfix | Bedeutung | startbar |
+|---|---|---|
+| `00050000` | Basisspiel | ja |
+| `0005000E` | Update | nein — patcht ein Basisspiel |
+| `0005000C` | DLC | nein |
+| `0005001B` | Systemtitel | nein |
+
+Sie steht im Klartext in `code/app.xml`. **Gelesen wird `app.xml`, nicht `meta.xml`** —
+die beiden können sich widersprechen, und genau das war der Fall beim einzigen
+Wii-U-Titel des Bestands: `meta.xml` behauptete `00050000…` (Spiel), `app.xml` sagte
+`0005000E…` (Update). Cemu antwortet darauf mit `Unable to mount title` und nennt eine
+Datei — eine Meldung, die zur Suche am Pfad verleitet, wo nichts ist.
+
+*EN: a Wii U title has no boot file at its top level, so the launcher resolves
+`code/*.rpx`; the name differs per title and several matches are refused rather than
+guessed at. Deliberately without `glob`, because library folder names contain `[...]`,
+which glob reads as a character class — the pattern then matches nothing, silently.
+Updates (`0005000E`) and DLC (`0005000C`) are refused by name, read from `code/app.xml`
+in plain text. `app.xml` rather than `meta.xml`, because the two can disagree — and did:
+the only Wii U title here claims to be a game in `meta.xml` and is an update in
+`app.xml`. Cemu's answer to that, `Unable to mount title`, names a file and hides the
+cause.*
+
+**„Der Emulator ordnet sein Pad selbst zu" **Vier gleiche Pads, und nur eines spricht.** Die Brücke legt für jeden Selkies-Socket ein
+virtuelles Gamepad an — vier Stück, alle mit derselben SDL-Kennung. Ein Emulator kann sie
+damit nicht unterscheiden und nimmt das erste. Trägt das keine Daten, tut der Controller
+nichts, und zwar **bei allen Emulatoren gleichzeitig**.
+
+Der Kernel vergibt `/dev/input/jsN` in der Reihenfolge der **Entstehung**, nicht nach dem
+Socketnamen. Am 2026-08-13 sah das so aus:
+
+```
+12:58:43,618  selkies_js2.sock  ->  /dev/input/js0
+12:58:43,621  selkies_js0.sock  ->  /dev/input/js1   <- das Pad, auf Platz zwei
+12:58:43,633  selkies_js1.sock  ->  /dev/input/js2
+```
+
+Vier Millisekunden. Eden band daraufhin `port:0` — das stumme Gerät —, und der Controller
+war tot; nach der Korrektur schrieb es `port:1`, und es ging sofort. Die Emulatoren waren
+nie schuld.
+
+Die Reihenfolge war bisher **nur beim ersten Start** geordnet. Ein Neuladen der Seite
+verbindet alle vier gleichzeitig neu, und dann entschied das Rennen. Jetzt stellen sich die
+Arbeiter an — mit einer Frist, damit ein **einzeln** wiederverbindender Socket nicht auf
+Nachbarn wartet, die ihren Platz nie anfordern (#535).
+
+**Zwei Fallen beim Messen**, beide haben hier Zeit gekostet:
+
+- Die Brücke protokolliert nach `/config/gamepad-bridge.log`, **nicht** nach stdout.
+  `docker logs` zeigt nichts von ihr — sie sieht stumm aus und ist es nicht.
+- Die Gamepad-API des Browsers sendet **nur, solange die Seite den Fokus hat**. Wer zum
+  Ablesen ins Terminal wechselt und dann drückt, misst zwangsläufig nichts. Messung
+  verzögert starten, dann im Browser bleiben.
+
+*EN: the bridge creates one virtual pad per socket — four, all with the same SDL GUID, so
+an emulator cannot tell them apart and takes the first. Node numbers follow creation order,
+not socket name, so a reconnect storm decided by four milliseconds which socket got js0.
+Ordering held at startup only; it now holds on every connect, with a timeout so a lone
+reconnect is not blocked. Two measurement traps: the bridge logs to a file rather than
+stdout, and the browser Gamepad API only reports while the page has focus.*
+
+ist eine Annahme, bis sie gemessen ist.** Für
+Eden (Switch) stand das jahrelang so in der Tabelle — und stimmt nicht. In seiner
+`qt-config.ini`:
+
+```
+player_0_button_a="engine:keyboard,code:67,toggle:0"
+player_0_button_b="engine:keyboard,code:88,toggle:0"
+player_0_lstick="engine:analog_from_button,…keyboard…"
+```
+
+70 `player_0_*`-Zeilen, **keine einzige `guid:`-Angabe**. Spieler 1 liegt auf der
+Tastatur. Das Fehlerbild ist dasselbe wie bei RPCS3: Der Stream geht auf, das Spiel läuft,
+der Controller tut nichts — von außen nicht von „Emulator kaputt" zu unterscheiden.
+
+`launch-profile.py` **meldet das und repariert es nicht.** Edens Bindungssyntax steht nicht
+im Programm (`strings` findet keine `engine:`-Zeichenketten), und sie zu erfinden ist genau
+die Abkürzung, an der die DuckStation-Reparatur schon einmal gescheitert ist. Eine falsch
+geschriebene Belegung wäre schlimmer als gar keine — sie sähe richtig aus.
+
+Der Weg zur echten Reparatur ist derselbe wie bei Dolphin: Eden einmal in seiner Oberfläche
+ein Pad zuordnen lassen und die entstandene Datei vergleichen. Das braucht einen Menschen,
+nicht mehr Raten (#298).
+
+**Ein Wert auf der Startzeile ist nicht dasselbe wie ein gesetzter Wert.** Flycast bekommt
+seit jeher `-config config:pvr.rend=4` mit und läuft damit auf Vulkan — nachgemessen:
+
+```
+rend/vulkan/vulkan_context.cpp: Vulkan API 1.1. Device Intel(R) Arc(tm) A310 Graphics
+```
+
+Beim Beenden schreibt Flycast seine Konfiguration neu (Zeitstempel bestätigt), und darin
+steht der Renderer **nicht**:
+
+```
+[window]
+fullscreen = yes
+height = 480 …
+```
+
+Ein `-config`-Wert ist für Flycast flüchtig. Die Folge ist keine Kleinigkeit: über den
+Start-Dienst läuft es auf Vulkan, vom Desktop gestartet auf dem eingebauten Standard —
+derselbe Emulator, dasselbe Spiel, zwei Verhaltensweisen, und die Ursache steht in einer
+Zeile, die niemand sieht. `launch-profile.py` schreibt den Wert deshalb in `emu.cfg`.
+
+Dass das trägt, ist geprüft und nicht angenommen: Wert eingetragen, Flycast gestartet,
+beendet, Datei erneut gelesen — der Abschnitt stand noch da. Geprüft wird der **Wert**,
+nicht der Schlüssel; genau daran ist die DuckStation-Reparatur einmal gescheitert (#304).
+
+*EN: a value on the launch line is not the same as a value that is set. Flycast runs on
+Vulkan when started through the service, but never writes that back — its rewritten
+`emu.cfg` has no `[config]` section at all — so the same title runs on the built-in default
+when started from the desktop. The profile now writes it into the file, verified by a full
+launch/exit cycle, and checks the value rather than the key.*
+
+**Ein Ruckeln sagt nichts über den Emulator, solange die Last daneben fehlt.** Der
+Start-Dienst hält deshalb beim Start fest, was der Host sonst tat — Load, Kernzahl und die
+fünf CPU-stärksten Prozesse. Sie stehen in `/status` als `host_load` und als Zeile im
+Protokoll.
+
+Warum das nötig ist, zeigt der Fall, der es ausgelöst hat (2026-08-13). Gemeldet wurde
+*„es ruckelt extrem und läuft wohl auf der CPU statt auf der Arc"* — beides klang
+plausibel, beides war falsch:
+
+```
+GL_RENDERER   Mesa Intel(R) Arc(tm) A310 Graphics (DG2)   ← sehr wohl auf der GPU
+RCS (3D)      0,00 %                                      ← die nötige Einheit: FREI
+VCS / VECS    21–29 % / 16–23 %                           ← Tdarr, nur Video-Einheiten
+
+tdarr-ffmpeg 759 %   tdarr-ffmpeg 733 %   xemu 201 %
+28 Kerne, Load 45,9
+```
+
+Zwei Umrechnungen belegten rund 15 Kerne. Xbox-Emulation ist CPU-gebunden — xemu bildet
+einen Pentium III nach —, also rechnete es auf einer **leerlaufenden** 3D-Einheit und
+verhungerte an der CPU.
+
+**Die Prozessliste sieht nur den Container.** Der Dienst läuft in dessen PID-Namensraum:
+
+```
+ps IM Container:   sh selkies xfce4-panel xfdesktop Xvfb xfce4-session
+ps AUF dem Host:   tdarr-ffmpeg tdarr-ffmpeg shfs find
+```
+
+Sie kann `tdarr-ffmpeg` also **gar nicht** nennen — ausgerechnet den Fall, für den das
+Ganze gebaut wurde. Deshalb heißt sie `top_container` und trägt `top_scope`: Wer eine
+harmlose Liste sieht und daraus auf eine ruhige Maschine schließt, liegt sonst genau
+falsch (#531).
+
+**Der Load trägt die Aussage.** `/proc/loadavg` ist nicht namensraumgetrennt und im
+Container bitgleich zum Host (`38.47 39.89 41.99` gegen `38.47 39.89 41.99`). Er
+beantwortet „war die Maschine beschäftigt" — und das ist die Frage.
+
+**Genommen wird der Wert beim Start, nicht auf Nachfrage.** Wer hinterher misst, misst den
+falschen Moment: Die Umrechnung, die das Ruckeln verursacht hat, kann längst fertig sein.
+Bewertet wird nichts und abgelehnt wird nichts — ob eine Last zu hoch ist, hängt vom Titel
+ab (#527).
+
+*EN: a stutter says nothing about the emulator unless the load beside it is recorded. The
+service captures load, core count and the top CPU consumers at launch, reported as
+`host_load`. The case that prompted it: "it stutters, it must be on the CPU rather than the
+Arc" — it was on the Arc, the 3D engine was idle, and two Tdarr transcodes were taking 15 of
+28 cores while CPU-bound Xbox emulation starved. Captured at launch, because measuring later
+measures the wrong moment; nothing is judged or refused.*
+
+**xemu braucht eine Bibliothek, die nirgends auf dem Suchpfad liegt.** `libusb-1.0.so.0`
+steckt weder im Abbild noch in xemus eigenem AppImage. `init/22-xemu-vorbereiten` leiht sie
+aus einem anderen Emulator und legt sie nach `/config/lib` — aber der Lader kennt dieses
+Verzeichnis nicht:
+
+```
+ldconfig -p | grep -c libusb   ->  0
+/etc/ld.so.conf.d/*.conf       ->  kein Eintrag für /config
+```
+
+Ohne den Pfad endet xemu **sofort**:
+
+```
+error while loading shared libraries: libusb-1.0.so.0
+```
+
+Von außen ist das nicht von „der Emulator kann die Plattform nicht" zu unterscheiden — der
+Stream geht auf und bleibt leer. Die Startzeile setzt deshalb `LD_LIBRARY_PATH=/config/lib`,
+und zwar **nur für xemu**: Ein Eintrag in `ld.so.conf` gälte für jedes Programm im Container
+und könnte Bibliotheken verdrängen, die ein anderes AppImage selbst mitbringt (#525).
+
+*EN: xemu needs `libusb-1.0.so.0`, which neither the image nor its own AppImage provides.
+The init borrows it into `/config/lib`, but nothing put that directory on the loader's path,
+so xemu exited immediately — indistinguishable from "platform not supported". The launch
+line now sets `LD_LIBRARY_PATH` for xemu alone rather than adding it to `ld.so.conf`, which
+would affect every process in the container.*
+
+**Root-eigene Reste sperren Emulatoren aus, ohne es zu sagen.** Der Dienst lief früher
+als `root`; was er damals anlegte, gehört bis heute `root`, und der als `abc` laufende
+Emulator kommt nicht daran. `init/30-agent` heilt das bei jedem Start — aber nur in den
+Bäumen, die dort aufgezählt sind: `/config/.config`, `/config/.local/share` und
+`/config/.cache`.
+
+Der dritte fehlte lange, und das kostete zwei Fehldiagnosen (#509):
+
+| Betroffen | Wirkung |
+|---|---|
+| `/config/.cache/Cemu` | Cemu zeigt einen modalen Dialog *„Cemu can't write to /config/.cache/Cemu!"* und kommt nie bis zu seiner Initialisierung — kein Protokoll, kein Fenster. Der Dialog reagiert auf **keine** Taste und keinen Klick. |
+| `/config/.cache/mesa_shader_cache` | 3044 Dateien, nie beschreibbar. Jeder Emulator übersetzt seine Shader bei **jedem** Start neu. Das sieht aus wie „die erste Minute ruckelt eben". |
+
+**Die Liste bleibt ausdrücklich und wird kein `chown -R /config`.** `/config/agent-token`
+gehört root mit Absicht und muss `root:600` bleiben — es ist das Einzige zwischen einer
+Anfrage und einem gestarteten Prozess auf dem Host.
+
+*EN: the service used to run as root, so what it created then is still root-owned and the
+emulator, running as `abc`, cannot touch it. `init/30-agent` heals this at every start,
+but only in the trees listed there. `/config/.cache` was missing for a long time and cost
+two misdiagnoses: Cemu opens a modal "can't write" dialog that no keystroke dismisses and
+never initialises, and the Mesa shader cache — 3044 files — was never writable, so every
+emulator recompiled its shaders on every run, which merely looks like a slow first minute.
+The list stays explicit rather than becoming `chown -R /config`, because `/config/agent-token`
+must remain root:600.*
 
 **Es gibt genau einen primären Client.** Verbindet sich ein zweiter Browser mit
 derselben URL, wird der erste ohne Vorwarnung getrennt
@@ -325,6 +717,67 @@ Zwei Einstellungen sind dafür nötig und im Compose gesetzt:
 `SELKIES_AUDIO_ENABLED=true` (Standard ist **aus**) und
 `PULSE_SERVER=unix:/defaults/native` (die Aufnahmebibliothek beachtet
 `PULSE_RUNTIME_PATH` nicht und scheitert sonst an `pa_context_connect()`).
+
+### Zwei Fallen, bei denen nichts fehlschlägt und trotzdem nichts zu hören ist
+
+**Der Client fragt nach dem Ton, nicht der Server.** Wird die Streaming-Pipeline
+zurückgesetzt — etwa nach einer Auflösungsänderung —, baut der Browser sie wieder auf und
+schickt dabei nur `START_VIDEO`. Das Bild kommt zurück, der Ton nicht, und im Protokoll
+steht **kein Fehler**: Aufnahme und Opus-Encoder laufen serverseitig unverändert weiter, es
+fragt nur niemand mehr danach. Ein Neuladen der Seite hilft nicht, weil der Zustand am
+Client hängt; der Tonschalter im Selkies-Seitenmenü aus- und wieder einschalten schickt ein
+neues `START_AUDIO`. Erkennbar am Protokoll:
+
+```bash
+docker logs stream-host --timestamps | grep -i "START_AUDIO\|stopped all streams"
+```
+
+Liegt das letzte `START_AUDIO` **vor** dem letzten „stopped all streams", ist es der Client.
+
+**Cemu wählt ein Backend, das es hier nicht gibt.** Gespeichert war `<api>0</api>` —
+DirectSound, das Cemu in seiner eigenen Startausgabe als `not supported` aufführt.
+Verfügbar ist allein Cubeb. Cemu fragt dann ein Gerät bei einem nicht vorhandenen Backend
+an, findet keins und spielt weiter:
+
+```
+DirectSound: not supported          <- gespeichert war genau dieses
+Cubeb: available
+------- Run title -------
+can't initialize tv audio: failed to find selected device while trying to create audio device
+```
+
+Bild, Geschwindigkeit und Controller sind dabei tadellos. `launch-profile.py` setzt deshalb
+`<api>3</api>` (Cubeb); die Kennziffer stammt aus der Reihenfolge, in der Cemu seine
+Backends auflistet, nicht aus einer Vermutung.
+
+> **Am Puffer wird bewusst nicht gedreht.** Bei einem Titel klang der Ton zerhackt, und
+> `<delay>` wäre der naheliegende Griff gewesen. Gemessen half er nicht — von 2 auf 9
+> erhöht änderte sich die Puffer-Latenz nicht einmal, `PULSE_LATENCY_MSEC=120` ebenso wenig
+> — und ein zweiter Titel war am Standardwert makellos: **0 ms** Stille in 8 Sekunden gegen
+> 4040 ms beim ersten. Es lag am Titelbildschirm jenes Spiels, nicht am Emulator.
+
+Objektiv messen lässt sich das so — echte digitale Nullen zählen, nicht „leise":
+
+```bash
+docker exec -i stream-host bash -c 'parec --device=output.monitor --format=s16le \
+  --rate=48000 --channels=2 --raw > /tmp/q.raw & P=$!; sleep 8; kill $P; \
+  python3 -c "
+import struct
+d=open(\"/tmp/q.raw\",\"rb\").read(); n=len(d)//2
+s=struct.unpack(\"<%dh\"%n, d[:n*2])
+lauf=0; luecken=[]
+for x in s:
+    if x==0: lauf+=1
+    else:
+        if lauf>96: luecken.append(lauf)
+        lauf=0
+print(\"Spitze\", max(abs(v) for v in s), \"| Null-Strecken >1ms:\", len(luecken))
+"'
+```
+
+Eine feste Schwelle wie „leiser als 30" taugt dafür **nicht**: Ein leises Signal fällt
+darunter, ohne dass etwas fehlt — das hat hier einmal eine Stunde in die falsche Richtung
+gekostet.
 
 ---
 
@@ -381,20 +834,21 @@ Controller im Spiel gedrückt.
 
 | Plattform | Emulator | Bild | Ton | Controller | Anmerkung |
 |---|---|---|---|---|---|
-| PlayStation 1 | DuckStation | ✅ | ✅ | ✅ | |
+| PlayStation 1 | DuckStation | ✅¹ | ✅ | ✅ | von einem Menschen bestätigt (2026-08-10). ¹Am 2026-08-12/13 startete gar kein Titel — drei modale Fenster, seit #492 stehen alle drei ab. Danach stand das Spiel auf 640 × 480 in der Ecke; **behoben seit #493** — nicht der Fensterschritt war es, sondern ein F11, das DuckStations eigenes Vollbild abschaltete. Nach dem Ausrollen gemessen: **39 von 39 Messpunkten über 80 s** unverändert 1920 × 1080, Vollbildzustand durchgehend gesetzt |
 | PlayStation 2 | PCSX2 | ✅ | ✅ | ✅ | |
 | GameCube | Dolphin | ✅ | ✅ | ✅ | |
 | Wii | Dolphin | ✅ | ✅ | (⁠—⁠) | Controller nicht eigens geprüft — gleicher Emulator und gleiche Belegung wie GameCube |
 | PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
 | Switch | Eden | ✅ | ✅ | (⁠—⁠) | Controller nicht eigens geprüft |
 | Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | erst seit der Entschlüsselung (#354/#356); Vollbild an den Pixeln gemessen (#316); Controller nicht eigens geprüft |
-| Dreamcast | Flycast | — | — | — | keine Titel in der Bibliothek, nichts zu testen |
+| Dreamcast | Flycast | ✅ | ✅ | ✅ | Vollbild und **Vulkan** — seit #304 nicht mehr nur in der Startzeile, sondern **in `emu.cfg` geschrieben**: Flycast übernimmt einen `-config`-Wert NICHT, also lief es vom Desktop gestartet auf dem eingebauten Standard (siehe unten). Bild, Ton und Controller von einem Menschen bestätigt — Flycast belegt die Pads selbst, als einziger Emulator hier |
 | Xbox | xemu | ✅ | ✅ | ✅ | braucht **COMPLEX 4627 + MCPX 1.0** — Retail-BIOS bleiben schwarz |
-| Wii U | Cemu | — | — | — | keine Titel in der Bibliothek |
-| PS Vita | Vita3K | — | — | — | keine Titel in der Bibliothek |
+| Wii U | Cemu | — | — | — | Titel vorhanden seit #452/#455 — noch nicht gestartet |
+| PS Vita | Vita3K | — | — | — | Titel vorhanden seit #452/#455; Vollbild und Vulkan stehen in der Konfiguration (#304); der Start übergibt seit #481 die **Titelkennung** statt des Pfades; seit #488 stehen die beiden Startdialoge ab, und der Titel bootet gemessen bis ins Ladefenster — ein Mensch hat ihn noch nicht gesehen; seit #489 beendet `/stop` ihn wirklich und `/status` findet sein Fenster |
 
-Ein `—` heißt **ungeprüft**, nicht „defekt". Die vier unteren Zeilen sind ungeprüft,
-weil dort schlicht nichts liegt, was man starten könnte.
+Ein `—` heißt **ungeprüft**, nicht „defekt". Für Dreamcast, Wii U und PS Vita liegen
+seit #452/#455 Titel bereit; sie sind ungeprüft, weil noch niemand sie gestartet hat —
+nicht mehr, weil nichts da wäre.
 
 ### Zwei Fallen, die nach einem Defekt des Hosts aussehen
 
@@ -631,9 +1085,56 @@ Die Dateien landen unter `/config/firmware/<plattform>/` und werden von dort dor
 kopiert, wo der jeweilige Emulator sucht. Diese Trennung ist Absicht: Wird ein Emulator
 neu installiert, bleibt die Firmware erhalten.
 
-**PS Vita:** Vita3K **lädt nichts herunter** — der Quelltext öffnet einen Dateidialog
-(`firmware_install_dialog.cpp`). Es gibt dort also nichts zu automatisieren außer dem
-Einspielen; die PUP besorgst du dir selbst und lädst sie hoch.
+**PS Vita: zwei Teile, und nur einer ist Handarbeit.** Vita3K verlangt die Firmware-PUP
+**und** ein **Font-Paket**; fehlt eines, sagt es wörtlich `Firmware is not fully installed.`
+
+| Teil | woher | landet in |
+|---|---|---|
+| Firmware (`PSVUPDAT.PUP`) | **selbst besorgen** und über *Install Firmware* einspielen | `vs0`, `os0` |
+| Font-Paket (`PSP2UPDAT.PUP`) | **auch selbst besorgen** — die Schaltfläche *Download Firmware Font Package* öffnet nur einen Link | `sa0` |
+
+**Vita3K lädt beides NICHT selbst.** Die Schaltfläche *Download Firmware Font Package* sieht
+so aus, als täte sie es, und tut es nicht: Sie öffnet einen Browser auf einen Kurzlink. Am
+laufenden Host gemessen — im Protokoll steht `Opening in existing browser session`, danach
+startet Chromium und sonst passiert nichts.
+
+Der Kurzlink zeigt auf einen unverschlüsselten Direktdownload:
+
+```
+https://bit.ly/2P2rb0r
+  -> http://dus01.psp2.update.playstation.net/update/psp2/image/2019_0924/
+     sd_8b5f60b56c3da8365b973dba570c53a5/PSP2UPDAT.PUP?dest=us
+  56.768.512 Byte, Kopf `SCEUF`
+```
+
+Mit `curl` ist es ein Einzeiler; im Browser des Containers startete der Download nicht.
+Beide PUPs landen in `firmware/psvita/` und werden über *File ▸ Install Firmware*
+eingespielt — einzeln, erst die eine, dann die andere.
+
+Der Status prüft deshalb **beide** Ablagen (`vs0` und `sa0`). Mit nur einer meldete er
+„eingespielt", während der Emulator selbst widersprach (#484).
+
+**Bereitgelegt ist nicht eingespielt.** Für **PS3 und PS Vita** ist die Firmware eine
+`.PUP` — ein Update-Paket, das der Emulator *einspielen* muss und nie an Ort und Stelle
+benutzt. Der Katalog nennt deshalb je Eintrag eine **Ablage**: das Verzeichnis, in dem die
+Firmware *danach* liegt (`dev_flash` bei RPCS3, `vs0` bei Vita3K). Erst wenn dort etwas
+liegt, meldet der Status `eingespielt`.
+
+Fehlt diese Angabe, greift im Skript der Zweig *„ohne Ablage ist die Frage gegenstandslos"*
+— und der Status ist **grün für eine Firmware, die der Emulator gar nicht hat**. Genau so
+stand `psvita` auf `installed: true`, während `vs0`, `os0` und `sa0` leer waren: 133 MB
+bereitgelegt, null eingespielt (#479). Aufgefallen ist es erst beim Startversuch, an
+Vita3Ks „Welcome"-Fenster.
+
+**Korrektur dazu (#488):** Dieses Fenster war *nicht* die Meldung über die fehlende
+Firmware — das stand hier bis dahin und ist nachgemessen falsch. Vita3K zeigt es bei
+jedem Start, solange `show-welcome: true` steht, auch bei vollständiger Firmware. Es hat
+die Sache nur zufällig zur richtigen Zeit sichtbar gemacht. *EN: correction — that window
+was not the missing-firmware message; Vita3K shows it on every launch while
+`show-welcome: true`, complete firmware or not. It merely surfaced at the right moment.*
+
+Für PS1, PS2, Dreamcast, Xbox, 3DS, Switch und Wii U gibt es keine Ablage, und das ist
+richtig: Dort **ist** die Firmware die Datei im Verzeichnis, es gibt keinen zweiten Schritt.
 
 **Was geprüft wird — und was nicht.** Geprüft wird die **Größe**. Das schlägt bei
 abgebrochenen Downloads und offensichtlich falschen Dateien an, und genau dafür ist es
@@ -676,6 +1177,333 @@ saves next to the other consoles. It needs a 512 KiB PS1 BIOS in
 matches by size because the filename varies. Note the trap: DuckStation opens a modal
 setup wizard on first run that nobody can see in a container, and every launch stalls
 behind it — the launch profile sets `SetupWizardIncomplete = false`.*
+
+### Drei modale Fenster, nicht eins — und das Profil lief gar nicht (#492)
+
+Der Setup-Wizard oben ist nur der erste. Am 2026-08-13 startete **kein einziger
+PSX-Titel**: statt des Spiels stand ein Fenster von 500 × 193 Pixeln da, *„Would you like
+to create a launcher shortcut for DuckStation?"*. Ist das aus dem Weg, kommt sofort das
+nächste — **„Automatic Updater"**, 651 × 474, mitten auf dem Spielfenster. Beide stehen
+jetzt ab (`launch-profile.py --dialogs duckstation`):
+
+| Schalter | Abschnitt | Wert | wofür |
+|---|---|---|---|
+| `NoDesktopFile` | `[Main]` | `true` | die Verknüpfungs-Abfrage |
+| `CheckAtStartup` | `[AutoUpdater]` | `false` | die Update-Abfrage |
+
+Beide Werte sind **gemessen, nicht abgelesen**, jeder mit Gegenprobe:
+
+| `NoDesktopFile` | `CheckAtStartup` | Fenster |
+|---|---|---|
+| (fehlt) | (fehlt) | nur „DuckStation" 500 × 193 — **kein Spielfenster** |
+| `true` | (fehlt) | Spiel **und** „Automatic Updater" 651 × 474 |
+| `true` | `false` | Spiel, kein Dialog; `/status` meldet `window: "ok"` |
+| `true` | `true` *(Gegenprobe)* | „Automatic Updater" wieder da |
+| (entfernt) | `false` *(Gegenprobe)* | „DuckStation" wieder da, kein Spielfenster |
+
+Den ersten Wert hat **DuckStation selbst geschrieben**: Der Dialog hat ein Kästchen
+*„Don't ask again"*, und nach einem Klick darauf stand genau eine neue Zeile in der
+`settings.ini` — sonst keine.
+
+**Der eigentliche Fund liegt daneben.** `psx` fehlte in der Zuordnung
+Plattform → Startprofil (`PROFILE_EMU` im Start-Dienst), seit sie mit #140 von einer auf
+neun Plattformen wuchs. Das Profil für DuckStation gab es die ganze Zeit — **aufgerufen
+hat es bei einem Start nie jemand**. Gamepad-Belegung und Erstlaufdialog standen auf dem
+Host nur deshalb richtig, weil sie einmal von Hand gesetzt worden waren. Sichtbar wurde
+die Lücke erst, als DuckStation ein neues Fenster aufmachte. Ein Test hält das jetzt
+fest: **jeder Emulator im Startprofil muss an einer Plattform hängen.**
+
+Was **nicht** geklärt ist: warum die Verknüpfungs-Abfrage am 2026-08-10 noch nicht kam.
+Fassung und `settings.ini` sind seither unverändert; das bleibt **ungeprüft**.
+
+*EN: the setup wizard is only the first of three. On 2026-08-13 no PSX title started at
+all — a 500 × 193 window asked whether to create a launcher shortcut, and behind it sat
+the automatic updater. Both are now switched off before the launch (`NoDesktopFile` in
+`[Main]`, `CheckAtStartup` in `[AutoUpdater]`), each value measured with a counter-check;
+DuckStation wrote the first one itself after "Don't ask again" was ticked. The real find
+is next to it: `psx` had been missing from the platform → profile map since #140, so the
+DuckStation profile was never applied on a launch — what was right on the host was right
+by hand. A test now checks that every profile is reachable from some platform. Why the
+shortcut prompt did not appear on 2026-08-10 is unmeasured.*
+
+### Nicht der Fensterschritt war es, sondern das F11 danach (#493)
+
+Nachdem die drei Dialoge abstanden, kam das Spiel ins Bild — aber nur in einem Viertel der
+Fläche: DuckStation stand nach rund 14 Sekunden auf **640 × 480 in der Ecke**, mit
+Titelleiste zurück, und blieb dort. Der Verdacht lag auf dem Fensterschritt
+(`nur_emulator`), der jedes sichtbare Fenster aufzieht. **Der Verdacht war falsch.**
+
+Gemessen wurde, indem dessen vier Aufrufe einzeln auf das Fenster angewandt wurden, ohne
+Agenten daneben:
+
+| Schritt | Geometrie | `_NET_WM_STATE` |
+|---|---|---|
+| Ausgangsstand | 1920 × 1080 | `_NET_WM_STATE_FULLSCREEN` |
+| nach `_MOTIF_WM_HINTS` | 1920 × 1080 | `_NET_WM_STATE_FULLSCREEN` |
+| nach `windowsize` | 1920 × 1080 | `_NET_WM_STATE_FULLSCREEN` |
+| nach `windowmove` | 1920 × 1080 | `_NET_WM_STATE_FULLSCREEN` |
+| nach `windowactivate` | 1920 × 1080 | `_NET_WM_STATE_FULLSCREEN` |
+| nach `windowraise` | 1920 × 1080 | `_NET_WM_STATE_FULLSCREEN` |
+
+Der Täter steht im Agent-Log, bei **jedem** PSX-Start mit denselben Zahlen:
+
+```
+[vollbild] 34.3 % bemalt -> F11 -> 99.3 %
+```
+
+Die 34,3 % messen kein zu kleines Fenster, sondern ein **schwarzes**: DuckStation bootet
+zu diesem Zeitpunkt noch die Disc. F11 schaltet daraufhin das Vollbild ab, das der
+Emulator selbst gesetzt hatte (`-fullscreen` in der Startzeile).
+
+**Und der gemeldete Erfolg war keiner.** Die 99,3 % danach sind der freigelegte
+XFCE-Desktop. Nachgemessen ohne jeden laufenden Emulator: **99,27782600308642 %** —
+bitgleich dieselbe Zahl. Die Flächenmessung kann ein Spiel nicht vom Hintergrundbild
+unterscheiden (#495).
+
+> *Nachtrag zu dieser Zahl:* Sie ist der obere Anschlag dieser Messung, nicht eine
+> Eigenschaft des Desktops — 1915 × 1075 von 1920 × 1080 ist der größte Rahmen, den ein
+> 6er-Raster überhaupt aufspannen kann. Jede vollständig bemalte Fläche liefert sie, das
+> Hintergrundbild ebenso wie ein bildschirmfüllender Emulator. Genau darum ging es: die
+> beiden Zustände waren ununterscheidbar. Einzelheiten unter *Vollbild: gemessen, nicht
+> angenommen*.
+
+Behoben ist es dort, wo der Schaden entsteht, und emulatorunabhängig: **ein Fenster, das
+`_NET_WM_STATE_FULLSCREEN` trägt, bekommt kein F11.** Der Fensterschritt bleibt
+unverändert; ihn zu ändern gäbe es keinen gemessenen Grund.
+
+Gegenprobe am laufenden Host, mit xemu — dem Fall, für den der Tastenweg gebaut wurde:
+
+```
+t=…214  WINDOW=44040241 X=2 Y=75 WIDTH=1920 HEIGHT=1080  STATE=[_NET_WM_STATE_FOCUSED]
+```
+
+Kein `_NET_WM_STATE_FULLSCREEN`. Der Wächter kann dort also gar nicht zuschlagen, und der
+Fenstertrick zieht xemu weiterhin auf. **Was diese Gegenprobe nicht zeigt:** ob F11 danach
+noch abgeht — die Flächenmessung lag mit 99,3 % über der Schwelle, F11 war also gar nicht
+fällig. Diesen Pfad hält nur der Test fest, nicht eine Messung am Host.
+
+**Die Vermutung des Issues, Flycast und PCSX2 hätten dasselbe Problem, ist widerlegt.**
+Beide durchlaufen denselben Schritt, beide tragen den Vollbildzustand — und beide bleiben:
+
+| Emulator | Fenster beim Start | nach dem Fenster- und Vollbildschritt |
+|---|---|---|
+| DuckStation (PS1) | 1920 × 1080, Vollbild | **640 × 480 auf 1,51** — F11 kam |
+| PCSX2 (PS2) | 1920 × 1080, Vollbild | 1920 × 1080, Vollbild — F11 kam, wirkte nicht |
+| Flycast (Dreamcast) | 1920 × 1080, Vollbild | 1920 × 1080, Vollbild — kein F11 |
+
+PCSX2 bekam das F11 also ebenfalls zu Unrecht (`32.0 % bemalt -> F11 -> 32.0 %`) und hat
+es nur ignoriert. Flycast entging ihm, weil sein Titel in dem Moment ein helles Bild
+zeigte — Glück, keine Sicherheit.
+
+**Zweiter Fund: `/status` sagte die Größe, die es nie nachgesehen hatte.** Gemessen,
+während der Titel lief:
+
+```
+/status   "window": "ok", "1 Fenster auf 1920x1080, ohne Rahmen, Panel ausgeblendet"
+xdotool   Position 1,51   Geometry 640x480
+```
+
+Die Zahl war die **Bildschirm**größe — das Ziel des Schrittes, nicht sein Ergebnis. Der
+Befund nennt jetzt die gemessene Größe des größten Fensters, und zwar **nach** dem
+Vollbildschritt, weil erst dort der Schaden entstand:
+
+```
+[fenster] 1 Fenster, ohne Rahmen, Panel ausgeblendet
+[fenster] groesstes Fenster gemessen: 1920x1080
+```
+
+Was das **nicht** löst: Der Befund bleibt eine Momentaufnahme vom Start. `/status` misst
+nicht bei jedem Abruf nach — der Dienst beantwortet Anfragen der Reihe nach, und ein
+`xdotool`, das in seinen Timeout läuft, hielte auch `/stop` auf.
+
+*EN: with the dialogs gone the game appeared, but at 640 × 480 in the corner. The window
+step was not the culprit — measured, all four of its calls leave `_NET_WM_STATE_FULLSCREEN`
+intact. The F11 afterwards is: the painted-area measurement reads a still-booting black
+screen as 34.3 %, below the threshold, so it toggles off the fullscreen the emulator had
+set itself. The 99.3 % it then reports as success is the bare XFCE desktop — measured with
+no emulator running at all, the same value to the last digit (#495). The fix is
+emulator-agnostic: a window carrying `_NET_WM_STATE_FULLSCREEN` gets no F11; xemu, Azahar
+and Eden do not carry it and still get theirs. The issue's guess that Flycast and PCSX2
+share the problem is refuted by measurement — PCSX2 was wrongly sent F11 too but ignored
+it, and Flycast escaped only because its title happened to show a bright picture. Second
+find: the verdict quoted the SCREEN size, not the window's; it is now measured after the
+fullscreen step. It remains a snapshot taken at launch — /status does not re-measure per
+request, because the service answers sequentially and a hanging xdotool would block /stop.*
+
+## PS Vita (Vita3K): der Titel wird über seine **Kennung** gestartet
+
+PS Vita ist die einzige Plattform hier, bei der der Start-Dienst **nicht den Pfad**
+übergibt. Vita3K startet einen Titel über seine Titelkennung, und zwar nur, wenn er
+**installiert** ist. Die eigene Hilfe sagt es:
+
+```
+-r, --installed-path TEXT:{PCSF00024}   Path to the installed app to run
+```
+
+Die geschweifte Menge ist die Liste der installierten Titel — `-r` prüft dagegen. Mit
+einem Pfad endet der Start, bevor irgendein Fenster entsteht:
+
+```
+CLI parsing error: --installed-path: /roms/psvita/Gravity not in {PCSF00024}
+[E] [main]: Failed to initialise config                            (Exit 4)
+```
+
+Der Start-Dienst liest die Kennung deshalb aus `sce_sys/param.sfo` des Titelordners
+(`TITLE_ID`), sucht sie im Verzeichnis `ux0/app` von Vita3Ks Ablage — der Pfad steht als
+`pref-path` in dessen `config.yml` — und setzt **sie** in die Startzeile ein. Geraten
+wird nichts: der Ordner heißt `Gravity Rush (Europe).vpk`, die Kennung `PCSF00024`.
+
+**Was nicht installiert ist, wird abgesagt statt gestartet.** Ohne `-r` öffnet Vita3K
+seine Titelliste: der Start *gelingt*, der Stream zeigt einen Emulator, und nichts sagt,
+warum kein Spiel kommt. Die Absage nennt die Kennung, damit man in Vita3K nachsehen kann.
+**Installieren tut der Dienst nicht** — das ist ein Schritt in Vita3Ks eigener Oberfläche
+(*File ▸ Install*), zu erreichen über den Desktop-Eintrag.
+
+*EN: PS Vita is the one platform where the launch service does not pass a path. Vita3K
+launches an INSTALLED title by its title id (`-r/--installed-path`), and validates it
+against the set of installed ids — a path fails at CLI parsing with exit 4, before any
+window appears. The service reads `TITLE_ID` from the title folder's `sce_sys/param.sfo`,
+looks it up in `ux0/app` under Vita3K's `pref-path`, and substitutes that. Nothing is
+guessed from the folder name. A title that is not installed is refused rather than
+launched, because without `-r` Vita3K merely opens its title list: the launch succeeds
+and no game appears. Installing is a step in Vita3K's own GUI (File ▸ Install).*
+
+### Zwei modale Fenster fangen jeden Start ab — beide stehen ab (#488)
+
+Die richtige Startzeile allein genügte nicht. Vita3K nimmt die Kennung an und zeigt
+danach ein **Willkommensfenster**, das im Container niemand wegklickt; dahinter staut sich
+jeder Start. Ist das aus dem Weg, legt sich das nächste davor: **„Update Available"**,
+320 × 183 Pixel mitten auf dem Spielfenster.
+
+Beide sitzen als Schalter in `<config>/.config/Vita3K/config.yml`, und der Start-Dienst
+legt sie **vor** dem Start um (`launch-profile.py --dialogs vita3k`):
+
+| Schalter | Wert | wofür |
+|---|---|---|
+| `show-welcome` | `false` | das Willkommensfenster |
+| `check-for-updates-mode` | `0` | die Abfrage nach einer neuen Vita3K-Fassung |
+
+Gemessen am laufenden Host, jeder Schalter mit Gegenprobe — die Fenster gehören der
+**echten** Vita3K-PID, nicht der des Wrappers (#489):
+
+| `show-welcome` | `check-for-updates-mode` | Fenster |
+|---|---|---|
+| `true` | `1` | nur `Welcome to Vita3K`, kein Spiel, 4,5 % CPU |
+| `false` | `1` | Spiel + `Update Available` |
+| `false` | `0` | Spiel, kein Dialog — 99,3 % der Fläche bemalt |
+| `false` | `1` (Gegenprobe) | `Update Available` wieder da |
+
+> Die Spalte „99,3 % der Fläche bemalt" belegt **nur, dass kein Dialog mehr im Weg stand**
+> — nicht, dass der Titel den Schirm füllte. Ein leerer Desktop lieferte dieselbe Zahl
+> (#495).
+
+Dass `0` in Vita3Ks Quelltext „nie" heißt, wird hier **nicht** behauptet: der Wert ist
+gemessen, nicht abgelesen. Belegt ist, dass der Dialog damit wegbleibt und Vita3K die `0`
+annimmt.
+
+**Zwei Fallen beim Nachstellen von Hand:** Vita3K schreibt seine `config.yml` schon beim
+**Start** zurück — wer sie ändert, während der Emulator läuft, verliert die Änderung. Und
+`warn-missing-firmware` bleibt bewusst auf `true`: es ist der dritte Dialog derselben
+Klasse, hier folgenlos, weil die Firmware vollständig ist (#485/#486). Wer ihn vorsorglich
+abschaltet, verliert die Warnung genau dann, wenn sie einmal berechtigt wäre.
+
+*EN: the correct launch line was not enough. Vita3K accepts the title id and then shows a
+**welcome window** nobody can dismiss in a container; every launch stalls behind it. With
+that out of the way the next one takes its place: **"Update Available"**, 320 × 183 pixels
+in the middle of the game window. Both are switches in
+`<config>/.config/Vita3K/config.yml`, and the launch service flips them BEFORE the launch
+(`launch-profile.py --dialogs vita3k`): `show-welcome: false` and
+`check-for-updates-mode: 0`. Measured on the running host with a counter-check per switch
+(and on the real Vita3K PID, not the wrapper's, see #489): `true`/`1` gives only the
+welcome dialog at 4.5 % CPU and no game; `false`/`1` boots the game but puts "Update
+Available" on top; `false`/`0` gives the game with no dialog and 99.3 % of the screen
+painted (which proves only that no dialog was in the way — a bare desktop returned the same
+number, #495); switching back to `1` brings the dialog back. It is NOT claimed that `0` is the
+source's name for "never" — that value is measured, not read. Two traps when reproducing
+by hand: Vita3K rewrites its `config.yml` at STARTUP, so an edit made while it runs is
+lost; and `warn-missing-firmware` deliberately stays `true` — it is the third dialog of the
+same class, harmless here because the firmware is complete (#485/#486), and switching it
+off pre-emptively would remove the warning exactly when it becomes justified.*
+
+### Der Start-Dienst verfolgt eine **Prozessgruppe**, nicht eine PID (#489)
+
+`linuxdeploy` erzeugt bei Vita3K als einzigem Emulator ein `AppRun.wrapped`, das ein
+**Shell-Skript** ist. Bei rpcs3, cemu und azahar ist dieselbe Datei ein **Symlink auf die
+Programmdatei** und wird `exec`-t — nachgemessen, alle vier:
+
+```
+$ file -bL <emu>/AppRun.wrapped
+vita3k   POSIX shell script          <- startet das Programm als KIND, ohne exec
+rpcs3    ELF 64-bit LSB pie executable  (Symlink -> usr/bin/rpcs3)
+cemu     ELF 64-bit LSB pie executable  (Symlink -> usr/bin/Cemu)
+azahar   ELF 64-bit LSB pie executable  (Symlink -> usr/bin/azahar)
+```
+
+Der Dienst merkte sich damit bei Vita3K die PID der **Shell**, nicht die des Emulators —
+am laufenden Host bei laufendem Spiel abgelesen:
+
+```
+  PID  PPID  PGID
+ 1414  1414  1414  python3 /opt/stream-agent.py          <- der Dienst
+11616  1414  1414  /bin/sh …/AppRun.wrapped -r PCSF00024 <- verfolgt
+11634 11616  1414  …/usr/bin/Vita3K -r PCSF00024         <- der Emulator
+```
+
+Das kostete **zwei** Zusagen:
+
+| gemessen | vorher | jetzt |
+|---|---|---|
+| `/stop` | `{"ok": true}`, Vita3K lief mit `PPid 1` weiter und hielt die GPU | der ganze Baum ist weg |
+| `/status` | `"window": "kein-fenster"` bei sichtbarem Spiel | das Fenster wird gefunden |
+
+Zum zweiten Punkt, dieselbe Sitzung, zwei PIDs:
+
+```
+xdotool search --onlyvisible --pid 11616   (Wrapper)  -> nichts
+xdotool search --onlyvisible --pid 11634   (Vita3K)   -> 46137351 [Vita3K v0.2.1 …]
+                                                         46137358 [GRAVITY RUSH™ (PCSF00024)]
+```
+
+Behoben wird beides **emulatorunabhängig**, nicht mit einem Sonderweg für Vita3K:
+
+- Jeder Start bekommt eine **eigene Sitzung** (`start_new_session`), `/stop` schickt
+  SIGTERM und nötigenfalls SIGKILL an die **Gruppe**. Damit trifft es auch den nächsten
+  Wrapper, den `linuxdeploy` erzeugt, ohne dass ihn jemand hier einträgt.
+- Die Fensterprüfung fragt zusätzlich bei den **Kindprozessen** nach (`/proc`, keine
+  weiteren Werkzeuge). Für die anderen Emulatoren ändert das nichts: deren `AppRun`
+  `exec`-t, die verfolgte PID *ist* das Programm.
+
+**Warum die eigene Sitzung nicht Beiwerk ist:** ohne sie steht der Emulator in der Gruppe
+des Dienstes — oben alle drei in `1414`. Ein `killpg` darauf hätte den **Dienst selbst**
+beendet. Der Code benutzt die Gruppe deshalb nur, wenn sie gleich der Kind-PID ist; sonst
+fällt er auf das Signal an den einen Prozess zurück.
+
+**Was bewusst offen bleibt:** das unquotierte `$@` im Wrapper zerlegt Argumente an
+Leerzeichen (`--installed-path: x` statt `x PCSF00024`). Für die heutige Startzeile ist
+das folgenlos — eine Titelkennung hat keine Leerzeichen. Behoben wäre es nur, indem man
+`usr/bin/Vita3K` **direkt** startet, und das kostet zwei Dinge: den Qt-Hook aus
+`apprun-hooks/` (setzt `QT_QPA_PLATFORMTHEME=gtk2`) und die Erkennung fehlender
+Plattformen, die im Startbefehl nach einem `…/AppRun` sucht. Wer die Startzeile je auf den
+**positionalen** Parameter umstellt (Pfad statt Kennung), muss vorher hier hinsehen.
+
+*EN: Vita3K is the only emulator whose `AppRun.wrapped` is a shell script — for rpcs3, cemu
+and azahar the same file is a symlink to the binary and gets `exec`'d. So the service was
+tracking the **shell's** PID, not the emulator's (measured on the running host: agent 1414,
+wrapper 11616, Vita3K 11634). That cost two promises: `/stop` answered `ok` while Vita3K
+kept running orphaned at `PPid 1` holding the GPU, and `/status` reported `kein-fenster`
+for a title that was visibly on screen — `xdotool --pid` on the wrapper found nothing while
+the same query on the real PID found both the Vita3K window and `GRAVITY RUSH™`. Both are
+fixed **without an emulator-specific path**: every launch gets its own session
+(`start_new_session`) and `/stop` signals the process **group**, so it also catches the next
+wrapper `linuxdeploy` produces; and the window check additionally asks the **child
+processes** (via `/proc`). Nothing changes for the other emulators, whose `AppRun` `exec`s.
+The new session is not decoration: without it the emulator sits in the agent's own group
+(all three in `1414` above) and a `killpg` would have killed the service — the code
+therefore only uses the group when it equals the child PID. Deliberately left alone: the
+wrapper's unquoted `$@` splits arguments at spaces. That is harmless for today's launch
+line (a title id has no spaces), and fixing it would mean launching `usr/bin/Vita3K`
+directly — which drops the Qt hook from `apprun-hooks/` and breaks the missing-platform
+check that looks for a `…/AppRun` in the launch command.*
 
 ## Zwei Plätze gleichzeitig (optional)
 
@@ -959,6 +1787,83 @@ startet Prozesse — entsprechend ist er gebaut:
 
 Er gehört **nicht ins offene Netz**.
 
+### Wo er herkommt — und warum es dafür keinen Rückfall gibt
+
+Gestartet wird **immer** `/opt/stream-agent.py`, die Einhängung von
+`stack/stream-agent.py`. Was läuft, ist damit das, was im Repo steht.
+
+Fehlt diese Datei, **bricht der Start ab**. Das ist Absicht. Früher wich `init/30-agent`
+still auf `/config/stream-agent.py` aus — und das ist auf gewachsenen Installationen eine
+Altfassung. Hier gemessen:
+
+| Datei | Größe | Zeilen |
+|---|---|---|
+| `/opt/stream-agent.py` | 75.621 B | 1510 |
+| `/config/stream-agent.py` | 6.703 B | 158 |
+
+Die Altfassung kennt weder `psx` noch `psvita`, `ps3` oder `xbox` und verweist auf
+Emulatorpfade, die es nicht mehr gibt. Sie hätte Anfragen beantwortet und **gesund
+ausgesehen**: Der Stream kommt hoch, die Emulatortabelle ist falsch, und nichts im
+Protokoll sagt warum.
+
+**Ein Rückfall ist nur dann ein Netz, wenn das Hineinfallen sichtbar ist.** Ein Container,
+der nicht hochkommt, ist in zehn Minuten repariert; einer, der falsch hochkommt, kostet
+einen Tag. Wer die Meldung `[agent] FEHLT: /opt/stream-agent.py` sieht, prüft die
+Bind-Mounts des Containers.
+
+Liegt auf einer älteren Installation noch ein `/config/stream-agent.py` herum, kann es
+weg — es wird von nichts mehr gelesen.
+
+### Warum Vita3K an seinem Wrapper vorbei gestartet wird
+
+Bei den meisten Emulatoren **ist** `AppRun.wrapped` das Programm und wird `exec`-t — die
+Prozessnummer bleibt dieselbe. Bei Vita3K ist es ein Shell-Skript, das das Programm als
+**Kind** startet:
+
+```sh
+#!/bin/sh
+if [ "${APPIMAGE}" != "" ]; then
+    export PATH="$APPDIR/usr/bin:$PATH"
+    "${APPDIR}/usr/bin/Vita3K" $@        # kein exec, $@ ohne Anführungszeichen
+fi
+```
+
+Der Start-Dienst merkt sich damit die Nummer der **Shell**, nicht die des Emulators. Drei
+Folgen, alle nachgemessen:
+
+| Folge | Bild |
+|---|---|
+| `/stop` wirkt nicht | Antwort `ok`, `/status` sagt `running: false` — der Emulator lebt als Waise weiter (PPid 1). Erst `kill -9` beendet ihn. Der Dienst hält sich für frei, der nächste Start läuft gegen einen Emulator, der die GPU noch hält. |
+| Fensterprüfung irrt | `kein sichtbares Fenster zum Prozess` — dasselbe Werkzeug fand an der echten Nummer `Welcome to Vita3K`. |
+| Leerzeichen zerfallen | `$@` unquotiert: aus `x PCSF00024` wird `x`. Für eine Titelkennung folgenlos, für einen Pfad nicht. |
+
+`30-agent` startet deshalb `usr/bin/Vita3K` direkt und setzt `APPDIR`, `APPIMAGE` und den
+`PATH` selbst — mehr tat der Wrapper nachweislich nicht.
+
+**Dass nur Vita3K betroffen ist, ist eine Messung, keine Eigenschaft von AppImages.**
+`linuxdeploy` erzeugt je nach Bauart mal ein Programm, mal ein Skript. `30-agent` prüft
+deshalb bei jedem Start den Typ aller `AppRun.wrapped` und meldet es, wenn ein weiterer
+Emulator einen Skript-Wrapper bekommt.
+
+*EN: for most emulators `AppRun.wrapped` is the binary and gets exec'd, so the pid stays
+the same. Vita3K's is a shell script that starts the binary as a child, so the service
+tracks the shell: `/stop` reports ok while the emulator survives as an orphan and needs
+`kill -9`, the window check looks at the wrong pid, and unquoted `$@` splits arguments.
+The init now runs `usr/bin/Vita3K` directly and sets `APPDIR`, `APPIMAGE` and `PATH`
+itself — all the wrapper did. Only Vita3K is affected today, which is a measurement, not a
+property of AppImages, so the init checks every wrapper's type at start and says so when
+another emulator gains one.*
+
+*EN: the service always runs `/opt/stream-agent.py`, the bind mount of
+`stack/stream-agent.py`, so what runs is what is checked out. If that file is missing the
+init **aborts**. It used to fall back to `/config/stream-agent.py` silently, which on a
+grown installation is a stale copy — measured here at 158 lines against 1510, with no
+`psx`, `psvita`, `ps3` or `xbox` and hardcoded emulator paths that no longer exist. It
+would have answered requests and looked healthy. A fallback is a safety net only when
+falling into it is visible: a container that fails to start is a ten-minute fix, one that
+starts wrong costs a day. A leftover `/config/stream-agent.py` can be deleted; nothing
+reads it.*
+
 ### Das Token wechseln
 
 Das Token ist das Einzige zwischen einer Anfrage und einem gestarteten Prozess auf dem
@@ -1136,6 +2041,48 @@ The agent therefore sets `LD_LIBRARY_PATH` to both paths for Xbox.
 > `libpulsecommon` — `undefined symbol: pa_in_valgrind`, and audio breaks again. Exactly
 > **one file** is borrowed, never a directory.
 
+#### And a third: xemu is the only emulator launched **without VirtualGL**, using Vulkan
+
+VirtualGL's readback does not follow a window resize: it keeps reading at the old size, so
+only the old rectangle is painted and the rest keeps whatever was on screen before. In
+fullscreen this looked like an emulator that refuses to scale its picture. Reported as
+[VirtualGL/virtualgl#287](https://github.com/VirtualGL/virtualgl/issues/287); the maintainer
+confirmed the cause — the `ConfigureNotify` events VirtualGL waits for never arrive.
+
+Measured **one factor at a time** — window 1920x1080 in all three rows, painted area
+compared against a capture of the bare desktop:
+
+| renderer | `vglrun` | painted share after fullscreen |
+|---|---|---|
+| OpenGL | yes | ~62 % |
+| Vulkan | yes | 62.9 % |
+| **Vulkan** | **no** | **100 %** |
+
+The middle row is the important one: **Vulkan alone is not enough.** While VirtualGL sits in
+between, presentation still goes through the intercepted GL path. Both changes together are
+what works — which is why `launch-profile.py` also writes `renderer = 'VULKAN'` into
+`xemu.toml`; xemu has no command-line switch for it.
+
+The GPU stays in use, verified in the log rather than assumed:
+
+```
+Available physical devices:
+- Intel(R) Arc(tm) A310 Graphics (DG2)
+- llvmpipe (LLVM 21.1.8, 256 bits)
+Selected physical device: Intel(R) Arc(tm) A310 Graphics (DG2)
+```
+
+> **Why only xemu?** Because only xemu was verified end to end — picture, sound and gamepad
+> confirmed by a person. OpenGL does reach the GPU without VirtualGL here (`glxinfo -B`
+> reports the same Arc without `vglrun`, so DRI3 works), but `glxinfo` is a trivial GL client,
+> not an emulator with its own bundled libraries. Widening the change deserves its own
+> measurement.
+
+**What this does not fix:** xemu still stutters, for an unrelated reason. The bottleneck is a
+**single thread** (21,351 ticks against 3,757 for the next one), cores sit at 1995 MHz against
+a 2500 MHz ceiling because several other workloads are running, and the Arc idles at 28-44 %.
+That is a single-thread CPU limit, not a graphics problem.
+
 ### And above all: the right BIOS
 
 **Every retail BIOS dump yields a black screen** or the console's "Your Xbox requires
@@ -1184,11 +2131,201 @@ Browser-side indicators mislead here. Measure in the container with `parec` on
 the problem is the browser (almost always: no HTTPS); zero means the source is
 silent.
 
+### Two traps where nothing fails and there is still no sound
+
+**The client asks for audio, not the server.** When the streaming pipeline is reset — after
+a resolution change, for instance — the browser rebuilds it and sends only `START_VIDEO`.
+Picture returns, audio does not, and **no error is logged**: capture and the Opus encoder
+keep running server-side, nobody is asking for the result. Reloading the page does not help
+because the state lives on the client; toggling audio off and on in the Selkies side menu
+sends a fresh `START_AUDIO`. Visible in the log:
+
+```bash
+docker logs stream-host --timestamps | grep -i "START_AUDIO\|stopped all streams"
+```
+
+If the last `START_AUDIO` predates the last "stopped all streams", it is the client.
+
+**Cemu selects a backend that does not exist here.** It stored `<api>0</api>` — DirectSound,
+which Cemu's own startup listing calls `not supported`. Only Cubeb is available. Cemu then
+asks a non-existent backend for a device, finds none, and carries on:
+
+```
+DirectSound: not supported          <- this is what was stored
+Cubeb: available
+------- Run title -------
+can't initialize tv audio: failed to find selected device while trying to create audio device
+```
+
+Picture, speed and gamepad are all fine meanwhile. `launch-profile.py` therefore writes
+`<api>3</api>` (Cubeb); the index comes from the order Cemu lists its backends in, not from
+a guess.
+
+> **The buffer is deliberately left alone.** One title sounded chopped, and `<delay>` was the
+> obvious lever. It measurably did nothing — raising it from 2 to 9 did not even change the
+> buffer latency, and neither did `PULSE_LATENCY_MSEC=120` — while a second title was clean at
+> the default: **0 ms** of silence in 8 seconds against 4040 ms for the first. It belonged to
+> that title's attract screen, not to the emulator.
+
+Measure it objectively by counting **exact digital zeros**, not "quiet": an absolute
+threshold such as "below 30" marks a quiet signal as dropouts and once sent an hour of
+debugging in the wrong direction.
+
 ## The launch service
 
 `stream-agent.py` starts processes, so: it refuses to run without a shared token,
 never uses a shell, and resolves the path with `realpath`, rejecting anything
 outside the ROM library. Do not expose it to the open internet.
+
+### It tracks a process **group**, not a PID
+
+A launch does not always end at the process the service starts. `linuxdeploy` gives Vita3K
+— and only Vita3K — an `AppRun.wrapped` that is a **shell script** and runs the emulator as
+a **child** without `exec`; for rpcs3, cemu and azahar the same file is a symlink to the
+binary. Measured on the running host, with the game visibly up:
+
+```
+  PID  PPID  PGID
+ 1414  1414  1414  python3 /opt/stream-agent.py            <- the service
+11616  1414  1414  /bin/sh …/AppRun.wrapped -r PCSF00024   <- the PID it tracked
+11634 11616  1414  …/usr/bin/Vita3K -r PCSF00024           <- the emulator
+```
+
+Tracking the wrapper cost two promises: `/stop` answered `{"ok": true}` while Vita3K kept
+running orphaned at `PPid 1`, still holding the GPU — and `/status` reported
+`window: "kein-fenster"` for a title that was on screen, because `xdotool --pid` on the
+wrapper finds nothing while the same query on PID 11634 finds both the Vita3K window and
+`GRAVITY RUSH™ (PCSF00024)`.
+
+Both are fixed **without an emulator-specific path**:
+
+- every launch gets its **own session** (`start_new_session`), and `/stop` sends SIGTERM —
+  then SIGKILL if needed — to the process **group**. That also catches the next wrapper
+  `linuxdeploy` produces, with nobody having to list it here;
+- the window check additionally asks the **child processes**, read from `/proc`.
+
+Nothing changes for the other emulators: their `AppRun` `exec`s, so the tracked PID *is*
+the program and has no children.
+
+The new session is not decoration. Without it the emulator sits in the **agent's own**
+process group — all three lines above share `1414` — and a `killpg` there would take down
+the service itself. The code therefore only signals the group when it equals the child PID,
+and otherwise falls back to signalling the tracked process alone.
+
+Deliberately left alone: the wrapper's unquoted `$@` splits arguments at spaces
+(`--installed-path: x` instead of `x PCSF00024`). That is harmless for today's launch line,
+since a title id has no spaces. Fixing it would mean launching `usr/bin/Vita3K` directly,
+which drops the Qt hook in `apprun-hooks/` and breaks the missing-platform check that looks
+for a `…/AppRun` inside the launch command. Anyone switching the Vita launch line to the
+**positional** parameter (a path instead of an id) has to look here first.
+
+### A window already in fullscreen is left alone
+
+The window step pulls every visible window to the full screen, and after it a painted-area
+measurement decides whether to correct with F11 (see *Fullscreen: measured, not assumed*).
+For DuckStation that correction was the damage: the title sat at 1920 × 1080 and dropped to
+**640 × 480 in the corner** about 14 seconds in.
+
+The window step was the obvious suspect and it is **not** the culprit. Measured by applying
+its four calls one at a time to the window, with no agent alongside — `_MOTIF_WM_HINTS`,
+`windowsize`, `windowmove`, `windowactivate`, `windowraise` — the window stayed 1920 × 1080
+and kept `_NET_WM_STATE_FULLSCREEN` throughout. The F11 afterwards is the culprit, and the
+agent log shows it with the same numbers on every PSX launch:
+
+```
+[vollbild] 34.3 % bemalt -> F11 -> 99.3 %
+```
+
+34.3 % does not measure a small window, it measures a **black** one — DuckStation is still
+booting the disc. F11 then switches off the fullscreen the emulator had set itself via
+`-fullscreen`. The 99.3 % reported as success is the uncovered XFCE desktop: measured with
+no emulator running at all, the bare desktop read the same value to the last digit (#495).
+
+*(That value, 99.27782600308642 %, is the ceiling of this measurement rather than a
+property of the desktop: 1915 × 1075 of 1920 × 1080 is the largest box a 6-pixel raster can
+span, so any fully painted surface returns it — wallpaper and fullscreen game alike. Which
+is the point: the two states were indistinguishable. See* The fullness measurement compares
+against a picture of the empty desktop *below.)*
+
+The fix is emulator-agnostic: **a window carrying `_NET_WM_STATE_FULLSCREEN` gets no F11.**
+The window step is unchanged; there is no measured reason to touch it.
+
+Counter-checked on the running host with xemu, the case the keystroke route was built for:
+its window reports `STATE=[_NET_WM_STATE_FOCUSED]` and no fullscreen atom, so the guard
+cannot fire there and the window trick still pulls it up. What that counter-check does
+**not** show is whether F11 still goes out afterwards — the painted share was 99.3 %, above
+the threshold, so no F11 was due. Only the test covers that path, not a host measurement.
+
+The issue's guess that Flycast and PCSX2 shared the problem is **refuted by measurement**:
+
+| Emulator | at launch | after the window and fullscreen steps |
+|---|---|---|
+| DuckStation (PS1) | 1920 × 1080, fullscreen | **640 × 480 at 1,51** — F11 was sent |
+| PCSX2 (PS2) | 1920 × 1080, fullscreen | 1920 × 1080, fullscreen — F11 sent, ignored |
+| Flycast (Dreamcast) | 1920 × 1080, fullscreen | 1920 × 1080, fullscreen — no F11 |
+
+Second find: `/status` quoted a size it had never looked at — `1 Fenster auf 1920x1080`
+while `xdotool` reported 640 × 480. That number was the **screen** geometry, the aim of the
+step rather than its outcome. The verdict now names the measured size of the largest
+window, taken **after** the fullscreen step, because that is where the damage happened. It
+is still a snapshot from launch time: `/status` does not re-measure per request, because
+the service answers requests sequentially and a hanging `xdotool` would block `/stop` too.
+
+### The fullness measurement compares against a picture of the empty desktop
+
+Until 2026-08-13 the measurement looked for the bounding box of the non-black points in an
+`xwd -root` capture. A wallpaper is not black, so it could not tell a game from an empty
+desktop. Measured on the running host, three states:
+
+| State | old measurement | new measurement |
+|---|---|---|
+| bare desktop, no emulator | 99.28 % | **0.06 %** |
+| xemu, picture 1280 × 963 on the desktop | 99.28 % | **74.87 %** |
+| Flycast, genuinely fullscreen | 73.56 % | **99.97 %** |
+
+The old number was **inverted**, not merely imprecise: the bare desktop sat above the
+threshold and a genuinely fullscreen emulator below it.
+
+The measurement now compares the screen against a **baseline** capture of the empty
+desktop. The agent takes it between stopping the previous title and starting the new one —
+the only moment the desktop is actually empty — via `launch-profile.py --grundbild`. A
+point counts as "still desktop" when it is unchanged **and** was not black in the baseline;
+black on black says nothing, an emulator paints that too. Everything else belongs to the
+emulator.
+
+The capture refuses itself in two situations, and both guards are needed. If
+`_NET_CLIENT_LIST` holds anything besides the panel and the desktop, a baseline would
+contain the game and mark every later launch as "the emulator took nothing over". If the
+screen is nearly all black, X or XFCE is still coming up and every later launch would score
+100 %. Either way the old baseline stays and the log says so; with no baseline at all the
+correction is skipped and the log reads `[vollbild] nicht messbar`.
+
+Two side findings from the same measurement:
+
+* **The row length is padded, and exact equality is too brittle.** The xwd header reports
+  `bits_per_pixel` 24 and `bytes_per_line` 7680 for a 1920-point-wide screen, of which
+  1920 × 3 = 5760 bytes carry image. The stride must come from `bits_per_pixel`; deriving
+  it from `bytes_per_line / width` reads past the row and decodes the image squeezed into
+  three quarters of the width with a black band on the right. *(That wrong turn was in an
+  intermediate version of this section, with reproducible numbers behind it. It only showed
+  up once the decoded image was looked at instead of merely computed.)* Separately, only
+  **7.2 %** of the wallpaper points visibly unchanged next to xemu are bit-identical
+  between the two captures, because the baseline is 24 bpp and a capture taken with a
+  32-bit-visual window fullscreen is 32 bpp, which dithers the gradient differently. Points
+  count as unchanged within a per-channel tolerance of 8; without it this state measured
+  95.13 % instead of 74.87 %.
+* **Restricting the measurement to the window geometry — the fix proposed in #495 — was
+  measured and rejected.** xemu's X window really is 1920 × 1080 (`xwininfo` confirms it),
+  but only about 1280 × 963 of it is ever painted. The rest is left untouched and still
+  shows the wallpaper, so the desktop lies *inside* the window. Restricted to the window
+  geometry the measurement returned the same wrong value: **99.64 %**.
+
+The check table from #429 (Azahar 53.3 %, Eden 88.6 %, xemu 960 of 1920) proves less than
+it appears to: its numbers come from a measurement that cannot tell a game from the
+wallpaper. Only xemu has been measured again so far — 62.07 % before F11, 95.13 % after,
+and the window then carried `_NET_WM_STATE_FULLSCREEN`, which it had not before. That also
+settles the question #493 left open: F11 does still reach an emulator without a fullscreen
+switch of its own.
 
 ### Rotating the token
 
@@ -1243,20 +2380,21 @@ pressed in-game.
 
 | Platform | Emulator | Picture | Sound | Controller | Note |
 |---|---|---|---|---|---|
-| PlayStation 1 | DuckStation | ✅ | ✅ | ✅ | |
+| PlayStation 1 | DuckStation | ✅¹ | ✅ | ✅ | confirmed by a human (2026-08-10). ¹on 2026-08-12/13 no title started at all — three modal windows, all three switched off since #492. The game then sat at 640 × 480 in the corner; **fixed since #493** — not the window step but an F11 that switched off DuckStation's own fullscreen. Measured after the rollout: **39 of 39 samples over 80 s** unchanged at 1920 × 1080, fullscreen state held throughout |
 | PlayStation 2 | PCSX2 | ✅ | ✅ | ✅ | |
 | GameCube | Dolphin | ✅ | ✅ | ✅ | |
 | Wii | Dolphin | ✅ | ✅ | (⁠—⁠) | controller not checked separately — same emulator and same mapping as GameCube |
 | PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
 | Switch | Eden | ✅ | ✅ | (⁠—⁠) | controller not checked separately |
 | Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | only since decryption (#354/#356); fullscreen measured at the pixels (#316); controller not separately checked |
-| Dreamcast | Flycast | — | — | — | no titles in the library, nothing to test |
+| Dreamcast | Flycast | ✅ | ✅ | ✅ | fullscreen and **Vulkan** — since #304 no longer only on the launch line but **written into `emu.cfg`**: Flycast does not adopt a `-config` value, so started from the desktop it ran on the built-in default (see below). Picture, sound and controller confirmed by a human — Flycast maps the pads by itself, the only emulator here that does |
 | Xbox | xemu | ✅ | ✅ | ✅ | needs **COMPLEX 4627 + MCPX 1.0** — retail BIOS stays black |
-| Wii U | Cemu | — | — | — | no titles in the library |
-| PS Vita | Vita3K | — | — | — | no titles in the library |
+| Wii U | Cemu | — | — | — | a title is in the library since #452/#455 — not launched yet |
+| PS Vita | Vita3K | — | — | — | a title is in the library since #452/#455; fullscreen and Vulkan are set in the config (#304); since #481 the launch passes the **title id** instead of the path; since #488 both startup dialogs are switched off and the title was measured booting into its loading window — no human has seen it yet; since #489 `/stop` really ends it and `/status` finds its window |
 
-A `—` means **untested**, not "broken". The bottom four rows are untested because there
-is simply nothing there to start.
+A `—` means **untested**, not "broken". Dreamcast, Wii U and PS Vita have had content since
+#452/#455; they are untested because nobody has launched them yet, not because there is
+nothing to start.
 
 ### Two traps that look like a broken host
 
@@ -1491,8 +2629,48 @@ Files land in `/config/firmware/<platform>/` and are copied from there to wherev
 emulator looks. That separation is deliberate: reinstalling an emulator does not take
 the firmware with it.
 
-**PS Vita:** Vita3K **downloads nothing** — its source opens a file dialog
-(`firmware_install_dialog.cpp`). There is nothing to automate beyond the import.
+**PS Vita: two parts, and only one is manual.** Vita3K wants the firmware PUP **and** a
+**font package**; without either it says, verbatim, `Firmware is not fully installed.`
+
+| part | where from | ends up in |
+|---|---|---|
+| firmware (`PSVUPDAT.PUP`) | **obtain it yourself**, then *Install Firmware* | `vs0`, `os0` |
+| font package (`PSP2UPDAT.PUP`) | **obtain it too** — the *Download Firmware Font Package* button only opens a link | `sa0` |
+
+**Vita3K fetches neither.** The *Download Firmware Font Package* button looks as though it
+does and does not: it opens a browser on a shortened link. Measured on the running host —
+the log says `Opening in existing browser session`, Chromium starts, and nothing else
+happens.
+
+The link resolves to a plain-HTTP direct download:
+
+```
+https://bit.ly/2P2rb0r
+  -> http://dus01.psp2.update.playstation.net/update/psp2/image/2019_0924/
+     sd_8b5f60b56c3da8365b973dba570c53a5/PSP2UPDAT.PUP?dest=us
+  56,768,512 bytes, header `SCEUF`
+```
+
+`curl` handles it in one line; the container's browser never started the download. Both PUPs
+go into `firmware/psvita/` and are installed one after the other via *File > Install
+Firmware*.
+
+The status therefore checks **both** Ablagen (`vs0` and `sa0`). With only one it reported
+"installed" while the emulator itself disagreed (#484).
+
+**Staged is not installed.** For **PS3 and PS Vita** the firmware is a `.PUP` — an update
+package the emulator has to *install*, never used in place. The catalogue therefore names an
+**Ablage** per entry: the directory the firmware ends up in afterwards (`dev_flash` for
+RPCS3, `vs0` for Vita3K). Only once something is there does the status report `installed`.
+
+Without that field the script takes the branch *"no Ablage, so the question is moot"* — and
+the status is **green for firmware the emulator does not have**. That is exactly how
+`psvita` read `installed: true` while `vs0`, `os0` and `sa0` were empty: 133 MB staged, none
+installed (#479). It surfaced only on a launch attempt, as Vita3K's "Welcome" window — which
+was the correct message, not the problem.
+
+PS1, PS2, Dreamcast, Xbox, 3DS, Switch and Wii U have no Ablage, and rightly so: there the
+firmware **is** the file in that directory, with no second step.
 
 **What is checked, and what is not.** Size is checked. That catches truncated downloads
 and obviously wrong files, which is what it is for. It does **not** prove the contents

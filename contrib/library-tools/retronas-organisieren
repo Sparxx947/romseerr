@@ -128,20 +128,117 @@ def ohne_marker(name):
     return _MARKER.sub("", stamm).strip().lower()
 
 
+# --- Abbild-Sets (Disc-Images) ---------------------------------------------------------
+#
+# WAS HIER SCHIEFGING (#462): Ein Dreamcast-Titel liegt als Ordner mit EINER kleinen
+# Textdatei und mehreren Spurdateien vor:
+#
+#     Bangai-O (PAL)(M3)/Bangai-O v1.001 (2000)(Virgin)(PAL)(M3)[!].gdi
+#     Bangai-O (PAL)(M3)/track01.bin   track02.raw   track03.bin
+#
+# `ist_spielordner` fragte, ob ALLE Dateien nach Abzug des Datentraeger-Markers denselben
+# Titel ergeben. Hier sind es vier verschiedene Staemme, also „Sammlung", also flachgelegt.
+# Die Spurnamen sind generisch, sie kollidierten und wurden zu `track01 (53).bin` — die
+# `.gdi` verweist aber weiter auf `track01.bin`. Ergebnis: ALLE 138 Titel zeigten auf
+# dieselbe Datei, gemessen am Emulator als tausende `W[GDROM]: Sector Read miss`.
+#
+# Die Marker-Regel ist fuer `Spiel (Disk 1).adf` richtig. Ein Abbild-Set kann sie
+# grundsaetzlich nicht sehen: Dort ist die Namensgleichheit nicht nur abwesend, sie ist
+# ABSICHTLICH abwesend — die Spuren heissen bei jedem Spiel gleich.
+#
+# Deshalb wird hier die STRUKTUR gelesen: Eine Abbildliste nennt ihre Dateien, und liegen
+# die daneben, ist der Ordner ein Spiel. Kein Namensvergleich, keine Heuristik.
+#
+# EN: a disc-image set is one game: a small text file names its track files and those files
+# sit next to it. The track names are generic on purpose, so no name-based rule can see it.
+ABBILDLISTE = {".gdi", ".cue", ".m3u"}
+
+_CUE_DATEI = re.compile(r'^\s*FILE\s+(?:"([^"]+)"|(\S+))', re.I | re.M)
+
+
+def _abbild_verweise(pfad):
+    """Dateinamen, die eine Abbildliste nennt. Leer, wenn sie sich nicht lesen laesst.
+
+    `.gdi`: erste Zeile ist die Spurzahl, danach je Spur
+            `<nr> <lba> <typ> <sektorgroesse> <datei> <offset>`. Der Dateiname kann
+            Leerzeichen enthalten, deshalb werden vier Felder vorne und eines hinten
+            abgezogen, statt auf Feld 5 zu zeigen.
+    `.cue`: `FILE "name" BINARY`, mit oder ohne Anfuehrungszeichen.
+    `.m3u`: je Zeile ein Verweis, `#` ist Kommentar.
+    """
+    endung = os.path.splitext(pfad)[1].lower()
+    try:
+        with open(pfad, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read(200_000)
+    except OSError:
+        return []
+    namen = []
+    if endung == ".gdi":
+        for zeile in text.splitlines()[1:]:
+            teile = zeile.split()
+            if len(teile) < 6:
+                continue
+            namen.append(" ".join(teile[4:-1]).strip('"'))
+    elif endung == ".cue":
+        namen = [(a or b) for a, b in _CUE_DATEI.findall(text)]
+    elif endung == ".m3u":
+        namen = [z.strip() for z in text.splitlines()
+                 if z.strip() and not z.lstrip().startswith("#")]
+    return [os.path.basename(n) for n in namen if n]
+
+
+def ist_abbild_set(pfad):
+    """-> True, wenn dieser Ordner EIN Abbild-Set ist. (#462)
+
+    Bedingungen, alle noetig:
+      * mindestens eine Abbildliste auf der obersten Ebene,
+      * ALLE Listen reduzieren sich nach Abzug des Datentraeger-Markers auf EINEN Titel —
+        so bleibt ein Mehrfach-Disc-Spiel ein Spiel und zwei verschiedene Titel im selben
+        Ordner bleiben eine Sammlung,
+      * jede genannte Datei liegt tatsaechlich daneben. Fehlt eine, ist der Ordner kaputt
+        oder unvollstaendig, und ihn als Einheit zu behandeln wuerde den Schaden festigen.
+    """
+    try:
+        eintraege = [e for e in os.scandir(pfad) if e.is_file()]
+    except OSError:
+        return False
+    listen = [e for e in eintraege
+              if os.path.splitext(e.name)[1].lower() in ABBILDLISTE]
+    if not listen:
+        return False
+    if len({ohne_marker(e.name) for e in listen}) != 1:
+        return False
+    vorhanden = {e.name.lower() for e in eintraege}
+    genannt = []
+    for e in listen:
+        verweise = _abbild_verweise(e.path)
+        if not verweise:
+            return False          # unlesbar oder leer — nicht raten
+        genannt.extend(verweise)
+    return all(n.lower() in vorhanden for n in genannt)
+
+
 def ist_spielordner(pfad, plattform):
     """-> True, wenn dieser Ordner EIN Spiel ist und nicht eine Sammlung.
 
-    Drei Wege fuehren dahin, in dieser Reihenfolge:
+    Vier Wege fuehren dahin, in dieser Reihenfolge:
       1. Die Plattform kennt nur Spielordner (DOS, PS3, ScummVM …).
-      2. Der Ordner hat wenige Dateien, die sich nach Abzug des
+      2. Der Ordner ist ein ABBILD-SET: eine `.gdi`/`.cue`/`.m3u` nennt Dateien, die
+         daneben liegen. (#462)
+      3. Der Ordner hat wenige Dateien, die sich nach Abzug des
          Datentraeger-Markers auf DENSELBEN Titel reduzieren — Multi-Disk-Spiel.
-      3. Sonst: Sammlung.
+      4. Sonst: Sammlung.
 
     Am Bestand geprueft: `Cassette 50 …(Side A)/(Side B)` ist ein Spiel,
     fuenf `VC Songs-Cartridge - …`-Demos sind es nicht, obwohl sie 22 Zeichen
     Namensanfang teilen.
     """
     if plattform in ORDNER_IST_SPIEL:
+        return True
+    # VOR der Dateizahl-Schranke: Ein Abbild-Set kann mehr als SPIEL_MAX_DATEIEN Spuren
+    # haben (gemessen: 38 bei `Bangai-O`), und dann waere es unter der alten Reihenfolge
+    # weiterhin eine „Sammlung". (#462)
+    if ist_abbild_set(pfad):
         return True
     dateien = []
     for wurzel, _d, fs in os.walk(pfad):
@@ -290,8 +387,65 @@ def freier_name(ordner, name):
         i += 1
 
 
+# Womit entpackt wird, wenn Python es nicht selbst kann. In dieser Reihenfolge, und der
+# erste vorhandene gewinnt. (#447)
+#
+# WARUM `unar` VOR `7z`: Das p7zip aus Alpine ist OHNE den RAR-Codec gebaut — der ist
+# unfrei und wird nicht mitgeliefert. Gemessen am Umbau vom 2026-08-12, allein auf `amiga`:
+#
+#     45 zip · 28 lzh · 7 rar · 4 lha     = 84 Archive, die geschlossen blieben
+#
+# Die `.rar` sind echte RAR-Dateien (`Rar!` in den ersten vier Bytes), nicht falsch
+# benannte. `.lzh` und `.lha` sind auf dem Amiga das NORMALE Verteilformat — ein Archiv mit
+# zwanzig Spielen zaehlt sonst als ein einziger Eintrag.
+#
+# `unar` kann alle vier und liegt ohnehin im Romseerr-Abbild, weil der Import-Weg es
+# benutzt. Dass beide Wege Archive verschieden behandeln, war die eigentliche Ursache:
+# derselbe Titel kam ueber den einen an und ueber den anderen nicht.
+#
+# EN: Alpine's p7zip ships without the non-free RAR codec, and lzh/lha are the normal Amiga
+# distribution formats. `unar` handles all of them and is already in the Romseerr image,
+# where the import path uses it — the two paths differing was the actual cause.
+_ENTPACKER = (
+    ("unar", lambda a, z: ["unar", "-quiet", "-force-overwrite", "-output-directory", z, a]),
+    ("7z",   lambda a, z: ["7z", "x", "-y", f"-o{z}", a]),
+)
+
+
+def ist_ueberhaupt_ein_archiv(archiv):
+    """-> True, wenn ein Entpacker den INHALT als Archiv erkennt. (#447)
+
+    WOZU DIE UNTERSCHEIDUNG: Unter `amiga` liegen Dateien, die `.ZIP` oder `.LZH` heissen
+    und keine sind — kein `PK\x03\x04`, kein LHA-Kopf, sondern Amiga-Cruncher-Formate mit
+    Kennungen wie `85 15 02 41` oder `95 0a 02 41`. Sie als „Archiv liess sich nicht
+    entpacken" zu melden ist doppelt falsch: Es behauptet einen Schaden, den es nicht gibt,
+    und es begraebt die echten Fehlschlaege. Gemessen: 49 von 78 Meldungen waren solche
+    Dateien, und darunter lagen genau ZWEI wirklich beschaedigte Archive.
+
+    WARUM KEINE FORMATLISTE: Die Kennungen sind uneinheitlich, eine Liste waere Raterei.
+    Die Frage „erkennt ein Entpacker das ueberhaupt?" ist dagegen messbar und braucht kein
+    Formatwissen. `lsar` antwortet auf ein unbekanntes Format mit „Couldn't recognize the
+    archive format" und einem Rueckgabewert ungleich 0.
+
+    Im Zweifel `True`: Ist `lsar` nicht da, wird weiter wie bisher als Archiv behandelt —
+    lieber ein Fehlalarm als eine still uebersprungene Datei.
+
+    EN: distinguishes 'damaged archive' from 'not an archive at all'. Amiga cruncher files
+    named .ZIP/.LZH are not archives; reporting them as failed extractions claims damage
+    that does not exist and buries the two genuinely broken ones. No format list — the
+    measurable question is whether any extractor recognises the content.
+    """
+    if not shutil.which("lsar"):
+        return True
+    try:
+        r = subprocess.run(["lsar", archiv], capture_output=True, timeout=120)
+    except Exception:
+        return True
+    return r.returncode == 0
+
+
 def entpacken(archiv, ziel):
-    """-> True bei Erfolg. Python fuer ZIP und TAR, 7z fuer den Rest."""
+    """-> True bei Erfolg. Python fuer ZIP und TAR, sonst `unar` (ersatzweise `7z`)."""
     endung = os.path.splitext(archiv)[1].lower()
     os.makedirs(ziel, exist_ok=True)
     try:
@@ -305,11 +459,24 @@ def entpacken(archiv, ziel):
             with tarfile.open(archiv) as t:
                 t.extractall(ziel)
             return True
-        r = subprocess.run(["7z", "x", "-y", f"-o{ziel}", archiv],
-                           capture_output=True, timeout=1800)
-        return r.returncode == 0
     except Exception:
-        return False
+        # KEIN `return False` MEHR. Ein `.zip`, das Python ablehnt, ist nicht zwangslaeufig
+        # kaputt — es kann ein falsch benanntes LHA sein, und genau das kommt in diesen
+        # Bestaenden vor. Weiterreichen an ein Werkzeug, das nach dem INHALT geht, statt am
+        # Namen zu scheitern. Dieselbe Lehre wie bei den 3DS-Abbildern (#422).
+        # EN: a .zip Python rejects may be a misnamed LHA; hand it to a tool that reads the
+        # content instead of failing on the name.
+        pass
+    for name, befehl in _ENTPACKER:
+        if not shutil.which(name):
+            continue
+        try:
+            r = subprocess.run(befehl(archiv, ziel), capture_output=True, timeout=1800)
+            if r.returncode == 0:
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def umbauen(wurzel, plattform, trocken, protokoll):
@@ -319,7 +486,8 @@ def umbauen(wurzel, plattform, trocken, protokoll):
         return 1
 
     z = {"entpackt": 0, "archiv_behalten": 0, "verschoben": 0, "spielordner": 0,
-         "dubletten": 0, "beiwerk": 0, "fehler": 0, "befreit": 0,
+         "dubletten": 0, "beiwerk": 0, "fehler": 0, "befreit": 0, "satz_verschont": 0,
+         "kein_archiv": 0,
          "beiwerk_gesammelt": 0}
     arcade = plattform in ARCHIV_BLEIBT
 
@@ -332,7 +500,31 @@ def umbauen(wurzel, plattform, trocken, protokoll):
                 if os.path.splitext(f)[1].lower() in ARCHIV_ENDUNGEN:
                     archive.append(os.path.join(w, f))
         for a in archive:
-            ziel = os.path.splitext(a)[0]
+            # DAS ENTPACKZIEL BRAUCHT EINEN FREIEN NAMEN — als einzige Stelle im Werkzeug
+            # ging es bisher ohne. (#442)
+            #
+            # `Kolumbus.rar` soll nach `Kolumbus` entpackt werden, und auf `amiga` liegt
+            # daneben eine DATEI namens `Kolumbus` (endungslos, dort voellig normal).
+            # `os.makedirs(ziel, exist_ok=True)` verzeiht nur ein vorhandenes VERZEICHNIS;
+            # gegen eine gleichnamige Datei wirft es `FileExistsError` — und die Ausnahme
+            # reisst den ganzen Plattformlauf ab.
+            #
+            # DER GRUND, WARUM ES SICH NIE VON SELBST LOESTE: Der erste Durchlauf hebt die
+            # Datei auf Ebene 1, das Archiv liegt noch da. Der naechste Lauf beginnt die
+            # Plattform von vorn, kommt hierher und kollidiert wieder. `amiga` ist daran
+            # dreimal gescheitert, zweimal ohne erkennbaren aeusseren Anlass.
+            #
+            # Der Ordnername ist beliebig: Sein Inhalt wird gleich danach auf Ebene 1
+            # gehoben. Ein freier Name kostet also nichts und nimmt die zweite Falle mit —
+            # Reste eines abgebrochenen Entpackens mischen sich nicht mehr unter den neuen
+            # Inhalt.
+            #
+            # EN: the extraction target was the one path not going through freier_name.
+            # makedirs(exist_ok=True) only forgives an existing directory; against a
+            # same-named file it raises and takes the whole platform down. On resume it
+            # happens again every time, so the platform could never finish.
+            ziel = freier_name(os.path.dirname(a),
+                               os.path.basename(os.path.splitext(a)[0]))
             if trocken:
                 z["entpackt"] += 1
                 continue
@@ -343,8 +535,20 @@ def umbauen(wurzel, plattform, trocken, protokoll):
                 z["entpackt"] += 1
             else:
                 shutil.rmtree(ziel, ignore_errors=True)
-                fehler_merken(z, protokoll, "entpacken", a,
-                              "Archiv liess sich nicht entpacken")
+                # ZWEI VERSCHIEDENE BEFUNDE, NICHT EINER. (#447)
+                #
+                # „Beschaedigtes Archiv" und „gar kein Archiv" verlangen verschiedene
+                # Antworten: das eine neu beschaffen, das andere nur richtig benennen. Sie
+                # in einen Topf zu werfen behauptet Schaden, den es nicht gibt, und
+                # begraebt die echten Faelle. Gemessen: 49 von 78 Meldungen waren
+                # Amiga-Cruncher-Dateien mit lugender Endung, darunter genau ZWEI wirklich
+                # beschaedigte Archive.
+                if ist_ueberhaupt_ein_archiv(a):
+                    fehler_merken(z, protokoll, "entpacken", a,
+                                  "Archiv liess sich nicht entpacken")
+                else:
+                    z["kein_archiv"] += 1
+                    protokoll.schreiben("kein_archiv", pfad=a)
     else:
         for w, _d, fs in os.walk(basis):
             z["archiv_behalten"] += sum(
@@ -435,11 +639,41 @@ def umbauen(wurzel, plattform, trocken, protokoll):
     # ---- Schritt 3b: doppelte Dateien --------------------------------------
     # NUR bei bitgleichem Inhalt (SHA-256). Gleiche Namen sind kein Kriterium:
     # zwei Fassungen desselben Titels sind verschiedene Dateien.
+    #
+    # WAS EINE ABBILDLISTE NENNT, IST TABU. (#467)
+    #
+    # Bei CD-Titeln ist Spur 01 haeufig bei vielen Spielen BITGLEICH — eine leere
+    # Datenspur oder ein Kopierschutzhinweis. Diese Stelle hat daraufhin genau das getan,
+    # was sie sollte, und dabei Spiele zerstoert:
+    #
+    #   dublette_entfernt  turbografx-cd/Monster Lair (USA) (Track 01).bin
+    #                      gleich_wie  turbografx-cd/Valis II (USA) (Track 01).bin
+    #
+    # Zwei verschiedene Spiele. Danach nennt Monster Lairs `.cue` eine Datei, die es nicht
+    # mehr gibt. Unter `dc` sind so 375 Dateien geloescht worden, weshalb von 213 Titeln
+    # nur 13 aus dem Protokoll rekonstruierbar sind: der Rest ist weg, nicht verlegt.
+    #
+    # Bitgleichheit macht zwei Spuren NICHT austauschbar. Jeder Satz braucht sein eigenes
+    # Exemplar.
+    #
+    # EN: on CD titles track 01 is often bit-identical across many games, so deduplication
+    # took one game's track away and left it with another. Identical content does not make
+    # set members interchangeable.
+    gehoert_zu_satz = set()
+    for f in os.listdir(basis):
+        if os.path.splitext(f)[1].lower() in ABBILDLISTE:
+            for n in _abbild_verweise(os.path.join(basis, f)):
+                gehoert_zu_satz.add(os.path.basename(n).lower())
+
     nach_groesse = {}
     for f in os.listdir(basis):
         p = os.path.join(basis, f)
-        if os.path.isfile(p) and not ist_beiwerk(f):
-            nach_groesse.setdefault(os.path.getsize(p), []).append(p)
+        if not os.path.isfile(p) or ist_beiwerk(f):
+            continue
+        if f.lower() in gehoert_zu_satz:
+            z["satz_verschont"] += 1
+            continue
+        nach_groesse.setdefault(os.path.getsize(p), []).append(p)
     for groesse, gruppe in nach_groesse.items():
         if len(gruppe) < 2:
             continue                      # gleiche Groesse ist Vorbedingung
@@ -514,6 +748,16 @@ def umbauen(wurzel, plattform, trocken, protokoll):
     print(f"    auf Ebene 1 gehoben   : {z['verschoben']}")
     print(f"    davon Beiwerk         : {z['beiwerk']}")
     print(f"    Spielordner belassen  : {z['spielordner']}")
+    if z["kein_archiv"]:
+        # NICHT UNTER „Fehler" ZAEHLEN, aber auch nicht verschweigen: Diese Dateien tragen
+        # eine luegende Endung und gehoeren umbenannt, nicht neu beschafft. (#447)
+        print(f"    kein Archiv           : {z['kein_archiv']}  (Endung luegt — kein "
+              f"Entpacker erkennt den Inhalt, KEIN Schaden)")
+    if z["satz_verschont"]:
+        # LAUT SAGEN, WARUM DIE ZAHL KLEINER IST. Ohne diese Zeile saehe der Lauf einfach
+        # nach „weniger Dubletten" aus, und niemand wuesste, dass hier eine Regel griff.
+        print(f"    Satzdateien verschont : {z['satz_verschont']}  (von Abbildlisten "
+              f"genannt, nie als Dublette geloescht — #467)")
     print(f"    Dubletten entfernt    : {z['dubletten']}")
     print(f"    Sammlungen aufgeloest : {z['befreit']}")
     print(f"    Beiwerk eingesammelt  : {z['beiwerk_gesammelt']}  (-> {BEIWERK_ORDNER}/)")

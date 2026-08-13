@@ -237,7 +237,22 @@ def test_eine_anfrage_fuehrt_zur_karte_des_spiels(seite, anfrage_vorhanden):
     Klickbindung dasteht, nicht, dass sie greift. Genau diese Lücke hat hier schon einmal
     gekostet: Eine Seitenleiste war mit der Maus bedienbar und mit der Tastatur nicht, und
     kein Test bemerkte es.
+
+    WARUM DIE SUCHE FEST VERDRAHTET IST (#459): Dieser Test hing an zwei Dingen, die er gar
+    nicht prüfen will — dass Archive.org erreichbar ist, und dass das Auffrischen nicht
+    dazwischenfunkt. In der CI gibt es kein Netz nach draußen, also fand die Suche nie eine
+    Karte, und übrig blieb die Kurzmeldung, die ein Auffrischen wegwischen konnte. Das war
+    keine Flatterhaftigkeit, sondern eine falsch gestellte Frage: Geprüft werden soll
+    „Klick öffnet die Karte", nicht „das Internet ist da".
+
+    EN: the test used to depend on Archive.org being reachable and on the refresh not
+    interfering — neither of which it means to test. `/api/search` is stubbed to one
+    matching hit, so the question is only whether the click opens the card.
     """
+    seite.route("**/api/search*", lambda route: route.fulfill(
+        status=200, content_type="application/json",
+        body='[{"title":"Super Mario World","platform":"snes","platform_slug":"snes",'
+             '"source":"archive","size":524288,"ref":"probe","cover":"","gkey":"smw"}]'))
     seite.goto(seite.url.split("#")[0] + "#/requests")
     seite.wait_for_timeout(600)
     titel = seite.locator(".jobt")
@@ -248,12 +263,15 @@ def test_eine_anfrage_fuehrt_zur_karte_des_spiels(seite, anfrage_vorhanden):
     assert titel.first.evaluate("e=>getComputedStyle(e).cursor") == "pointer"
     titel.first.click()
     seite.wait_for_timeout(1500)
-    # Entweder öffnet sich die Karte — oder es steht dort, dass es keine gibt.
+    # Die Suche liefert hier garantiert einen Treffer, also MUSS die Karte aufgehen. Das
+    # frühere „Karte ODER Meldung" verwässerte genau die Frage, um die es geht.
     modal = seite.locator("#modal")
-    meldung = seite.locator(".jobmsg")
-    offen = modal.is_visible() if modal.count() else False
-    gesagt = (meldung.first.inner_text().strip() != "") if meldung.count() else False
-    assert offen or gesagt, "der Klick tat nichts — weder Karte noch Meldung"
+    assert modal.count() and modal.is_visible(), (
+        "der Klick hat die Karte nicht geöffnet, obwohl die Suche einen passenden Treffer "
+        "liefert — Meldung in der Zeile: "
+        + (seite.locator(".jobmsg").first.inner_text().strip() or "(keine)"))
+    assert "Super Mario World" in modal.inner_text(), \
+        "die Karte zeigt einen anderen Titel als den angeklickten"
 
 
 def test_the_requests_list_is_not_rebuilt_when_nothing_changed(seite, anfrage_vorhanden):
@@ -362,3 +380,155 @@ def test_switching_language_redraws_the_requests_list(seite, anfrage_vorhanden):
 
     seite.evaluate("setLang('de')")
     seite.wait_for_timeout(900)
+
+
+def test_a_click_survives_the_list_being_rebuilt(seite, anfrage_vorhanden):
+    """Ein Klick wirkt auch, nachdem die Liste neu aufgebaut wurde. (#449)
+
+    WARUM DIESER TEST UND NICHT DER DANEBEN: `test_eine_anfrage_fuehrt_zur_karte_des_spiels`
+    faellt nur, wenn der Klick zufaellig in einen Neuaufbau faellt. Genau deshalb hat es
+    zwei Runden gedauert, den Rest des Problems zu bemerken: #419 machte die Momente
+    seltener, ich hielt das Problem fuer geloest, und in der CI fiel es wieder.
+
+    Hier wird der Neuaufbau ERZWUNGEN, statt auf ihn zu hoffen: `innerHTML` auf sich selbst
+    zu setzen ersetzt jedes Kindelement. Eine Bindung, die an der Zeile hing, ist danach
+    weg — ein Zuhoerer am Behaelter ueberlebt es.
+
+    EN: the neighbouring test only fails when the click happens to land in a rebuild, which
+    is why the remaining half went unnoticed for two rounds. Here the rebuild is forced.
+    """
+    seite.goto(seite.url.split("#")[0] + "#/requests")
+    seite.wait_for_timeout(600)
+    assert seite.locator(".jobt").count() > 0, "keine Anfragezeile — Fixture leer"
+
+    # Genau das, was loadJobs tut: alle Kindelemente durch neue ersetzen.
+    #
+    # UND NACHSEHEN, DASS ES WIRKLICH PASSIERT IST. Bleibt der Austausch aus — weil der
+    # Behaelter umbenannt wurde, die Liste leer ist oder der Browser optimiert —, klickt
+    # der Test auf die URSPRUENGLICHE Zeile. Dann waere auch eine Bindung je Zeile gruen,
+    # und die Pruefung sagte nichts, ohne fehlzuschlagen. Genau diese Sorte Stille hat das
+    # Problem hier zwei Runden lang getragen.
+    ersetzt = seite.evaluate("""() => {
+        const j = document.getElementById('jobs');
+        if (!j) return 'kein Behaelter';
+        const vorher = j.querySelector('.jobt');
+        j.innerHTML = j.innerHTML;
+        const nachher = j.querySelector('.jobt');
+        return (vorher && nachher && vorher !== nachher) ? 'ok' : 'nicht ersetzt';
+    }""")
+    assert ersetzt == "ok", (
+        f"der Neuaufbau hat nicht stattgefunden ({ersetzt}) — dann sagt dieser Test nichts")
+    seite.wait_for_timeout(200)
+
+    # DER ZUHOERER MUSS DEN AUSTAUSCH UEBERLEBT HABEN — und das ist eine ANDERE Frage als
+    # „hat der Klick gewirkt". Ohne diese Trennung meldet der Test nur „nichts passiert",
+    # und man weiss nicht, ob die Bindung weg war oder der Klick daneben ging. Genau so
+    # stand es in der CI: kein `/api/search` im Protokoll, also war der Handler nie dran.
+    assert seite.evaluate(
+        "() => document.getElementById('jobs').dataset.klickgebunden === '1'"), \
+        "der Behaelter traegt die Bindung nicht mehr — sie haengt wieder an der Zeile"
+
+    # UND DIE SUCHE FEST VERDRAHTEN. Sonst haengt der Ausgang daran, ob Archive.org
+    # erreichbar ist: mit Netz oeffnet sich die Karte, ohne Netz bleibt nur eine
+    # Kurzmeldung, die ein Auffrischen wegwischen kann. Beides prueft dieser Test nicht.
+    seite.route("**/api/search*", lambda route: route.fulfill(
+        status=200, content_type="application/json",
+        body='[{"title":"Super Mario World","platform":"snes","platform_slug":"snes",'
+             '"source":"archive","size":524288,"ref":"probe","cover":"","gkey":"smw"}]'))
+
+    seite.locator(".jobt").first.click()
+    seite.wait_for_timeout(1500)
+
+    modal = seite.locator("#modal")
+    assert modal.count() and modal.is_visible(), (
+        "nach einem Neuaufbau oeffnete der Klick die Karte nicht, obwohl die Suche einen "
+        "Treffer liefert — Meldung in der Zeile: "
+        + (seite.locator(".jobmsg").first.inner_text().strip() or "(keine)"))
+
+
+def test_the_answer_to_a_click_survives_the_next_refresh(seite, anfrage_vorhanden):
+    """Die Antwort auf den Klick ueberlebt das naechste Auffrischen. (#459)
+
+    DER REST VON #449, DEN DIE DELEGATION NICHT LOEST. Der Klick kommt an — im Serverlog
+    steht die `/api/search`-Anfrage —, aber `openJobDetail` schrieb seine Antwort in die
+    `.jobmsg` DER ZEILE. Das naechste `loadJobs` ersetzt die Zeile, und die Meldung ist
+    weg, unter Umstaenden im selben Augenblick, in dem sie erschien.
+
+    Diese Meldung ist die EINZIGE Rueckmeldung, die der Klick in diesem Fall erzeugt.
+    Verschwindet sie, sieht ein funktionierender Klick genauso aus wie ein kaputter — so ist
+    der Fehler zweimal durchgerutscht.
+
+    WARUM DIE ANTWORT ABGEFANGEN WIRD: Auf einer Maschine MIT Netz findet die Suche eine
+    Karte, das Fenster geht auf, und es gibt keine Kurzmeldung — der Test uebersprang sich
+    selbst. Ein uebersprungener Test sagt nichts. Also wird `/api/search` hier fest auf
+    „nichts gefunden" gelegt, und der Fall ist auf jeder Maschine derselbe.
+
+    EN: the delegation from #450 fixed the click; the answer still lived in the row and did
+    not survive the rebuild. `/api/search` is stubbed to an empty result so the case is the
+    same with or without outbound network — otherwise the test skips itself on a machine
+    that finds a card, and a skipped test proves nothing.
+    """
+    seite.route("**/api/search*",
+                lambda route: route.fulfill(status=200, content_type="application/json",
+                                            body="[]"))
+    seite.goto(seite.url.split("#")[0] + "#/requests")
+    seite.wait_for_timeout(600)
+    assert seite.locator(".jobt").count() > 0, "keine Anfragezeile — Fixture leer"
+
+    seite.locator(".jobt").first.click()
+    seite.wait_for_timeout(1200)
+
+    text_vorher = seite.locator(".jobmsg").first.inner_text().strip()
+    assert text_vorher, ("der Klick erzeugte weder Karte noch Meldung — genau das war der "
+                         "stille Fehlschlag aus #459")
+
+    # DEN ECHTEN NEUAUFBAU ERZWINGEN — und zwar den, den `loadJobs` macht.
+    #
+    # `j.innerHTML = j.innerHTML` taugt hier NICHT: Der Rundlauf erhaelt den TEXT, er steht
+    # ja im serialisierten HTML. Er verwirft nur Ereignisbindungen — deshalb ist er fuer
+    # die Klickfrage nebenan richtig und fuer die Meldungsfrage hier falsch. Mit ihm bestand
+    # dieser Test auch gegen den alten, kaputten Stand.
+    #
+    # Der echte Weg ist `loadJobs` mit geleertem `JOBSTAND`: Es setzt `innerHTML=''` und
+    # zeichnet aus den Daten neu. Alles, was nur im DOM stand, ist danach weg.
+    seite.evaluate("() => { const j = document.getElementById('jobs');"
+                   "        j.querySelector('.jobmsg').dataset.probe = 'x';"
+                   "        JOBSTAND = ''; loadJobs(); }")
+    seite.wait_for_timeout(1200)
+
+    weg = seite.evaluate("() => document.querySelectorAll('.jobmsg[data-probe=\"x\"]').length")
+    assert weg == 0, ("die Liste wurde gar nicht neu gezeichnet — dann prueft dieser Test "
+                      "nichts. Erwartet war ein echter Neuaufbau durch loadJobs.")
+
+    text_nachher = seite.locator(".jobmsg").first.inner_text().strip()
+    assert text_nachher == text_vorher, (
+        f"die Meldung hat den Neuaufbau nicht ueberlebt: {text_vorher!r} -> "
+        f"{text_nachher!r} — sie haengt wieder an der Zeile statt am Auftrag")
+
+
+def test_a_failing_lookup_says_so_instead_of_doing_nothing(seite, anfrage_vorhanden):
+    """Ein Fehlschlag muss sichtbar sein, nicht still. (#459)
+
+    Hier stand ein LEERER `catch`. Netzfehler, kaputtes JSON, ein 500 aus `/api/search` —
+    alles wurde verschluckt: Die Zeile hellte wieder auf, und sonst geschah nichts. Von
+    einem toten Knopf ist das nicht zu unterscheiden, und es ist genau der Zustand, den ein
+    Nutzer trifft, wenn die Suche gerade nicht antwortet.
+
+    Der Fall wird erzwungen, nicht abgewartet: `/api/search` antwortet mit 500.
+
+    EN: the empty catch swallowed every failure — the row un-dimmed and nothing happened,
+    indistinguishable from a dead button. Forced here with a 500.
+    """
+    seite.route("**/api/search*",
+                lambda route: route.fulfill(status=500, content_type="application/json",
+                                            body='{"error":"kaputt"}'))
+    seite.goto(seite.url.split("#")[0] + "#/requests")
+    seite.wait_for_timeout(600)
+    assert seite.locator(".jobt").count() > 0, "keine Anfragezeile — Fixture leer"
+
+    seite.locator(".jobt").first.click()
+    seite.wait_for_timeout(1200)
+
+    text = seite.locator(".jobmsg").first.inner_text().strip()
+    assert text, ("ein fehlgeschlagener Abruf hinterliess keine Meldung — der Klick sieht "
+                  "aus, als haette er nichts getan")
