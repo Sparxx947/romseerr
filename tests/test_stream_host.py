@@ -2990,6 +2990,123 @@ def test_flycast_does_not_put_the_renderer_in_the_wrong_section(tmp_path):
     assert "pvr.rend = 9" in text, "der fremde Schluessel wurde stillschweigend entfernt"
 
 
+def _xemu_toml(tmp_path, inhalt):
+    d = tmp_path / ".local" / "share" / "xemu" / "xemu"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "xemu.toml").write_text(inhalt, encoding="utf-8")
+    return d / "xemu.toml"
+
+
+def test_xemu_gets_the_vulkan_renderer_written(tmp_path):
+    """Ohne den Eintrag laeuft xemu auf OpenGL — und damit ohne GPU. (#498)
+
+    Seit #498 startet xemu OHNE VirtualGL, weil dessen Rueckleseschicht das Bild nach
+    einer Fenstergroessenaenderung beschneidet. VirtualGL war aber zugleich die Bruecke
+    von OpenGL zur Arc. Faellt sie weg und der Renderer bleibt OpenGL, landet die
+    Ausgabe auf `llvmpipe`.
+
+    Am laufenden Host gemessen, ein Faktor auf einmal, Fenster immer 1920x1080:
+
+        Renderer   vglrun   bemalte Flaeche nach Vollbild
+        OpenGL     ja       ~62 %
+        Vulkan     ja       62,9 %
+        Vulkan     nein     100 %
+
+    EN: since #498 xemu runs without VirtualGL, which was also its bridge from OpenGL to
+    the GPU. Without the Vulkan renderer the picture would fall back to the software
+    rasteriser.
+    """
+    p = _xemu_toml(tmp_path, "[general]\nshow_welcome = false\n")
+    m = _profil_modul(tmp_path)
+    geaendert, msg = m.xemu_renderer()
+    assert geaendert, msg
+    text = p.read_text(encoding="utf-8")
+    assert "[display]" in text and "renderer = 'VULKAN'" in text, text
+    # Der Rest bleibt stehen — xemu schreibt dort Pad-Bindungen und Pfade hinein.
+    assert "show_welcome = false" in text, text
+
+
+def test_xemu_renderer_checks_the_value_not_the_key(tmp_path):
+    """Ein vorhandener `renderer` mit falschem Wert ist kein „schon gesetzt". (#498)
+
+    Dieselbe Falle wie bei Flycast und DuckStation: Wer nur auf die Anwesenheit des
+    Schluessels prueft, winkt `renderer = 'OPENGL'` als erledigt durch.
+    """
+    m = _profil_modul(tmp_path)
+    p = _xemu_toml(tmp_path, "[display]\nrenderer = 'OPENGL'\n\n[display.window]\nlast_width = 1920\n")
+    geaendert, _ = m.xemu_renderer()
+    assert geaendert, "ein falscher Wert wurde als gesetzt durchgewinkt"
+    text = p.read_text(encoding="utf-8")
+    assert "renderer = 'VULKAN'" in text and "'OPENGL'" not in text, text
+    assert "last_width = 1920" in text, "die Fenstergeometrie wurde mitentfernt"
+
+    # Gegenrichtung: steht er richtig, wird NICHT geschrieben.
+    geaendert, msg = m.xemu_renderer()
+    assert not geaendert, msg
+
+
+def test_xemu_renderer_section_comes_before_its_subtables(tmp_path):
+    """`[display]` muss VOR `[display.window]` stehen. (#498)
+
+    Sonst landet `renderer` in der Untertabelle und ist wirkungslos — und ein Parser,
+    der Obertabellen nach Untertabellen nicht annimmt, bricht ganz ab. Der Test prueft
+    die Reihenfolge, nicht bloss die Anwesenheit.
+    """
+    m = _profil_modul(tmp_path)
+    p = _xemu_toml(tmp_path, "[general]\nshow_welcome = false\n\n[display.window]\nlast_width = 1920\n")
+    geaendert, _ = m.xemu_renderer()
+    assert geaendert
+    text = p.read_text(encoding="utf-8")
+    assert text.index("[display]\n") < text.index("[display.window]"), (
+        "[display] steht hinter seiner Untertabelle:\n" + text)
+    # Und der Schluessel gehoert in die Obertabelle, nicht darunter.
+    zwischen = text[text.index("[display]\n"):text.index("[display.window]")]
+    assert "renderer = 'VULKAN'" in zwischen, text
+
+
+def test_xemu_is_launched_without_virtualgl():
+    """xemu darf nicht ueber `vglrun` starten. (#498)
+
+    Das ist der halbe Fix — die andere Haelfte ist der Vulkan-Renderer. Beides einzeln
+    reicht nicht: Mit VirtualGL bleibt das Bild auch unter Vulkan beschnitten (62,9 %),
+    ohne VirtualGL und mit OpenGL faellt es auf den Software-Rasterer.
+
+    EN: half of the fix; the other half is the Vulkan renderer. Neither alone suffices.
+    """
+    quelle = open(os.path.join(REPO, "contrib/streaming-host/init/30-agent"), encoding="utf-8").read()
+    assert "apprun_ohne_vgl()" in quelle, "der Helfer ohne VirtualGL fehlt"
+    xemu = [z.strip() for z in quelle.splitlines() if 'EMU_XBOX="' in z]
+    assert xemu, "die xemu-Startzeile fehlt"
+    assert "apprun_ohne_vgl xemu" in xemu[0], (
+        "xemu startet wieder ueber VirtualGL — das Bild bleibt dann nach einer "
+        f"Groessenaenderung beschnitten (#498): {xemu[0]}")
+    # SCHUTZ DES GELTUNGSBEREICHS, keine technische Behauptung: Nur xemu ist Ende zu
+    # Ende gepruefte Erfahrung. Dass OpenGL die Karte auch ohne VirtualGL erreicht, ist
+    # im Container gemessen (DRI3, `glxinfo` meldet die Arc) — aber `glxinfo` ist ein
+    # einfacher GL-Kunde, kein Emulator mit eigenen Bibliotheken. Wer den Schnitt
+    # ausweitet, soll das bewusst tun und diesen Test mit einer Messung anfassen.
+    andere = [z.strip() for z in quelle.splitlines()
+              if re.search(r'\bEMU_[A-Z0-9]+="', z) and 'EMU_XBOX="' not in z]
+    ohne = [z for z in andere if "apprun_ohne_vgl" in z]
+    assert not ohne, (
+        "hier wurde VirtualGL bei weiteren Emulatoren entfernt — das kann richtig sein, "
+        "ist aber nicht gemessen. Erst messen (Bild, Ton, Controller), dann diesen Test "
+        f"anpassen: {ohne}")
+
+
+def test_the_extra_settings_key_is_actually_applied():
+    """Ein Profil-Schlüssel, den niemand liest, ist eine Falle. (#498)
+
+    `einstellungen` ist neu. Wird er in der Tabelle gepflegt, aber im Aufrufer nicht
+    abgearbeitet, sieht alles richtig aus und wirkt nichts — genau das Muster, das in
+    dieser Sitzung mehrfach Stunden gekostet hat.
+    """
+    quelle = open(os.path.join(REPO, "contrib/streaming-host/launch-profile.py"), encoding="utf-8").read()
+    assert '"einstellungen"' in quelle, "der Schluessel fehlt in der Tabelle"
+    assert '.get("einstellungen")' in quelle, (
+        "der Schluessel wird nirgends gelesen — die Eintraege waeren wirkungslos")
+
+
 def test_flycast_says_so_when_the_config_does_not_exist_yet(tmp_path):
     """Ohne Datei wird nichts erfunden. (#304)
 

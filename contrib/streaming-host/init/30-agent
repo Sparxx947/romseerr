@@ -136,6 +136,63 @@ apprun() {   # <ordner> -> Kommando-Praefix bis einschliesslich AppRun
          "$EMU" "$1" "$EMU" "$1" "$VGL" "$EMU" "$1"
 }
 
+# OHNE VIRTUALGL — FUER EMULATOREN, DIE MIT VULKAN SELBST AN DIE GPU KOMMEN (#498).
+#
+# VirtualGL ist die Bruecke fuer OpenGL: Es faengt den GL-Aufruf ab, laesst ihn auf der
+# Arc laufen und liest das Ergebnis zurueck ins X-Fenster. Fuer Vulkan braucht es das
+# nicht — Vulkan findet die Karte ohne Hilfe. Und die Rueckleseschicht hat einen Fehler,
+# der das Bild beschneidet: Nach einer Fenstergroessenaenderung liest sie weiter in der
+# alten Groesse, sodass nur die alte Ecke bemalt wird (VirtualGL/virtualgl#287).
+#
+# NACHGEMESSEN, ein Faktor auf einmal, Fenster in allen drei Zeilen 1920x1080:
+#
+#     Renderer   vglrun   bemalte Flaeche nach Vollbild
+#     OpenGL     ja       ~62 %
+#     Vulkan     ja       62,9 %
+#     Vulkan     nein     100 %
+#
+# Die bemalte Flaeche wird gegen eine Aufnahme des leeren Desktops verglichen, ist also
+# das tatsaechlich gezeichnete Rechteck und keine Fenstergeometrie.
+#
+# DIE HARDWARE BLEIBT: Ohne `vglrun` waehlt xemu weiterhin die Karte, nicht den
+# Software-Rasterer —
+#
+#     Available physical devices:
+#     - Intel(R) Arc(tm) A310 Graphics (DG2)
+#     - llvmpipe (LLVM 21.1.8, 256 bits)
+#     Selected physical device: Intel(R) Arc(tm) A310 Graphics (DG2)
+#
+# NUR FUER XEMU — und das ist eine Frage des BEWEISES, nicht der Technik.
+#
+# Der naheliegende Schluss waere, VirtualGL ueberall wegzunehmen. Dafuer spricht eine
+# Messung im Container: OpenGL erreicht die Karte auch OHNE `vglrun`, weil DRI3 hier
+# inzwischen funktioniert —
+#
+#     DISPLAY=:1 glxinfo -B          -> Mesa Intel(R) Arc(tm) A310 Graphics (DG2)
+#     vglrun -d /dev/dri/card2 …     -> derselbe Renderer
+#
+# Das ist ein Hinweis, aber kein Nachweis fuer zehn Emulatoren: `glxinfo` ist ein
+# denkbar einfacher GL-Kunde, waehrend die Emulatoren GLX, EGL und Vulkan gemischt und
+# ueber AppImage-eigene Bibliotheken nutzen. xemu ist der einzige, der Ende zu Ende
+# gepruefte Fall — Bild, Ton und Controller von einem Menschen bestaetigt.
+#
+# Der breite Schnitt gehoert in ein eigenes Vorhaben mit eigener Messung, nicht als
+# Nebenwirkung eines xemu-Fixes.
+#
+# EN: dropping VirtualGL everywhere is plausible — DRI3 works and plain glxinfo reaches
+# the GPU without vglrun — but that is one simple GL client, not ten emulators mixing
+# GLX, EGL and Vulkan through their own bundled libraries. xemu is the one measured
+# end to end. The wider change deserves its own measurement.
+#
+# EN: VirtualGL bridges OpenGL to the GPU; Vulkan needs no bridge, and VirtualGL's readback
+# does not follow a window resize, which crops the picture. Measured one factor at a time:
+# only dropping vglrun fixes it, and the discrete GPU is still selected. Scoped to xemu,
+# which was measured — every other emulator still presents through the GL path.
+apprun_ohne_vgl() {   # <ordner> -> wie apprun, aber ohne VirtualGL
+  printf 'env APPDIR=%s/%s APPIMAGE=%s/%s/AppRun %s/%s/AppRun' \
+         "$EMU" "$1" "$EMU" "$1" "$EMU" "$1"
+}
+
 # OHNE DEN WRAPPER, DIREKT AUF DIE BINAERDATEI (#489).
 #
 # Bei den meisten Emulatoren IST `AppRun.wrapped` das Programm und wird `exec`-t — die
@@ -262,7 +319,12 @@ unset _e _n
 # EN: the init borrows libusb into /config/lib, but nothing put that on the loader's
 # path, so xemu exited immediately — indistinguishable from "platform not supported".
 # Scoped to xemu rather than added to ld.so.conf, which would affect every process.
-[ -x "$EMU/xemu/AppRun" ]      && EMU_XBOX="env LD_LIBRARY_PATH=/config/lib $(apprun xemu) -dvd_path %s" && export EMU_XBOX
+#
+# OHNE VIRTUALGL, MIT VULKAN (#498). Begruendung und Messung stehen bei `apprun_ohne_vgl`;
+# den passenden Renderer schreibt `launch-profile.py` in die `xemu.toml`, weil xemu dafuer
+# keinen Schalter auf der Kommandozeile kennt. Beides gehoert zusammen: ohne den Renderer
+# faellt xemu ohne VirtualGL auf den Software-Rasterer zurueck.
+[ -x "$EMU/xemu/AppRun" ]      && EMU_XBOX="env LD_LIBRARY_PATH=/config/lib $(apprun_ohne_vgl xemu) -dvd_path %s" && export EMU_XBOX
 [ -x "$EMU/cemu/AppRun" ]      && EMU_WIIU="$(apprun cemu) -g %s" && export EMU_WIIU
 [ -x "$EMU/azahar/AppRun" ]    && EMU_3DS="$(apprun azahar) %s" && export EMU_3DS
 # VITA3K: `%s` IST HIER KEIN PFAD, SONDERN DIE TITELKENNUNG. (#481)
