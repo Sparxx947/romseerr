@@ -1479,6 +1479,46 @@ Bind-Mounts des Containers.
 Liegt auf einer älteren Installation noch ein `/config/stream-agent.py` herum, kann es
 weg — es wird von nichts mehr gelesen.
 
+### Warum Vita3K an seinem Wrapper vorbei gestartet wird
+
+Bei den meisten Emulatoren **ist** `AppRun.wrapped` das Programm und wird `exec`-t — die
+Prozessnummer bleibt dieselbe. Bei Vita3K ist es ein Shell-Skript, das das Programm als
+**Kind** startet:
+
+```sh
+#!/bin/sh
+if [ "${APPIMAGE}" != "" ]; then
+    export PATH="$APPDIR/usr/bin:$PATH"
+    "${APPDIR}/usr/bin/Vita3K" $@        # kein exec, $@ ohne Anführungszeichen
+fi
+```
+
+Der Start-Dienst merkt sich damit die Nummer der **Shell**, nicht die des Emulators. Drei
+Folgen, alle nachgemessen:
+
+| Folge | Bild |
+|---|---|
+| `/stop` wirkt nicht | Antwort `ok`, `/status` sagt `running: false` — der Emulator lebt als Waise weiter (PPid 1). Erst `kill -9` beendet ihn. Der Dienst hält sich für frei, der nächste Start läuft gegen einen Emulator, der die GPU noch hält. |
+| Fensterprüfung irrt | `kein sichtbares Fenster zum Prozess` — dasselbe Werkzeug fand an der echten Nummer `Welcome to Vita3K`. |
+| Leerzeichen zerfallen | `$@` unquotiert: aus `x PCSF00024` wird `x`. Für eine Titelkennung folgenlos, für einen Pfad nicht. |
+
+`30-agent` startet deshalb `usr/bin/Vita3K` direkt und setzt `APPDIR`, `APPIMAGE` und den
+`PATH` selbst — mehr tat der Wrapper nachweislich nicht.
+
+**Dass nur Vita3K betroffen ist, ist eine Messung, keine Eigenschaft von AppImages.**
+`linuxdeploy` erzeugt je nach Bauart mal ein Programm, mal ein Skript. `30-agent` prüft
+deshalb bei jedem Start den Typ aller `AppRun.wrapped` und meldet es, wenn ein weiterer
+Emulator einen Skript-Wrapper bekommt.
+
+*EN: for most emulators `AppRun.wrapped` is the binary and gets exec'd, so the pid stays
+the same. Vita3K's is a shell script that starts the binary as a child, so the service
+tracks the shell: `/stop` reports ok while the emulator survives as an orphan and needs
+`kill -9`, the window check looks at the wrong pid, and unquoted `$@` splits arguments.
+The init now runs `usr/bin/Vita3K` directly and sets `APPDIR`, `APPIMAGE` and `PATH`
+itself — all the wrapper did. Only Vita3K is affected today, which is a measurement, not a
+property of AppImages, so the init checks every wrapper's type at start and says so when
+another emulator gains one.*
+
 *EN: the service always runs `/opt/stream-agent.py`, the bind mount of
 `stack/stream-agent.py`, so what runs is what is checked out. If that file is missing the
 init **aborts**. It used to fall back to `/config/stream-agent.py` silently, which on a
