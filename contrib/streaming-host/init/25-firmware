@@ -348,11 +348,77 @@ vendor_ps3() {
   # RPCS3 spielt die PUP selbst ein. Ohne installierten Emulator bleibt die Datei
   # liegen — sie wird beim naechsten Lauf verwendet, sobald RPCS3 da ist.
   if [ -x "/config/emulators/rpcs3/AppRun" ]; then
-    echo "[firmware] PS3: installiere in RPCS3 / installing into RPCS3"
-    /config/emulators/rpcs3/AppRun --installfw "$FW/ps3/PS3UPDAT.PUP" 2>&1 | tail -3
+    ps3_firmware_einspielen "$FW/ps3/PS3UPDAT.PUP"
   else
     echo "[firmware] PS3: RPCS3 nicht installiert — PUP liegt bereit / not installed, PUP is staged"
   fi
+}
+
+# PS3-FIRMWARE OHNE KLICK EINSPIELEN (#164).
+#
+# DER SCHALTER HEISST `--headless`, NICHT `--no-gui`. Beide klingen gleich, und der
+# Unterschied entscheidet alles — am laufenden Host beidseitig gemessen:
+#
+#     --installfw --no-gui     RPCS3: Cannot perform installation in no-gui mode!
+#                              dev_flash bleibt bei 0 Dateien
+#     --installfw --headless   1075 Dateien, 186 MB
+#
+# UND ES IST DASSELBE ERGEBNIS wie beim Klick von Hand, nicht bloss aehnlich: Pruefsumme
+# ueber den gesamten Baum, beide Seiten `35100e2be90e026e2bf49a960cad8b9f`, 4 leere
+# Dateien hier wie dort.
+#
+# DER RUECKGABEWERT TAUGT NICHT ALS ERFOLGSPRUEFUNG. RPCS3 stuerzt beim Aufraeumen ab,
+# NACHDEM die Arbeit getan ist:
+#
+#     Exit 134 (SIGABRT)
+#     Verification failed (object: 0x0)  in util/fixed_typemap.hpp — process teardown
+#
+# Wer darauf prueft, meldet einen Fehlschlag fuer eine gelungene Installation. Gezaehlt
+# wird deshalb, was in `dev_flash` liegt.
+#
+# `HOME` MUSS GESETZT SEIN. `docker exec` laeuft mit `HOME=/root`, der Start-Dienst mit
+# `HOME=/config`. Ohne die Angabe landet die Firmware im falschen Baum und die Pruefung
+# sieht aus, als waere nichts passiert (#162).
+#
+# RPCS3 IST EINZELINSTANZ. Laeuft gerade eine Spielsitzung, kommt der zweite Prozess nicht
+# hoch — hier wird deshalb abgebrochen statt eine laufende Sitzung zu gefaehrden.
+#
+# EN: the flag is `--headless`, not `--no-gui`; measured both ways, only the former works,
+# and it produces a byte-identical tree (same checksum as the hand-clicked install). The
+# exit code is useless because RPCS3 aborts during teardown after the work is done, so
+# success is measured by counting dev_flash. HOME must be set, and a running session blocks
+# it because RPCS3 is single-instance.
+ps3_firmware_einspielen() {
+  local pup="$1"
+  local ziel="/config/.config/rpcs3/dev_flash"
+  local vorher
+  vorher=$(find "$ziel" -type f 2>/dev/null | wc -l)
+  if [ "$vorher" -gt 100 ]; then
+    echo "[firmware] PS3: bereits eingespielt ($vorher Dateien) / already installed"
+    return 0
+  fi
+  if pgrep -f "emulators/rpcs3" >/dev/null 2>&1; then
+    echo "[firmware] PS3: RPCS3 laeuft gerade — Einspielen uebersprungen / session active, skipped" >&2
+    return 1
+  fi
+
+  echo "[firmware] PS3: spiele Firmware ein (kopflos) / installing firmware headlessly"
+  HOME=/config \
+  APPDIR=/config/emulators/rpcs3 \
+  APPIMAGE=/config/emulators/rpcs3/AppRun \
+    timeout 900 /config/emulators/rpcs3/usr/bin/rpcs3 \
+      --headless --installfw "$pup" >/tmp/ps3-firmware.log 2>&1
+  # Rueckgabewert bewusst NICHT geprueft — siehe Kopf.
+
+  local nachher
+  nachher=$(find "$ziel" -type f 2>/dev/null | wc -l)
+  if [ "$nachher" -gt 100 ]; then
+    echo "[firmware] PS3: eingespielt, $nachher Dateien / installed"
+    return 0
+  fi
+  echo "[firmware] PS3: Einspielen fehlgeschlagen ($nachher Dateien) / install failed" >&2
+  grep -viE "^qt\.|pipewire" /tmp/ps3-firmware.log 2>/dev/null | tail -3 >&2
+  return 1
 }
 
 # ----------------------------------------------------------------------------- Modi

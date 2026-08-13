@@ -3259,6 +3259,60 @@ def test_rpcs3_vfs_runs_before_the_title_starts():
         "rpcs3_vfs steht nicht in der Profiltabelle — die Umlenkung waere wirkungslos")
 
 
+def test_ps3_firmware_uses_headless_not_no_gui():
+    """`--no-gui` kann es nicht, `--headless` schon. (#164)
+
+    Beide Schalter klingen gleich, und der Unterschied entscheidet alles. Am laufenden
+    Host beidseitig gemessen:
+
+        --installfw --no-gui     RPCS3: Cannot perform installation in no-gui mode!
+        --installfw --headless   1075 Dateien, 186 MB
+
+    Das Ergebnis ist mit dem Handklick pruefsummengleich (35100e2b… auf beiden Seiten).
+    """
+    quelle = open(os.path.join(REPO, "contrib/streaming-host/init/25-firmware"),
+                  encoding="utf-8").read()
+    m = re.search(r"ps3_firmware_einspielen\(\) \{(.*?)\n\}", quelle, re.S)
+    assert m, "die Funktion wurde umbenannt oder entfernt"
+    rumpf = m.group(1)
+    assert "--headless" in rumpf, "ohne --headless oeffnet RPCS3 einen Dialog und wartet"
+    assert "--no-gui" not in rumpf, (
+        "--no-gui kann keine Firmware installieren: 'Cannot perform installation in "
+        "no-gui mode!'")
+
+
+def test_ps3_firmware_does_not_trust_the_exit_code():
+    """RPCS3 stuerzt beim Aufraeumen ab, NACHDEM die Arbeit getan ist. (#164)
+
+    Exit 134, `Verification failed` in `fixed_typemap.hpp` beim Prozessabbau — die
+    Firmware liegt zu dem Zeitpunkt vollstaendig da. Wer den Rueckgabewert prueft, meldet
+    einen Fehlschlag fuer eine gelungene Installation.
+    """
+    quelle = open(os.path.join(REPO, "contrib/streaming-host/init/25-firmware"),
+                  encoding="utf-8").read()
+    m = re.search(r"ps3_firmware_einspielen\(\) \{(.*?)\n\}", quelle, re.S)
+    rumpf = m.group(1)
+    # Der Erfolg muss an gezaehlten Dateien haengen, nicht an $?.
+    assert "find" in rumpf and "wc -l" in rumpf, "der Erfolg wird nicht an dev_flash gemessen"
+    assert "$?" not in rumpf, "der Rueckgabewert wird geprueft — er ist hier wertlos"
+
+
+def test_ps3_firmware_sets_home_and_yields_to_a_running_session():
+    """Zwei Fallen aus #162/#164, beide gemessen.
+
+    `docker exec` laeuft mit `HOME=/root`, der Start-Dienst mit `HOME=/config` — ohne die
+    Angabe landet die Firmware im falschen Baum. Und RPCS3 ist Einzelinstanz: waehrend
+    einer Spielsitzung darf nicht eingespielt werden.
+    """
+    quelle = open(os.path.join(REPO, "contrib/streaming-host/init/25-firmware"),
+                  encoding="utf-8").read()
+    m = re.search(r"ps3_firmware_einspielen\(\) \{(.*?)\n\}", quelle, re.S)
+    rumpf = m.group(1)
+    assert "HOME=/config" in rumpf, "ohne HOME landet die Firmware im falschen Baum"
+    assert "pgrep" in rumpf and "emulators/rpcs3" in rumpf, (
+        "eine laufende Sitzung wird nicht erkannt — RPCS3 ist Einzelinstanz")
+
+
 def _cemu_settings(tmp_path, inhalt):
     d = tmp_path / ".config" / "Cemu"
     d.mkdir(parents=True, exist_ok=True)

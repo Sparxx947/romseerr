@@ -1146,6 +1146,35 @@ eingespielt — einzeln, erst die eine, dann die andere.
 Der Status prüft deshalb **beide** Ablagen (`vs0` und `sa0`). Mit nur einer meldete er
 „eingespielt", während der Emulator selbst widersprach (#484).
 
+#### PS3: Einspielen ohne Klick — der Schalter heißt `--headless`, nicht `--no-gui`
+
+Das Einspielen war lange der letzte Schritt, der einen Menschen brauchte: `--installfw`
+öffnet einen Bestätigungsdialog und wartet. Der Dialog ließ sich auch mit `xdotool` nicht
+bedienen — er existiert als ungemapptes Fenster, 554×152, ohne Titel, und reagiert nicht
+auf `Return`.
+
+Inzwischen geht es, und zwar mit einem Schalter, der dem naheliegenden zum Verwechseln
+ähnlich sieht. Beidseitig am laufenden Host gemessen:
+
+| Aufruf | Ergebnis |
+|---|---|
+| `--installfw --no-gui` | `RPCS3: Cannot perform installation in no-gui mode!` — `dev_flash` bleibt bei **0** Dateien |
+| **`--installfw --headless`** | **1075 Dateien, 186 MB** |
+
+Und es ist nicht bloß ähnlich, sondern **identisch** zum Handklick: Prüfsumme über den
+gesamten Baum, beide Seiten `35100e2be90e026e2bf49a960cad8b9f`, vier leere Dateien hier
+wie dort.
+
+> **Der Rückgabewert taugt nicht als Erfolgsprüfung.** RPCS3 stürzt beim Aufräumen ab,
+> *nachdem* die Arbeit getan ist — Exit 134, `Verification failed` in `fixed_typemap.hpp`
+> während des Prozessabbaus. Wer darauf prüft, meldet einen Fehlschlag für eine gelungene
+> Installation. Gezählt wird deshalb, was in `dev_flash` liegt.
+
+Zwei weitere Fallen stecken in der Funktion: **`HOME` muss gesetzt sein** (`docker exec`
+läuft mit `HOME=/root`, der Start-Dienst mit `HOME=/config` — sonst landet die Firmware im
+falschen Baum), und **RPCS3 ist Einzelinstanz**, während einer Spielsitzung wird deshalb
+nicht eingespielt.
+
 **Bereitgelegt ist nicht eingespielt.** Für **PS3 und PS Vita** ist die Firmware eine
 `.PUP` — ein Update-Paket, das der Emulator *einspielen* muss und nie an Ort und Stelle
 benutzt. Der Katalog nennt deshalb je Eintrag eine **Ablage**: das Verzeichnis, in dem die
@@ -2232,6 +2261,32 @@ stayed **empty** — the probe file is created and removed again.
 > dump in the log, where the key is absent. The binary has it, alongside `vfs.yml` and the
 > other VFS paths. The dump does not show everything.
 
+
+#### PS3: installing without a click — the flag is `--headless`, not `--no-gui`
+
+Installation was the last step that needed a person: `--installfw` opens a confirmation
+dialog and waits. The dialog could not be driven with `xdotool` either — it exists as an
+unmapped window, 554x152, with no title, and does not react to `Return`.
+
+It works now, with a flag that looks deceptively like the obvious one. Measured both ways
+on the running host:
+
+| invocation | result |
+|---|---|
+| `--installfw --no-gui` | `RPCS3: Cannot perform installation in no-gui mode!` — `dev_flash` stays at **0** files |
+| **`--installfw --headless`** | **1075 files, 186 MB** |
+
+And not merely similar to the hand-clicked install but **identical**: checksum over the
+whole tree, `35100e2be90e026e2bf49a960cad8b9f` on both sides, four empty files either way.
+
+> **The exit code is useless as a success check.** RPCS3 aborts during teardown *after* the
+> work is done — exit 134, `Verification failed` in `fixed_typemap.hpp`. Checking it reports
+> failure for a successful install. Success is measured by counting `dev_flash`.
+
+Two further traps live in the function: **`HOME` must be set** (`docker exec` runs with
+`HOME=/root`, the launch service with `HOME=/config`, and otherwise the firmware lands in
+the wrong tree), and **RPCS3 is single-instance**, so nothing is installed while a session
+is running.
 
 ## The launch service
 
