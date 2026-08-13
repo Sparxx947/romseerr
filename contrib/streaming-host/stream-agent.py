@@ -200,9 +200,18 @@ PROFILE_SCRIPT = os.environ.get("PROFILE_SCRIPT", "/opt/launch-profile.py")
 # Plattform -> Emulator, fuer den es ein Profil gibt. Kein Eintrag = der Emulator ordnet
 # ein erkanntes SDL-Pad selbst zu. / No entry = the emulator maps a detected pad itself.
 # Plattform -> Emulator im Startprofil. Ohne Eintrag wird kein Profil angewandt.
-PROFILE_EMU = {"ps2": "pcsx2", "ngc": "dolphin", "wii": "dolphin", "wiiu": "cemu",
-               "switch": "switchemu", "3ds": "azahar", "dreamcast": "flycast",
-               "xbox": "xemu", "ps3": "rpcs3", "psvita": "vita3k"}
+# `psx` FEHLTE HIER SEIT #140 (behoben mit #492). Das Startprofil kennt `duckstation`
+# seit jeher — mit Gamepad-Belegung und Erstlaufdialog —, aber kein PSX-Start hat es je
+# aufgerufen: die Zuordnung wuchs damals von `{"ps2": "pcsx2"}` auf neun Plattformen, und
+# genau die eine blieb liegen. Was auf dem Host richtig stand, stand dort von Hand.
+# Aufgefallen ist es erst, als DuckStation einen NEUEN Dialog aufmachte, den niemand
+# wegraeumte — der Fehler war da schon Tage alt und nur unsichtbar.
+# EN: `psx` was missing here since #140, so the DuckStation profile was never applied on
+# a launch; a ratchet test now checks every profile is reachable from some platform.
+PROFILE_EMU = {"psx": "duckstation", "ps2": "pcsx2", "ngc": "dolphin", "wii": "dolphin",
+               "wiiu": "cemu", "switch": "switchemu", "3ds": "azahar",
+               "dreamcast": "flycast", "xbox": "xemu", "ps3": "rpcs3",
+               "psvita": "vita3k"}
 # Grenze fuer einen Upload. Die groesste Datei, die hier real ankommt, ist Sonys
 # PS3-Paket mit gut 200 MB; 512 MB lassen Luft, ohne dass jemand den Container mit
 # einem Dauerstrom volllaufen lassen kann.

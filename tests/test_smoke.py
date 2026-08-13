@@ -9383,7 +9383,7 @@ def test_vita3k_does_not_invent_the_key_when_it_is_missing(tmp_path, monkeypatch
 # Der zweite Schalter steht hier NICHT auf Verdacht: ohne ihn tauscht die Behebung nur
 # einen Dialog gegen einen anderen.
 
-def _vita3k_lp(tmp_path, monkeypatch, name):
+def _lp_mit_config(tmp_path, monkeypatch, name):
     """launch-profile.py mit `tmp_path` als /config laden."""
     import importlib.util
     pfad = os.path.join(REPO, "contrib/streaming-host/launch-profile.py")
@@ -9401,7 +9401,7 @@ def test_vita3k_takes_both_startup_dialogs_out_of_the_way(tmp_path, monkeypatch)
     aber `Update Available` legt sich mitten auf das Spielfenster. Beide Werte sind am
     laufenden Host gemessen, jeder mit Gegenprobe.
     """
-    lp = _vita3k_lp(tmp_path, monkeypatch, "lp_vita_dlg1")
+    lp = _lp_mit_config(tmp_path, monkeypatch, "lp_vita_dlg1")
 
     d = tmp_path / ".config" / "Vita3K"
     d.mkdir(parents=True)
@@ -9437,7 +9437,7 @@ def test_vita3k_dialogs_create_nothing_when_the_config_is_absent(tmp_path, monke
     Dieselbe Regel wie beim Vollbild (#304): eine von uns erfundene Konfiguration koennte
     Felder vermissen lassen, die der Emulator erwartet.
     """
-    lp = _vita3k_lp(tmp_path, monkeypatch, "lp_vita_dlg2")
+    lp = _lp_mit_config(tmp_path, monkeypatch, "lp_vita_dlg2")
 
     geaendert, meldung = lp.vita3k_dialoge()
     assert geaendert is False
@@ -9453,7 +9453,7 @@ def test_vita3k_dialogs_do_not_invent_a_missing_key(tmp_path, monkeypatch):
     und wir haetten trotzdem Erfolg gemeldet. Der andere, vorhandene Schluessel wird
     trotzdem gesetzt — halb wirksam ist besser als gar nicht, solange es dabeisteht.
     """
-    lp = _vita3k_lp(tmp_path, monkeypatch, "lp_vita_dlg3")
+    lp = _lp_mit_config(tmp_path, monkeypatch, "lp_vita_dlg3")
 
     d = tmp_path / ".config" / "Vita3K"
     d.mkdir(parents=True)
@@ -9471,7 +9471,7 @@ def test_vita3k_dialogs_do_not_invent_a_missing_key(tmp_path, monkeypatch):
 
 def test_vita3k_dialogs_leave_a_value_that_already_fits(tmp_path, monkeypatch):
     """Gesetzt wird nach dem WERT, nicht nach dem Vorhandensein des Schluessels. (#488)"""
-    lp = _vita3k_lp(tmp_path, monkeypatch, "lp_vita_dlg4")
+    lp = _lp_mit_config(tmp_path, monkeypatch, "lp_vita_dlg4")
 
     d = tmp_path / ".config" / "Vita3K"
     d.mkdir(parents=True)
@@ -9513,6 +9513,217 @@ def test_the_agent_takes_the_vita_dialogs_away_before_the_launch(tmp_path):
     # Vor dem Start: der Fensterschritt (`--window`) laeuft als einziger danach, und er
     # ist deshalb die Messlatte fuer „davor".
     dialoge = next(float(z[1]) for z in zeilen if z[0] == "--dialogs vita3k")
+    fenster = [float(z[1]) for z in zeilen if z[0].startswith("--window")]
+    assert not fenster or dialoge < min(fenster), zeilen
+
+
+# --- #492: zwei modale Fenster fangen jeden PSX-Start ab ----------------------------
+#
+# NACHGEMESSEN am laufenden Host (2026-08-13, „Sheep" (PAL), DuckStation
+# 0.1-11609-ga233ec1fb), jeder Schalter mit Gegenprobe. Die Tabelle steht im Issue:
+#
+#   NoDesktopFile | CheckAtStartup | Fenster
+#   (fehlt)       | (fehlt)        | nur "DuckStation" 500x193 — KEIN Spielfenster
+#   true          | (fehlt)        | Spiel + "Automatic Updater" 651x474 mittendrauf
+#   true          | false          | Spiel, kein Dialog -> Fensterschritt meldet "ok"
+#   true          | true  (Gegenprobe) | "Automatic Updater" wieder da
+#   (entfernt)    | false (Gegenprobe) | "DuckStation" wieder da, kein Spielfenster
+#
+# Der ERSTE Wert ist nicht geraten: der Dialog hat ein Kaestchen „Don't ask again", und
+# nach einem Klick darauf schrieb DuckStation SELBST genau eine neue Zeile in die
+# settings.ini — `[Main] NoDesktopFile = true`, sonst nichts (Schluesselmengen vorher
+# und nachher verglichen). Der zweite Wert ist am Verhalten gemessen, nicht abgelesen.
+#
+# WARUM ZWEI SCHALTER: ohne den zweiten tauscht die Behebung nur einen Dialog gegen
+# einen anderen — dieselbe Lehre wie bei Vita3K (#488).
+
+def test_duckstation_takes_both_startup_dialogs_out_of_the_way(tmp_path, monkeypatch):
+    """`NoDesktopFile` UND `CheckAtStartup` — beide, sonst nichts. (#492)"""
+    lp = _lp_mit_config(tmp_path, monkeypatch, "lp_duck_dlg1")
+
+    d = tmp_path / ".local" / "share" / "duckstation"
+    d.mkdir(parents=True)
+    (d / "settings.ini").write_text(
+        "[Main]\n"
+        "ConfirmPowerOff = true\n"
+        "SetupWizardIncomplete = false\n"
+        "\n"
+        "[Display]\n"
+        "VSync = false\n", encoding="utf-8")
+
+    geaendert, meldung = lp.duckstation_dialoge()
+    assert geaendert, meldung
+    text = (d / "settings.ini").read_text(encoding="utf-8")
+    assert "NoDesktopFile = true" in text, text
+    assert "[AutoUpdater]" in text, text
+    assert "CheckAtStartup = false" in text, text
+    # Fremde Zeilen bleiben, wo sie waren.
+    assert "ConfirmPowerOff = true" in text, text
+    assert "VSync = false" in text, text
+    assert "SetupWizardIncomplete = false" in text, "der Erstlaufdialog wurde mitverstellt"
+
+    # Zweiter Aufruf schreibt nicht noch einmal.
+    nochmal, _ = lp.duckstation_dialoge()
+    assert nochmal is False
+
+
+def test_duckstation_puts_nodesktopfile_into_main_not_at_the_end(tmp_path, monkeypatch):
+    """`NoDesktopFile` gehoert in `[Main]`, nicht ans Dateiende. (#492)
+
+    Eine `key = value`-Zeile hinter der letzten Sektion gehoert dieser letzten Sektion —
+    nicht `[Main]`. Sie waere wirkungslos und wuerde trotzdem als Erfolg gemeldet.
+    """
+    lp = _lp_mit_config(tmp_path, monkeypatch, "lp_duck_dlg2")
+
+    d = tmp_path / ".local" / "share" / "duckstation"
+    d.mkdir(parents=True)
+    (d / "settings.ini").write_text(
+        "[Main]\n"
+        "ConfirmPowerOff = true\n"
+        "\n"
+        "[Hacks]\n"
+        "GPUFIFOSize = 16\n", encoding="utf-8")
+
+    geaendert, meldung = lp.duckstation_dialoge()
+    assert geaendert, meldung
+    zeilen = (d / "settings.ini").read_text(encoding="utf-8").splitlines()
+    i = zeilen.index("NoDesktopFile = true")
+    davor = [z for z in zeilen[:i] if z.startswith("[")]
+    assert davor[-1] == "[Main]", zeilen
+
+
+def test_duckstation_dialogs_create_no_settings_file(tmp_path, monkeypatch):
+    """Fehlt die `settings.ini`, wird KEINE angelegt. (#492)
+
+    Dieselbe Regel wie bei Vita3K (#488) und beim Gamepad-Schritt: eine von uns
+    erfundene Konfiguration koennte Felder vermissen lassen, die der Emulator erwartet.
+    """
+    lp = _lp_mit_config(tmp_path, monkeypatch, "lp_duck_dlg3")
+
+    geaendert, meldung = lp.duckstation_dialoge()
+    assert geaendert is False
+    assert "noch nicht" in meldung, meldung
+    assert not (tmp_path / ".local").exists(), "es wurde doch etwas angelegt"
+
+
+def test_duckstation_dialogs_refuse_a_file_without_main(tmp_path, monkeypatch):
+    """Ohne `[Main]` ist es nicht DuckStations settings.ini — dann lieber nichts. (#492)
+
+    Der Gamepad-Schritt haelt sich seit jeher an dieselbe Regel. Ein Schalter, den wir in
+    eine fremde Datei schreiben, wirkt nicht und meldet trotzdem Erfolg.
+    """
+    lp = _lp_mit_config(tmp_path, monkeypatch, "lp_duck_dlg4")
+
+    d = tmp_path / ".local" / "share" / "duckstation"
+    d.mkdir(parents=True)
+    (d / "settings.ini").write_text("[Sonstwas]\nfoo = bar\n", encoding="utf-8")
+
+    geaendert, meldung = lp.duckstation_dialoge()
+    assert geaendert is False
+    assert "[Main]" in meldung, meldung
+    assert (d / "settings.ini").read_text(encoding="utf-8") == "[Sonstwas]\nfoo = bar\n"
+
+
+def test_duckstation_dialogs_go_by_the_value_not_the_key(tmp_path, monkeypatch):
+    """Gesetzt wird nach dem WERT, nicht nach dem Vorhandensein des Schluessels. (#492)
+
+    Genau daran kam DuckStations Setup-Wizard zweimal zurueck: der Schluessel stand da,
+    auf `true`, und eine Pruefung auf „steht er da?" hielt das fuer erledigt.
+    """
+    lp = _lp_mit_config(tmp_path, monkeypatch, "lp_duck_dlg5")
+
+    d = tmp_path / ".local" / "share" / "duckstation"
+    d.mkdir(parents=True)
+    (d / "settings.ini").write_text(
+        "[Main]\n"
+        "NoDesktopFile = false\n"
+        "\n"
+        "[AutoUpdater]\n"
+        "CheckAtStartup = true\n", encoding="utf-8")
+
+    geaendert, meldung = lp.duckstation_dialoge()
+    assert geaendert, meldung
+    text = (d / "settings.ini").read_text(encoding="utf-8")
+    assert "NoDesktopFile = true" in text, text
+    assert "CheckAtStartup = false" in text, text
+    # ERSETZT, nicht danebengelegt: zwei widersprechende Eintraege waeren eine Wette
+    # darauf, welchen DuckStation liest.
+    assert text.count("NoDesktopFile") == 1, text
+    assert text.count("CheckAtStartup") == 1, text
+
+
+def test_duckstation_dialogs_leave_a_file_that_already_fits(tmp_path, monkeypatch):
+    """Stehen beide Werte schon richtig, wird die Datei NICHT neu geschrieben. (#492)"""
+    lp = _lp_mit_config(tmp_path, monkeypatch, "lp_duck_dlg6")
+
+    d = tmp_path / ".local" / "share" / "duckstation"
+    d.mkdir(parents=True)
+    (d / "settings.ini").write_text(
+        "[Main]\n"
+        "NoDesktopFile = true\n"
+        "\n"
+        "[AutoUpdater]\n"
+        "CheckAtStartup = false\n", encoding="utf-8")
+    vorher = (d / "settings.ini").stat().st_mtime_ns
+
+    geaendert, meldung = lp.duckstation_dialoge()
+    assert geaendert is False, meldung
+    assert (d / "settings.ini").stat().st_mtime_ns == vorher, "die Datei wurde neu geschrieben"
+
+
+def test_every_emulator_with_a_profile_is_reachable_from_a_platform(tmp_path):
+    """Jeder Emulator im Startprofil muss an einer Plattform haengen. (#492)
+
+    DIE RATSCHE ZUM EIGENTLICHEN FEHLER. `duckstation` stand seit #140 im Startprofil —
+    mit Gamepad-Belegung und Erstlaufdialog — und `psx` fehlte in der Zuordnung des
+    Agenten. Das Profil wurde bei einem PSX-Start also NIE angewandt; was auf dem Host
+    stand, stand dort von Hand. Aufgefallen ist es erst, als DuckStation einen neuen
+    Dialog aufmachte, den niemand wegraeumte.
+
+    Gemessen wird die Erreichbarkeit, nicht der Programmtext: ein Profil, das keine
+    Plattform aufruft, ist ausgeliefert und wirkungslos.
+    """
+    import importlib.util
+    pfad = os.path.join(REPO, "contrib/streaming-host/launch-profile.py")
+    spec = importlib.util.spec_from_file_location("lp_erreichbar", pfad)
+    lp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lp)
+
+    m = _agent_module(str(tmp_path))
+    erreichbar = set(m.PROFILE_EMU.values())
+    fehlend = sorted(set(lp.PROFILE) - erreichbar)
+    assert not fehlend, f"Profil vorhanden, aber keine Plattform ruft es auf: {fehlend}"
+
+
+def test_the_agent_takes_the_duckstation_dialogs_away_before_the_launch(tmp_path):
+    """Der Agent ruft den Schritt AUF, sonst steht er ungenutzt in der Datei. (#492)
+
+    Gemessen wird die Aufrufliste des Startprofils, nicht sein Programmtext: ein Schritt,
+    den niemand aufruft, ist genau der Fehler „ausgeliefert und wirkungslos". Und er muss
+    VOR dem Start liegen — danach liest DuckStation seine settings.ini nicht mehr.
+    """
+    roms = tmp_path / "roms" / "psx"
+    roms.mkdir(parents=True)
+    (roms / "Sheep.cue").write_text("FILE \"Sheep.bin\" BINARY\n", encoding="utf-8")
+    (roms / "Sheep.bin").write_bytes(b"\0" * 16)
+    befehl, datei = _mitschrift_emulator(tmp_path)
+    mitschrift = tmp_path / "profil.log"
+    profil = tmp_path / "profil.py"
+    profil.write_text(
+        "import sys, time\n"
+        f"open({str(mitschrift)!r}, 'a').write(' '.join(sys.argv[1:]) + '|'"
+        " + str(time.time()) + '\\n')\n", encoding="utf-8")
+    m = _agent_module(str(tmp_path / "roms"), EMU_PSX=f"{befehl} -batch %s",
+                      PROFILE_SCRIPT=str(profil))
+    ok, msg = m.launch("", "psx", "psx/Sheep.cue")
+    assert ok, msg
+    _argv(datei, m._current["proc"])
+    m._stop_locked()
+
+    zeilen = [z.split("|") for z in mitschrift.read_text().splitlines()]
+    aufrufe = [z[0] for z in zeilen]
+    assert "--dialogs duckstation" in aufrufe, aufrufe
+    dialoge = next(float(z[1]) for z in zeilen if z[0] == "--dialogs duckstation")
     fenster = [float(z[1]) for z in zeilen if z[0].startswith("--window")]
     assert not fenster or dialoge < min(fenster), zeilen
 

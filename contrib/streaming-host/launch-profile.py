@@ -494,6 +494,157 @@ def duckstation_apply(pruefen=False):
     return True, ", ".join(getan)
 
 
+# ZWEI MODALE FENSTER FANGEN JEDEN PSX-START AB. (#492)
+#
+# Dieselbe Klasse Falle wie DuckStations Setup-Wizard oben und Vita3Ks Willkommensfenster
+# (#488): ein Fenster, das im Container niemand sieht und wegklickt, und der Start staut
+# sich dahinter. NACHGEMESSEN am laufenden Host (2026-08-13, „Sheep" (PAL), DuckStation
+# 0.1-11609-ga233ec1fb), jeder Schalter mit Gegenprobe:
+#
+#   NoDesktopFile | CheckAtStartup     | Fenster
+#   (fehlt)       | (fehlt)            | nur "DuckStation" 500x193 — KEIN Spielfenster
+#   true          | (fehlt)            | Spiel + "Automatic Updater" 651x474 mittendrauf
+#   true          | false              | Spiel, kein Dialog; Fensterschritt meldet "ok"
+#   true          | true  (Gegenprobe) | "Automatic Updater" wieder da
+#   (entfernt)    | false (Gegenprobe) | "DuckStation" wieder da, kein Spielfenster
+#
+# WOHER DER ERSTE WERT KOMMT: nicht aus den Zeichenketten der Binaerdatei, sondern aus dem
+# Dialog selbst. Er hat ein Kaestchen „Don't ask again"; nach einem Klick darauf schrieb
+# DuckStation GENAU EINE neue Zeile in die settings.ini — `[Main] NoDesktopFile = true`,
+# sonst nichts (Schluesselmengen vorher/nachher verglichen). Der zweite Wert ist am
+# Verhalten gemessen; `[AutoUpdater] CheckAtStartup` steht in der Voreinstellung gar
+# nicht in der Datei.
+#
+# WARUM HIER ANGEHAENGT WIRD UND BEI VITA3K NICHT: Vita3Ks `config.yml` fuehrt JEDEN
+# Schluessel, ein fehlender heisst dort „die Fassung hat ihn umbenannt". DuckStations
+# settings.ini fuehrt nur, was vom Standard abweicht — beide Schalter fehlen im
+# Auslieferungszustand, und „nichts anhaengen" hiesse hier „nie etwas tun". Dass ein
+# angehaengter Eintrag WIRKT, ist gemessen (Zeile 3 und 4 der Tabelle).
+#
+# EN: two modal windows catch every PSX launch. Both values measured on the running host
+# with a counter-check per switch; the first was written by DuckStation itself after
+# ticking "Don't ask again". Unlike Vita3K's config.yml, DuckStation's settings.ini only
+# lists non-default keys, so a missing key must be appended, not reported.
+DUCKSTATION_DIALOGE = (
+    ("Main",        "NoDesktopFile",  "true",  "Verknuepfungs-Abfrage"),
+    ("AutoUpdater", "CheckAtStartup", "false", "Update-Abfrage"),
+)
+
+
+# WARUM NEBEN `_ini_setzen` OBEN: Das aeltere Geschwister nimmt einen PFAD, liest und
+# schreibt selbst und ERSETZT nur einen vorhandenen Schluessel — genau richtig fuer den
+# einen Schalter, den PCSX2 und Dolphin brauchen. Hier sind es ZWEI Schalter in EINER
+# Datei, einer davon in einem Abschnitt, den es noch gar nicht gibt: das braucht eine
+# Zeilenliste, die zwischen den Schritten weitergereicht wird, und einen Anlegeweg.
+# Zwei Aufgaben, zwei Werkzeuge — das aeltere umzubauen haette drei belegte Behebungen
+# angefasst, um eine neue zu bauen.
+# EN: the older `_ini_setzen` takes a path and only replaces existing keys; these work on
+# a line list and can create a missing section.
+def _zeilen_abschnitt(zeilen, name):
+    """-> (erste, hinter_letzter) Zeile INNERHALB von `[name]`, oder None."""
+    kopf = f"[{name}]"
+    i = next((k for k, z in enumerate(zeilen) if z.strip() == kopf), None)
+    if i is None:
+        return None
+    ende = next((k for k in range(i + 1, len(zeilen))
+                 if zeilen[k].lstrip().startswith("[")), len(zeilen))
+    return i + 1, ende
+
+
+def _zeilen_wert(zeilen, abschnitt, schluessel):
+    """-> Wert in Kleinschreibung, oder None. Nur IM genannten Abschnitt gesucht.
+
+    Der Abschnitt gehoert zur Frage: `settings.ini` fuehrt denselben Schluesselnamen in
+    mehreren Abschnitten, und ein Treffer im falschen waere eine falsche Auskunft.
+    """
+    bereich = _zeilen_abschnitt(zeilen, abschnitt)
+    if bereich is None:
+        return None
+    for z in zeilen[bereich[0]:bereich[1]]:
+        if "=" in z and z.split("=")[0].strip() == schluessel:
+            return z.split("=", 1)[1].strip().lower()
+    return None
+
+
+def _zeilen_setzen(zeilen, abschnitt, schluessel, wert):
+    """-> neue Zeilenliste, in der `[abschnitt] schluessel = wert` steht.
+
+    Drei Faelle, und der mittlere ist der, an dem es schiefgeht: eine vorhandene Zeile
+    wird ERSETZT statt eine zweite danebengelegt (zwei widersprechende Eintraege waeren
+    eine Wette darauf, welchen der Emulator liest), ein fehlender Schluessel kommt ans
+    Ende SEINES Abschnitts (ans Dateiende gehaengt gehoerte er der letzten Sektion,
+    nicht `[Main]`), und ein fehlender Abschnitt wird angelegt.
+    """
+    zeile = f"{schluessel} = {wert}"
+    bereich = _zeilen_abschnitt(zeilen, abschnitt)
+    if bereich is None:
+        rand = [] if not zeilen or not zeilen[-1].strip() else [""]
+        return zeilen + rand + [f"[{abschnitt}]", zeile]
+    anfang, ende = bereich
+    for k in range(anfang, ende):
+        if "=" in zeilen[k] and zeilen[k].split("=")[0].strip() == schluessel:
+            return zeilen[:k] + [zeile] + zeilen[k + 1:]
+    # Hinter die letzte NICHT leere Zeile des Abschnitts, nicht hinter dessen Leerzeile:
+    # sonst stuende der Eintrag optisch beim naechsten Abschnitt.
+    letzte = max((k for k in range(anfang, ende) if zeilen[k].strip()), default=anfang - 1)
+    return zeilen[:letzte + 1] + [zeile] + zeilen[letzte + 1:]
+
+
+def duckstation_dialoge(pruefen=False):
+    """-> (geaendert, meldung). Die beiden Startdialoge abstellen. (#492)
+
+    Zwei Regeln wie ueberall hier: NICHTS ANLEGEN, wenn die Datei fehlt — der Emulator
+    schreibt sie beim ersten Start, und eine von uns erfundene koennte Felder vermissen
+    lassen. Und geprueft wird der WERT, nicht das Vorhandensein des Schluessels; genau
+    daran kam der Setup-Wizard zweimal zurueck.
+
+    NICHT HIER, sondern weiter oben in `duckstation_apply`: `SetupWizardIncomplete`. Der
+    sitzt im Gamepad-Schritt, weil der ohnehin dieselbe Datei aufmacht, ist dort gemessen
+    und getestet — ihn nur der Ordnung halber umzuziehen hiesse, eine belegte Behebung
+    gegen eine unbelegte zu tauschen.
+
+    EN: same two rules as everywhere here — never create the file, and go by the value,
+    not by the key. `SetupWizardIncomplete` stays in `duckstation_apply`.
+    """
+    pfad = duckstation_ini()
+    if not os.path.isfile(pfad):
+        return False, "settings.ini gibt es noch nicht — der Emulator legt sie beim ersten Start an"
+    try:
+        with open(pfad, encoding="utf-8", errors="ignore") as f:
+            zeilen = f.read().splitlines()
+    except OSError as e:
+        return False, f"settings.ini nicht lesbar: {e.strerror}"
+
+    # Ohne `[Main]` ist das nicht DuckStations settings.ini. Dieselbe Absage wie im
+    # Gamepad-Schritt: einen Schalter in eine fremde Datei zu schreiben wirkt nicht und
+    # meldete trotzdem Erfolg.
+    if _zeilen_abschnitt(zeilen, "Main") is None:
+        return False, "kein [Main] in der settings.ini — nicht die erwartete Datei"
+
+    offen = [e for e in DUCKSTATION_DIALOGE
+             if _zeilen_wert(zeilen, e[0], e[1]) != e[2]]
+    if not offen:
+        return False, "die Startdialoge stehen bereits ab"
+    if pruefen:
+        return True, "wuerde abstellen: " + ", ".join(n for *_, n in offen)
+
+    sicherung = pfad + ".vor-dialogen"
+    if not os.path.exists(sicherung):
+        try:
+            with open(sicherung, "w", encoding="utf-8") as f:
+                f.write("\n".join(zeilen) + "\n")
+        except OSError:
+            pass                      # ohne Rueckweg, aber nicht ohne Behebung
+    for abschnitt, schluessel, wert, _ in offen:
+        zeilen = _zeilen_setzen(zeilen, abschnitt, schluessel, wert)
+    try:
+        with open(pfad, "w", encoding="utf-8") as f:
+            f.write("\n".join(zeilen) + "\n")
+    except OSError as e:
+        return False, f"settings.ini nicht schreibbar: {e.strerror}"
+    return True, "abgestellt: " + ", ".join(n for *_, n in offen)
+
+
 def dolphin_ini():
     return os.path.join(CONFIG, ".config/dolphin-emu/Dolphin.ini")
 
@@ -1086,6 +1237,10 @@ PROFILE = {
     # Erst der Quelltext (`s_button_info`) lieferte A/B/X/Y.
     "duckstation": {"system": "PS1",         "controller": duckstation_apply,
                     "bios": None, "vollbild": None,
+                    # Eigener Platz, wie bei vita3k (#488): die beiden Schalter haengen
+                    # nicht an der Gamepad-Belegung, und einer steht nicht einmal im
+                    # selben Abschnitt der Datei. (#492)
+                    "dialoge": duckstation_dialoge,
                     "geprueft": True},
     "pcsx2":     {"system": "PS2",           "controller": pcsx2_apply,
                   "bios": pcsx2_bios_setzen, "vollbild": pcsx2_vollbild,
