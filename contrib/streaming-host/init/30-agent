@@ -203,7 +203,40 @@ pkill -f stream-agent.py 2>/dev/null || true
 # Aus dem eingehaengten Repo starten, nicht aus /config: was laeuft, ist damit
 # immer das, was im Repo steht. / Run the mounted file, so running == checked out.
 AGENT=/opt/stream-agent.py
-[ -f "$AGENT" ] || AGENT=/config/stream-agent.py   # Rueckfall fuer Altbestand
+# KEIN RUECKFALL AUF /config (#500). Hier stand:
+#
+#     [ -f "$AGENT" ] || AGENT=/config/stream-agent.py   # Rueckfall fuer Altbestand
+#
+# Am laufenden Host nachgemessen, was dieser Rueckfall gestartet haette:
+#
+#     /opt/stream-agent.py      75621 Byte   1510 Zeilen   (aus dem Repo eingehaengt)
+#     /config/stream-agent.py    6703 Byte    158 Zeilen   (7. August, verwaist)
+#
+# Die Altfassung kennt weder `psx` noch `psvita`, `ps3` oder `xbox`, verdrahtet
+# Emulatorpfade, die es nicht mehr gibt (`/usr/games/dolphin-emu`), und hat nichts von
+# der Absicherung: keine Pfadeingrenzung, keine Titelkennung (#481), keinen Umgang mit
+# den modalen Fenstern (#490, #494, #496).
+#
+# EIN RUECKFALL IST NUR DANN EIN NETZ, WENN DAS HINEINFALLEN SICHTBAR IST. Dieser hier
+# startet einen alten Prozess, der Anfragen beantwortet und gesund aussieht: Der Stream
+# kommt hoch, die Emulatortabelle ist falsch, und nichts im Protokoll sagt warum. Ein
+# Container, der NICHT hochkommt, ist in zehn Minuten repariert; einer, der falsch
+# hochkommt, kostet einen Tag.
+#
+# Ausloesen wuerde es nur, wenn die Einhaengung von `stack/stream-agent.py` fehlt — und
+# genau dann soll es knallen statt leise zu funktionieren.
+#
+# EN: no fallback to /config. A fallback is a safety net only when falling into it is
+# visible; this one silently started a 158-line agent from August that answers requests
+# and looks healthy. Refuse loudly instead.
+if [ ! -f "$AGENT" ]; then
+  echo "[agent] FEHLT: $AGENT — der Start-Dienst wird NICHT gestartet." >&2
+  echo "[agent] Erwartet wird die Einhaengung von 'stack/stream-agent.py' nach" >&2
+  echo "[agent] '/opt/stream-agent.py'. Fehlt sie, pruefe die Bind-Mounts des" >&2
+  echo "[agent] Containers — frueher wich das hier still auf eine Altfassung aus." >&2
+  echo "[agent] MISSING: $AGENT — refusing to start rather than running a stale copy." >&2
+  exit 1
+fi
 
 # ALTBESTAND HEILEN, bevor der Dienst startet. Solange er als root lief, gehoerten die
 # Konfigurationen der Emulatoren root — und ein im Desktop gestarteter Emulator (der

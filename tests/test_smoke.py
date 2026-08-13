@@ -9066,6 +9066,93 @@ def test_every_emulator_is_launched_with_appdir_and_appimage():
         f"stillschweigend nichts tun: {roh}")
 
 
+def _agent_pfadwahl():
+    """Der Block aus `init/30-agent`, der entscheidet, WELCHE Agent-Datei startet.
+
+    Herausgeschnitten statt nachgebaut: Ein nachgebauter Block prueft die Kopie im Test,
+    nicht das Skript, das ausgeliefert wird.
+
+    ABGRENZUNG AN DER LEERZEILE, NICHT AM `fi`. Am `fi` festgemacht, schneidet der Test
+    den ALTEN Stand gar nicht erst aus — der hatte keins — und faellt dann mit
+    „kein abschliessendes 'fi' gefunden" statt mit „greift auf die Altfassung zurueck".
+    Eine Pruefung, die beim eigentlichen Defekt die falsche Ursache nennt, schickt den
+    naechsten Leser ans falsche Ende.
+
+    EN: delimited by the blank line, not by `fi`. Anchored at `fi` the extraction fails
+    on the very code this is meant to catch, and reports the wrong cause.
+    """
+    quelle = open(os.path.join(REPO, "contrib", "streaming-host", "init", "30-agent"),
+                  encoding="utf-8").read().splitlines()
+    try:
+        start = next(i for i, z in enumerate(quelle) if z.strip() == "AGENT=/opt/stream-agent.py")
+    except StopIteration:
+        raise AssertionError("Anker 'AGENT=/opt/stream-agent.py' fehlt in init/30-agent")
+    ende = next((i for i in range(start + 1, len(quelle)) if not quelle[i].strip()),
+                len(quelle))
+    return "\n".join(quelle[start:ende])
+
+
+def test_a_missing_agent_refuses_instead_of_starting_a_stale_copy(tmp_path):
+    """Ohne `/opt/stream-agent.py` bricht der Start ab — er weicht NICHT aus. (#500)
+
+    Hier stand ein Rueckfall:
+
+        [ -f "$AGENT" ] || AGENT=/config/stream-agent.py   # Rueckfall fuer Altbestand
+
+    Am laufenden Host nachgemessen, was er gestartet haette:
+
+        /opt/stream-agent.py      75621 Byte   1510 Zeilen   (aus dem Repo)
+        /config/stream-agent.py    6703 Byte    158 Zeilen   (7. August, verwaist)
+
+    Die Altfassung kennt weder `psx` noch `psvita`, `ps3` oder `xbox` und verdrahtet
+    Emulatorpfade, die es nicht mehr gibt. Sie haette Anfragen beantwortet und gesund
+    ausgesehen — der Stream kommt hoch, die Emulatortabelle ist falsch, und nichts sagt
+    warum. Ein Rueckfall ist nur dann ein Netz, wenn das Hineinfallen SICHTBAR ist.
+
+    Dieser Test FUEHRT den Block aus, statt ihn zu lesen: dass die Zeile weg ist, sagt
+    noch nicht, dass der Abbruch auch eintritt.
+
+    EN: executes the path-choosing block from the shipped script. A missing agent must
+    exit non-zero with a message, not silently fall back to a stale copy.
+    """
+    block = _agent_pfadwahl()
+    # Nur die WIRKSAMEN Zeilen — der Kommentar darf den alten Pfad nennen, er erklaert ihn.
+    wirksam = [z for z in block.splitlines() if not z.strip().startswith("#")]
+    assert not any("/config/stream-agent.py" in z for z in wirksam), (
+        "die Pfadwahl greift weiterhin aktiv auf /config/stream-agent.py zurueck: "
+        f"{[z for z in wirksam if '/config/stream-agent.py' in z]}")
+
+    # /opt/stream-agent.py gibt es auf dem Testlaeufer nicht — genau der Fall.
+    assert not os.path.exists("/opt/stream-agent.py"), (
+        "unerwartet: auf diesem Rechner existiert /opt/stream-agent.py, "
+        "der Fehlfall laesst sich so nicht pruefen")
+    lauf = subprocess.run(["bash", "-c", block], capture_output=True, text=True,
+                          cwd=str(tmp_path))
+    assert lauf.returncode != 0, (
+        f"fehlender Agent wurde nicht abgelehnt (Exit {lauf.returncode}) — "
+        "genau so startet still eine Altfassung")
+    meldung = lauf.stderr + lauf.stdout
+    assert "stream-agent.py" in meldung, f"keine brauchbare Meldung: {meldung!r}"
+
+
+def test_the_agent_path_is_taken_when_it_exists(tmp_path):
+    """Die Gegenprobe: ist die Datei da, laeuft der Block durch. (#500)
+
+    Ohne sie beweist der Test darueber nur, dass irgendetwas fehlschlaegt — auch ein
+    Block, der IMMER abbricht, waere gruen. Der Pfad wird dafuer auf eine vorhandene
+    Datei umgebogen; alles andere bleibt der ausgelieferte Text.
+
+    EN: the counter-check. Without it a block that always aborts would pass too.
+    """
+    echt = tmp_path / "stream-agent.py"
+    echt.write_text("# Platzhalter\n")
+    block = _agent_pfadwahl().replace("/opt/stream-agent.py", str(echt))
+    lauf = subprocess.run(["bash", "-c", block + "\necho OK-$AGENT"],
+                          capture_output=True, text=True, cwd=str(tmp_path))
+    assert lauf.returncode == 0, f"vorhandener Agent wurde abgelehnt: {lauf.stderr!r}"
+    assert f"OK-{echt}" in lauf.stdout, lauf.stdout
+
+
 def test_the_agent_reports_platforms_that_have_no_emulator(appmod):
     """Was FEHLT, wird genannt — nicht nur, was da ist. (#440)
 
