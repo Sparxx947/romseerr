@@ -3212,6 +3212,53 @@ def test_the_two_pad_identifiers_cannot_drift_apart():
         f"CEMU_UUID={mod.CEMU_UUID} passt nicht zu PAD_GUID={mod.PAD_GUID}")
 
 
+def test_rpcs3_app_home_is_redirected_away_from_the_rom_share(tmp_path):
+    """Ohne Umlenkung stirbt jeder Titel, der in seinem Verzeichnis schreiben will. (#539)
+
+    Die ROM-Freigabe ist `ro` eingehaengt. RPCS3 belegt `/app_home` ohne `vfs.yml` mit dem
+    Verzeichnis des gestarteten Titels — und ein Spiel, das dort eine Pruefdatei anlegt,
+    bekommt `errno=30` und beendet sich.
+    """
+    m = _profil_modul(tmp_path)
+    geaendert, msg = m.rpcs3_vfs()
+    assert geaendert, msg
+    pfad = tmp_path / ".config" / "rpcs3" / "vfs.yml"
+    text = pfad.read_text(encoding="utf-8")
+    assert "/app_home/: $(EmulatorDir)app_home/" in text, text
+    # Das Ziel muss existieren, sonst faellt RPCS3 still zurueck.
+    assert (tmp_path / ".config" / "rpcs3" / "app_home").is_dir(), "Zielverzeichnis fehlt"
+
+
+def test_rpcs3_vfs_keeps_hand_written_paths(tmp_path):
+    """Eine bestehende `vfs.yml` wird NICHT ueberschrieben. (#539)
+
+    Wer eigene VFS-Pfade gesetzt hat — etwa ein Spieleverzeichnis auf einer anderen
+    Platte —, verlaere sie sonst, ohne es zu bemerken.
+    """
+    m = _profil_modul(tmp_path)
+    d = tmp_path / ".config" / "rpcs3"
+    d.mkdir(parents=True, exist_ok=True)
+    eigen = "/games/: /mnt/woanders/games/\n"
+    (d / "vfs.yml").write_text(eigen, encoding="utf-8")
+    geaendert, msg = m.rpcs3_vfs()
+    assert not geaendert, msg
+    assert (d / "vfs.yml").read_text(encoding="utf-8") == eigen, "fremde vfs.yml angefasst"
+
+
+def test_rpcs3_vfs_runs_before_the_title_starts():
+    """RPCS3 liest die VFS-Zuordnung beim Hochfahren, nicht beim Laden des Titels. (#539)
+
+    Ein Schreiber, der erst nach dem Start liefe, kaeme zu spaet — und das saehe aus wie
+    eine Umlenkung, die nicht wirkt.
+    """
+    quelle = open(os.path.join(REPO, "contrib/streaming-host/launch-profile.py"),
+                  encoding="utf-8").read()
+    m = re.search(r'"rpcs3":\s*\{(.*?)"geprueft"', quelle, re.S)
+    assert m, "der rpcs3-Eintrag wurde umgebaut"
+    assert "rpcs3_vfs" in m.group(1), (
+        "rpcs3_vfs steht nicht in der Profiltabelle — die Umlenkung waere wirkungslos")
+
+
 def _cemu_settings(tmp_path, inhalt):
     d = tmp_path / ".config" / "Cemu"
     d.mkdir(parents=True, exist_ok=True)
