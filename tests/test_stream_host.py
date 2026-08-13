@@ -3094,6 +3094,94 @@ def test_xemu_is_launched_without_virtualgl():
         f"anpassen: {ohne}")
 
 
+def _cemu_settings(tmp_path, inhalt):
+    d = tmp_path / ".config" / "Cemu"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "settings.xml").write_text(inhalt, encoding="utf-8")
+    return d / "settings.xml"
+
+
+_CEMU_XML = """<?xml version="1.0"?>
+<content>
+    <Overlay>
+        <api>7</api>
+        <position>0</position>
+    </Overlay>
+    <Audio>
+        <api>{api}</api>
+        <delay>2</delay>
+        <TVVolume>50</TVVolume>
+        <TVDevice>default</TVDevice>
+    </Audio>
+</content>
+"""
+
+
+def test_cemu_audio_backend_is_one_that_exists_here(tmp_path):
+    """Cemu lief stumm, ohne dass irgendetwas fehlschlug. (#541)
+
+    Gespeichert war `<api>0</api>` — DirectSound, das Cemu in seiner eigenen Startausgabe
+    als `not supported` auffuehrt. Es fragt dann ein Geraet bei einem Backend an, das es
+    nicht gibt, findet keins und laeuft weiter:
+
+        can't initialize tv audio: failed to find selected device …
+
+    Bild, Geschwindigkeit und Controller waren dabei tadellos. Genau deshalb faellt so
+    etwas erst auf, wenn ein Mensch hinhoert.
+    """
+    p = _cemu_settings(tmp_path, _CEMU_XML.format(api=0))
+    m = _profil_modul(tmp_path)
+    geaendert, msg = m.cemu_audio()
+    assert geaendert, msg
+    text = p.read_text(encoding="utf-8")
+    assert "<Audio>" in text and "<api>3</api>" in text, text
+    # Der Rest des Abschnitts bleibt unangetastet.
+    assert "<TVVolume>50</TVVolume>" in text and "<delay>2</delay>" in text, text
+
+
+def test_cemu_audio_does_not_touch_the_wrong_api_key(tmp_path):
+    """`<api>` steht auch unter `<Overlay>`. (#541)
+
+    Wer ohne Abschnittsbezug sucht, trifft den erstbesten und meldet Erfolg fuer den
+    falschen Schalter — der Ton bliebe weg, und die Pruefung sagte „gesetzt".
+    """
+    p = _cemu_settings(tmp_path, _CEMU_XML.format(api=0))
+    m = _profil_modul(tmp_path)
+    m.cemu_audio()
+    text = p.read_text(encoding="utf-8")
+    overlay = text[text.index("<Overlay>"):text.index("</Overlay>")]
+    assert "<api>7</api>" in overlay, "der Overlay-Schluessel wurde mitveraendert:\n" + text
+
+
+def test_cemu_audio_checks_the_value_not_the_key(tmp_path):
+    """Steht es schon richtig, wird nicht geschrieben — und nur dann. (#541)"""
+    m = _profil_modul(tmp_path)
+    _cemu_settings(tmp_path, _CEMU_XML.format(api=3))
+    geaendert, msg = m.cemu_audio()
+    assert not geaendert, msg
+    # Gegenrichtung: ein anderer falscher Wert wird sehr wohl angefasst.
+    _cemu_settings(tmp_path, _CEMU_XML.format(api=1))
+    geaendert, _ = m.cemu_audio()
+    assert geaendert, "ein falscher Wert wurde als gesetzt durchgewinkt"
+
+
+def test_cemu_audio_leaves_the_buffer_alone(tmp_path):
+    """`<delay>` wird NICHT angefasst. (#541)
+
+    Bei einem Titel klang der Ton zerhackt, und der Puffer war der naheliegende Griff.
+    Gemessen half er nicht — `<delay>` 2 -> 9 aenderte die Puffer-Latenz nicht einmal —
+    und die Gegenprobe mit einem zweiten Titel war am Standardwert makellos: 0 ms Stille
+    in 8 Sekunden gegen 4040 ms beim ersten. Es lag am Titelbildschirm jenes Spiels.
+
+    Eine Einstellung ohne belegte Wirkung ist Ballast, den spaeter niemand einordnen kann.
+    """
+    p = _cemu_settings(tmp_path, _CEMU_XML.format(api=0))
+    m = _profil_modul(tmp_path)
+    m.cemu_audio()
+    assert "<delay>2</delay>" in p.read_text(encoding="utf-8"), (
+        "der Puffer wurde mitverstellt, obwohl seine Wirkung widerlegt ist")
+
+
 def test_the_extra_settings_key_is_actually_applied():
     """Ein Profil-Schlüssel, den niemand liest, ist eine Falle. (#498)
 
