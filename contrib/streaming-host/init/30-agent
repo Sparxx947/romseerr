@@ -136,6 +136,65 @@ apprun() {   # <ordner> -> Kommando-Praefix bis einschliesslich AppRun
          "$EMU" "$1" "$EMU" "$1" "$VGL" "$EMU" "$1"
 }
 
+# OHNE DEN WRAPPER, DIREKT AUF DIE BINAERDATEI (#489).
+#
+# Bei den meisten Emulatoren IST `AppRun.wrapped` das Programm und wird `exec`-t — die
+# PID bleibt dieselbe. Bei Vita3K ist es ein Shell-Skript, das das Programm als KIND
+# startet, ohne `exec`. Nachgemessen:
+#
+#     head -c2 AppRun.wrapped:   vita3k "#!"      rpcs3 "\177E"   cemu "\177E"
+#
+#     #!/bin/sh
+#     if [ "${APPIMAGE}" != "" ]; then
+#         export PATH="$APPDIR/usr/bin:$PATH"
+#         "${APPDIR}/usr/bin/Vita3K" $@        <- kein exec, $@ ohne Anfuehrungszeichen
+#     fi
+#
+# Der Agent merkt sich damit die PID der SHELL, und daran haengen drei Folgen:
+#
+#   /stop wirkt nicht      Der Emulator ueberlebt als Waise (PPid 1); erst `kill -9`
+#                          beendet ihn. Der Dienst haelt sich fuer frei, der naechste
+#                          Start laeuft gegen einen Emulator, der die GPU noch haelt.
+#   Fensterpruefung irrt   `kein sichtbares Fenster zum Prozess` — an der ECHTEN PID
+#                          fand dasselbe Werkzeug `Welcome to Vita3K` (#488).
+#   Leerzeichen zerfallen  `$@` unquotiert: aus `x PCSF00024` wird `x`. Fuer eine
+#                          Titelkennung folgenlos, fuer einen Pfad nicht (#481).
+#
+# Der Wrapper tut nachweislich nur zweierlei — `PATH` setzen und starten. Beides steht
+# hier, also faellt nichts weg.
+#
+# EN: for most emulators AppRun.wrapped IS the binary and is exec'd; for Vita3K it is a
+# shell script that starts the binary as a CHILD without exec, so the agent tracks the
+# shell. /stop then fails, the window check looks at the wrong pid, and unquoted "$@"
+# splits arguments. The wrapper only sets PATH and runs — both are reproduced here.
+apprun_direkt() {   # <ordner> <programm> -> Kommando bis einschliesslich Binaerdatei
+  printf 'env APPDIR=%s/%s APPIMAGE=%s/%s/AppRun PATH=%s/%s/usr/bin:%s %s %s/%s/usr/bin/%s' \
+         "$EMU" "$1" "$EMU" "$1" "$EMU" "$1" "$PATH" "$VGL" "$EMU" "$1" "$2"
+}
+
+# RATSCHE: MELDEN, WENN EIN ANDERER EMULATOR EBENFALLS EINEN SKRIPT-WRAPPER BEKOMMT.
+#
+# Dass nur Vita3K betroffen ist, ist eine MESSUNG VON HEUTE, keine Eigenschaft von
+# AppImages. `linuxdeploy` erzeugt je nach Bauart mal ein ELF, mal ein Skript — ein
+# Update kann das jederzeit drehen, und dann ist derselbe Fehler wieder da, nur woanders
+# und ohne Hinweis. Die Meldung kostet nichts und macht aus einem stummen Rueckfall eine
+# Zeile im Protokoll.
+# EN: only Vita3K is affected TODAY; linuxdeploy may emit a script for any emulator after
+# an update, and the bug would come back silently elsewhere.
+for _e in "$EMU"/*/AppRun.wrapped; do
+  [ -f "$_e" ] || continue
+  _n=$(basename "$(dirname "$_e")")
+  [ "$_n" = "vita3k" ] && continue          # bekannt und behandelt
+  if [ "$(head -c 2 "$_e" 2>/dev/null)" = "#!" ]; then
+    echo "[agent] HINWEIS: $_n/AppRun.wrapped ist ein Skript, kein Programm — der" \
+         "Start-Dienst verfolgt dann die Shell statt des Emulators (#489). /stop und" \
+         "die Fensterpruefung greifen dort nicht." >&2
+    echo "[agent] NOTE: $_n uses a shell wrapper; the service tracks the shell, not the" \
+         "emulator (#489)." >&2
+  fi
+done
+unset _e _n
+
 [ -x "$EMU/pcsx2/AppRun" ]     && EMU_PS2="$(apprun pcsx2) -- %s" && export EMU_PS2
 # NUR die AppImage. Der frueher hier stehende Rueckfall auf /usr/games/dolphin-emu
 # ist bewusst entfernt: das apt-Paket startet, legt seine Konfiguration an und oeffnet
@@ -196,7 +255,19 @@ apprun() {   # <ordner> -> Kommando-Praefix bis einschliesslich AppRun
 # anderes: der installiert und startet, und die Kennung waere dort falsch. Beides zusammen
 # muss geaendert werden oder gar nichts.
 # EN: `%s` here is the title id, not a path — the agent substitutes it for psvita.
-[ -x "$EMU/vita3k/AppRun" ]    && EMU_VITA="$(apprun vita3k) -r %s" && export EMU_VITA
+# VITA3K: die Binaerdatei direkt, nicht ueber AppRun (#489, Begruendung bei apprun_direkt).
+# Fehlt sie, wird der Wrapper genommen — aber MIT ANSAGE. Ein stiller Rueckfall auf einen
+# Startweg, bei dem `/stop` nachweislich nicht wirkt, ist genau die Sorte Netz, in die man
+# faellt ohne es zu merken (#500).
+# EN: run the binary directly; fall back to AppRun only with a message, never silently.
+if [ -x "$EMU/vita3k/usr/bin/Vita3K" ]; then
+  EMU_VITA="$(apprun_direkt vita3k Vita3K) -r %s" && export EMU_VITA
+elif [ -x "$EMU/vita3k/AppRun" ]; then
+  echo "[agent] HINWEIS: vita3k/usr/bin/Vita3K fehlt — Start ueber AppRun. /stop beendet" \
+       "den Emulator dann NICHT und die Fensterpruefung sieht die Shell (#489)." >&2
+  echo "[agent] NOTE: falling back to vita3k/AppRun; /stop will not stop the emulator." >&2
+  EMU_VITA="$(apprun vita3k) -r %s" && export EMU_VITA
+fi
 [ -x "$EMU/rpcs3/AppRun" ]     && EMU_PS3="$(apprun rpcs3) --no-gui %s" && export EMU_PS3
 
 pkill -f stream-agent.py 2>/dev/null || true

@@ -1541,6 +1541,67 @@ def test_installing_an_emulator_moves_the_new_build_into_place():
         "wegraeumen")
 
 
+def test_vita3k_is_started_at_the_binary_not_through_the_shell_wrapper():
+    """Der erzeugte Startbefehl endet an der Binaerdatei, nicht an AppRun. (#489)
+
+    AM HOST GEMESSEN. `AppRun.wrapped` ist bei den anderen Emulatoren das Programm und
+    wird `exec`-t; bei Vita3K ist es ein Shell-Skript, das das Programm als KIND startet:
+
+        head -c2 AppRun.wrapped:  vita3k "#!"   rpcs3 ELF   cemu ELF
+
+        #!/bin/sh
+        if [ "${APPIMAGE}" != "" ]; then
+            export PATH="$APPDIR/usr/bin:$PATH"
+            "${APPDIR}/usr/bin/Vita3K" $@       <- kein exec, $@ unquotiert
+        fi
+
+    Der Agent fuehrt damit die PID der SHELL. Gemessen: `/stop` meldet `ok`, `/status`
+    sagt `running: false`, und der Emulator laeuft als Waise weiter (PPid 1) — erst
+    `kill -9` beendet ihn. Die Fensterpruefung meldete `kein sichtbares Fenster`,
+    waehrend dasselbe Werkzeug an der echten PID `Welcome to Vita3K` fand (#488).
+
+    Der Test FUEHRT den Helfer aus, statt die Zeile zu lesen: dass `apprun_direkt` im
+    Text steht, sagt noch nicht, dass er auf die Binaerdatei zeigt.
+
+    EN: executes the helper and checks the command it emits ends at the binary, carries
+    the PATH the wrapper would have set, and survives shlex.split unchanged.
+    """
+    quelle = open(os.path.join(REPO, "contrib", "streaming-host", "init", "30-agent"),
+                  encoding="utf-8").read().splitlines()
+    try:
+        start = next(i for i, z in enumerate(quelle) if z.startswith("apprun_direkt() {"))
+    except StopIteration:
+        raise AssertionError("apprun_direkt() fehlt in init/30-agent (#489)")
+    ende = next(i for i in range(start, len(quelle)) if quelle[i].strip() == "}")
+    funktion = "\n".join(quelle[start:ende + 1])
+
+    lauf = subprocess.run(
+        ["bash", "-c", f'EMU=/emu; VGL=vglrun; PATH=/usr/bin\n{funktion}\n'
+                       'apprun_direkt vita3k Vita3K'],
+        capture_output=True, text=True)
+    assert lauf.returncode == 0, lauf.stderr
+    befehl = lauf.stdout
+
+    assert befehl.endswith("/emu/vita3k/usr/bin/Vita3K"), (
+        f"der Startbefehl endet nicht an der Binaerdatei: {befehl!r}")
+    # NICHT im Text nach "/AppRun" suchen: `APPIMAGE=.../AppRun` steht dort voellig zu
+    # Recht — der Wrapper wird uebersprungen, die Variable muss aber gesetzt bleiben,
+    # sonst tut das entpackte AppImage gar nichts (#440/#314). Gefragt ist, ob AppRun
+    # als AUSFUEHRBARES ARGUMENT auftaucht.
+    ausfuehrbar = [t for t in shlex.split(befehl) if "=" not in t.split("/")[0]]
+    assert not any(t.endswith("/AppRun") for t in ausfuehrbar), (
+        f"laeuft weiterhin ueber den Wrapper: {ausfuehrbar}")
+    # Der Wrapper setzte PATH — faellt er weg, muss es hier stehen.
+    assert "PATH=/emu/vita3k/usr/bin:/usr/bin" in befehl, (
+        f"der PATH, den der Wrapper gesetzt hat, fehlt: {befehl!r}")
+    assert "APPDIR=/emu/vita3k" in befehl and "APPIMAGE=/emu/vita3k/AppRun" in befehl
+
+    # Der Agent zerlegt die Zeile mit shlex — nichts darf dabei zerfallen.
+    teile = shlex.split(befehl)
+    assert teile[-1] == "/emu/vita3k/usr/bin/Vita3K", teile
+    assert "vglrun" in teile, teile
+
+
 def test_every_emulator_is_launched_with_appdir_and_appimage():
     """Entpackte AppImages bekommen APPDIR und APPIMAGE. (#440/#314)
 
@@ -1565,13 +1626,29 @@ def test_every_emulator_is_launched_with_appdir_and_appimage():
     assert "apprun()" in quelle, "der Helfer, der APPDIR/APPIMAGE setzt, fehlt"
     assert "APPDIR=" in quelle and "APPIMAGE=" in quelle
 
-    zeilen = [z for z in quelle.splitlines()
-              if re.match(r'\[ -x "\$EMU/[a-z0-9]+/AppRun" \]', z.strip())]
+    # ZWEI STARTFORMEN SEIT #489, und beide setzen APPDIR/APPIMAGE:
+    #   apprun <ordner>                 ueber AppRun  — die Regel
+    #   apprun_direkt <ordner> <prog>   an der Binaerdatei, vorbei am Shell-Wrapper
+    # Nur nach `$(apprun ` zu suchen haette die zweite Form fuer einen rohen Start
+    # gehalten; nur die Zahl zu senken haette Vita3K klammheimlich aus der Pruefung
+    # genommen. Gezaehlt wird deshalb, was eine EMU_*-Startzeile ist, egal welche Form.
+    zeilen = [z.strip() for z in quelle.splitlines()
+              if re.search(r'\bEMU_[A-Z0-9]+="\$\(apprun', z)]
     assert len(zeilen) >= 10, f"nur {len(zeilen)} Startzeilen gefunden — Muster kaputt?"
-    roh = [z for z in zeilen if "$(apprun " not in z]
+
+    # Kein Emulator darf an beiden Helfern vorbei gestartet werden.
+    roh = [z.strip() for z in quelle.splitlines()
+           if re.search(r'\bEMU_[A-Z0-9]+="', z) and "$(apprun" not in z]
     assert not roh, (
         "diese Emulatoren werden ohne APPDIR/APPIMAGE gestartet und koennen deshalb "
         f"stillschweigend nichts tun: {roh}")
+
+    # Und die zweite Form muss es wirklich geben — sonst faellt Vita3K stumm auf den
+    # Wrapper zurueck, und #489 ist wieder da.
+    assert "apprun_direkt()" in quelle, "der Helfer aus #489 fehlt"
+    assert any("apprun_direkt vita3k" in z for z in zeilen), (
+        "Vita3K wird wieder ueber den Shell-Wrapper gestartet — /stop wirkt dann nicht "
+        "und die Fensterpruefung sieht die Shell (#489)")
 
 
 def test_a_missing_agent_refuses_instead_of_starting_a_stale_copy(tmp_path):
