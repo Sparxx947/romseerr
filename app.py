@@ -5577,10 +5577,43 @@ UPDATE_ANY_URL = "https://api.github.com/repos/Sparxx947/romseerr/releases?per_p
 UPDATE_TTL   = 6 * 3600
 _UPDATE      = {"ts": 0, "latest": None}
 
+_SEMVER_RE = re.compile(r"v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?")
+
 def _semver(v):
-    """'1.2.3' / 'v1.2.3-beta.1' -> (1,2,3). Pre-Release-Suffix wird ignoriert."""
-    m = re.match(r"v?(\d+)\.(\d+)\.(\d+)", str(v or ""))
-    return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
+    """'v1.2.3-beta.1' -> Sortierschlüssel. NUR vergleichen, nicht anzeigen.
+
+    DER VORABTEIL MUSS MITZAEHLEN. Vorher warf diese Funktion ihn weg, damit galten
+    `1.3.0-beta.1` und `1.3.0-beta.2` als dieselbe Version — und schwerer wiegend: die erste
+    stabile `1.3.0` wurde einer laufenden `1.3.0-beta.1` nicht angeboten. Seit #572 sind
+    alle Releases dieses Projekts Vorabversionen, der Hinweis vergleicht also fast immer
+    Beta gegen Beta: genau der Fall, den er nicht konnte. (#574)
+
+    Rangfolge nach SemVer 2.0.0 §11, hier als Tupel gegossen, damit `>` sie von selbst
+    einhält:
+      * Zahlenteil zuerst — `1.4.0-beta.1` schlaegt `1.3.0`.
+      * Eine Version OHNE Vorabteil steht ueber derselben MIT: darum `(1,)` gegen `(0, …)`.
+      * Innerhalb des Vorabteils Bezeichner fuer Bezeichner. Ein rein numerischer zaehlt
+        als Zahl (`beta.10` > `beta.9`, was eine Zeichenkette umgekehrt sortieren wuerde)
+        und rangiert unter einem alphanumerischen — daher die Kennung 0 vor 1.
+      * Bei gleichem Anfang gewinnt der laengere Vorabteil; das erledigt der
+        Tupelvergleich, der das kuerzere Tupel als kleiner ansieht.
+    Build-Metadaten (`+abc`) bleiben aussen vor, wie es die Norm verlangt — der reguläre
+    Ausdruck laesst `+` gar nicht erst in den Vorabteil.
+
+    EN: sort key honouring SemVer 2.0.0 §11 precedence, including pre-releases — a version
+    without a pre-release outranks the same version with one, numeric identifiers compare
+    numerically and rank below alphanumeric ones, build metadata is ignored.
+    """
+    m = _SEMVER_RE.match(str(v or ""))
+    if not m:
+        # Unlesbares ist das Kleinste ueberhaupt und loest deshalb nie einen Hinweis aus.
+        return (0, 0, 0, (0,))
+    zahl = tuple(int(x) for x in m.group(1, 2, 3))
+    vorab = m.group(4)
+    if not vorab:
+        return zahl + ((1,),)
+    teile = tuple((0, int(t), "") if t.isdigit() else (1, 0, t) for t in vorab.split("."))
+    return zahl + ((0,) + teile,)
 
 def _release_tag(url):
     """Eine Release-Adresse abfragen -> (Version ohne führendes v, HTTP-Status).
