@@ -374,6 +374,7 @@
  "ia_hint": "Certains éléments d'Archive.org sont dans la collection `loggedin` et exigent un compte — sans compte, le téléchargement répond HTTP 401. Ici ne va pas un mot de passe mais la paire de clés d'archive.org/account/s3.php.",
  "job_open_card": "Ouvrir la fiche du jeu",
  "job_no_card": "Aucune fiche pour ce titre.",
+ "job_lookup_failed": "Impossible de charger la fiche.",
  "sec_drop": "Dépôt",
  "drop_hint": "Le dossier de dépôt accueille les ROM qui ne viennent pas d'une demande — une collection entière, un dossier depuis une clé. <b>Cette vue ne déplace rien</b> : elle calcule seulement ce qui se passerait. Un fichier n'est touché qu'après être resté inchangé pendant deux passages, donc un envoi en cours est laissé tranquille. Ce qui ne correspond à aucune plateforme va dans <code>.unsortiert</code> plutôt que d'être deviné.",
  "drop_off": "Aucun dossier de dépôt monté — la fonction n'est pas configurée. Attendu à :",
@@ -386,5 +387,8 @@
  "drop_running": "en cours …",
  "drop_done": "{a} classés, {o} restants",
  "stream_nsp_update": "C'est une mise à jour, pas un jeu — elle appartient à un autre titre et ne démarre pas, même installée.",
- "stream_nsp_dlc": "C'est un contenu additionnel (DLC), pas un jeu autonome."
+ "stream_nsp_dlc": "C'est un contenu additionnel (DLC), pas un jeu autonome.",
+ "stream_wiiu_update": "Ceci est une mise à jour, pas un jeu — elle complète un titre de base absent ici.",
+ "stream_wiiu_dlc": "Ceci est un contenu additionnel (DLC), pas un jeu autonome.",
+ "stream_wiiu_system": "Ceci est un titre système de la console, pas un jeu."
 }

@@ -42,14 +42,88 @@ Ist ein Ordner **ein Spiel** oder **eine Sammlung**? Beide Fehlrichtungen kosten
 - Sammlung fälschlich als Spiel → Hunderte Titel bleiben unsichtbar
 - Multi-Disk-Spiel fälschlich als Sammlung → es zerfällt in Einzeldateien
 
-Drei Wege führen zur Antwort, in dieser Reihenfolge:
+Vier Wege führen zur Antwort, in dieser Reihenfolge:
 
 1. **Die Plattform kennt nur Spielordner.** Bei DOS, PS3, ScummVM, Wii und ähnlichen
    besteht ein Titel immer aus vielen Dateien. Dort taugt die Dateizahl nicht.
-2. **Wenige Dateien, die auf denselben Titel reduzieren.** Nach Abzug des
+2. **Der Ordner ist ein Abbild-Set.** Eine `.gdi`, `.cue` oder `.m3u` **nennt ihre
+   Dateien**, und die liegen daneben. Struktur, kein Namensvergleich.
+3. **Wenige Dateien, die auf denselben Titel reduzieren.** Nach Abzug des
    Datenträger-Markers — `(Disk 1)`, `(Side A)`, `[Disc 2]`, `(Tape 1 of 3)` — bleibt
    derselbe Name übrig. Das ist ein Multi-Disk-Spiel.
-3. **Sonst: Sammlung.**
+4. **Sonst: Sammlung.**
+
+#### „Kein Archiv" ist kein Fehlschlag (#447)
+
+Unter `amiga` liegen Dateien, die `.ZIP` oder `.LZH` heißen und keine sind — kein
+`PK\x03\x04`, kein LHA-Kopf, sondern Amiga-Cruncher-Formate mit Kennungen wie
+`85 15 02 41` oder `95 0a 02 41`.
+
+Sie als *„Archiv ließ sich nicht entpacken"* zu melden ist doppelt falsch: Es behauptet
+einen Schaden, den es nicht gibt, **und begräbt die echten**. Gemessen: **49 von 78**
+Meldungen waren solche Dateien, und darunter lagen genau **zwei** wirklich beschädigte
+Archive.
+
+Der Lauf trennt deshalb zwei Befunde, weil sie verschiedene Antworten verlangen:
+
+| Befund | Antwort |
+|---|---|
+| beschädigtes Archiv | neu beschaffen |
+| kein Archiv | umbenennen — die Datei ist heil, nur falsch benannt |
+
+**Ohne Formatliste.** Die Kennungen sind uneinheitlich, eine Liste wäre Raterei. Die Frage
+*„erkennt ein Entpacker den Inhalt überhaupt?"* ist dagegen messbar: `lsar` antwortet auf
+ein unbekanntes Format mit `Couldn't recognize the archive format`. Fehlt `lsar`, gilt im
+Zweifel „Archiv" — lieber ein Fehlalarm als eine still übersprungene Datei.
+
+#### Satzmitglieder werden nie als Dublette gelöscht (#467)
+
+Schritt 3b entfernt **bitgleiche** Dateien auf Ebene 1. Bei CD-Titeln ist das falsch: Spur 01
+ist bei vielen Spielen identisch — eine leere Datenspur oder ein Kopierschutzhinweis. Aus
+dem Laufprotokoll, wörtlich:
+
+```
+dublette_entfernt  turbografx-cd/Monster Lair (USA) (Track 01).bin
+                   gleich_wie  turbografx-cd/Valis II (USA) (Track 01).bin
+```
+
+Zwei verschiedene Spiele. Danach nennt Monster Lairs `.cue` eine Datei, die es nicht mehr
+gibt. Unter `dc` sind so **375 Dateien gelöscht** worden — deshalb sind von 213 Titeln nur
+13 aus dem Protokoll rekonstruierbar: Der Rest ist weg, nicht verlegt.
+
+**Bitgleichheit macht zwei Spuren nicht austauschbar.** Was eine Abbildliste im selben
+Ordner nennt, ist von der Dublettenerkennung ausgenommen; der Lauf sagt am Ende, wie viele
+Dateien er deshalb verschont hat.
+
+#### Warum Abbild-Sets eine eigene Regel brauchen (#462)
+
+Ein Dreamcast-Titel sieht so aus:
+
+```
+Bangai-O (PAL)(M3)/Bangai-O v1.001 (2000)(Virgin)(PAL)(M3)[!].gdi
+Bangai-O (PAL)(M3)/track01.bin   track02.raw   track03.bin
+```
+
+Regel 3 fragt nach Namensgleichheit und findet vier verschiedene Stämme. Sie **kann** das
+nicht sehen, denn hier ist die Namensgleichheit nicht bloß abwesend, sie ist *absichtlich*
+abwesend: Die Spuren heißen bei jedem Spiel gleich.
+
+Ohne Regel 2 galt der Ordner als Sammlung und wurde flachgelegt. Die generischen Spurnamen
+kollidierten und wurden zu `track01 (53).bin` — während die `.gdi` weiterhin `track01.bin`
+nennt. **Alle 138 Dreamcast-Titel zeigten danach auf dieselbe Datei.** Am Emulator gemessen
+als tausende `W[GDROM]: Sector Read miss`; Flycast blieb im Dreamcast-BIOS stehen und lud
+nie ein Spiel.
+
+Drei Bedingungen, alle nötig — jede fängt einen eigenen Fehlschluss ab:
+
+| Bedingung | ohne sie |
+|---|---|
+| mindestens eine Abbildliste auf oberster Ebene | jeder Ordner wäre ein Spiel |
+| alle Listen reduzieren auf **einen** Titel | zwei verschiedene Spiele in einem Ordner würden verschmolzen |
+| jede genannte Datei liegt daneben | ein unvollständiger Ordner würde als heil durchgereicht |
+
+Die Prüfung steht **vor** der Dateizahl-Schranke: `Bangai-O` hatte 38 Dateien, die Schranke
+liegt bei 12. Dahinter wäre die Regel vorhanden und wirkungslos.
 
 **Der Datenträger-Marker ist das einzige verlässliche Zeichen.** Ein gemeinsamer
 Namensanfang genügt **nicht**: `VC Songs-Cartridge - Inventio-Pac` und
@@ -169,6 +243,24 @@ bleiben bewusst liegen: Sie kommen auf einem Dutzend Plattformen vor, und eine f
 Zuordnung ist teurer als eine ausgelassene — der Titel läge danach unter der falschen
 Konsole und fiele niemandem auf, während eine liegengebliebene Datei sichtbar bleibt.
 
+**Die Tabelle wächst nur gegen einen Befund.** Nach dem Gesamtumbau hielt `Mixed` 536
+Dateien, und der Trockenlauf verschob nichts — zu Recht, bis auf eine Endung:
+
+| | | |
+|---|---|---|
+| `.jpg` 52 · `.txt` 51 · `.html` 41 · `.wav` 41 | Beiwerk | bleibt |
+| `.exe` 29 | Windows-Programme | bleibt |
+| `.vpl` 17 · `.vrs` 14 | VICE-Konfiguration | bleibt |
+| `.bin` 28 | mehrdeutig | bleibt **mit Absicht** |
+| `.caq` 13 | Mattel Aquarius | **fehlte in der Tabelle** (#515) |
+
+Die 13 `.caq` stammen aus derselben `Mattel Intellivision & Aquarius ROMs`-Sammlung, deren
+Intellivision-Hälfte über `.int` sauber einsortiert wurde; der Ordner `aquarius` existierte
+längst. Zwischen 52 Werbescans fällt ein Kassettenabzug niemandem auf — genau dafür gibt es
+die Tabelle.
+
+`.cas` bleibt draußen: Das Kassettenformat tragen MSX und ColecoVision ebenfalls.
+
 ### Beiwerk landet in `_beiwerk/`
 
 Ebene 1 ist die **Spielebene** — RomM zählt dort jeden Eintrag als genau ein Spiel. Bilder,
@@ -214,12 +306,139 @@ harmlosen Datei ein kaputtes Spiel.
 Zusätzlich muss **Ladeadresse plus Größe in 64 KB passen** — sonst ist es kein
 Commodore-Programm, sondern eine große Datei mit zufällig passenden ersten Bytes.
 
+### Abbildlisten prüfen: `rom-abbilder-pruefen`
+
+Ein Disc-Abbild besteht aus einer kleinen Textliste (`.gdi`, `.cue`, `.m3u`) und mehreren
+Datendateien. Fehlt eine davon, ist der Titel unspielbar — und zwar **lautlos**: In der
+Bibliothek steht er weiterhin, RomM zählt ihn mit, und erst der Emulator sagt
+`Sector Read miss`.
+
+```bash
+rom-abbilder-pruefen /roms                    # nur berichten, nichts anfassen
+rom-abbilder-pruefen /roms psx --reparieren   # eindeutige Verweise umschreiben
+rom-abbilder-pruefen /roms --aussortieren     # Unbrauchbares nach _defekt/ VERSCHIEBEN
+```
+
+#### Zwei Fragen, nicht eine
+
+Die naheliegende Prüfung — *nennt die Liste Dateien, die es nicht gibt?* — hat eine blinde
+Stelle, und die wurde am Bestand gemessen:
+
+```
+/roms/dc  ->  0 Defekte gemeldet, obwohl ALLE 138 Titel kaputt waren
+```
+
+Denn dort waren die Spielordner flachgelegt worden, und die Spuren heißen bei jedem
+Dreamcast-Spiel `track01.bin`. Im flachen Ordner **existiert** der Name also — jede Liste
+fand einen Treffer, nur den falschen. **Namenspräsenz ist nicht dasselbe wie die richtige
+Datei.**
+
+Deshalb stellt das Werkzeug zwei Fragen:
+
+| Frage | findet |
+|---|---|
+| **fehlend** — nennt die Liste Dateien, die nicht daneben liegen? | verlorene oder umbenannte Spuren |
+| **geteilt** — nennen *mehrere* Listen im selben Ordner dieselbe Datei? | den Kollisionsschaden aus #462 |
+
+Am Bestand gemessen: 11 eindeutig lösbar, 106 mit wirklich fehlenden Daten, 83 geteilte
+Verweise (alle unter `dc`).
+
+#### Was es repariert — und was bewusst nicht
+
+Umgeschrieben wird nur, wenn die gemeinte Datei **eindeutig** ist: Sie trägt den Stamm der
+Liste selbst (der häufige Fall umbenannter Rips), oder sie ist die einzige Datei dieser
+Endung, **die keine andere Liste beansprucht**.
+
+**Ein dritter Fall: der Verweis ohne Endung.** Eine `.cue` darf ihre Spur ohne Endung
+nennen, und im Bestand tut sie das:
+
+```
+psp/PSX2PSP/PSX Images/QixNeo.cue    -> "QixNeo"     daneben: QixNeo.bin
+psp/PSX2PSP/PSX Images/mrdomino.cue  -> "mrdomino"   daneben: mrdomino.bin
+```
+
+Das war lange der **einzige Fall, den das Werkzeug nie lösen konnte** — die Suche stieg
+bei leerer Endung sofort aus, und beide Wege darüber blieben unerreichbar. Dabei ist es
+der leichteste überhaupt: ein Name ohne Endung, daneben genau eine Datei, die so heißt.
+
+Die Enge bleibt: **exakter** Stamm, nur Endungen, die eine Spur tragen kann
+(`.bin .iso .img .raw .mp3 .wav .ogg .flac`), genau ein Treffer, und nicht von einer
+anderen Liste beansprucht. Zwei Kandidaten sind keine Eindeutigkeit — und eine `.txt`
+mit demselben Namen ist keine Spur (#517).
+
+Der Nachsatz ist der Punkt. Ohne ihn genügte „genau eine `.bin` im Ordner" — und eine
+`.cue`, deren Daten wirklich fehlen, wurde auf das Abbild eines **fremden** Spiels
+umgebogen. An einem Probebestand aufgefallen, bevor das Werkzeug den echten sah. **Ein
+geratener Verweis sieht heil aus und ist es nicht**; das ist schlechter als ein sichtbar
+kaputter, weil danach niemand mehr hinsieht.
+
+`--aussortieren` **verschiebt** nach `<plattform>/_defekt/` und löscht nichts. Die
+vorhandenen Spuren sind echte Daten; ob sie ersetzbar sind, entscheidet der Betreiber.
+Jede Änderung steht mit Quelle und echtem Ziel in `.abbildpruefung/<plattform>-<zeit>.jsonl`,
+und vor jedem Umschreiben bleibt eine `.vor-fix`-Sicherung liegen.
+
+**Diese Sicherung hat sich schon bezahlt gemacht.** Am 2026-08-13 schrieb die Reparatur
+aus `FILE "QixNeo"` ein `FILE "QixNeo.bin.bin"` — zwei `replace` hintereinander, das
+zweite auf dem Ergebnis des ersten. Solange der alte Verweis eine Endung trug, lief das
+ins Leere; ein Verweis **ohne** Endung ist dagegen ein Präfix seines eigenen Ersatzes
+(#521). Beide Listen kamen unverändert aus der `.vor-fix` zurück. Eine falsch reparierte
+Liste ist schlimmer als eine kaputte — die kaputte fällt auf.
+
+Eine `.m3u` mit Netzadressen (Radio-Streams) gilt **nicht** als defektes Abbild.
+
 ### Was die Werkzeuge nicht tun
 
 - **Keine Plattformordner umbenennen.** Die Namen stammen von RetroNAS.
 - **Nichts löschen außer belegten Dubletten** — gleiche Prüfsumme, gleicher Inhalt.
 - **Keine Archive anfassen, wo Archive die richtige Form sind**: Arcade, MAME, Neo Geo
   und CPS erwarten die `.zip` als Spiel. Diese Plattformen stehen in `ARCHIV_BLEIBT`.
+
+### Das Protokoll ist der Rückweg — auch bei gelöschten Dateien
+
+Am 2026-08-12 waren 256 Disc-Abbilder kaputt, darunter **alle 138 Dreamcast-Titel**.
+Wiederhergestellt wurden davon 230 — **ohne einen Byte zu laden**. Das ging nur, weil das
+Protokoll mehr festhält, als man beim Lesen des Quelltextes vermutet.
+
+#### Verschieben: Quelle und **echtes** Ziel
+
+```json
+{"art":"verschoben",
+ "von":"/roms/dc/Bomber Hehhe! (JP)/track01.bin",
+ "nach":"/roms/dc/track01 (2).bin"}
+```
+
+Das Ziel steht **mit Kollisionssuffix** darin. Ein Flachlegen ist damit Datei für Datei
+umkehrbar, auch wenn hundert Spiele dieselben Spurnamen tragen.
+
+#### Löschen: die Datei, mit der sie identisch war
+
+```json
+{"art":"dublette_entfernt",
+ "pfad":"/roms/dc/track03 (67).bin",
+ "gleich_wie":"/roms/dc/track03 (7).bin",
+ "sha256":"09b26522…"}
+```
+
+**Gelöscht wird nur bei Bitgleichheit.** Eine gelöschte Datei ist deshalb nicht verloren,
+solange ihr Zwilling existiert — sie lässt sich **kopieren**, und die Kopie ist
+konstruktionsbedingt exakt. In allen 555 Fällen war die Vorlage noch da.
+
+#### Zwei Bedingungen, ohne die es schiefgeht
+
+**Nur Satzmitglieder zurückholen.** 161.406 der gelöschten Dateien sind *echte* Dubletten
+(`Krull (CCE) (2).a26` neben `Krull (CCE).a26`) und müssen gelöscht bleiben. Die Zahl der
+„rettbaren" fiel von 1078 auf 180, als diese Bedingung richtig angewandt wurde: Dateien wie
+`Alien Breed 3D (Track 1) (2).bin` sind Zweitkopien, die keine `.cue` nennt. Maßgeblich ist
+allein, **ob eine Abbildliste im Zielordner den Namen nennt**.
+
+**Die Prüfsumme nachrechnen, nicht der Protokollzeile glauben** — zweimal: vor dem Kopieren
+(ist die Vorlage noch die Datei, die das Protokoll beschreibt?) und danach (ist die Kopie
+heil angekommen?).
+
+#### Wann es *nicht* geht
+
+Ist der Zwilling ebenfalls weg, ist die Datei weg. Das Protokoll kann nur zeigen, wo etwas
+war und womit es identisch war — es speichert keine Daten.
 
 ### Vor dem Lauf
 
@@ -270,14 +489,86 @@ Is a folder **one game** or **a collection**? Both errors cost:
 - a collection taken for a game → hundreds of titles stay invisible
 - a multi-disk game taken for a collection → it falls apart into single files
 
-Three routes to the answer, in order:
+Four routes to the answer, in order:
 
 1. **The platform only ever has game folders.** For DOS, PS3, ScummVM, Wii and similar a
    title always consists of many files, so the file count is no criterion there.
-2. **Few files that reduce to the same title.** With the medium marker removed —
+2. **The folder is a disc-image set.** A `.gdi`, `.cue` or `.m3u` **names its files** and
+   those files sit next to it. Structure, not name comparison.
+3. **Few files that reduce to the same title.** With the medium marker removed —
    `(Disk 1)`, `(Side A)`, `[Disc 2]`, `(Tape 1 of 3)` — the same name remains. That is a
    multi-disk game.
-3. **Otherwise: a collection.**
+4. **Otherwise: a collection.**
+
+#### "Not an archive" is not a failure (#447)
+
+Under `amiga` there are files named `.ZIP` or `.LZH` that are neither — no `PK\x03\x04`,
+no LHA header, but Amiga cruncher formats with signatures like `85 15 02 41`.
+
+Reporting them as *"archive could not be extracted"* is wrong twice over: it claims damage
+that does not exist, **and it buries the real cases**. Measured: **49 of 78** messages were
+such files, and among them sat exactly **two** genuinely damaged archives.
+
+The run therefore separates two findings, because they call for different answers:
+
+| finding | answer |
+|---|---|
+| damaged archive | re-fetch it |
+| not an archive | rename it — the file is intact, only mislabelled |
+
+**Without a format list.** The signatures are inconsistent, so a list would be guesswork.
+The measurable question is whether any extractor recognises the content at all: `lsar`
+answers an unknown format with `Couldn't recognize the archive format`. If `lsar` is
+absent, the file counts as an archive — a false alarm beats a silently skipped file.
+
+#### Set members are never removed as duplicates (#467)
+
+Step 3b removes **bit-identical** files at level 1. For CD titles that is wrong: track 01 is
+frequently identical across many games — an empty data track or a copy-protection notice.
+From the run log, verbatim:
+
+```
+dublette_entfernt  turbografx-cd/Monster Lair (USA) (Track 01).bin
+                   gleich_wie  turbografx-cd/Valis II (USA) (Track 01).bin
+```
+
+Two different games. Afterwards Monster Lair's `.cue` names a file that no longer exists.
+Under `dc` this deleted **375 files**, which is why only 13 of 213 titles can be
+reconstructed from the log: the rest is gone, not misplaced.
+
+**Identical content does not make two tracks interchangeable.** Anything named by an image
+list in the same folder is exempt from deduplication, and the run reports how many files it
+spared for that reason.
+
+#### Why disc-image sets need their own rule (#462)
+
+A Dreamcast title looks like this:
+
+```
+Bangai-O (PAL)(M3)/Bangai-O v1.001 (2000)(Virgin)(PAL)(M3)[!].gdi
+Bangai-O (PAL)(M3)/track01.bin   track02.raw   track03.bin
+```
+
+Rule 3 asks for matching names and finds four distinct stems. It *cannot* see this case:
+the names do not merely fail to match, they are deliberately generic — every Dreamcast game
+names its tracks the same way.
+
+Without rule 2 the folder counted as a collection and was flattened. The generic track
+names collided and became `track01 (53).bin`, while the `.gdi` still says `track01.bin`.
+**All 138 Dreamcast titles then pointed at the same file.** Measured on the emulator as
+thousands of `W[GDROM]: Sector Read miss`; Flycast stopped at the Dreamcast BIOS and never
+loaded a game.
+
+Three conditions, all required — each catches a different wrong conclusion:
+
+| Condition | without it |
+|---|---|
+| at least one image list at the top level | every folder would be a game |
+| all lists reduce to **one** title | two different games in one folder would be merged |
+| every named file is present | an incomplete folder would pass as intact |
+
+The check runs **before** the file-count limit: `Bangai-O` had 38 files, the limit is 12.
+Behind it, the rule would be present and ineffective.
 
 **The medium marker is the only reliable signal.** A shared prefix is **not** enough:
 `VC Songs-Cartridge - Inventio-Pac` and `VC Songs-Cartridge - The Mad Boogy` share 22
@@ -357,6 +648,14 @@ left alone: they occur on a dozen platforms, and a wrong mapping costs more than
 one — the title would sit under the wrong console unnoticed, while a skipped file stays
 visible.
 
+**The table only grows against a finding.** After the full rebuild `Mixed` held 536 files
+and the dry run moved nothing — correctly, except for one extension: 13 `.caq`, the Mattel
+Aquarius cassette format, which belongs to nothing else and whose platform folder already
+existed (#515). They come from the same `Mattel Intellivision & Aquarius ROMs` collection
+whose Intellivision half was placed correctly via `.int`. Everything else stays for good
+reasons — ancillary files, Windows programs, VICE configuration, and `.bin`, which is
+ambiguous on purpose. `.cas` stays out too: MSX and ColecoVision use it as well.
+
 ### Ancillary files go to `_beiwerk/`
 
 Level 1 is the **game level** — RomM counts every entry there as exactly one game, so
@@ -394,12 +693,125 @@ Renaming a readme to `readme.prg` would turn a harmless file into a broken game.
 Load address plus size must also fit in 64 KB, which catches large files whose first two
 bytes happen to match.
 
+### Checking image lists: `rom-abbilder-pruefen`
+
+A disc image is a small text list (`.gdi`, `.cue`, `.m3u`) plus several data files. If one
+is missing the title is unplayable — and **silently so**: it still shows in the library,
+RomM counts it, and only the emulator says `Sector Read miss`.
+
+```bash
+rom-abbilder-pruefen /roms                    # report only, touch nothing
+rom-abbilder-pruefen /roms psx --reparieren   # rewrite unambiguous references
+rom-abbilder-pruefen /roms --aussortieren     # MOVE unusable sets to _defekt/
+```
+
+#### Two questions, not one
+
+The obvious check — *does the list name files that are not there?* — has a blind spot, and
+it was measured on the library:
+
+```
+/roms/dc  ->  0 defects reported, while ALL 138 titles were broken
+```
+
+The game folders had been flattened, and every Dreamcast game names its tracks
+`track01.bin`. In the flat folder that name **exists**, so every list found a match — just
+the wrong one. **Name presence is not the same as the right file.**
+
+| Question | finds |
+|---|---|
+| **missing** — does the list name files that are not beside it? | lost or renamed tracks |
+| **shared** — do *several* lists in one folder name the same file? | the collision damage from #462 |
+
+Measured: 11 unambiguously solvable, 106 with genuinely missing data, 83 shared references
+(all under `dc`).
+
+#### What it repairs, and what it deliberately does not
+
+A list is rewritten only when the intended file is **unambiguous**: it carries the list's
+own stem (the common case of a renamed rip), or it is the only file with that extension
+**that no other list claims**.
+
+**A third case: a reference with no extension.** A `.cue` may name its track without one,
+and in the library it does — `QixNeo.cue` names `QixNeo`, and `QixNeo.bin` sits beside it.
+That was for a long time the **only case the tool could never solve**: the search returned
+on the first line when the extension was empty, putting both routes above out of reach,
+even though it is the easiest case there is. The narrowness stays: **exact** stem, only
+extensions a track can carry (`.bin .iso .img .raw .mp3 .wav .ogg .flac`), exactly one
+match, and not already claimed. Two candidates are not unambiguous, and a `.txt` with the
+same name is not a track (#517).
+
+That last clause is the point. Without it, "exactly one `.bin` in the folder" was enough —
+and a `.cue` whose data is genuinely gone got rewired onto **another game's** image. Caught
+on a fixture before the tool saw the real library. **A guessed reference looks intact and
+is not**, which is worse than a visibly broken one, because nobody looks again.
+
+`--aussortieren` **moves** to `<plattform>/_defekt/` and deletes nothing. The tracks that
+are there are real data, and whether they are replaceable is the operator's call. Every
+change is recorded with source and real destination in
+`.abbildpruefung/<platform>-<time>.jsonl`, and a rewrite leaves a `.vor-fix` copy.
+
+That copy has already earned its keep: on 2026-08-13 a repair turned `FILE "QixNeo"` into
+`FILE "QixNeo.bin.bin"`, because two `replace` calls ran in sequence and the second worked
+on the result of the first. Harmless while the old reference carried an extension; an
+extensionless one is a prefix of its own replacement (#521). Both lists came back
+unchanged from `.vor-fix`. A wrongly repaired list is worse than a broken one — the broken
+one is visible.
+
+An `.m3u` holding stream URLs is **not** counted as a broken image.
+
 ### What the tools do not do
 
 - **Never rename platform folders.** Those names come from RetroNAS.
 - **Delete nothing except proven duplicates** — same checksum, same content.
 - **Leave archives alone where an archive is the correct shape**: arcade, MAME, Neo Geo and
   CPS expect the `.zip` to be the game. Those platforms are listed in `ARCHIV_BLEIBT`.
+
+### The log is the way back — including for deleted files
+
+On 2026-08-12, 256 disc images were broken, among them **all 138 Dreamcast titles**. 230 of
+them were restored **without downloading a byte**. That was only possible because the log
+records more than reading the logging code suggests.
+
+#### Moves: source and **real** destination
+
+```json
+{"art":"verschoben",
+ "von":"/roms/dc/Bomber Hehhe! (JP)/track01.bin",
+ "nach":"/roms/dc/track01 (2).bin"}
+```
+
+The destination carries the **collision suffix**. A flattening is therefore reversible file
+by file, even when a hundred games use the same track names.
+
+#### Deletions: the file it was identical to
+
+```json
+{"art":"dublette_entfernt",
+ "pfad":"/roms/dc/track03 (67).bin",
+ "gleich_wie":"/roms/dc/track03 (7).bin",
+ "sha256":"09b26522…"}
+```
+
+**A file is only ever deleted when it is bit-identical to another.** A deleted file is
+therefore not lost while its twin exists — it can be **copied back**, and the copy is exact
+by construction. In all 555 cases the source was still there.
+
+#### Two conditions, without which this goes wrong
+
+**Restore set members only.** 161,406 of the deleted files are *genuine* duplicates
+(`Krull (CCE) (2).a26` next to `Krull (CCE).a26`) and must stay deleted. The restorable
+count dropped from 1078 to 180 once this was applied properly: files like
+`Alien Breed 3D (Track 1) (2).bin` are second copies that no `.cue` names. The only test
+that counts is **whether an image list in the target folder names the file**.
+
+**Verify the checksum rather than trusting the log line** — twice: before copying (is the
+source still the file the log describes?) and after (did the copy land intact?).
+
+#### When it does *not* work
+
+If the twin is gone too, the file is gone. The log can only show where something went and
+what it was identical to; it stores no data.
 
 ### Before running
 

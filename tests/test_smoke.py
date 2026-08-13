@@ -15,14 +15,44 @@ import tempfile
 import time
 
 import pytest
+from hilfen import (  # noqa: F401  gemeinsam genutzt (#505)
+    ADMIN_FIX,
+    ANSICHTEN_OHNE_BROWSERTEST,
+    DATEI_SPEICHER,
+    DOC_EN_BODEN,
+    DOC_ROUTEN_OHNE,
+    HYDRA_SAMPLE,
+    REPO,
+    ZWEISPRACHIG_IN_EINEM_STUECK,
+    _3ds_datei,
+    _DE_WORTE,
+    _EN_WORTE,
+    _Protokoll,
+    _admin,
+    _als,
+    _cia_datei,
+    _doc_bloecke,
+    _doc_dateien,
+    _hat_englisch,
+    _index_mit_protokoll,
+    _index_zurueck,
+    _js,
+    _lege_titel_an,
+    _mit_index,
+    _nsp_datei,
+    _readme_ueberschriften,
+    _route_funktionen,
+    _routen_und_ansichten,
+    _seed_catalog,
+    _seed_ra,
+    _staging,
+    _stream_ready,
+    _unlesbar_machen,
+    _workflow,
+    i18n_hat,
+    sprachtabellen,
+)
 
-
-# Jede Instanz braucht mindestens einen Admin mit Passwort — save_users weist alles andere
-# ab (#234). Die Fixtures hier bauten vorher Instanzen, die NUR aus einem Nutzerkonto
-# bestanden: real waere das genau der ausgesperrte Zustand, in den die App nicht geraten
-# darf. Der Admin gehoert also dazu, nicht als Zugestaendnis an die Pruefung, sondern weil
-# der Testaufbau sonst etwas Unmoegliches beschreibt.
-ADMIN_FIX = {"chef": {"pw": "x", "role": "admin", "perms": []}}
 
 def test_health(client):
     r = client.get("/health")
@@ -410,15 +440,6 @@ def test_jobs_visibility_per_user(appmod, client):
     appmod.save_users({})
 
 
-def _staging(appmod, jid, files):
-    import os
-    folder = os.path.join(appmod.STAGING, f"test_{jid}")
-    os.makedirs(folder, exist_ok=True)
-    for name, data in files.items():
-        with open(os.path.join(folder, name), "wb") as f: f.write(data)
-    return folder
-
-
 def test_import_only_rom_extensions(appmod):
     """import_folder importiert nur bekannte ROM-Endungen; Nicht-ROM-Müll wird übersprungen. (#61)"""
     import os
@@ -651,12 +672,6 @@ def test_wishlist_example_file_is_importable(appmod, client):
     appmod.save_users({})
 
 
-def _admin(appmod, client, name="exp"):
-    appmod.save_users({name: {"pw": "hash-des-kennworts", "role": "admin", "perms": list(appmod.PERMS)}})
-    with client.session_transaction() as sess:
-        sess["user"] = name; sess["role"] = "admin"
-
-
 def test_export_omits_secrets_by_default(appmod, client):
     """Ein Export ist eine Datei, die herumgereicht wird — ohne Passphrase KEIN Klartext. (#75)"""
     appmod.save_settings({"apikey": "geheimer-api-key", "smtp": {"host": "mail.example", "pass": "smtp-geheim"},
@@ -778,15 +793,6 @@ def test_export_import_admin_only(appmod, client):
     appmod.save_users({})
 
 
-def _seed_catalog(appmod, slug, names):
-    """Katalog-Momentaufnahme direkt setzen — die Tests fassen IGDB nie an."""
-    from contextlib import closing as _closing
-    with appmod.DB_LOCK, _closing(appmod.db_conn()) as c, c:
-        c.execute("DELETE FROM catalog WHERE slug=?", (slug,))
-        c.executemany("INSERT INTO catalog(slug,norm,name) VALUES(?,?,?)",
-                      [(slug, appmod.norm(n), n) for n in names])
-
-
 def test_coverage_counts_and_missing(appmod, client):
     """Abdeckung = Katalog minus Bibliothek; die fehlenden Titel sind abrufbar. (#78)"""
     gba = os.path.join(appmod.ROMS, "gba")
@@ -854,15 +860,6 @@ def test_coverage_refresh_needs_permission_and_source(appmod, client):
     # ohne IGDB-Zugang ebenfalls klare Absage
     assert client.post("/api/coverage/refresh", json={}).status_code == 400
     appmod.save_users({})
-
-
-def _seed_ra(appmod, rows):
-    """RA-Sets direkt setzen — die Tests fassen RetroAchievements nie an."""
-    from contextlib import closing as _closing
-    with appmod.DB_LOCK, _closing(appmod.db_conn()) as c, c:
-        c.execute("DELETE FROM ra_games")
-        c.executemany("INSERT INTO ra_games(slug,norm,ra_id,title,achievements,points) VALUES(?,?,?,?,?,?)",
-                      [(s, appmod.norm(t), i, t, a, p) for s, t, i, a, p in rows])
 
 
 def test_ra_lookup_exact_only(appmod):
@@ -1262,21 +1259,6 @@ def test_config_warnings_are_for_admins_only(appmod, client):
     appmod.save_users({})
 
 
-HYDRA_SAMPLE = {
-    "name": "Beispielquelle",
-    "downloads": [
-        {"title": "Chrono Trigger (USA)", "uris": ["https://hoster.invalid/f/abc"],
-         "uploadDate": "2026-01-02", "fileSize": "12 MB"},
-        {"title": "Super Metroid (Europe)",
-         "uris": ["https://cdn.invalid/files/supermetroid.zip"],
-         "uploadDate": "2026-01-03", "fileSize": "3 MB"},
-        {"title": "Nur Torrent", "uris": ["magnet:?xt=urn:btih:deadbeef"],
-         "uploadDate": "2026-01-04", "fileSize": "1 MB"},
-        {"title": "Ohne Links", "uris": [], "uploadDate": "", "fileSize": ""},
-    ],
-}
-
-
 def test_catalog_urls_only_from_settings(appmod):
     """Die Quellen kommen ausschließlich aus der Konfiguration — im Repo steht keine. (#63)"""
     appmod.save_settings({})
@@ -1524,14 +1506,6 @@ def test_no_exception_text_reaches_responses(appmod, client):
     appmod.save_users({})
 
 
-def _stream_ready(appmod, slug="ps2", name="Zzz Streamtitel.iso"):
-    d = os.path.join(appmod.ROMS, slug)
-    os.makedirs(d, exist_ok=True)
-    open(os.path.join(d, name), "w").close()
-    appmod.build_index()
-    appmod.save_settings({"connections": {"stream_url": "http://stream.example:3000/"}})
-
-
 def test_stream_only_for_platforms_without_a_browser_core(appmod):
     """Der Stream-Knopf ergaenzt Play, er ersetzt ihn nicht: wo ein EmulatorJS-Kern
     existiert, gibt es keinen Stream. (#71)"""
@@ -1615,28 +1589,6 @@ def test_stream_needs_permission(appmod, client):
     appmod.save_users({})
 
 
-def test_stream_agent_refuses_paths_outside_the_library(appmod):
-    """Der Start-Dienst darf ausschliesslich Dateien aus der Bibliothek starten —
-    sonst waere er ein Fernstart fuer beliebige Dateien. (#71)"""
-    import importlib.util
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    path = os.path.join(root, "contrib", "streaming-host", "stream-agent.py")
-    os.environ["STREAM_AGENT_TOKEN"] = "testtoken"
-    os.environ["STREAM_ROMS"] = appmod.ROMS
-    spec = importlib.util.spec_from_file_location("stream_agent", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    # Ohne konfigurierten Emulator lehnt der Dienst schon vorher ab — dann wuerde der
-    # Test die PFADPRUEFUNG gar nicht erreichen und faelschlich gruen sein.
-    mod.EMULATORS["ps2"] = "/bin/true %s"
-    ok, msg = mod.launch("/etc/passwd", "ps2")
-    assert ok is False and "ausserhalb" in msg
-    ok, msg = mod.launch(os.path.join(appmod.ROMS, "gibt-es-nicht.iso"), "ps2")
-    assert ok is False and "nicht gefunden" in msg
-    ok, msg = mod.launch(os.path.join(appmod.ROMS, "x.iso"), "voellig-unbekannt")
-    assert ok is False and "kein Emulator" in msg
-
-
 def test_stream_find_file_validates_the_slug_itself(appmod):
     """Der Slug geht in einen Pfad. Er wird IN stream_find_file geprüft, nicht nur beim
     Aufrufer — sonst haengt die Sicherheit an der Reihenfolge der Pruefungen. (#71)"""
@@ -1675,20 +1627,6 @@ def test_dedup_key_does_not_get_looser(appmod):
         assert appmod.norm(a) != appmod.norm(b), (a, b)
     # Eine Kennung mitten im Titel ist kein Grund, den Rest zu verlieren.
     assert appmod.norm("Brutal Legend BLES00562") == "brutal legend"
-
-
-def _mit_index(appmod, per):
-    """Den Bibliotheks-Index fuer einen Test setzen und hinterher zuruecklegen."""
-    with appmod.LIB_LOCK:
-        alt = dict(appmod.LIB["per"]), set(appmod.LIB["slugs"])
-        appmod.LIB["per"] = {k: set(v) for k, v in per.items()}
-        appmod.LIB["slugs"] = set(per)
-    return alt
-
-
-def _index_zurueck(appmod, alt):
-    with appmod.LIB_LOCK:
-        appmod.LIB["per"], appmod.LIB["slugs"] = alt[0], alt[1]
 
 
 def test_platform_comes_from_the_library_not_from_the_search_hit(appmod, tmp_path, monkeypatch):
@@ -1752,6 +1690,159 @@ def test_stream_finds_a_title_that_is_a_folder(appmod, tmp_path, monkeypatch):
     monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
     gefunden = appmod.stream_find_file("Ape Escape 4 PS3-EU BG", "ps3")
     assert gefunden == str(spiel), gefunden
+
+
+# ---------------------------------------------------------------------------
+# #477 Teil 2: Der Index kennt Ordner-Titel seit #478 — die Stream-Suche nicht.
+#
+# JEDER AUFBAU SAGT IN SEINEM KOPF, OB ER GEMESSEN ODER ERFUNDEN IST (#501). Hier stand
+# vorher pauschal „alle am Bestand gemessen" — und einer war es nicht: Er ließ genau die
+# Dateien weg, die das Ergebnis entscheiden, und behauptete trotzdem, die Bibliothek zu
+# zeigen. Eine Pauschalzusage über mehrere Aufbauten hinweg verfaellt beim ersten, der
+# nachtraeglich abweicht, und faellt niemandem auf, weil alle gruen sind.
+#
+# EN: each fixture states in its own docstring whether it is measured or constructed. A
+# blanket claim across several fixtures decays the moment one drifts, and nobody notices
+# because they are all green.
+# ---------------------------------------------------------------------------
+
+def test_stream_takes_the_nested_image_set_over_the_unbootable_parent(
+        appmod, tmp_path, monkeypatch):
+    """So sieht `/roms/dc` WIRKLICH aus — und darum gewinnt das GDI-Set. (#477, #501)
+
+    NACHGEBAUT AUS DEM BESTAND, mit dem Teil, den die erste Fassung dieses Tests
+    weggelassen hat:
+
+        Sonic Adventure.cdi                                   757 MB
+        Sonic Adventure (PAL)/Replayers.url
+        Sonic Adventure (PAL)/[GDI] Sonic Adventure (PAL)/
+            Sonic Adventure v1.003 (1999)(Sega)(PAL)(M5)[!].gdi      89 B
+            track01.bin / track02.raw / track03.bin           zus. 1,2 GB
+
+    Alle drei Namen normalisieren auf `sonic adventure`. Der ELTERNORDNER war der
+    Defekt: Er gewann, trägt aber nur eine `.url` und einen Unterordner. Am
+    laufenden Host nachgemessen, mit dem `_bootdatei` des Start-Dienstes:
+
+        /roms/dc/Sonic Adventure (PAL)                              -> ''
+        /roms/dc/Sonic Adventure (PAL)/[GDI] Sonic Adventure (PAL)  -> '…gdi'
+
+    Das verschachtelte Set IST ein Titelordner (eine `.gdi` nennt Dateien daneben),
+    also liefert der Ordnerzweig es zurück, bevor die Dateisuche drankommt — die
+    `.cdi` gewinnt hier NICHT. Das ist richtig so: Beides ist spielbar, und der
+    Ordnerzweig soll Titelordner vorziehen.
+
+    WARUM DIESER TEST EIGENS EXISTIERT: Die erste Fassung ließ den Unterordner leer
+    und behauptete im Kopf trotzdem, sie sei am Bestand gemessen. Sie war grün und
+    beschrieb ein Verhalten, das die Bibliothek nicht zeigt (#501). Ein Test, dessen
+    Aufbau von dem abweicht, was er zu reproduzieren vorgibt, ist schlimmer als
+    keiner — ihm wird geglaubt.
+
+    EN: the real `/roms/dc` layout, including the tracks the first version of this
+    test omitted. The nested folder IS an image set, so it is returned before the
+    file search — the `.cdi` does not win, and that is correct. The defect was the
+    parent folder, which resolves to '' and used to win.
+    """
+    dc = tmp_path / "dc"
+    satz = dc / "Sonic Adventure (PAL)" / "[GDI] Sonic Adventure (PAL)"
+    satz.mkdir(parents=True)
+    (satz / "Sonic Adventure v1.003 (1999)(Sega)(PAL)(M5)[!].gdi").write_text(
+        "3\n1 0 4 2352 track01.bin 0\n2 600 0 2352 track02.raw 0\n"
+        "3 45000 4 2352 track03.bin 0\n")
+    for spur in ("track01.bin", "track02.raw", "track03.bin"):
+        (satz / spur).write_bytes(b"x")
+    (dc / "Sonic Adventure (PAL)" / "Replayers.url").write_bytes(b"x")
+    (dc / "Sonic Adventure.cdi").write_bytes(b"x")
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    assert appmod.stream_find_file("Sonic Adventure", "dreamcast") == str(satz)
+
+
+def test_stream_prefers_the_image_over_a_folder_without_bootable_content(
+        appmod, tmp_path, monkeypatch):
+    """Ein Ordner OHNE Startbares darf ein spielbares Abbild nicht verdraengen. (#477)
+
+    Derselbe Aufbau wie oben, nur ohne das GDI-Set: Dann ist unter dem gleichnamigen
+    Ordner nichts, was ein Titel sein könnte, und die Datei daneben muss gewinnen.
+    Sonst meldet die Auskunft den Titel als streambar, nennt den Ordner, und der
+    Start-Dienst antwortet darauf `Ordner ohne startbaren Inhalt` — zwei Seiten, die
+    sich widersprechen, waehrend das Abbild danebenliegt.
+
+    Dieser Aufbau ist ERFUNDEN, nicht gemessen: In `/roms/dc` traegt der Unterordner
+    heute die Spuren (siehe der Test darueber). Er haelt den urspruenglichen Defekt
+    aus #477 fest, unabhaengig davon, wie die Bibliothek gerade aussieht.
+
+    EN: same layout minus the image set — nothing under the folder can be a title, so
+    the playable file beside it must win. This fixture is constructed, not measured,
+    and pins the original #477 defect independently of the library's current shape.
+    """
+    dc = tmp_path / "dc"
+    (dc / "Sonic Adventure (PAL)" / "[GDI] Sonic Adventure (PAL)").mkdir(parents=True)
+    (dc / "Sonic Adventure (PAL)" / "Replayers.url").write_bytes(b"x")
+    abbild = dc / "Sonic Adventure.cdi"
+    abbild.write_bytes(b"x")
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    assert appmod.stream_find_file("Sonic Adventure", "dreamcast") == str(abbild)
+
+
+def test_stream_finds_a_folder_title_one_level_down(appmod, tmp_path, monkeypatch):
+    """Der Index legt Ordner-Titel bis Ebene 2 ab, die Suche sah nur Ebene 1. (#477)
+
+    GEMESSEN in `/roms/ps3`:
+
+        DmC Devil May Cry [+All DLC] BLUS30723/
+            BLUS30723 DLCs/…pkg
+            Devil May Cry 5/PS3_DISC.SFB + PS3_GAME/     <- der Titel
+
+    Der Index fuehrt `Devil May Cry 5`; die Stream-Auskunft sagte dazu am laufenden
+    Dienst `not_in_library`. Genau der Widerspruch, gegen den #150 den Ordnerzweig
+    ueberhaupt eingezogen hat — diesmal eine Ebene tiefer.
+    """
+    spiel = (tmp_path / "ps3" / "DmC Devil May Cry [+All DLC] BLUS30723"
+             / "Devil May Cry 5")
+    (spiel / "PS3_GAME" / "USRDIR").mkdir(parents=True)
+    (spiel / "PS3_GAME" / "USRDIR" / "EBOOT.BIN").write_bytes(b"x")
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    assert appmod.stream_find_file("Devil May Cry 5", "ps3") == str(spiel)
+
+
+def test_stream_file_search_does_not_stop_at_the_first_nested_folder(
+        appmod, tmp_path, monkeypatch):
+    """`break` statt `dirs[:] = []` beendete die GANZE Suche. (#477)
+
+    Die Tiefenbremse brach die Wanderung ab, sobald der erste Ordner auf Ebene 2
+    auftauchte — alles, was danach kam, wurde nie angesehen. AM BESTAND GEMESSEN:
+
+        /roms/dc   64 von 173 Dateien gesehen, 109 uebersehen (52 davon ROMs)
+        /roms/psx  2925 von 2993 gesehen, 68 uebersehen (44 davon ROMs)
+
+    `gc` und `ps2` waren unauffaellig — dort liegt kein Ordner auf Ebene 2, deshalb
+    fiel es nie auf. Der Aufbau hier bildet `dc` nach: ein verschachtelter Ordner,
+    der alphabetisch VOR dem gesuchten Titel steht.
+    """
+    dc = tmp_path / "dc"
+    (dc / "Aaa Verschachtelt" / "Innen").mkdir(parents=True)
+    (dc / "Aaa Verschachtelt" / "Innen" / "egal.bin").write_bytes(b"x")
+    ziel = dc / "Zzz Spaeter Titel" / "Zzz Spaeter Titel.gdi"
+    ziel.parent.mkdir()
+    ziel.write_bytes(b"x")
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    assert appmod.stream_find_file("Zzz Spaeter Titel", "dreamcast") == str(ziel)
+
+
+def test_stream_still_returns_a_folder_when_nothing_else_matches(
+        appmod, tmp_path, monkeypatch):
+    """Kein Titelaufbau, keine passende Datei -> weiterhin der Ordner. (#477)
+
+    Die Ratsche gegen den Uebereifer: 39 Ordner im Bestand sind WEDER Titelordner
+    (`SPIELORDNER_MUSTER` oder Abbild-Set) NOCH enthalten sie einen — `gc/Pikmin
+    (USA) (v1.00)` etwa traegt eine einzelne `.rvz`, die der Start-Dienst selbst
+    aufloest. Fuer die verhaelt sich die Suche unveraendert; wer den Ordnerzweig
+    strenger macht, darf sie nicht verlieren.
+    """
+    ordner = tmp_path / "gc" / "Pikmin (USA) (v1.00)"
+    ordner.mkdir(parents=True)
+    (ordner / "irgendwas-ganz-anderes.rvz").write_bytes(b"x")
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    assert appmod.stream_find_file("Pikmin (USA) (v1.00)", "ngc") == str(ordner)
 
 
 def test_stream_info_reports_a_folder_title_as_streamable(appmod, tmp_path, monkeypatch):
@@ -1864,6 +1955,49 @@ def test_rollback_name_is_validated(appmod, client):
     appmod.save_settings({}); appmod.save_users({})
 
 
+def test_no_test_file_defines_the_same_name_twice():
+    """Ein Doppelname loescht die frueher definierte Sache — lautlos. (#506)
+
+    Python bindet den Namen zweimal; die ZWEITE Definition gewinnt fuer jeden Aufruf,
+    egal wo im Modul er steht. Deshalb ist das hier keine Stilfrage:
+
+    * Bei zwei `test_`-Funktionen verschwindet ein Test. Pytest meldet dieselbe
+      Gesamtzahl wie vorher — es SIEHT den zweiten gar nicht —, und niemand merkt,
+      dass eine Zusicherung nicht mehr laeuft.
+    * Bei zwei Helfern pruefen Tests etwas anderes, als ihr Name sagt. Genau so
+      geschehen: `_profil_modul` war zweimal definiert, einmal auf
+      `controller-profile.py` und einmal auf `launch-profile.py`. Die erste Datei
+      existiert seit bdc75cf (#140) nicht mehr, vier Tests hiessen weiter
+      `test_controller_profile_*` — und waren gruen, weil die zweite Definition sie
+      still umgeleitet hat.
+
+    Der Fund kam beim Aufteilen der Datei (#505), nicht durch einen Fehlschlag. Ohne
+    diese Pruefung waere er beim naechsten Aufraeumen als `FileNotFoundError`
+    aufgetaucht, also als Symptom statt als Ursache.
+
+    EN: a duplicate top-level name silently deletes the earlier definition. For two
+    tests that means one test is gone with the reported count unchanged; for two
+    helpers it means tests exercise a different subject than their name claims — which
+    is exactly what happened with `_profil_modul` (#506).
+    """
+    import collections
+    verzeichnis = os.path.join(REPO, "tests")
+    befunde = []
+    for datei in sorted(os.listdir(verzeichnis)):
+        if not datei.endswith(".py"):
+            continue
+        pfad = os.path.join(verzeichnis, datei)
+        baum = ast.parse(open(pfad, encoding="utf-8").read())
+        namen = [k.name for k in baum.body
+                 if isinstance(k, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
+        for name, wie_oft in collections.Counter(namen).items():
+            if wie_oft > 1:
+                befunde.append(f"{datei}: {name} ({wie_oft}x)")
+    assert not befunde, (
+        "diese Namen sind mehrfach vergeben — die frueheren Definitionen sind damit "
+        f"unerreichbar: {befunde}")
+
+
 def test_content_policy_holds_for_this_repo():
     """Das Repository enthält nur Werkzeug — keine Inhalte, Firmware oder Schlüssel.
 
@@ -1947,45 +2081,6 @@ def test_agent_url_derivation(appmod):
     assert appmod._agent_url("catalog") is None
 
 
-# --------------------------------------------------------------- Zweigmodell (#111)
-
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
-# --- Uebersetzungen: EINE Quelle fuer alle Pruefungen (#350) ------------------------
-# Die Tabellen lagen bis #350 in `index.js`; jede Pruefung suchte sie dort mit einem
-# eigenen Muster. Beim Auslagern in JSON fielen deshalb sieben Tests auf einmal um —
-# nicht weil etwas kaputt war, sondern weil sieben Stellen dasselbe wussten.
-# Jetzt weiss es eine.
-#
-# Seven checks each grepped index.js with their own pattern; moving the tables broke all
-# seven at once. One helper now knows where they live.
-
-def sprachtabellen():
-    """{sprache: {schluessel: text}} — aus `static/i18n/*.json`."""
-    import json
-    ordner = os.path.join(REPO, "static", "i18n")
-    aus = {}
-    for datei in sorted(os.listdir(ordner)):
-        if datei.endswith(".json"):
-            with open(os.path.join(ordner, datei), encoding="utf-8") as f:
-                aus[datei[:-5]] = json.load(f)
-    return aus
-
-
-def i18n_hat(schluessel):
-    """In wie vielen Sprachen gibt es den Schluessel mit nicht-leerem Text?"""
-    return sum(1 for t in sprachtabellen().values() if str(t.get(schluessel, "")).strip())
-
-
-
-def _workflow(name):
-    import yaml
-    p = os.path.join(REPO, ".github", "workflows", name)
-    # "on:" ist in YAML 1.1 der Wahrheitswert True — deshalb nicht nach "on" suchen.
-    return yaml.safe_load(open(p, encoding="utf-8"))
-
-
 def test_release_runs_on_dev_and_only_fast_forwards_main():
     """`main` ist ein Zeiger auf den Release, kein Arbeitszweig. Der Release-Lauf darf
     ihn nur VORSPULEN — ein --force hier wuerde genau die Garantie aufheben, wegen der
@@ -2006,6 +2101,33 @@ def test_ci_also_guards_main():
     for name in ("ci.yml", "security.yml", "content-policy.yml"):
         branches = _workflow(name)[True]["push"]["branches"]
         assert "dev" in branches and "main" in branches, f"{name}: {branches}"
+
+
+def test_dependabot_opens_its_pull_requests_where_work_happens():
+    """Ohne `target-branch` zielt Dependabot auf den Standard-Branch. (#554)
+
+    Und das ist hier `main`, wo nicht entwickelt wird. Der Weg ist `dev` -> Release-PR ->
+    `main`; ein Abhaengigkeits-PR nach `main` gemergt traegt Aenderungen an `dev` vorbei —
+    genau die Abweichung, die der Release-Weg vermeiden soll.
+
+    GEMESSEN am 2026-08-13: `dev` war 53 Commits vor `main`, `main` hatte keinen eigenen,
+    und elf Dependabot-PRs standen gleichzeitig gegen `main` offen.
+
+    Der Test prueft JEDEN Eintrag, nicht nur den ersten: Eine neue Oekosystem-Zeile ohne
+    `target-branch` faellt sonst still auf den Standard zurueck, und das faellt erst
+    Wochen spaeter beim naechsten Schwung PRs auf.
+
+    EN: without target-branch Dependabot uses the default branch, which is `main` here —
+    where nothing is developed. Every entry is checked, because a new ecosystem line
+    without the key would silently fall back and only surface weeks later.
+    """
+    d = yaml.safe_load(open(os.path.join(REPO, ".github/dependabot.yml"), encoding="utf-8"))
+    eintraege = d.get("updates") or []
+    assert eintraege, "dependabot.yml hat keine Eintraege"
+    falsch = [u.get("package-ecosystem") for u in eintraege if u.get("target-branch") != "dev"]
+    assert not falsch, (
+        "diese Dependabot-Eintraege zielen nicht auf dev und landen damit auf main, "
+        f"wo nicht entwickelt wird: {falsch}")
 
 
 def test_content_policy_checker_comes_from_the_target_branch():
@@ -2130,19 +2252,6 @@ def test_firmware_upload_validates_platform_and_name(appmod, client):
     appmod.save_settings({}); appmod.save_users({})
 
 
-def test_firmware_script_uses_the_same_platform_slugs():
-    """Der Streaming-Host, Romseerr und das Firmware-Skript muessen dieselben Kuerzel
-    verwenden. Eine zweite Schreibweise braeuchte eine Uebersetzungstabelle, und die
-    waere genau die Stelle, an der spaeter ein Eintrag fehlt. (#107)"""
-    pfad = os.path.join(REPO, "contrib/streaming-host/init/25-firmware")
-    text = open(pfad, encoding="utf-8").read()
-    tabelle = re.search(r"KATALOG=\((.*?)\n\)", text, re.S).group(1)
-    slugs = {z.strip().strip('"').split("|")[0] for z in tabelle.strip().splitlines() if z.strip().startswith('"')}
-    import app as appmod
-    unbekannt = slugs - set(appmod.STREAMABLE)
-    assert not unbekannt, f"Kuerzel kennt Romseerr nicht: {sorted(unbekannt)}"
-
-
 def test_no_firmware_or_bios_files_in_the_repository():
     """Die Inhaltsregel deckt das ab — hier steht es noch einmal ausdruecklich, damit
     die Absicht bei einem Beitrag zu diesem Bereich sichtbar ist. (#107)"""
@@ -2150,229 +2259,6 @@ def test_no_firmware_or_bios_files_in_the_repository():
     r = subprocess.run([sys.executable, os.path.join(REPO, "scripts/check_content_policy.py")],
                        capture_output=True, text=True, env={**os.environ, "POLICY_ROOT": REPO})
     assert r.returncode == 0, r.stderr
-
-
-def test_firmware_staging_and_target_agree_where_they_are_the_same_place():
-    """Fuer PS3 und Vita IST die Ablage das Zielverzeichnis — der Emulator liest die
-    PUP von dort. Weichen die Namen ab, liegt dieselbe Datei an zwei Orten, und beim
-    naechsten Blick ist unklar, welcher gilt. (#107)"""
-    pfad = os.path.join(REPO, "contrib/streaming-host/init/25-firmware")
-    text = open(pfad, encoding="utf-8").read()
-    tabelle = re.search(r"KATALOG=\((.*?)\n\)", text, re.S).group(1)
-    for zeile in tabelle.strip().splitlines():
-        zeile = zeile.strip().strip('"')
-        if not zeile or zeile.startswith("#"):
-            continue
-        slug, _name, _emu, ziel = zeile.split("|")[:4]
-        if ziel.startswith("firmware/"):
-            assert ziel == f"firmware/{slug}", \
-                f"{slug}: Ablage firmware/{slug}, Ziel {ziel} — zwei Orte fuer dieselbe Datei"
-
-
-def test_firmware_import_places_even_when_output_is_truncated(tmp_path):
-    """Ein `| head -1` schickt SIGPIPE. Stand das Platzieren HINTER der Meldung, fiel
-    genau die Arbeit aus: die Datei lag in der Ablage, der Emulator sah sie nie, und
-    der Status meldete weiter "fehlt". Reihenfolge ist hier Verhalten, nicht Stil. (#107)"""
-    import subprocess
-    skript = os.path.join(REPO, "contrib/streaming-host/init/25-firmware")
-    umg = {**os.environ, "FW_CONFIG_ROOT": str(tmp_path)}
-    (tmp_path / "dc_boot.bin").write_bytes(b"\0" * 2097152)
-    (tmp_path / "dc_flash.bin").write_bytes(b"\0" * 131072)
-    subprocess.run(["bash", skript], env=umg, capture_output=True)
-    for name in ("dc_boot.bin", "dc_flash.bin"):
-        # Genau der Aufruf, der den Fehler ausgeloest hat: Ausgabe nach einer Zeile zu.
-        subprocess.run(f"bash {skript} --import dreamcast {tmp_path/name} 2>&1 | head -1",
-                       shell=True, env=umg, capture_output=True)  # nosec B602 - Testaufruf
-    ziel = tmp_path / ".local/share/flycast"
-    fehlend = [n for n in ("dc_boot.bin", "dc_flash.bin") if not (ziel / n).exists()]
-    assert not fehlend, f"nicht platziert: {fehlend}"
-
-
-def test_firmware_is_readable_by_the_account_that_runs_the_emulator():
-    """Das Skript laeuft als root mit umask 077, der Emulator als abc. Ohne Korrektur
-    liegt die Firmware als -rw------- root root da und der Emulator kann seine EIGENE
-    Firmware nicht lesen — ein schwarzes Bild, also genau der Fehler, den dieses
-    Skript verhindern soll. (#107)"""
-    text = open(os.path.join(REPO, "contrib/streaming-host/init/25-firmware"), encoding="utf-8").read()
-    assert "stat -c '%u:%g'" in text, "Besitzer muss abgelesen werden, nicht geraten"
-    assert "besitz_richten" in text
-    assert text.count("besitz_richten ") >= 3, "Ablage, Ziel und Datei muessen erfasst sein"
-
-
-def test_firmware_parent_directory_is_owned_too():
-    """Die Plattformordner dem Emulator zu geben genuegt nicht: bleibt /config/firmware
-    bei root und 0700, ist alles darunter unerreichbar, egal wem es gehoert. Genau so
-    war die PS3-PUP nach dem ersten Anlauf nicht lesbar. (#107)"""
-    text = open(os.path.join(REPO, "contrib/streaming-host/init/25-firmware"), encoding="utf-8").read()
-    platzieren = text.split("platzieren() {", 1)[1].split("\n}", 1)[0]
-    assert 'besitz_richten "$FW"' in platzieren, "das uebergeordnete Verzeichnis fehlt"
-
-
-def test_launch_service_sets_the_documented_gamepad_variable():
-    """Selkies dokumentiert DREI Variablen; das Abbild setzt zwei und laesst
-    SDL_JOYSTICK_DEVICE weg — am laufenden Container nachgemessen. Ohne sie sieht der
-    Emulator kein Pad. (#19)"""
-    text = open(os.path.join(REPO, "contrib/streaming-host/init/30-agent"), encoding="utf-8").read()
-    assert "export SDL_JOYSTICK_DEVICE=" in text
-    assert "SELKIES_INTERPOSER" in text, "der Interposer muss auch ohne Vorgabe des Abbilds greifen"
-
-
-def test_agent_takes_the_preload_from_the_image_not_a_reconstruction():
-    """Das Abbild laedt ZWEI Bibliotheken vor: den Interposer und eine gefaelschte
-    libudev, ueber die SDL die Geraete aufzaehlt. Ein Nachbau von Hand hatte nur die
-    erste — dann steht ein Geraetepfad bereit, den niemand aufzaehlt. Die maszgebliche
-    Fassung steht in der s6-Umgebung. (#19)"""
-    text = open(os.path.join(REPO, "contrib/streaming-host/init/30-agent"), encoding="utf-8").read()
-    assert "/run/s6/container_environment/LD_PRELOAD" in text, \
-        "die Vorgabe des Abbilds muss gelesen, nicht nachgebaut werden"
-
-
-def test_nothing_is_mounted_into_the_selkies_web_root():
-    """Das Abbild macht beim Start `rm -Rf /usr/share/selkies/web` und kopiert das
-    Dashboard neu dorthin. Ein Bind-Mount IN dieses Verzeichnis laesst das `rm`
-    scheitern; `cp -a` legt die Quelle dann eine Ebene ZU TIEF ab, die Wurzel bleibt
-    ohne index.html, nginx antwortet 403 — und der Stream startet nie. Am laufenden
-    Host nachgemessen: der Client verband sich als "Legacy client, Slot: None", es
-    lief keine Video-Pipeline. Sah nach einem Browserproblem aus, war ein Kopierschritt.
-
-    The image wipes that directory on boot; mounting into it breaks the web root."""
-    text = open(os.path.join(REPO, "contrib/streaming-host/docker-compose.yml"),
-                encoding="utf-8").read()
-    for zeile in text.splitlines():
-        nackt = zeile.strip()
-        if nackt.startswith("#") or ":" not in nackt:
-            continue
-        assert ":/usr/share/selkies/web/" not in nackt, (
-            f"in die Web-Wurzel darf nichts eingehaengt werden — {nackt!r}; "
-            "stattdessen nach /opt haengen und in init/05-web kopieren")
-
-
-def test_web_root_is_repaired_and_the_check_page_is_copied():
-    """Die Heilung haengt am SYMPTOM (fehlende index.html), nicht an der heutigen
-    Ursache — sonst faengt sie die naechste Variante nicht. Und die Pruefseite wird
-    kopiert statt eingehaengt, siehe Test oben."""
-    text = open(os.path.join(REPO, "contrib/streaming-host/init/05-web"),
-                encoding="utf-8").read()
-    assert 'index.html' in text and 'cp -a "$DASH/." "$WEB/"' in text, \
-        "die Wurzel muss geheilt werden, wenn die index.html fehlt"
-    assert "/opt/gamepad-check.html" in text, \
-        "die Pruefseite muss aus /opt kopiert werden"
-
-
-# ------------------------------------------- Pfadvertrag zum Streaming-Host (#130)
-
-def _agent_module(roms, **umgebung):
-    """Den Start-Dienst als Modul laden. Der Serverstart haengt an __main__, das
-    Importieren ist also folgenlos."""
-    import importlib.util
-    alt = dict(os.environ)
-    os.environ.update({"STREAM_AGENT_TOKEN": "t", "STREAM_ROMS": str(roms), **umgebung})
-    try:
-        pfad = os.path.join(REPO, "contrib/streaming-host/stream-agent.py")
-        spec = importlib.util.spec_from_file_location("stream_agent_test", pfad)
-        m = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(m)
-        return m
-    finally:
-        os.environ.clear(); os.environ.update(alt)
-
-
-def test_agent_rejects_traversal_in_the_relative_path(tmp_path):
-    """`rel` wird an die Bibliothekswurzel geheftet und ist damit genauso eine Eingabe
-    von aussen wie der absolute Pfad vorher. Die Pruefung muss GREIFEN, sonst hat der
-    bequemere Vertrag ein Loch aufgemacht. (#130)"""
-    m = _agent_module(tmp_path, EMU_PS2="/bin/true %s")
-    for boese in ("../../etc/passwd", "../../../etc/shadow", "/etc/passwd"):
-        ok, msg = m.launch("", "ps2", boese)
-        assert not ok, f"durchgelassen: {boese!r}"
-
-
-def test_agent_prefers_the_relative_path(tmp_path):
-    """Beides wird geschickt; massgeblich ist `rel`. Ein absoluter Pfad bedeutet in
-    zwei Containern nicht dasselbe. (#130)"""
-    (tmp_path / "ps2").mkdir()
-    (tmp_path / "ps2" / "spiel.iso").write_bytes(b"x")
-    m = _agent_module(tmp_path, EMU_PS2="/bin/true %s")
-    # Der absolute Pfad ist absichtlich falsch — mit `rel` muss es trotzdem gehen.
-    ok, msg = m.launch("/woanders/ps2/spiel.iso", "ps2", "ps2/spiel.iso")
-    assert ok, msg
-    m._stop_locked()
-
-
-def test_agent_launches_a_folder_title(tmp_path):
-    """Eine PS3-Disc ist ein ORDNER (PS3_DISC.SFB + PS3_GAME/USRDIR/EBOOT.BIN) —
-    nachgemessen, 13 von 17 Titeln der Testbibliothek. Die frühere Prüfung auf
-    `isfile` wies solche Titel ab, und zwar mit der Meldung über verschiedene
-    Einhängepunkte: eine plausible, aber falsche Fährte."""
-    spiel = tmp_path / "ps3" / "Ein Spiel"
-    (spiel / "PS3_GAME" / "USRDIR").mkdir(parents=True)
-    (spiel / "PS3_GAME" / "USRDIR" / "EBOOT.BIN").write_bytes(b"x")
-    (spiel / "PS3_DISC.SFB").write_bytes(b"x")
-    m = _agent_module(tmp_path, EMU_PS3="/bin/true %s")
-    ok, msg = m.launch("", "ps3", "ps3/Ein Spiel")
-    assert ok, msg
-    assert m._current["path"].endswith("EBOOT.BIN"), m._current["path"]
-    m._stop_locked()
-
-
-def test_agent_resolves_against_the_listing_not_by_building_a_path(tmp_path):
-    """Der Kern des Umbaus: der Pfad wird nicht aus der Anfrage GEBAUT, sondern Stufe
-    fuer Stufe gegen den echten Verzeichnisinhalt abgeglichen. Der zurueckgegebene
-    Wert stammt damit aus dem Dateisystem; die Anfrage bestimmt nur die Auswahl.
-
-    Nachweis ueber einen Namen, der sich nur in der Gross-/Kleinschreibung
-    unterscheidet: `os.path.join` haette daraus klaglos einen Pfad gebaut, der auf
-    einem case-insensitiven Dateisystem sogar existiert. Der Abgleich gegen das
-    Listing nimmt ihn nicht an, weil der Eintrag so nicht heisst."""
-    (tmp_path / "ps2").mkdir()
-    (tmp_path / "ps2" / "Spiel.iso").write_bytes(b"x")
-    m = _agent_module(tmp_path, EMU_PS2="/bin/true %s")
-    assert m._bibliothekspfad("ps2/Spiel.iso"), "der echte Name muss gehen"
-    assert not m._bibliothekspfad("ps2/spiel.ISO"), "nur was so im Listing steht"
-    assert not m._bibliothekspfad("ps2/../ps2/Spiel.iso"), "'..' bleibt verboten"
-    assert not m._bibliothekspfad(""), "leer ist kein Titel"
-    # Symlinks werden nicht verfolgt — was ausserhalb liegt, ist nie startbar.
-    (tmp_path / "draussen.iso").write_bytes(b"x")
-    (tmp_path / "ps2" / "Verweis.iso").symlink_to(tmp_path / "draussen.iso")
-    assert not m._bibliothekspfad("ps2/Verweis.iso")
-
-
-def test_agent_refuses_a_boot_file_that_symlinks_out_of_the_library(tmp_path):
-    """Der ORDNER liegt in der Bibliothek — die Startdatei darin muss es deshalb
-    nicht. Ein Symlink genuegt, um heraus zu zeigen, und dann startet der Emulator
-    auf einer beliebigen Datei des Hosts.
-
-    Diese Luecke war im ersten Anlauf drin: die Pruefung lief nur auf dem Pfad von
-    aussen, nicht auf der aus dem Ordner aufgeloesten Datei. Gefunden hat sie CodeQL
-    (`py/path-injection`), nicht der Testlauf — deshalb steht sie jetzt hier."""
-    draussen = tmp_path / "geheim.bin"
-    draussen.write_bytes(b"x")
-    roms = tmp_path / "lib"
-    spiel = roms / "ps3" / "Boeses Spiel" / "PS3_GAME" / "USRDIR"
-    spiel.mkdir(parents=True)
-    (spiel / "EBOOT.BIN").symlink_to(draussen)
-    m = _agent_module(roms, EMU_PS3="/bin/true %s")
-    ok, msg = m.launch("", "ps3", "ps3/Boeses Spiel")
-    assert not ok, "Symlink aus der Bibliothek heraus wurde gestartet"
-    assert "Bibliothek" in msg, msg
-
-
-def test_agent_refuses_a_folder_it_cannot_boot_instead_of_guessing(tmp_path):
-    """Zwei Abbilder in einem Ordner: welches gemeint ist, weiss der Agent nicht.
-    Ein geratenes Spiel zu starten waere schlimmer als eine klare Absage — der
-    Nutzer sucht sonst den Fehler im Emulator."""
-    ordner = tmp_path / "ps2" / "Sammlung"
-    ordner.mkdir(parents=True)
-    for n in ("a.iso", "b.iso"):
-        (ordner / n).write_bytes(b"x")
-    m = _agent_module(tmp_path, EMU_PS2="/bin/true %s")
-    ok, msg = m.launch("", "ps2", "ps2/Sammlung")
-    assert not ok and "startbaren" in msg, msg
-    # Ein EINZELNES Abbild ist dagegen eindeutig und muss gehen.
-    (ordner / "b.iso").unlink()
-    ok, msg = m.launch("", "ps2", "ps2/Sammlung")
-    assert ok, msg
-    m._stop_locked()
 
 
 def test_romseerr_sends_a_library_relative_path(appmod, client, monkeypatch):
@@ -2400,95 +2286,6 @@ def test_romseerr_sends_a_library_relative_path(appmod, client, monkeypatch):
     assert gesehen.get("rel") == os.path.join("ps2", "ISO", "spiel.iso"), gesehen
     assert "path" in gesehen, "der absolute Pfad geht zur Vertraeglichkeit weiter mit"
     appmod.kv_put("stream_sessions", {}); appmod.kv_put("stream_session", None); appmod.save_settings({})
-
-
-# ------------------------------------------------ Controller-Profile (#119)
-
-def _profil_modul(config_root):
-    import importlib.util
-    alt = dict(os.environ); os.environ["FW_CONFIG_ROOT"] = str(config_root)
-    try:
-        pfad = os.path.join(REPO, "contrib/streaming-host/controller-profile.py")
-        spec = importlib.util.spec_from_file_location("controller_profile_test", pfad)
-        m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
-    finally:
-        os.environ.clear(); os.environ.update(alt)
-
-
-def _pcsx2_ini(tmp_path, inhalt):
-    d = tmp_path / ".config/PCSX2/inis"; d.mkdir(parents=True)
-    (d / "PCSX2.ini").write_text(inhalt, encoding="utf-8")
-    return d / "PCSX2.ini"
-
-
-def test_controller_profile_keeps_the_keyboard(tmp_path):
-    """PCSX2 speichert Alternativen als WIEDERHOLTE Schluessel (`&` ist der Akkord).
-    Die Gamepad-Belegung kommt deshalb NEBEN die Tastatur, nicht an ihre Stelle —
-    sonst nimmt ein Profil dem Betreiber weg, was vorher ging. (#119)"""
-    ini = _pcsx2_ini(tmp_path, "[Pad1]\nType = DualShock2\nUp = Keyboard/Up\n\n[Pad2]\n")
-    m = _profil_modul(tmp_path)
-    geaendert, msg = m.pcsx2_apply()
-    text = ini.read_text(encoding="utf-8")
-    assert geaendert, msg
-    assert "Up = Keyboard/Up" in text, "Tastaturbelegung darf nicht verschwinden"
-    assert "Up = SDL-0/DPadUp" in text
-    assert "Cross = SDL-0/FaceSouth" in text
-
-
-def test_controller_profile_is_idempotent(tmp_path):
-    """Es laeuft vor JEDEM Start. Ein zweiter Lauf darf die Datei nicht weiter
-    aufblaehen — sonst waechst die Konfiguration mit jeder Partie. (#119)"""
-    ini = _pcsx2_ini(tmp_path, "[Pad1]\nType = DualShock2\nUp = Keyboard/Up\n\n[Pad2]\n")
-    m = _profil_modul(tmp_path)
-    m.pcsx2_apply()
-    nach_erstem = ini.read_text(encoding="utf-8")
-    geaendert, _ = m.pcsx2_apply()
-    assert not geaendert
-    assert ini.read_text(encoding="utf-8") == nach_erstem
-
-
-def test_controller_profile_keeps_the_original_backup(tmp_path):
-    """Die Sicherung ist der Ausgangsstand vor dem ERSTEN Eingriff. Wuerde sie bei
-    jedem Lauf ueberschrieben, sicherte sie ab dem zweiten Lauf nichts mehr. (#119)"""
-    ini = _pcsx2_ini(tmp_path, "[Pad1]\nType = DualShock2\nUp = Keyboard/Up\n\n[Pad2]\n")
-    m = _profil_modul(tmp_path)
-    m.pcsx2_apply()
-    sicherung = str(ini) + ".vor-gamepad"
-    assert os.path.isfile(sicherung)
-    assert "SDL-0" not in open(sicherung, encoding="utf-8").read()
-    inhalt = open(sicherung, encoding="utf-8").read()
-    m.pcsx2_apply()
-    assert open(sicherung, encoding="utf-8").read() == inhalt, "Sicherung wurde ueberschrieben"
-
-
-def test_controller_profile_refuses_unknown_target(tmp_path):
-    m = _profil_modul(tmp_path)
-    assert m.main(["--apply", "gibtsnicht"]) == 1
-    assert m.main([]) == 2
-
-
-def test_gamepad_check_page_is_self_contained():
-    """Die Fehlersuche darf nicht daran scheitern, dass der Host nicht ins Internet
-    kommt — und eine Seite mit externen Verweisen tut genau das, nur langsam und ohne
-    Fehlermeldung. (#133)"""
-    pfad = os.path.join(REPO, "contrib/streaming-host/web/gamepad-check.html")
-    text = open(pfad, encoding="utf-8").read()
-    extern = re.findall(r'(?:src|href)\s*=\s*["\'](https?:)?//[^"\']+', text)
-    assert not extern, f"externe Ressourcen: {extern}"
-    assert "getGamepads" in text and "hasFocus" in text and "isSecureContext" in text
-
-
-def test_gamepad_check_page_reaches_the_container():
-    """Ohne Einhaengung ist die Seite im Repo und nicht im Container. (#133)
-
-    Sie wird nach /opt gehaengt und von init/05-web an ihren Platz kopiert — NICHT
-    direkt in die Web-Wurzel, die das Abbild beim Start leerraeumt. Der urspruengliche
-    Weg hat genau das gebrochen, siehe
-    test_nothing_is_mounted_into_the_selkies_web_root."""
-    yml = open(os.path.join(REPO, "contrib/streaming-host/docker-compose.yml"), encoding="utf-8").read()
-    assert "./web/gamepad-check.html:/opt/gamepad-check.html:ro" in yml
-    init = open(os.path.join(REPO, "contrib/streaming-host/init/05-web"), encoding="utf-8").read()
-    assert 'cp -f "$QUELLE"' in init, "die eingehaengte Seite muss an ihren Platz kopiert werden"
 
 
 # ------------------------------------------ Ordnernamen -> Plattform (#124)
@@ -2559,145 +2356,6 @@ def test_index_merges_several_folders_into_one_platform(appmod, tmp_path, monkey
     assert len(arcade) == 2, arcade
 
 
-# ------------------------------------------- Startprofil je Emulator (#119)
-
-def _profil_modul(config_root):
-    import importlib.util
-    alt = dict(os.environ); os.environ["FW_CONFIG_ROOT"] = str(config_root)
-    try:
-        pfad = os.path.join(REPO, "contrib/streaming-host/launch-profile.py")
-        spec = importlib.util.spec_from_file_location("launch_profile_test", pfad)
-        m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
-    finally:
-        os.environ.clear(); os.environ.update(alt)
-
-
-def test_rpcs3_binds_player_one_to_sdl_not_the_keyboard(tmp_path):
-    """RPCS3s Standard bindet Spieler 1 an die TASTATUR und schreibt bis zum ersten
-    Griff in den Einstellungsdialog gar keine Eingabekonfiguration. Am laufenden Host
-    nachgemessen: Selkies liefert das Pad, RPCS3 zaehlt es auf, im Spiel passiert
-    nichts. (#156)"""
-    m = _profil_modul(tmp_path)
-    geaendert, msg = m.rpcs3_apply()
-    assert geaendert, msg
-    pfad = m.rpcs3_input()
-    text = open(pfad, encoding="utf-8").read()
-    assert "Handler: SDL" in text, text
-    # Der Gerätename hat sich mit der Gamepad-Brücke GEÄNDERT (#119): über Selkies'
-    # Interposer meldete SDL den rohen Namen "Microsoft X-Box 360 pad", bei echten
-    # Kernel-Geräten erkennt es sie an VID/PID und nimmt den Namen aus seiner eigenen
-    # Datenbank. Im RPCS3-Log gemessen. Der alte Name darf nicht zurückkehren — er
-    # führt zu "Adding empty device": Pad angenommen, an nichts gebunden.
-    assert "Xbox 360 Controller 1" in text, text
-    assert "Microsoft X-Box 360 pad" not in text, "alter Interposer-Name zurück"
-    # Die Belegung wird mitgeliefert; früher musste sie von Hand gesetzt werden, und
-    # eine leere Config sieht im Spiel exakt wie ein defekter Controller aus.
-    assert "Config:" in text and "Cross: South" in text, text
-    assert len(m.RPCS3_BELEGUNG) >= 24, "Belegung unvollständig"
-    # Und die Meldung darf nicht mehr zur Handarbeit auffordern.
-    assert "Pad-Dialog" not in msg, msg
-
-
-def test_setup_starter_takes_the_environment_from_the_running_agent(tmp_path):
-    """Ein von Hand gestarteter Emulator sieht das Pad NICHT — ohne den
-    Selkies-Interposer existieren die virtuellen Geraete fuer SDL nicht, und die
-    Geraeteliste bleibt leer. Das sah nach kaputtem Controller aus und war eine
-    fehlende Umgebung. Der Starter liest sie beim laufenden Dienst ab statt sie
-    nachzubauen — eine zweite Liste derselben Variablen wuerde lautlos auseinander
-    laufen. (#160)"""
-    text = open(os.path.join(REPO, "contrib/streaming-host/emu-setup"),
-                encoding="utf-8").read()
-    assert "/proc/$pid/environ" in text, "die Umgebung muss vom Dienst kommen"
-    assert "selkies_joystick_interposer" in text, "ohne Interposer-Pruefung fehlt der Hinweis"
-    assert "AppRun.wrapped" in text, "Einzelinstanz muss erkannt werden"
-    # Der Token des Dienstes hat in der Umgebung eines Einrichtungsprogramms nichts
-    # verloren — es wird nur uebernommen, was fuer Anzeige, Ton und Eingabe zaehlt.
-    assert "STREAM_AGENT_TOKEN" not in text
-
-
-def test_rpcs3_never_overwrites_an_existing_mapping(tmp_path):
-    """Das Profil laeuft VOR JEDEM Start. Wuerde es eine vorhandene Datei ersetzen,
-    waere die von Hand im Pad-Dialog gesetzte Belegung beim naechsten Start weg —
-    lautlos, und es haette die Arbeit des Nutzers zunichte gemacht. Genau so war es
-    im ersten Wurf. (#158)"""
-    m = _profil_modul(tmp_path)
-    pfad = m.rpcs3_input()
-    os.makedirs(os.path.dirname(pfad), exist_ok=True)
-    eigen = "Player 1 Input:\n  Handler: SDL\n  Device: \"Mein Pad\"\n  Config:\n    Cross: A\n"
-    open(pfad, "w", encoding="utf-8").write(eigen)
-    geaendert, msg = m.rpcs3_apply()
-    assert not geaendert, msg
-    assert open(pfad, encoding="utf-8").read() == eigen, "die eigene Belegung wurde angetastet"
-
-
-def test_rpcs3_device_name_is_overridable(tmp_path, monkeypatch):
-    """Der Name ist abgelesen, nicht geraten — und trotzdem ueberschreibbar, falls ein
-    anderes Abbild das Pad anders benennt. Ohne diesen Ausweg muesste man die Datei
-    aendern, um einen Namen zu korrigieren. (#156)"""
-    monkeypatch.setenv("RPCS3_PAD_NAME", "Irgendein Pad")
-    m = _profil_modul(tmp_path)
-    m.rpcs3_apply()
-    assert "Irgendein Pad" in open(m.rpcs3_input(), encoding="utf-8").read()
-
-
-def test_every_provided_emulator_has_a_profile_entry(tmp_path):
-    """Ein fehlender Eintrag ist nicht von 'braucht nichts' zu unterscheiden. Wer einen
-    Emulator hinzufuegt, soll sich entscheiden muessen — deshalb wird die Liste gegen
-    den Katalog gehalten. (#119)"""
-    katalog = open(os.path.join(REPO, "contrib/streaming-host/init/20-emulators"),
-                   encoding="utf-8").read()
-    tabelle = re.search(r"KATALOG=\((.*?)\n\)", katalog, re.S).group(1)
-    dirs = {z.strip().strip('"').split("|")[1] for z in tabelle.strip().splitlines()
-            if z.strip().startswith('"')}
-    m = _profil_modul(tmp_path)
-    fehlt = dirs - set(m.PROFILE)
-    assert not fehlt, f"ohne Profil-Eintrag: {sorted(fehlt)}"
-
-
-def test_rpcs3_resolves_itself_instead_of_needing_a_hand_typed_url():
-    """RPCS3 stand als `url|RPCS3_URL`, weil rpcs3.net automatisierte Abrufe mit 403
-    abweist. Folge: PS3 blieb uninstalliert, obwohl Firmware und Titel vorhanden waren
-    — und niemand sah, warum. Das Projekt veroeffentlicht seine Linux-Builds selbst in
-    einem GitHub-Binaerdepot, das sich wie jedes andere Release aufloesen laesst.
-
-    Bewusst OHNE Netz geprueft: der Test haelt die Entscheidung fest, nicht die
-    Verfuegbarkeit von GitHub. Ein Test, der bei jedem Ausfall von GitHub rot wird,
-    wird abgeschaltet und schuetzt dann gar nichts mehr."""
-    katalog = open(os.path.join(REPO, "contrib/streaming-host/init/20-emulators"),
-                   encoding="utf-8").read()
-    tabelle = re.search(r"KATALOG=\((.*?)\n\)", katalog, re.S).group(1)
-    zeilen = {z.strip().strip('"').split("|")[1]: z.strip().strip('"').split("|")
-              for z in tabelle.strip().splitlines() if z.strip().startswith('"')}
-    art, quelle, muster = zeilen["rpcs3"][3], zeilen["rpcs3"][4], zeilen["rpcs3"][5]
-    assert art == "release", f"RPCS3 soll sich selbst aufloesen, ist aber '{art}'"
-    assert "rpcs3-binaries-linux" in quelle, quelle
-    assert muster, "ohne Muster waehlt release_asset das erstbeste Asset"
-
-
-def test_bios_region_is_read_not_guessed(tmp_path):
-    """Klartext im Namen zuerst, dann die Regionsziffer der Modellnummer. Alles andere
-    bleibt unbekannt — ein geratenes BIOS meldet sich nicht, das Spiel laeuft nur
-    'komisch'. (#119)"""
-    m = _profil_modul(tmp_path)
-    assert m.bios_region("SCPH-70004_BIOS_V12_PAL_200.BIN") == "Europe"
-    assert m.bios_region("scph39001.bin") == "USA"
-    assert m.bios_region("scph10000.bin") == "Japan"
-    assert m.bios_region("irgendwas.bin") == ""          # nicht raten
-    assert m.bios_region("scph55555.bin") == ""          # unbekannte Ziffer
-
-
-def test_bios_refuses_when_the_region_is_missing(tmp_path):
-    """Lieber kein BIOS setzen als das falsche. Die Meldung nennt, was da ist. (#119)"""
-    bios = tmp_path / ".config/PCSX2/bios"; bios.mkdir(parents=True)
-    (tmp_path / ".config/PCSX2/inis").mkdir(parents=True)
-    (bios / "scph39001.bin").write_bytes(b"\0" * (4 * 1024 * 1024))
-    (tmp_path / ".config/PCSX2/inis/PCSX2.ini").write_text("[Filenames]\nBIOS = x.bin\n", encoding="utf-8")
-    m = _profil_modul(tmp_path)
-    geaendert, msg = m.pcsx2_bios_setzen("Japan")
-    assert not geaendert and "kein BIOS fuer Japan" in msg and "USA" in msg, msg
-    assert "BIOS = x.bin" in (tmp_path / ".config/PCSX2/inis/PCSX2.ini").read_text(encoding="utf-8")
-
-
 def test_launch_sends_the_region(appmod, client, monkeypatch):
     """Die Region kommt aus der Fassungserkennung (#77) und entscheidet auf dem Host
     ueber das BIOS. (#119)"""
@@ -2761,25 +2419,6 @@ def test_every_playable_platform_is_a_known_platform(appmod):
     assert not fremd, f"nicht in PLATFORMS: {fremd}"
 
 
-def test_firmware_status_distinguishes_file_present_from_installed():
-    """`ready` hiess "die Datei liegt da". Fuer RPCS3 ist das nicht dasselbe wie "der
-    Emulator hat sie": die PUP muss ins dev_flash eingespielt werden. Vorher meldete
-    Romseerr PS3 als vollstaendig, waehrend RPCS3 `SYS: Missing Firmware` schrieb und
-    jeder Start im schwarzen Bild geendet waere. Am laufenden Host nachgemessen. (#162)"""
-    text = open(os.path.join(REPO, "contrib/streaming-host/init/25-firmware"),
-                encoding="utf-8").read()
-    tabelle = re.search(r"KATALOG=\((.*?)\n\)", text, re.S).group(1)
-    eintraege = {z.strip().strip('"').split("|")[0]: z.strip().strip('"').split("|")
-                 for z in tabelle.strip().splitlines() if z.strip().startswith('"')}
-    # ps3 muss eine Ablage nennen, sonst ist die Pruefung wirkungslos.
-    assert eintraege["ps3"][6].endswith("dev_flash"), eintraege["ps3"]
-    # Wo die Datei allein genuegt, darf KEINE Ablage stehen — sonst meldet eine
-    # korrekt eingerichtete Plattform ploetzlich "nicht eingespielt".
-    for p in ("ps2", "dreamcast", "xbox", "3ds", "switch", "wiiu"):
-        assert eintraege[p][6] == "", (p, eintraege[p])
-    assert '"installed":%s' in text and '"needs_install":%s' in text
-
-
 def test_firmware_panel_names_the_not_installed_state():
     """Der Zustand muss in der Oberflaeche ankommen, nicht nur in der API. Vorher war
     `fehlt` in diesem Fall leer und es wurde GAR NICHTS geschrieben — die Plattform sah
@@ -2789,170 +2428,49 @@ def test_firmware_panel_names_the_not_installed_state():
     assert i18n_hat("fw_notinstalled") == 5, "Text fehlt in mindestens einer Sprache"
 
 
-def test_dolphin_is_an_appimage_not_a_distribution_package():
-    """Das apt-Paket startet, legt alle Konfigurationsdateien an — und oeffnet NIE ein
-    Fenster. Nachgemessen im Container: weder mit noch ohne VirtualGL, mit erzwungenem
-    `-platform xcb`, ohne Argumente, mit und ohne Selkies-Interposer. Im X-Baum stand
-    nur Qts internes 3x3-Fenster. Die AppImage oeffnet an derselben Stelle
-    "Dolphin 2606". (#165)"""
-    katalog = open(os.path.join(REPO, "contrib/streaming-host/init/20-emulators"),
-                   encoding="utf-8").read()
-    tabelle = re.search(r"KATALOG=\((.*?)\n\)", katalog, re.S).group(1)
-    zeilen = {z.strip().strip('"').split("|")[1]: z.strip().strip('"').split("|")
-              for z in tabelle.strip().splitlines() if z.strip().startswith('"')}
-    art, quelle = zeilen["dolphin"][3], zeilen["dolphin"][4]
-    assert art == "release", f"Dolphin soll als AppImage kommen, ist aber '{art}'"
-    assert "Dolphin-emu-AppImage" in quelle, quelle
-    assert "|apt|" not in katalog, "es soll kein apt-Eintrag mehr geben"
+def test_scorecard_skips_a_wrong_branch_instead_of_failing(appmod):
+    """Ein Aufruf auf dem falschen Zweig endet gruen, und auf dem richtigen misst er. (#470)
 
+    VORGESCHICHTE: `ossf/scorecard-action` weist jeden anderen Zweig als den Standardzweig
+    ab. Der `push`-Ausloeser wurde deshalb entfernt (#369) — `workflow_dispatch` riss
+    dasselbe Loch von der anderen Seite auf. Ein `gh workflow run --ref dev` liess den
+    Workflow auf ROT stehen, bis zum naechsten Wochenlauf, ohne dass jemand etwas tun
+    konnte.
 
-def test_nothing_falls_back_to_the_apt_dolphin():
-    """Ein Rueckfall auf etwas, das nachweislich kein Fenster oeffnet, ist schlechter
-    als keiner: er macht aus einem klaren "nicht installiert" ein stummes "Knopf da,
-    nichts passiert". (#165)"""
-    agent = open(os.path.join(REPO, "contrib/streaming-host/init/30-agent"),
-                 encoding="utf-8").read()
-    aktiv = [z for z in agent.splitlines()
-             if "/usr/games/dolphin-emu" in z and not z.strip().startswith("#")]
-    assert not aktiv, f"noch ein Rueckfall auf das apt-Paket: {aktiv}"
-    assert 'EMU_GC="$VGL $EMU/dolphin/AppRun' in agent
+    ZWEI RICHTUNGEN, und die zweite ist die wichtigere: Ein Waechter, der IMMER
+    ueberspringt, waere gruen und wuerde NIE messen — genau die Sorte Stille, die aus
+    „nicht geprueft" ein „in Ordnung" macht. Deshalb wird hier auch geprueft, dass der
+    Sonst-Zweig auf `nein` setzt und der Vergleich gegen den ECHTEN Standardzweig laeuft
+    statt gegen einen fest eingetippten Namen.
+    """
+    import yaml
+    pfad = os.path.join(REPO, ".github/workflows/scorecard.yml")
+    text = open(pfad, encoding="utf-8").read()
+    schritte = yaml.safe_load(text)["jobs"]["analysis"]["steps"]
 
+    waechter = schritte[0]
+    assert waechter.get("id"), "der erste Schritt traegt keine id — auf die sich `if` beruft"
+    kennung = waechter["id"]
 
-def test_stream_size_and_framerate_are_configured_not_left_to_the_browser():
-    """Ohne feste Werte richtet sich der Stream nach dem Browserfenster — hier waren
-    das 3828x1902 bei 60 fps, und Bildschirmaufnahme samt Farbkonvertierung kosteten
-    dauerhaft CPU. Gemessen: selkies 50 -> 13 %, Xvfb 41 -> 7 %. (#170)"""
-    yml = open(os.path.join(REPO, "contrib/streaming-host/docker-compose.yml"),
-               encoding="utf-8").read()
-    for k in ("SELKIES_MANUAL_WIDTH", "SELKIES_MANUAL_HEIGHT", "SELKIES_FRAMERATE"):
-        assert k in yml, k
-    env = open(os.path.join(REPO, "contrib/streaming-host/.env.example"),
-               encoding="utf-8").read()
-    for k in ("STREAM_WIDTH", "STREAM_HEIGHT", "STREAM_FRAMERATE"):
-        assert k in env, k
+    ohne = [x.get("name") or x.get("uses", "?") for x in schritte[1:] if "if" not in x]
+    assert not ohne, (
+        f"diese Schritte laufen auch auf dem falschen Zweig und faerben ihn rot: {ohne}")
+    for x in schritte[1:]:
+        assert kennung in x["if"], f"die Bedingung beruft sich nicht auf {kennung}: {x['if']}"
 
-
-def test_dolphin_gets_dual_core(tmp_path):
-    """Dolphin laeuft ohne diese Einstellung EINKERNIG — nachgemessen: ein Thread
-    "CPU-GPU thread" bei 100 %, waehrend 27 Threads brachlagen. (#170)"""
-    m = _profil_modul(tmp_path)
-    assert m.PROFILE["dolphin"]["controller"] is m.dolphin_apply
-    # Ohne Dolphin.ini darf es nicht raten, sondern muss das sagen.
-    geaendert, msg = m.dolphin_dualcore()
-    assert not geaendert and "noch nicht" in msg, msg
-    pfad = m.dolphin_ini()
-    os.makedirs(os.path.dirname(pfad), exist_ok=True)
-    open(pfad, "w", encoding="utf-8").write("[Core]\nGFXBackend = OGL\n")
-    geaendert, msg = m.dolphin_dualcore()
-    assert geaendert, msg
-    assert "CPUThread = True" in open(pfad, encoding="utf-8").read()
-    # Zweiter Lauf: nichts mehr zu tun (das Profil laeuft vor JEDEM Start).
-    assert m.dolphin_dualcore()[0] is False
-    # Und dasselbe fuer den Sammelschritt, sobald er einmal durchgelaufen ist —
-    # sonst schriebe jeder Start die Dateien neu.
-    assert m.dolphin_apply()[0] is True      # erster Lauf: Gamepad fehlt noch
-    assert m.dolphin_apply()[0] is False
-
-
-def test_a_failed_mesa_utils_install_is_reported():
-    """Der Fehlschlag verschwand in /dev/null — und genau deshalb war spaeter nicht
-    zu beantworten, ob die GPU benutzt wird. Die Fehlersuche lief zweimal in die
-    falsche Richtung. (#170)"""
-    text = open(os.path.join(REPO, "contrib/streaming-host/init/10-virtualgl"),
-                encoding="utf-8").read()
-    assert "WARNUNG: mesa-utils" in text, "ein Fehlschlag muss gemeldet werden"
-    assert "glxinfo" in text
-
-
-def test_firmware_is_matched_by_size_where_names_vary():
-    """Zweimal hatten wir Dateinamen ERFUNDEN, die es so nicht gibt: xemu erwartete
-    angeblich `mcpx_1.0.bin` und `bios.bin` (real: `mcpx-1.1.bin`, `xbox-5838.bin`,
-    beide mit korrekter Groesse), und Sonys Vita-Datei heisst `PSVUPDAT.PUP`, nicht
-    `PSVITAUPDAT.PUP`. Beide Plattformen wurden als unvollstaendig gemeldet, obwohl
-    alles dalag. Die PS2-Zeile machte es von Anfang an richtig. (#172)"""
-    text = open(os.path.join(REPO, "contrib/streaming-host/init/25-firmware"),
-                encoding="utf-8").read()
-    tabelle = re.search(r"KATALOG=\((.*?)\n\)", text, re.S).group(1)
-    e = {z.strip().strip('"').split("|")[0]: z.strip().strip('"').split("|")
-         for z in tabelle.strip().splitlines() if z.strip().startswith('"')}
-    assert "*mcpx*" in e["xbox"][4], e["xbox"][4]
-    assert "PSVUPDAT.PUP" in e["psvita"][4] and "PSVITAUPDAT" not in e["psvita"][4]
-    # Beide muessen Muster sein, sonst haengt es wieder am Namen.
-    for p in ("xbox", "psvita"):
-        assert "*" in e[p][4], (p, e[p][4])
-
-
-def test_a_pattern_picks_the_file_that_fits_the_size():
-    """Beim Xbox liegen zwei .bin nebeneinander: MCPX mit 512 B und das BIOS mit
-    256 KB. Die alphabetisch erste war immer das MCPX — das BIOS wurde deshalb als
-    "Groesse unerwartet" gemeldet, obwohl es danebenlag. (#172)"""
-    text = open(os.path.join(REPO, "contrib/streaming-host/init/25-firmware"),
-                encoding="utf-8").read()
-    assert "groesse_passt" in text, "es braucht eine eigene Groessenpruefung"
-    # Mindestmass, weil das Xbox-BIOS in 256 KB, 512 KB und 1 MB vorkommt.
-    assert '">"*)' in text, "ein Mindestmass (>N) muss ausdrueckbar sein"
-    assert "erste=" in text, "bei mehreren Treffern muss der passende gewaehlt werden"
-
-
-def test_the_display_backend_is_pinned_not_left_to_chance():
-    """Die Emulatoren liefen auf X11, weil es im Container NICHTS ANDERES GAB —
-    WAYLAND_DISPLAY nicht gesetzt, kein Socket. Gleichzeitig liefert jedes
-    Qt-AppImage `libqwayland.so` neben `libqxcb.so`, und Qt nimmt Wayland, sobald
-    die Variable auftaucht. Eine Abwesenheit ist keine Entscheidung: #169 will den
-    Xvfb durch ein echtes Xorg ersetzen, und dieser Umbau ist nur zu beurteilen,
-    wenn der Unterbau vorher und nachher derselbe ist. (#178)"""
-    text = open(os.path.join(REPO, "contrib/streaming-host/init/30-agent"),
-                encoding="utf-8").read()
-    for var, wert in (("QT_QPA_PLATFORM", "xcb"),
-                      ("SDL_VIDEODRIVER", "x11"),
-                      ("GDK_BACKEND", "x11")):
-        # Vorgabe, nicht Sperre: die Zuweisung muss ueberschreibbar bleiben.
-        muster = rf'export {var}="\$\{{{var}:-{wert}\}}"'
-        assert re.search(muster, text), f"{var} fehlt oder ist nicht ueberschreibbar"
-
-
-def test_the_setup_starter_inherits_the_pinned_backend():
-    """emu-setup liest die Umgebung aus dem laufenden Dienst und uebernimmt nur eine
-    Auswahl — bewusst, damit der Token nicht mitwandert. Genau deshalb muss die
-    Auswahl mitwachsen: faellt QT_QPA_PLATFORM heraus, oeffnet der Einrichtungslauf
-    den Emulator mit einem anderen Unterbau als der Spielstart, und die Belegung, die
-    man dort setzt, gilt fuer ein anderes Fenster. (#178)"""
-    text = open(os.path.join(REPO, "contrib/streaming-host/emu-setup"),
-                encoding="utf-8").read()
-    fall = re.search(r"case \"\$z\" in\n(.*?)\n\s*esac", text, re.S).group(1)
-    assert "QT_QPA_PLATFORM=*" in fall, fall
-    assert "GDK_BACKEND=*" in fall, fall
-    assert "SDL_*" in fall, "SDL_VIDEODRIVER haengt an diesem Muster"
-    # Der Token darf weiterhin NICHT mitwandern.
-    assert "STREAM_AGENT_TOKEN" not in fall
-
-
-def test_extraction_resolves_squashfs_root_instead_of_moving_the_symlink():
-    """Bei uruntime-AppImages (pkgforge-Dolphin, RPCS3) ist `squashfs-root` KEIN
-    Verzeichnis, sondern ein Symlink auf `AppDir`. Das blosse Verschieben legte
-    zwei Emulatoren auf DASSELBE Verzeichnis: `dolphin` und `rpcs3` zeigten beide
-    auf `./AppDir`, dessen AppRun.wrapped auf `usr/bin/rpcs3` verwies — ein
-    GameCube-Titel haette RPCS3 gestartet, ohne eine Fehlermeldung. (#176)"""
-    text = open(os.path.join(REPO, "contrib/streaming-host/init/20-emulators"),
-                encoding="utf-8").read()
-    assert "readlink -f squashfs-root" in text, "das Ziel muss aufgeloest werden"
-    # AppDir muss mit weggeraeumt werden, sonst mischen sich zwei Entpackungen.
-    assert re.search(r"rm -rf squashfs-root AppDir", text), text[:0] or "AppDir bleibt stehen"
-    # Und der Fehlerfall muss laut sein, nicht still.
-    assert re.search(r'if \[ -L "\$EMU/\$dir\.neu" \]', text), "Symlink-Fall wird nicht abgefangen"
-
-
-def test_the_kept_previous_build_is_not_listed_as_an_emulator():
-    """`<name>.alt` ist die aufgehobene vorige Fassung, aus der `can_rollback`
-    gespeist wird. Sie trug ebenfalls ein AppRun und stand deshalb als eigener
-    Emulator ohne Quelle in der Liste — was sie wie eine Altlast aussehen liess.
-    Wer sie daraufhin aufraeumt, loescht den Rueckweg. (#176)"""
-    text = open(os.path.join(REPO, "contrib/streaming-host/stream-agent.py"),
-                encoding="utf-8").read()
-    block = re.search(r"def installed_emulators\(\):(.*?)\n\ndef ", text, re.S).group(1)
-    assert 'name.endswith(".alt")' in block, block
-    # can_rollback muss weiterhin GENAU auf dieses Verzeichnis schauen.
-    assert 'name + ".alt", "AppRun"' in block
+    lauf = waechter.get("run", "")
+    # AUF DIE VERGLEICHSZEILE PRUEFEN, nicht auf das Vorkommen irgendwo. Erste Fassung
+    # dieses Tests suchte den Ausdruck im ganzen Skript — und fand ihn in der MELDUNG
+    # darunter, waehrend der Vergleich selbst bereits auf `"main"` festgenagelt war. Die
+    # Sabotage lief gruen durch. (#470)
+    vergleich = [z for z in lauf.splitlines() if "github.ref_name" in z]
+    assert vergleich, "es gibt keine Zeile, die den Zweig vergleicht"
+    assert "github.event.repository.default_branch" in vergleich[0], (
+        "der Standardzweig ist im VERGLEICH fest eingetippt statt abgefragt — beim "
+        f"Umbenennen wuerde der Workflow lautlos alles ueberspringen: {vergleich[0].strip()}")
+    assert "=nein" in lauf, (
+        "der Sonst-Zweig setzt nichts — dann uebersprigne der Waechter IMMER, und der "
+        "Workflow waere gruen, ohne je zu messen")
 
 
 def test_the_openapi_version_line_carries_the_release_marker():
@@ -3023,23 +2541,6 @@ def test_the_english_readme_says_how_to_run_an_older_version():
     assert "not guaranteed to run" in r
     # Und er muss im Inhaltsverzeichnis stehen, sonst findet ihn niemand.
     assert "(#versions-updating-and-going-back)" in r
-
-
-def _readme_ueberschriften(datei, ebene):
-    """Ueberschriften genau EINER Ebene. `"## Foo".startswith("### ")` ist falsch und
-    `"### Foo".startswith("## ")` ebenso — das Leerzeichen trennt die Ebenen sauber."""
-    text = open(os.path.join(REPO, datei), encoding="utf-8").read()
-    return [z.rstrip() for z in text.splitlines() if z.startswith(ebene + " ")]
-
-
-# Zwei Abschnitte tragen BEIDE Sprachen in einem Stueck — sie richten sich an den, der am
-# Quellstand arbeitet, und der liest hier ohnehin beides. Sie haben deshalb bewusst kein
-# Gegenstueck in der englischen Datei. Die Ausnahme steht namentlich da, damit sie nicht
-# stillschweigend waechst: eine Zahl als Toleranz wuerde jede weitere Luecke schlucken.
-ZWEISPRACHIG_IN_EINEM_STUECK = (
-    "### Aus dem Quellstand bauen / building from source",
-    "### Zweige / branches",
-)
 
 
 def test_both_readmes_carry_the_same_sections():
@@ -3211,22 +2712,6 @@ def test_the_crawljob_uses_the_types_jdownloader_actually_parses(appmod, tmp_pat
     assert set(job) == {"text", "downloadFolder", "packageName", "autoStart", "autoConfirm"}
     assert "overwritePackagizerRules" not in job, "dieses Feld gibt es in JDownloader nicht"
     appmod.save_settings({})
-
-
-def _route_funktionen(js):
-    """Schneidet die reinen Routing-Funktionen aus index.js — sie kommen bewusst ohne DOM
-    aus, damit sie prüfbar sind, ohne die halbe Oberfläche nachzubauen."""
-    stuecke = []
-    for name in ("const ROUTEN=", "const ROUTEN_UM=", "function routeParse(", "function routeBauen("):
-        i = js.index(name)
-        # bis zur nächsten Zeile, die am Zeilenanfang mit einem neuen Statement beginnt
-        j = js.index("\n", i)
-        tiefe = js.count("{", i, j) - js.count("}", i, j)
-        while tiefe > 0:
-            j = js.index("\n", j + 1)
-            tiefe = js.count("{", i, j) - js.count("}", i, j)
-        stuecke.append(js[i:j])
-    return "\n".join(stuecke)
 
 
 def test_every_view_has_an_address_and_survives_a_reload():
@@ -3990,7 +3475,9 @@ def test_import_names_what_it_skipped(appmod, tmp_path, monkeypatch):
                        "state": "downloading", "platform": "nes"}]
     monkeypatch.setattr(appmod, "save_jobs", lambda: None)
     monkeypatch.setattr(appmod, "build_index", lambda: None)
-    monkeypatch.setattr(appmod, "romm_scan", lambda: None)
+    # Der Vertrag ist (ok, grund) und nimmt die Ordnerliste entgegen (#520) —
+    # eine Attrappe ohne Parameter wuerde den Aufrufer sprengen.
+    monkeypatch.setattr(appmod, "romm_scan", lambda *a, **k: (True, ""))
     d = tmp_path / "job"; d.mkdir()
     (d / "spielstand.sav.wasd").write_text("x")     # unbekannt in BEIDEN Ebenen
     (d / "beipack.exe").write_text("x")
@@ -4335,7 +3822,9 @@ def test_successful_import_resets_the_attempt_counter(appmod, tmp_path, monkeypa
     """Was einmal geklappt hat, fängt später nicht bei „3. Versuch" an. (#200)"""
     monkeypatch.setattr(appmod, "save_jobs", lambda: None)
     monkeypatch.setattr(appmod, "build_index", lambda: None)
-    monkeypatch.setattr(appmod, "romm_scan", lambda: None)
+    # Der Vertrag ist (ok, grund) und nimmt die Ordnerliste entgegen (#520) —
+    # eine Attrappe ohne Parameter wuerde den Aufrufer sprengen.
+    monkeypatch.setattr(appmod, "romm_scan", lambda *a, **k: (True, ""))
     monkeypatch.setattr(appmod, "notify_available", lambda *a, **k: None)
     monkeypatch.setattr(appmod, "send_push_to_user", lambda *a, **k: None)
     monkeypatch.setattr(appmod, "ROMS", str(tmp_path / "roms"))
@@ -4416,19 +3905,144 @@ def test_shrinking_the_user_list_is_logged(appmod, tmp_path, monkeypatch):
     appmod.save_users({})
 
 
+def _wiiu_ordner(wurzel, name, app_id, meta_id=None):
+    """Wii-U-Titelordner. `app_id` und `meta_id` getrennt, weil sie sich im Bestand
+    WIDERSPRECHEN — genau daran hing #512."""
+    t = wurzel / name
+    (t / "code").mkdir(parents=True)
+    (t / "content").mkdir()
+    (t / "meta").mkdir()
+    (t / "code" / "Spiel.rpx").write_bytes(b"\x7fELF")
+    (t / "code" / "app.xml").write_text(
+        f'<app><title_id type="hexBinary" length="8">{app_id}</title_id></app>',
+        encoding="utf-8")
+    (t / "meta" / "meta.xml").write_text(
+        f'<menu><title_id type="hexBinary" length="8">{meta_id or app_id}</title_id></menu>',
+        encoding="utf-8")
+    return t
+
+
+def test_romseerr_refuses_a_wiiu_update_before_the_button_appears(appmod, tmp_path):
+    """Der Knopf darf gar nicht erst erscheinen. (#512)
+
+    Der Start-Dienst lehnt ein Wii-U-Update seit #502 ab. Romseerr fragte nicht — also
+    zeigte es den Knopf, der Nutzer klickte, belegte einen Platz, und ERST DANN kam die
+    Absage. Dieselbe Lüge wie vor #299 beim 3DS, nur eine Plattform weiter.
+
+    AM BESTAND GEMESSEN — die beiden Beschreibungsdateien widersprechen sich:
+
+        meta/meta.xml   0005000010180700   (behauptet: Basisspiel)
+        code/app.xml    0005000E10180700   (Update)
+
+    Deshalb wird `app.xml` gelesen. Wer `meta.xml` nimmt, bekommt mit voller Überzeugung
+    die falsche Antwort.
+    """
+    t = _wiiu_ordner(tmp_path / "wiiu", "Captain Toad [AKBP01]",
+                     app_id="0005000E10180700", meta_id="0005000010180700")
+    startbar, grund = appmod.wiiu_startbar(str(t))
+    assert not startbar
+    assert grund == "wiiu_update", grund
+
+
+def test_a_wiiu_base_game_stays_streamable(appmod, tmp_path):
+    """Die Ratsche: ein echtes Spiel darf nicht mitabgesagt werden. (#512)
+
+    Ohne sie wäre eine Prüfung, die IMMER absagt, ebenfalls grün — und Wii U damit
+    vollständig unerreichbar, statt nur seine Updates.
+    """
+    t = _wiiu_ordner(tmp_path / "wiiu", "Echtes Spiel", "0005000010180700")
+    assert appmod.wiiu_startbar(str(t)) == (True, "")
+
+
+def test_an_unreadable_wiiu_title_passes_rather_than_being_refused(appmod, tmp_path):
+    """Im Zweifel durchlassen — wie bei Switch (#427) und 3DS (#299). (#512)
+
+    Eine falsche Absage kostet mehr als ein Fehlversuch: Sie nimmt einen vorhandenen
+    Titel dauerhaft aus dem Angebot, und niemand sucht danach.
+    """
+    ohne = tmp_path / "wiiu" / "Ohne app.xml"
+    (ohne / "code").mkdir(parents=True)
+    assert appmod.wiiu_startbar(str(ohne)) == (True, "")
+
+    unlesbar = _wiiu_ordner(tmp_path / "wiiu", "Muell", "0005000010180700")
+    (unlesbar / "code" / "app.xml").write_text("kein xml", encoding="utf-8")
+    assert appmod.wiiu_startbar(str(unlesbar)) == (True, "")
+
+
+def test_a_wiiu_dlc_and_a_system_title_are_refused_as_well(appmod, tmp_path):
+    """`0005000C` ist DLC, `0005001B` ein Systemtitel — beides kein Spiel. (#512)"""
+    for kennung, erwartet in (("0005000C10180700", "wiiu_dlc"),
+                              ("0005001B10180700", "wiiu_system")):
+        t = _wiiu_ordner(tmp_path / "wiiu", f"T{kennung}", kennung)
+        assert appmod.wiiu_startbar(str(t)) == (False, erwartet), kennung
+
+
 def test_every_stream_reason_has_a_text(appmod):
     """Jeder Grund aus stream_info hat einen Eintrag in der Oberfläche. (#175)
 
     Die Lücke entstand, weil `ambiguous_platform` im Server eingeführt wurde und in der
     Oberfläche niemand nachzog: der Code fiel stumm in den allgemeinen Satz. Nichts hat
     das bemerkt, weil nichts die beiden Seiten vergleicht — genau das tut dieser Test.
+
+    ER TAT ES LANGE NUR HALB (#513). Gesammelt wurden ausschliesslich Gründe, die als
+    WÖRTLICHER String in `stream_info` stehen:
+
+        gruende = re.findall('"reason": "(...)"', ...)   # nur Literale
+
+    Die Plattformprüfungen liefern ihren Grund aber über eine Hilfsfunktion, und er
+    reist als Variable weiter:
+
+        startbar, grund = switch_startbar(path)
+        return {"streamable": False, "reason": grund, ...}
+
+    Damit war jeder so gelieferte Code unsichtbar. Gemessen: `nsp_update` und `nsp_dlc`
+    fehlten in `STREAM_GRUND`, obwohl `stream_nsp_update` und `stream_nsp_dlc` seit #427
+    in ALLEN FÜNF Sprachen bereitlagen. Ein Switch-Update zeigte „Streamen gerade nicht
+    möglich" — der passende Satz lag drei Dateien weiter und war unerreichbar.
+
+    Das Schlimmere war nicht der fehlende Satz, sondern dass diese Prüfung GRÜN meldete
+    für etwas, das sie nicht prüfte. Wer danach einen Grund hinzufügte, verliess sich
+    darauf.
+
+    Gesammelt wird deshalb aus zwei Quellen: den wörtlichen Gründen in `stream_info` und
+    den Absagen der Funktionen, die `stream_info` befragt — das sind die `*_startbar`.
+
+    NICHT modulweit nach `return False, "…"` suchen: Das fängt `dns`, `invalid`,
+    `private` und `scheme` aus der URL-Prüfung mit ein, die mit dem Stream nichts zu tun
+    haben. Eine Prüfung, die Fremdes einsammelt, verlangt Texte für Codes, die nie an der
+    Oberfläche ankommen — und wird dann entnervt wieder entschärft.
+
+    EN: the check only saw reasons spelled out literally in `stream_info`; every reason
+    delivered through a helper — which is how all platform checks work — was invisible,
+    and the check reported success for something it did not perform.
     """
     import re
     quelle = open("app.py", encoding="utf-8").read()
     i = quelle.index("def stream_info(")
     j = quelle.index("\ndef ", i + 10)
     gruende = set(re.findall(r'"reason":\s*"([a-z_]+)"', quelle[i:j]))
+
+    # Was über eine Hilfsfunktion kommt (#513). Massgeblich sind die `*_startbar`, denn
+    # genau die ruft `stream_info` auf; ihre Absagen reisen als Variable weiter und waren
+    # deshalb unsichtbar.
+    import ast as _ast
+    baum = _ast.parse(quelle)
+    zeilen = quelle.splitlines(keepends=True)
+    for k in baum.body:
+        if not (isinstance(k, _ast.FunctionDef) and k.name.endswith("_startbar")):
+            continue
+        rumpf = "".join(zeilen[k.lineno - 1:k.end_lineno])
+        gruende |= set(re.findall(r'return\s+\(?\s*False\s*,\s*"([a-z_]+)"', rumpf))
+        # Tabellen wie `_CIA_ZUBEHOER` liefern den Grund als Wert, nicht als Literal am
+        # `return`. Sie stehen ausserhalb der Funktion, gehoeren aber dazu.
+        for tabelle in re.findall(r'\b(_[A-Z0-9_]*ZUBEHOER)\b', rumpf):
+            m2 = re.search(rf'^{tabelle}\s*=\s*\{{(.*?)\}}', quelle, re.S | re.M)
+            if m2:
+                gruende |= set(re.findall(r':\s*"([a-z_]+)"', m2.group(1)))
     gruende.discard("")
+    assert len(gruende) >= 8, (
+        f"nur {len(gruende)} Gründe gefunden — die Sammlung ist kaputt, nicht die "
+        f"Oberfläche: {sorted(gruende)}")
 
     js = open("static/js/index.js", encoding="utf-8").read()
     m = re.search(r"const STREAM_GRUND=\{(.*?)\};", js, re.S)
@@ -4550,74 +4164,6 @@ def test_jd_probe_needs_permission_and_is_not_in_status(appmod, client):
     appmod.save_users({})
 
 
-# ---------- Die Dokumentationsregel mechanisch halten (#212) ----------
-# Doku ist hier Pflicht, auf Deutsch UND Englisch. Bisher hielt das, weil jemand daran
-# denkt — die schwächste Garantie, die es gibt. Was schon mechanisch ist (OpenAPI-Abdeckung,
-# Spec-Gleichstand), ist nie verrutscht; die Kommentarqualität schwankt. Der Unterschied
-# ist nicht Sorgfalt, sondern dass eines davon einen Build rot macht.
-#
-# BEIDE Prüfungen sind RATSCHEN, keine Zielwerte: sie halten den heutigen Stand fest.
-# Neuer Code darf ihn nicht verschlechtern, jede nachgebesserte Stelle hebt den Boden.
-# Ein fester Zielwert wäre heute unerreichbar oder später bedeutungslos.
-
-DOC_EN_BODEN = 21.0      # gemessener Anteil zweisprachiger Blöcke: 35 von 166 = 21,08 %
-DOC_ROUTEN_OHNE = 73     # Route-Handler ohne Docstring, Stand der Messung
-
-_EN_WORTE = (r"\b(the|is|are|was|were|not|that|which|does|do|with|from|only|never|always|"
-             r"because|what|when|where|would|should|could|this|these|those|and|but|for|"
-             r"into|about|after|before|instead|rather|still|there|they|them|it|its)\b")
-_DE_WORTE = (r"\b(der|die|das|und|nicht|ist|sind|war|ein|eine|einen|dass|wird|werden|sich|"
-             r"nur|schon|noch|aber|weil|wenn|dann|dort|hier|man|kann|muss|soll|beim|"
-             r"vom|zum|zur|auf|aus|mit|ohne|fuer|für|durch|gegen|jede|jeder|jedes)\b")
-
-
-def _doc_bloecke(text):
-    """Kommentar- und Docstring-Blöcke ab drei Zeilen."""
-    import re
-    aus = [m.group(1) for m in re.finditer(r'"""(.*?)"""', text, re.S) if m.group(1).count("\n") >= 2]
-    lauf = []
-    for zeile in text.split("\n"):
-        s = zeile.strip()
-        if s.startswith("#"):
-            lauf.append(s.lstrip("#").strip())
-        else:
-            if len(lauf) >= 3:
-                aus.append("\n".join(lauf))
-            lauf = []
-    if len(lauf) >= 3:
-        aus.append("\n".join(lauf))
-    return aus
-
-
-def _hat_englisch(block):
-    """Trägt der Block einen englischen Teil?
-
-    Zeilenweise, weil die Blöcke hier gemischt sind: deutscher Text mit einem englischen
-    Absatz. Eine Zeile zählt als englisch bei mindestens drei englischen Funktionswörtern
-    und keinem deutschen.
-
-    GEGENGEPRÜFT vor der Einführung, gegen 166 Blöcke und mit einer unabhängig gebauten
-    Kontrollregel (`EN:`, `the X is`, `instead of`, …): **0 falsch negative**. Die 27
-    zunächst verdächtigen Fälle waren beim Nachlesen durchweg echtes Englisch — die
-    Kontrollregel war zu eng, nicht die Heuristik. Das war die Bedingung aus #212: eine
-    Erkennung, die falsch anschlägt, wird binnen einer Woche abgeschaltet, und dann steht
-    die Regel schlechter da als ganz ohne Test.
-    """
-    import re
-    for zeile in block.split("\n"):
-        z = zeile.strip().lower()
-        if len(z) >= 25 and len(set(re.findall(_EN_WORTE, z))) >= 3 and not re.search(_DE_WORTE, z):
-            return True
-    return False
-
-
-def _doc_dateien():
-    dateien = ["app.py"]
-    for wurzel, _, namen in os.walk("contrib"):
-        dateien += [os.path.join(wurzel, n) for n in namen if n.endswith((".py", ".sh"))]
-    return dateien
-
-
 def test_bilingual_comment_share_does_not_drop(appmod):
     """Der zweisprachige Anteil der Kommentare darf nicht sinken. (#212)"""
     bloecke = []
@@ -4652,34 +4198,6 @@ def test_new_routes_carry_a_docstring(appmod):
         f"{len(ohne)} Route-Handler ohne Docstring (erlaubt: {DOC_ROUTEN_OHNE}). "
         f"Deine neue Route braucht einen: was tut sie, und warum so? "
         f"(Welche es ist, zeigt `git diff` — die Namen hier zu raten wäre irreführend.)")
-
-
-# ---------- Wo liegt was? (#192) ----------
-# Der Umzug von JSON-Dateien nach SQLite lief Speicher für Speicher, und danach hat
-# niemand die Gesamtfrage gestellt. Nachgemessen auf der laufenden Anlage:
-#
-#   users.json / jobs.json / settings.json  -> migriert, `.migrated` daneben, Tabelle gefüllt
-#   issues.json / maillog.json / push_subs.json -> NIE geschrieben (kein .migrated, kein kv-Schlüssel)
-#   vapid.json                              -> aktive Datei, absichtlich nicht in der DB
-#   secret.key                              -> ebenso
-#
-# „Keine Datei" war dabei kein Beleg für „migriert": bei den drei mittleren heißt es, dass
-# das Feature auf dieser Installation nie benutzt wurde. Genau diese Zweideutigkeit soll
-# nicht noch einmal von Hand aufgelöst werden müssen.
-DATEI_SPEICHER = {
-    "users.json": "migriert -> Tabelle users",
-    "jobs.json": "migriert -> Tabelle jobs",
-    "settings.json": "migriert -> kv['settings']",
-    "issues.json": "migriert -> kv['issues'] (Datei entsteht nur bei Altbestand)",
-    "maillog.json": "migriert -> kv['maillog'] (dito)",
-    "push_subs.json": "migriert -> kv['push'] (dito)",
-    "vapid.json": "BLEIBT Datei: privater Push-Schlüssel, absichtlich außerhalb der DB",
-    "secret.key": "BLEIBT Datei: Sitzungssignatur, absichtlich außerhalb der DB",
-    # In der Neuprüfung zu #192 zusätzlich gefunden — im Issue kamen sie nicht vor:
-    "tls": "BLEIBT Verzeichnis: Zertifikat + privater Schlüssel (0600)",
-    "logos": "BLEIBT Verzeichnis: Bilddateien gehören nicht in eine Spalte",
-    ".schreibprobe": "keine Daten: Schreibprobe für /health (#216)",
-}
 
 
 def test_no_new_json_store_appears_unnoticed(appmod):
@@ -4787,23 +4305,6 @@ def test_wrong_launch_token_is_reported_as_such(appmod, monkeypatch, tmp_path):
     assert info["launch_error"], "aber eine Begründung muss trotzdem dastehen"
 
 
-def test_token_rotation_is_documented_in_both_languages(appmod):
-    """Das Wechseln des Tokens steht in der Anleitung — zweisprachig. (#177)
-
-    Ohne beschriebenes Verfahren wird aus einem Alltagsvorgang ein Ausfall: der Wert steht
-    an zwei Stellen, und wer nur eine ändert, hat einen Stream, der ohne Erklärung abweist.
-    """
-    text = open("contrib/streaming-host/README.md", encoding="utf-8").read()
-    for marke in ("Das Token wechseln", "Rotating the token"):
-        assert marke in text, f"Abschnitt fehlt: {marke}"
-    # Die Reihenfolge ist der Kern — ohne sie ist es nur eine Liste von Orten.
-    for stelle in ("STREAM_AGENT_TOKEN", "openssl rand", "stream-agent"):
-        assert stelle in text, f"{stelle} fehlt in der Anleitung"
-    de = text.index("Das Token wechseln"); en = text.index("Rotating the token")
-    assert "Reihenfolge" in text[de:de+1800] and "in this order" in text[en:en+1800], \
-        "die Reihenfolge muss in beiden Sprachen dastehen, nicht nur in einer"
-
-
 def test_release_image_is_not_wired_to_an_event_that_cannot_fire(appmod):
     """Das Abbild haengt nicht an `on: release`, das nie feuern kann. (#185)
 
@@ -4886,189 +4387,6 @@ def test_every_playable_core_entry_is_documented_as_checked(appmod):
         "der Hinweis auf die Messung fehlt"
     # Intellivision darf nicht zurückkehren, solange der Kern fehlt.
     assert '"intellivision":' not in block, "freeintv wird vom Player nicht ausgeliefert (#124)"
-
-
-def test_dolphin_gcpad_uses_the_spelling_dolphin_itself_writes(tmp_path):
-    """Dolphin benennt Tasten und Achsen UNTERSCHIEDLICH — und ignoriert still, was es
-    nicht auflösen kann.
-
-    Gemessen am 2026-08-10, nachdem Dolphin die Zuweisung selbst geschrieben hatte:
-    Tasten tragen den Ereigniscode-Namen OHNE `BTN_` und ohne Zeichen (`SOUTH`),
-    Achsen sind durchnummeriert und stehen in schrägen Anführungszeichen (`Axis 1-`).
-    Vorher stand hier `BTN_A` bzw. `ABS_Y-`; die Belegung sah vollständig aus und tat
-    nichts. Genau das hält dieser Test fest — ein Rückfall auf die alte Schreibweise
-    wäre von außen nicht zu erkennen. (#119)
-    """
-    m = _profil_modul(tmp_path)
-    werte = dict(m.DOLPHIN_PAD)
-    assert werte["Buttons/A"] == "SOUTH"
-    assert werte["Main Stick/Up"] == "`Axis 1-`"
-    for schluessel, wert in m.DOLPHIN_PAD:
-        assert not wert.startswith("BTN_"), f"{schluessel}: BTN_-Präfix wirkt nicht"
-        assert "ABS_" not in wert, f"{schluessel}: Achsen heißen 'Axis N', nicht ABS_*"
-    # Jede Achse braucht die schrägen Anführungszeichen, jede Taste darf sie nicht haben.
-    for schluessel, wert in m.DOLPHIN_PAD:
-        if "Axis" in wert:
-            assert wert.startswith("`") and wert.endswith("`"), schluessel
-
-
-def test_dolphin_gcpad_replaces_only_port_one(tmp_path):
-    """Die anderen drei Ports gehören dem Benutzer und dürfen nicht verschwinden.
-    Zusätzlich muss ein zweiter Lauf nichts mehr tun, sonst wächst die Datei bei
-    jedem Start."""
-    m = _profil_modul(tmp_path)
-    pfad = m.dolphin_gcpad_ini()
-    os.makedirs(os.path.dirname(pfad), exist_ok=True)
-    with open(pfad, "w", encoding="utf-8") as f:
-        f.write("[GCPad1]\nDevice = XInput2/0/Virtual core pointer\nButtons/A = `X`\n"
-                "\n[GCPad2]\nDevice = etwas\nButtons/A = `Y`\n")
-
-    geaendert, _ = m.dolphin_gcpad()
-    assert geaendert
-    inhalt = open(pfad, encoding="utf-8").read()
-    assert "[GCPad2]" in inhalt and "Device = etwas" in inhalt
-    assert "XInput2" not in inhalt.split("[GCPad2]")[0]
-    assert os.path.exists(pfad + ".vor-gamepad"), "Rückweg fehlt"
-
-    nochmal, msg = m.dolphin_gcpad()
-    assert not nochmal, msg
-
-
-def test_duckstation_disables_the_setup_wizard(tmp_path):
-    """Ohne diesen Schalter ist die schönste Belegung wertlos.
-
-    DuckStation öffnet beim ersten Start einen **modalen** "Setup Wizard". Im Container
-    sieht den niemand, und jeder Start staut sich dahinter — gemessen am laufenden Host:
-    Prozess lebte, Fenster hieß "DuckStation Setup Wizard", ein Spiel startete nie. Mit
-    dem Schalter bootet derselbe Aufruf direkt in den Titel. Dieselbe Falle wie RPCS3s
-    Willkommensfenster (#164) und JDownloaders Rückfragen (#219). (#268)
-    """
-    m = _profil_modul(tmp_path)
-    pfad = m.duckstation_ini()
-    os.makedirs(os.path.dirname(pfad), exist_ok=True)
-    with open(pfad, "w", encoding="utf-8") as f:
-        f.write("[Main]\nConfirmPowerOff = true\n\n[Pad1]\nType = AnalogController\n"
-                "Cross = Keyboard/K\n\n[Pad2]\nType = None\n")
-
-    geaendert, msg = m.duckstation_apply()
-    assert geaendert, msg
-    inhalt = open(pfad, encoding="utf-8").read()
-    assert "SetupWizardIncomplete = false" in inhalt, "Erstlaufdialog nicht abgeschaltet"
-    # Der Schalter gehört in [Main], nicht in den Pad-Abschnitt.
-    assert "SetupWizardIncomplete" in inhalt.split("[Pad1]")[0]
-    # South, NICHT FaceSouth: DuckStation kennt PCSX2s Face*-Namen nicht (am Binary
-    # nachgemessen) und ignoriert sie stillschweigend — Sticks gehen, Tasten nicht.
-    assert "Cross = SDL-0/A" in inhalt
-    assert "FaceSouth" not in inhalt, "PCSX2-Name für DuckStation geschrieben"
-    assert "Type = AnalogController" in inhalt, "der Controller-Typ gehört dem Benutzer"
-    assert "[Pad2]" in inhalt and "Type = None" in inhalt, "Spieler 2 angetastet"
-    assert not m.duckstation_apply()[0], "zweiter Lauf darf nichts mehr tun"
-
-
-def test_duckstation_reuses_the_pcsx2_binding_names(tmp_path):
-    """Beide Emulatoren benutzen dieselben Namen und dieselbe SDL-Quelle — nachgesehen
-    in DuckStations eigener settings.ini. Eine zweite Tabelle daneben würde auseinander
-    laufen, sobald jemand nur eine pflegt. (#268)"""
-    m = _profil_modul(tmp_path)
-    quelle = open(os.path.join(REPO, "contrib/streaming-host/launch-profile.py"),
-                  encoding="utf-8").read()
-    # Es darf genau EINE Bindungstabelle geben.
-    assert quelle.count("\"Cross\":") == 1, "zweite Tabelle mit denselben Namen angelegt"
-    assert m.PROFILE["duckstation"]["controller"] is m.duckstation_apply
-    assert m.PROFILE["duckstation"]["geprueft"] is True, \
-        "am 2026-08-10 im Spiel bestätigt — Controller inklusive Tasten"
-
-
-def test_duckstation_resets_the_wizard_flag_when_it_flips_back(tmp_path):
-    """DuckStation setzt den Schalter beim BEENDEN wieder auf `true`.
-
-    Am laufenden Host passiert: Schalter gesetzt, Spiel bootete direkt — und nach dem
-    Beenden stand wieder `SetupWizardIncomplete = true` in der Datei, dazu war die
-    Pad-Belegung verschwunden. Beim nächsten Start öffnete der Dialog erneut.
-
-    Eine Prüfung auf "steht der Schlüssel da?" hält das für erledigt. Geprüft werden
-    muss der WERT — und die vorhandene Zeile ersetzt, nicht eine zweite danebengelegt,
-    sonst stehen zwei widersprechende Einträge in derselben Datei. Das Profil läuft vor
-    jedem Start, also heilt es sich damit selbst. (#268)
-    """
-    m = _profil_modul(tmp_path)
-    pfad = m.duckstation_ini()
-    os.makedirs(os.path.dirname(pfad), exist_ok=True)
-    # Genau der Zustand, den DuckStation hinterlässt: Schalter zurück, Belegung weg.
-    with open(pfad, "w", encoding="utf-8") as f:
-        f.write("[Main]\nConfirmPowerOff = true\nSetupWizardIncomplete = true\n\n"
-                "[Pad1]\nType = AnalogController\nCross = Keyboard/K\n\n[Pad2]\nType = None\n")
-
-    geaendert, msg = m.duckstation_apply()
-    assert geaendert, msg
-    inhalt = open(pfad, encoding="utf-8").read()
-    assert "SetupWizardIncomplete = false" in inhalt
-    assert "SetupWizardIncomplete = true" not in inhalt, "alter Wert blieb stehen"
-    assert inhalt.count("SetupWizardIncomplete") == 1, "zwei widersprechende Einträge"
-    assert inhalt.count("SDL-0/") == 25, "Belegung nicht wiederhergestellt"
-
-    # Und wenn NUR der Schalter zurückkippt, muss die Belegung unangetastet bleiben.
-    with open(pfad, "w", encoding="utf-8") as f:
-        f.write(inhalt.replace("SetupWizardIncomplete = false",
-                               "SetupWizardIncomplete = true"))
-    geaendert, msg = m.duckstation_apply()
-    assert geaendert and "Erstlauf" in msg, msg
-    wieder = open(pfad, encoding="utf-8").read()
-    assert "SetupWizardIncomplete = false" in wieder
-    assert wieder.count("SDL-0/") == 25, "Belegung beim Nachziehen zerstört"
-
-
-def test_duckstation_face_buttons_use_its_own_names(tmp_path):
-    """DuckStation kennt PCSX2s `Face*`-Namen NICHT.
-
-    Am ausgelieferten Binary nachgemessen (2026-08-10):
-
-        src/util/sdl_input_source.cpp, Tabelle s_button_info:
-        "A", "B", "X", "Y", "LeftShoulder", ... — kein FaceSouth, kein South
-
-    Alle übrigen 21 Werte sind identisch. Der Fehler entstand, weil ich geprüft hatte,
-    dass die SCHLÜSSEL übereinstimmen, und daraus schloss, die Werte täten es auch:
-    Stick und Steuerkreuz funktionierten, die vier Tasten nicht — stillschweigend.
-    Deshalb hält dieser Test genau die Abweichung fest. (#268)
-    """
-    m = _profil_modul(tmp_path)
-    assert m.DUCKSTATION_ANDERS == {
-        "FaceSouth": "A", "FaceEast": "B",
-        "FaceWest": "X", "FaceNorth": "Y",
-    }, "Abweichungstabelle geändert — gegen s_button_info im Quelltext prüfen"
-    # Was NICHT abweicht, darf auch nicht übersetzt werden.
-    for wert in ("DPadUp", "LeftShoulder", "LeftStick", "+LeftTrigger", "-LeftY",
-                 "Back", "Start", "Guide"):
-        assert wert not in m.DUCKSTATION_ANDERS, wert
-    # Und die Tabelle muss auf PCSX2s Werte passen, sonst übersetzt sie ins Leere.
-    for pcsx2_wert in m.DUCKSTATION_ANDERS:
-        assert pcsx2_wert in m.PCSX2.values(), f"{pcsx2_wert} gibt es bei PCSX2 gar nicht"
-
-
-def test_agent_starts_with_dropped_privileges():
-    """Der Start-Dienst darf NICHT als root laufen.
-
-    Solange er es tat, liefen auch die Emulatoren als root und schrieben ihre
-    Konfigurationen root-eigen — ein im Desktop gestarteter Emulator (`abc`) konnte
-    sie dann weder lesen noch schreiben. Gefunden: Dolphins Verzeichnis nicht
-    beschreibbar, PCSX2.ini mit Modus 600 nicht lesbar, RPCS3s input_configs.
-    Das Fehlerbild ist ein "defekter Controller" oder ein Emulator, der Einstellungen
-    vergisst — **ohne jede Fehlermeldung**. (#273)
-
-    `s6-setuidgid` und nicht `setpriv`, weil es die ZUSATZGRUPPEN behält; an einer
-    davon (`video5zxv`) hängt der Zugriff auf die GPU-Knoten.
-    """
-    text = open(os.path.join(REPO, "contrib/streaming-host/init/30-agent"),
-                encoding="utf-8").read()
-    start = [z for z in text.splitlines()
-             if "stream-agent.py" in z or ('"$AGENT"' in z and "nohup" in z)]
-    starter = [z for z in start if "nohup" in z]
-    assert starter, "keine Startzeile für den Agenten gefunden"
-    for z in starter:
-        assert "s6-setuidgid" in z, f"Agent startet ohne Rechteabgabe: {z.strip()}"
-    # Und der Altbestand muss geheilt werden, sonst bleibt Unlesbares liegen.
-    assert "-user 0" in text and "chown" in text, \
-        "keine Reparatur der root-eigenen Altdateien"
 
 
 def test_two_seats_allow_two_people_at_once(appmod, client):
@@ -5157,41 +4475,6 @@ def test_single_seat_session_survives_the_upgrade(appmod):
     appmod.kv_put("stream_sessions", {}); appmod.kv_put("stream_session", None)
 
 
-def test_the_two_seats_do_not_share_ports_but_do_share_config():
-    """Zwei Plätze müssen sich `/config` und die GPU teilen — aber niemals Ports.
-
-    Der erste Anlauf benutzte `extends`, und **`extends` führt Listen zusammen**: der
-    zweite Dienst erbte damit die Ports des ersten und hätte beim Start mit "port is
-    already allocated" abgebrochen. Das wäre erst beim Ausrollen aufgefallen. Deshalb
-    prüft dieser Test beide Richtungen — was getrennt sein muss und was gemeinsam. (#137)
-    """
-    import yaml
-    pfad = os.path.join(REPO, "contrib/streaming-host/docker-compose.yml")
-    d = yaml.safe_load(open(pfad, encoding="utf-8"))
-    s1, s2 = d["services"]["stream-host"], d["services"]["stream-host-2"]
-
-    def haefen(s):
-        return {str(p).split(":")[0] for p in (s.get("ports") or [])}
-    assert not (haefen(s1) & haefen(s2)), \
-        f"Platz 1 und 2 veröffentlichen denselben Port: {haefen(s1) & haefen(s2)}"
-    assert len(haefen(s2)) == 3, "der zweite Platz braucht genau drei eigene Ports"
-
-    # Geteilt, weil der Betreiber es so gewählt hat: eine Bibliothek, eine GPU,
-    # ein /config. Liefe der zweite Platz auf anderen Volumes, wäre es ein zweiter Host.
-    assert s1.get("volumes") == s2.get("volumes"), "Volumes müssen geteilt sein"
-    assert s1.get("devices") == s2.get("devices"), "GPU muss geteilt sein"
-
-    # Nur Platz 1 aktualisiert die gemeinsamen Emulatoren — sonst entpacken zwei
-    # Container dieselbe AppImage in dasselbe Verzeichnis.
-    assert str(s2["environment"]["EMU_AUTO_UPDATE"]).lower() == "false"
-    assert s2["environment"]["AGENT_PORT"] != s1["environment"]["AGENT_PORT"]
-
-    # Ohne Profil bleibt die Anlage einsitzig — ein zweiter Container darf nicht
-    # ungefragt mitstarten.
-    assert s2.get("profiles") == ["seat2"]
-    assert not s1.get("profiles")
-
-
 def test_the_second_seat_is_reachable_from_the_interface():
     """Ein Platz, den man nicht eintragen kann, gibt es nicht.
 
@@ -5211,67 +4494,6 @@ def test_the_second_seat_is_reachable_from_the_interface():
             f"{schluessel} fehlt in einer der fünf Sprachen"
     # Die Platzanzeige darf bei mehreren Plätzen nicht mehr "Einzelplatz" behaupten.
     assert "d.seats||1)>1" in js.replace(" ", ""), "Platzanzeige nicht von der Zahl abhängig"
-
-
-def test_gpu_encoding_is_switched_on():
-    """Ohne `SELKIES_AUTO_GPU` kodiert Selkies in SOFTWARE — lautlos.
-
-    Gemessen am 2026-08-10: ~1,2 CPU-Kerne je Sitzung, während die Video-Engine der
-    Karte brachlag (VCS durchgehend 0 %). Im Log steht dann nur eine Zeile:
-    `No GPU Encoder available -> Using CPU Software Encoding`.
-
-    Der Grund ist eine Rechnung im Selkies-Quelltext: ohne die Variable leitet es den
-    GPU-Index aus dem NAMEN des Knotens ab (`renderD129` → Index 1) und öffnet die n-te
-    Karte — der Container hat aber genau eine, und die ist dort Index 0. Mit AUTO_GPU
-    sucht das Aufnahmemodul die Karte selbst und die Rechnung entfällt.
-
-    Die Variable war schon einmal gesetzt und ist beim Umstieg auf Compose verloren
-    gegangen, weil sie nur am Container hing (dieselbe Falle wie bei SELKIES_FRAMERATE).
-    Deshalb dieser Test. (#283)
-    """
-    import yaml
-    pfad = os.path.join(REPO, "contrib/streaming-host/docker-compose.yml")
-    d = yaml.safe_load(open(pfad, encoding="utf-8"))
-    for dienst in ("stream-host", "stream-host-2"):
-        env = d["services"][dienst].get("environment") or {}
-        wert = str(env.get("SELKIES_AUTO_GPU", ""))
-        assert wert, f"{dienst}: SELKIES_AUTO_GPU fehlt — Kodierung fiele auf die CPU zurück"
-        # Der Code prüft gegen diese Liste; ein Standard aus ihr wäre wirkungslos.
-        assert not any(w in wert.lower() for w in ("false", "off", "no")) or ":-" in wert, \
-            f"{dienst}: Standardwert schaltet die GPU-Kodierung ab: {wert}"
-
-
-def test_a_permission_error_is_reported_not_thrown(tmp_path):
-    """Ein Rechtefehler darf das Startprofil nicht als Traceback verlassen.
-
-    Genau das ist passiert (2026-08-10): `PCSX2.ini` gehörte noch root mit Modus 600 —
-    ein Überbleibsel aus der Zeit, als Emulatoren als root liefen (#273). Der Agent
-    läuft seither als `abc`, konnte die Datei nicht lesen, und der `PermissionError`
-    verließ das Profil als Traceback:
-
-        PermissionError: [Errno 13] Permission denied: '.../PCSX2.ini'
-
-    Folge: Der Schritt brach ab, BIOS und Vollbild wurden nicht gesetzt, und PCSX2 kam
-    mit einem 500×101-Dialog statt mit dem Spiel hoch. Von außen: "der Stream geht auf,
-    aber es startet kein Spiel" — nichts daran deutet auf Dateirechte.
-
-    Die Meldung muss deshalb sagen, **wem** die Datei gehört, **wer** wir sind und
-    **was zu tun ist**. Und der Rückgabewert darf kein Erfolg sein. (#283/#273)
-    """
-    m = _profil_modul(tmp_path)
-    pfad = m.pcsx2_ini()
-    os.makedirs(os.path.dirname(pfad), exist_ok=True)
-    with open(pfad, "w", encoding="utf-8") as f:
-        f.write("[Pad1]\nType = DualShock2\n")
-    os.chmod(pfad, 0o000)
-    try:
-        geaendert, msg = m.sicher(m.pcsx2_apply)
-    finally:
-        os.chmod(pfad, 0o600)
-    assert not geaendert, "ein Rechtefehler darf nicht als Erfolg gelten"
-    assert msg.startswith("KEIN ZUGRIFF"), msg
-    for teil in ("gehoert", "wir sind", "chown"):
-        assert teil in msg, f"Meldung nennt '{teil}' nicht: {msg}"
 
 
 def test_a_switch_update_is_never_picked_over_the_base_game(appmod, tmp_path):
@@ -5337,144 +4559,6 @@ def test_the_largest_file_wins_when_nothing_marks_an_update(appmod, tmp_path):
             if os.path.exists(p):
                 os.remove(p)
         appmod.build_index()
-
-
-# ------------------------------------- Fehlerdialog statt Spielfenster melden (#288)
-
-class _FensterAttrappe:
-    """Ein X11 ohne X11: liefert `_x` genau die Ausgaben, die xdotool/xprop liefern.
-
-    Die Fenster kommen als Liste von (id, breite, hoehe, typ, titel). Gemessen am
-    laufenden Host — `App Encrypted` traegt wirklich `_NET_WM_WINDOW_TYPE_DIALOG,
-    _NET_WM_WINDOW_TYPE_NORMAL`, also BEIDE Typen, und genau daran muss die Erkennung
-    vorbeikommen.
-    """
-
-    def __init__(self, fenster):
-        self.fenster = {f[0]: f for f in fenster}
-        self.gesetzt = []          # welche Fenster aufgezogen wurden
-
-    def __call__(self, *args, **_kw):
-        class R:
-            stdout = ""
-            stderr = ""
-            returncode = 0
-        r = R()
-        a = list(args)
-        if a[:2] == ["xdotool", "getdisplaygeometry"]:
-            r.stdout = "1920 1080"
-        elif a[:2] == ["xdotool", "search"]:
-            r.stdout = "\n".join(self.fenster)
-        elif a[:2] == ["xdotool", "getwindowgeometry"]:
-            _i, b, h, _t, _n = self.fenster[a[3]]
-            r.stdout = f"WIDTH={b}\nHEIGHT={h}\n"
-        elif a[:2] == ["xdotool", "getwindowname"]:
-            r.stdout = self.fenster[a[2]][4]
-        elif a[0] == "xprop" and "_NET_WM_WINDOW_TYPE" in a:
-            r.stdout = f"_NET_WM_WINDOW_TYPE(ATOM) = {self.fenster[a[2]][3]}"
-        elif a[:2] == ["xdotool", "windowsize"]:
-            self.gesetzt.append(a[2])
-        return r
-
-
-NORMAL = "_NET_WM_WINDOW_TYPE_NORMAL"
-DIALOG = "_NET_WM_WINDOW_TYPE_DIALOG, _NET_WM_WINDOW_TYPE_NORMAL"
-
-
-def test_an_error_dialog_is_reported_instead_of_a_fake_success(tmp_path, monkeypatch):
-    """Scheitert der TITEL, laeuft der Emulator weiter und zeigt einen Dialog.
-
-    Gemessen an drei Plattformen: `App Encrypted` und `CIA must be installed before
-    usage` (Azahar, 3DS), `NKit Warning` (Dolphin, Wii). In allen Faellen meldete der
-    Start bisher Erfolg, der Stream ging auf, und es lief kein Spiel — der Nutzer sah
-    einen leeren Desktop ohne jede Auskunft. (#288)
-
-    Der Dialog ist 293x101 = 29.593 Pixel und liegt damit UEBER der Flaechenschwelle
-    von 10.000, wurde also wie ein Spielfenster behandelt und sogar auf Vollbild
-    gezogen. Genau deshalb genuegt die Groesse als Kriterium nicht.
-    """
-    m = _profil_modul(tmp_path)
-    x = _FensterAttrappe([
-        ("0x1", 1920, 1080, NORMAL, "Azahar 2125.1.3"),   # leeres Hauptfenster
-        ("0x2", 293, 101, DIALOG, "App Encrypted"),       # die eigentliche Auskunft
-    ])
-    monkeypatch.setattr(m, "_x", x)
-    monkeypatch.setattr(m.time, "sleep", lambda *_a: None)
-
-    zustand, meldung = m.nur_emulator(4711, runden=1, pause=0)
-
-    assert zustand == "dialog", (zustand, meldung)
-    assert meldung == "App Encrypted", meldung
-    # Und der Dialog darf NICHT aufs Vollbild gezogen werden: ein bildschirmfuellender
-    # Fehlerdialog ist genau das, was als "leerer Stream" ankommt.
-    assert "0x2" not in x.gesetzt, "Fehlerdialog wurde aufgezogen"
-
-
-def test_a_real_game_window_still_reports_ok(tmp_path, monkeypatch):
-    """Die Gegenrichtung: ohne Dialog bleibt es beim Erfolg.
-
-    Ohne diese Haelfte wuerde eine Fassung, die IMMER "dialog" meldet, den Test oben
-    bestehen — und PS1, PS2, GameCube, Wii, PS3 und Switch waeren stillgelegt. (#288)
-    """
-    m = _profil_modul(tmp_path)
-    x = _FensterAttrappe([("0x1", 1920, 1080, NORMAL, "Dolphin | Vulkan | Dewy's Adventure")])
-    monkeypatch.setattr(m, "_x", x)
-    monkeypatch.setattr(m.time, "sleep", lambda *_a: None)
-
-    zustand, meldung = m.nur_emulator(4711, runden=1, pause=0)
-
-    assert zustand == "ok", (zustand, meldung)
-    assert "0x1" in x.gesetzt, "Spielfenster wurde nicht aufgezogen"
-
-
-def test_no_window_at_all_is_distinguished_from_a_dialog(tmp_path, monkeypatch):
-    """Ein eShop-3DS-Titel oeffnet GAR KEIN Fenster (`Error 8` im Emulator-Log).
-
-    Das ist ein anderer Befund als ein Dialog und muss anders heissen — sonst sucht man
-    nach einem Dialogtext, den es nicht gibt. (#288)
-    """
-    m = _profil_modul(tmp_path)
-    x = _FensterAttrappe([("0x1", 100, 30, NORMAL, "Azahar")])   # nur das Ladefenster
-    monkeypatch.setattr(m, "_x", x)
-    monkeypatch.setattr(m.time, "sleep", lambda *_a: None)
-
-    zustand, _meldung = m.nur_emulator(4711, runden=1, pause=0)
-
-    assert zustand == "kein-fenster", zustand
-
-
-def test_window_verdict_is_machine_readable_for_the_agent(tmp_path, monkeypatch, capsys):
-    """`--window` muss den Befund als letzte Zeile in JSON ausgeben.
-
-    Der Agent liest ihn dort und reicht ihn ueber /status weiter. Ein blosser Exit-Code
-    genuegt nicht: der Dialogtitel IST die Auskunft. (#288)
-    """
-    m = _profil_modul(tmp_path)
-    x = _FensterAttrappe([("0x2", 484, 101, DIALOG, "CIA must be installed before usage")])
-    monkeypatch.setattr(m, "_x", x)
-    monkeypatch.setattr(m.time, "sleep", lambda *_a: None)
-
-    rc = m.main(["--window", "4711"])
-
-    letzte = capsys.readouterr().out.strip().splitlines()[-1]
-    befund = json.loads(letzte)
-    assert rc == 1, "ein gescheiterter Titel darf nicht mit 0 enden"
-    assert befund["window"] == "dialog", befund
-    assert befund["detail"] == "CIA must be installed before usage", befund
-
-
-def test_agent_exposes_the_window_verdict_on_status():
-    """Der Befund muss den Aufrufer erreichen — sonst ist er nur ein Logeintrag.
-
-    Geprueft wird am Quelltext, weil der Agent hier keinen X-Server hat: /status muss
-    `window` fuehren, und der Startpfad muss ihn auf "pending" setzen. (#288)
-    """
-    quelle = open(os.path.join(REPO, "contrib/streaming-host/stream-agent.py"),
-                  encoding="utf-8").read()
-    assert '"window": _current["window"]' in quelle, "/status meldet den Befund nicht"
-    assert '_current["window"] = "pending"' in quelle, "Start setzt den Befund nicht zurueck"
-    # Beim Stoppen muss er weg sein, sonst klebt der Befund des Vortitels am naechsten.
-    assert '"window": "", "window_detail": ""' in quelle, "Stop raeumt den Befund nicht ab"
 
 
 def test_a_base_game_carrying_an_applied_update_is_not_mistaken_for_one(appmod):
@@ -5590,18 +4674,6 @@ def test_cd32_uses_the_amiga_core_that_is_already_there(appmod):
     assert "amiga-cd32" in appmod.SLUG_NAME
 
 
-# ------------------------------- Eigene Bibliothek durchsehen (#293)
-
-def _lege_titel_an(appmod, slug, dateien):
-    d = os.path.join(appmod.ROMS, slug)
-    os.makedirs(d, exist_ok=True)
-    for name, groesse in dateien:
-        with open(os.path.join(d, name), "wb") as f:
-            f.write(b"x" * groesse)
-    appmod.build_index()
-    return d
-
-
 def test_owned_titles_show_a_readable_name_not_the_normalised_one(appmod):
     """Die Liste zeigt Dateinamen, nicht `norm`.
 
@@ -5687,208 +4759,6 @@ def test_library_titles_endpoint_answers(appmod, client):
         appmod.save_users({})
 
 
-# ------------------------------------------- xemu: Erstkonfiguration (#300)
-
-def test_xemu_gets_extra_library_paths_at_launch():
-    """xemu braucht zwei Bibliothekspfade, die sonst niemand braucht. (#300)
-
-    Ohne `/config/lib` scheitert der Start an fehlender `libusb-1.0.so.0` — xemus
-    AppImage bringt sie als einziges nicht mit. Ohne den Pulse-Unterordner bleibt der
-    Ton stumm, weil ALSA sein Pulse-Modul nicht laden kann.
-
-    Geprueft wird am Quelltext des Agenten, weil hier kein Emulator laeuft.
-    """
-    quelle = open(os.path.join(REPO, "contrib/streaming-host/stream-agent.py"),
-                  encoding="utf-8").read()
-    assert '"xbox": ["/config/lib"' in quelle, "xemu bekommt keinen libusb-Pfad"
-    assert "pulseaudio" in quelle, "Pulse-Unterordner fehlt — der Ton bliebe stumm"
-    # Die vorhandene Umgebung darf nicht verlorengehen.
-    assert "vorher = umg.get(\"LD_LIBRARY_PATH\", \"\")" in quelle
-    # Und der Start muss die Umgebung auch benutzen.
-    assert "env=umgebung" in quelle, "Popen bekommt die Umgebung nicht"
-
-
-def test_xemu_init_script_is_wired_and_defensive():
-    """`init/22-xemu-vorbereiten` holt libusb und das Festplattenabbild. (#300)"""
-    pfad = os.path.join(REPO, "contrib/streaming-host/init/22-xemu-vorbereiten")
-    assert os.access(pfad, os.X_OK), "Init-Skript ist nicht ausfuehrbar"
-    text = open(pfad, encoding="utf-8").read()
-    assert "libusb-1.0.so.0" in text and "xbox_hdd.qcow2" in text
-    # Nach /config, nicht nach /usr: nur /config ueberlebt eine Abbild-Aktualisierung.
-    assert "/config/lib" in text and "/usr/lib" not in text.split("HDD_URL")[0]
-    # Fehlendes Netz darf den Containerstart nicht abbrechen.
-    assert "exit 0" in text.splitlines()[-1]
-    # Nur taetig werden, wenn xemu ueberhaupt da ist.
-    assert "/config/emulators/xemu/AppRun" in text
-
-
-def test_xemu_goes_fullscreen_by_key_not_by_config(tmp_path, monkeypatch):
-    """xemu ignoriert `fullscreen` in seiner Konfiguration, und der Fenstertrick
-    vergroessert nur die Huelle — der gezeichnete Bereich bleibt 960 Pixel breit in
-    einem 1920 breiten Fenster. Nur F11 wirkt. Alles am laufenden Host gemessen. (#300)
-    """
-    m = _profil_modul(tmp_path)
-    gesendet = []
-
-    class R:
-        stdout = "12345"
-        stderr = ""
-        returncode = 0
-
-    def falsches_x(*args, **kw):
-        gesendet.append(args)
-        return R()
-
-    monkeypatch.setattr(m, "_x", falsches_x)
-    monkeypatch.setattr(m.time, "sleep", lambda *_a: None)
-
-    ok, msg = m.xemu_vollbild()
-    assert ok, msg
-    tasten = [a for a in gesendet if a[:2] == ("xdotool", "key")]
-    assert tasten, f"keine Taste gesendet: {gesendet}"
-    assert "F11" in tasten[0], tasten[0]
-    # Das Fenster muss vorher den Fokus bekommen, sonst geht die Taste ins Leere.
-    assert any(a[:2] == ("xdotool", "windowactivate") for a in gesendet), gesendet
-
-
-def test_xemu_fullscreen_reports_when_no_window_exists(tmp_path, monkeypatch):
-    """Ohne laufenden Emulator gibt es nichts zu schalten — das muss gesagt werden,
-    statt stillschweigend Erfolg zu melden. (#300)"""
-    m = _profil_modul(tmp_path)
-
-    class Leer:
-        stdout = ""
-        stderr = ""
-        returncode = 1
-
-    monkeypatch.setattr(m, "_x", lambda *a, **k: Leer())
-    ok, msg = m.xemu_vollbild()
-    assert not ok and "kein xemu-Fenster" in msg, msg
-
-
-# ------------------------------- 3DS: Verschluesselung vor dem Start erkennen (#299)
-
-def _ncsd_bauen(pfad, nocrypto):
-    """Minimales 3DS-Abbild: NCSD-Kennung, NCCH-Kennung, Flags."""
-    daten = bytearray(0x4200)
-    daten[0x100:0x104] = b"NCSD"
-    daten[0x4100:0x4104] = b"NCCH"
-    daten[0x4188:0x4190] = bytes([0, 0, 0, 0, 1, 3, 0, 0x04 if nocrypto else 0x00])
-    with open(pfad, "wb") as f:
-        f.write(daten)
-
-
-def test_encrypted_3ds_images_are_rejected_before_launch(tmp_path):
-    """Ein verschluesselter Titel darf gar nicht erst starten. (#299)
-
-    Azahar spielt ausschliesslich entschluesselte Dumps und entschluesselt NICHT selbst;
-    der Wunsch danach wurde upstream als "closed as not planned" abgelehnt. Ohne diese
-    Pruefung endet so ein Titel als leerer Stream — der Emulator startet, zeigt
-    `App Encrypted` oder gar kein Fenster, und der Nutzer sieht einen Desktop ohne
-    jede Erklaerung.
-
-    Am Bestand nachgemessen: 1248 von 1249 Abbildern verschluesselt. Das ist der
-    Normalfall einer Sammlung aus Cartridge-Dumps, kein Randfall.
-    """
-    import importlib.util
-    pfad = os.path.join(REPO, "contrib/streaming-host/stream-agent.py")
-    spec = importlib.util.spec_from_file_location("agent_3ds_test", pfad)
-    m = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(m)
-
-    verschluesselt = str(tmp_path / "verschluesselt.3ds")
-    entschluesselt = str(tmp_path / "entschluesselt.3ds")
-    _ncsd_bauen(verschluesselt, nocrypto=False)
-    _ncsd_bauen(entschluesselt, nocrypto=True)
-
-    ok, grund = m._3ds_spielbar(verschluesselt)
-    assert not ok, "verschluesseltes Abbild wurde durchgelassen"
-    assert "VERSCHLUESSELT" in grund, grund
-
-    ok, _ = m._3ds_spielbar(entschluesselt)
-    assert ok, "entschluesseltes Abbild wurde faelschlich abgewiesen"
-
-    # CIAs starten nie direkt — unabhaengig von jeder Verschluesselung.
-    cia = str(tmp_path / "paket.cia")
-    open(cia, "wb").write(b"x" * 100)
-    ok, grund = m._3ds_spielbar(cia)
-    assert not ok and "Installationspakete" in grund, grund
-
-    # Was kein NCSD ist, wird NICHT abgewiesen: lieber starten lassen und den
-    # Emulator entscheiden, als einen brauchbaren Titel wegen einer zu strengen
-    # Pruefung zu blockieren.
-    fremd = str(tmp_path / "fremd.3ds")
-    open(fremd, "wb").write(b"x" * 100)
-    ok, _ = m._3ds_spielbar(fremd)
-    assert ok, "unbekanntes Format darf nicht abgewiesen werden"
-def test_azahar_binds_the_pad_and_swaps_a_b(tmp_path):
-    """Azahars Voreinstellung ist die TASTATUR — dieselbe Falle wie RPCS3 (#156).
-
-    Und die 3DS-Tasten sind gegenueber Xbox VERTAUSCHT: A liegt rechts, B unten. Wer
-    stur A auf A legt, bekommt ein Pad, auf dem jede Bestaetigung abbricht. (#304)
-    """
-    m = _profil_modul(tmp_path)
-    ini = m.azahar_ini()
-    os.makedirs(os.path.dirname(ini), exist_ok=True)
-    with open(ini, "w", encoding="utf-8") as f:
-        f.write("[Controls]\nprofile=0\n"
-                'profiles\\1\\button_a="code:65,engine:keyboard"\n'
-                "profiles\\1\\button_a\\default=true\n")
-    geaendert, msg = m.azahar_apply()
-    assert geaendert, msg
-    text = open(ini, encoding="utf-8").read()
-    assert "engine:sdl" in text and "engine:keyboard" not in text, text
-    # A und B vertauscht: 3DS-A liegt auf SDL-Knopf 1, 3DS-B auf 0.
-    assert 'button_a="button:1' in text, text
-    assert 'button_b="button:0' in text, text
-    # Qts default-Flag muss false sein, sonst gilt der Wert nicht.
-    assert "button_a\\default=false" in text, text
-
-
-def test_azahar_does_not_overwrite_an_existing_sdl_mapping(tmp_path):
-    """Eine vorhandene SDL-Belegung stammt von Azahars Auto-Map — und nur das kennt den
-    richtigen Port.
-
-    Im Container liegen ACHT identische Pad-Geraete; unseres ist fuer SDL das dritte,
-    nicht das erste. Der Port haengt an der Aufzaehlungsreihenfolge und kann sich
-    verschieben, deshalb darf eine funktionierende Belegung nicht ueberschrieben
-    werden. (#304)
-    """
-    m = _profil_modul(tmp_path)
-    ini = m.azahar_ini()
-    os.makedirs(os.path.dirname(ini), exist_ok=True)
-    vorhanden = ("[Controls]\nprofile=0\n"
-                 'profiles\\1\\button_a="button:1,engine:sdl,guid:abc,port:2"\n'
-                 "profiles\\1\\button_a\\default=false\n")
-    with open(ini, "w", encoding="utf-8") as f:
-        f.write(vorhanden)
-    geaendert, msg = m.azahar_apply()
-    assert not geaendert, msg
-    assert open(ini, encoding="utf-8").read() == vorhanden, "Auto-Map wurde ueberschrieben"
-
-
-# --- Ansichten, Routen und Browsertests -------------------------------------------
-# Beide Pruefungen sind statisch: Sie lesen index.js und die Tabelle der Browsertests.
-# Das ist Absicht — die eine haette #320 am Tag der Entstehung gefunden, ganz ohne Browser.
-
-def _js():
-    pfad = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "static", "js", "index.js")
-    with open(pfad, encoding="utf-8") as f:
-        return f.read()
-
-
-def _routen_und_ansichten():
-    """(Schluessel in ROUTEN, Schluessel die `zeige()` behandelt)."""
-    import re
-    js = _js()
-    m = re.search(r"ROUTEN\s*=\s*\{([^}]*)\}", js)
-    routen = set(re.findall(r"(\w+)\s*:", m.group(1)))
-    i = js.find("function zeige(")
-    ansichten = set(re.findall(r"v\s*==\s*'(\w+)'", js[i:i + 1400]))
-    return routen, ansichten
-
-
 def test_every_view_has_a_route():
     """Jede Ansicht, die `zeige()` kennt, braucht einen Eintrag in ROUTEN. (#320)
 
@@ -5906,16 +4776,6 @@ def test_every_view_has_a_route():
     ohne = sorted(ansichten - routen)
     assert not ohne, (f"Ansichten ohne Routen-Eintrag: {ohne}. "
                       "In ROUTEN in static/js/index.js nachtragen.")
-
-
-# RATSCHE, kein Zielwert: Die Zahl der Ansichten ohne Browsertest darf nicht steigen.
-# Heute ist sie 1 — `lists` ist routebar, steht aber in keiner Seitenleiste und wird von
-# den Browsertests nicht angeklickt. Wer eine Ansicht hinzufuegt und den Browsertest
-# vergisst, hebt sie auf 2 und wird rot. Wer `lists` nachtraegt, senkt sie auf 0. (#327)
-#
-# One view (`lists`) is routable but has no sidebar entry and no browser test. The floor
-# records that honestly instead of pretending it is covered.
-ANSICHTEN_OHNE_BROWSERTEST = 1
 
 
 def test_views_are_covered_by_browser_tests():
@@ -6172,55 +5032,6 @@ def test_every_navigation_entry_has_exactly_one_icon():
     assert len(eintraege) == 7, f"{len(eintraege)} Menuepunkte gefunden, erwartet 7"
     ohne = [e[:40] for e in eintraege if e.count("class=navsym") != 1]
     assert not ohne, "Menuepunkte ohne genau ein Symbol-Span: " + "; ".join(ohne)
-
-
-def test_the_emulator_script_keeps_more_than_one_generation():
-    """Der Rueckweg reicht mehr als eine Fassung weit, und die Marke wandert mit. (#338)
-
-    Vorher gab es genau eine (`.alt`), und `rollback` TAUSCHTE aktuelle und vorige Fassung:
-    zweimal zurueck landete wieder am Anfang. Schlimmer war der wahrscheinliche Fall — ein
-    Update auf eine bereits kaputte Fassung ueberschrieb die letzte gute.
-
-    Geprueft wird die Struktur des Skripts, nicht sein Lauf: Es laeuft nur IM Container,
-    und die Ringlogik wurde dort gegen ein nachgebautes Verzeichnis gemessen (vier
-    Installationen, drei Rueckschritte, drei verschiedene Fassungen).
-
-    Die `.url`-Marke ist der Punkt, an dem es still schiefgehen kann: Sie ist es, wogegen
-    die automatische Aktualisierung vergleicht. Eine zurueckgeholte Fassung ohne ihre Marke
-    wuerde beim naechsten Lauf sofort wieder auf die kaputte gehoben.
-    """
-    pfad = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "contrib", "streaming-host", "init", "20-emulators")
-    with open(pfad, encoding="utf-8") as f:
-        skript = f.read()
-
-    assert "GENERATIONEN=${EMU_GENERATIONEN:-3}" in skript, \
-        "die Zahl der aufgehobenen Fassungen ist nicht einstellbar"
-    assert "generationen_schieben" in skript and "generationen_zaehlen" in skript
-    # Der alte Tausch darf nicht zurueckkommen — er ist der Fehler, um den es ging.
-    assert "$dir.zurueck" not in skript, "rollback tauscht wieder, statt zurueckzugehen"
-    # Altbestand mit nur einer Generation muss uebernommen werden.
-    assert '$dir.alt" ] && [ ! -d "$EMU/$dir.alt1"' in skript, \
-        "der Altbestand aus der Ein-Generationen-Zeit wird nicht uebernommen"
-    # Die Marke wandert mit der Fassung.
-    assert '$dir.url.alt1"' in skript, "die .url-Marke wandert nicht mit"
-
-
-def test_an_update_run_covers_installed_emulators(appmod):
-    """Ein Aktualisierungslauf erfasst, was installiert IST — nicht nur, was eingeschaltet
-    ist. (#313)
-
-    Der Schalter `INSTALL_*` heisst „installiere das beim Start". Wer einen Emulator ueber
-    die Oberflaeche installiert hat, setzt ihn nicht — und das sind hier alle. Der Lauf
-    uebersprang sie vollstaendig und meldete trotzdem Erfolg: `/update` antwortete
-    „gestartet", die Fassung blieb unveraendert.
-    """
-    pfad = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "contrib", "streaming-host", "init", "20-emulators")
-    with open(pfad, encoding="utf-8") as f:
-        skript = f.read()
-    assert 'installiert "$(feld "$zeile" 2)" || continue' in skript, \
-        "installierte Emulatoren werden beim Sammellauf wieder uebersprungen"
 
 
 def test_the_env_template_contains_no_values():
@@ -6546,44 +5357,6 @@ def test_german_is_inlined_as_the_fallback():
     assert "i18nLaden(LANG).then(" in js, "der Start wartet nicht auf die Sprache"
 
 
-# --- 3DS: die Absage kommt vor der Zusage (#299) -----------------------------------
-
-def _3ds_datei(tmp_path, name, verschluesselt):
-    """Ein minimales NCSD-Abbild mit gesetztem oder fehlendem NoCrypto-Bit."""
-    p = tmp_path / name
-    b = bytearray(0x4200)
-    b[0x100:0x104] = b"NCSD"
-    b[0x4100:0x4104] = b"NCCH"
-    b[0x4188 + 7] = 0x00 if verschluesselt else 0x04     # Bit 2 = NoCrypto
-    p.write_bytes(bytes(b))
-    return str(p)
-
-
-def _cia_datei(tmp_path, name, titel_id):
-    """Eine minimale, aber ECHTE CIA: Kopf, Zertifikatskette, Ticket, TMD mit Titel-ID.
-
-    WARUM NICHT EINFACH 64 NULLBYTES: Genau das taten die beiden Vorgaengertests — und sie
-    prueften damit nur den Fehlerpfad, waehrend sie behaupteten, die Absage fuer CIAs zu
-    pruefen. Solange jede CIA abgewiesen wurde, fiel das nicht auf. Seit #315 haengt die
-    Antwort an der Titel-ID, und eine Attrappe ohne TMD kann sie nicht liefern.
-    """
-    import struct
-    hs, certs, tickets = 0x2020, 0x40, 0x40
-    aus = lambda n: (n + 63) // 64 * 64
-    kopf = bytearray(struct.pack("<IHHIIIIQ", hs, 0, 0, certs, tickets, 0x208, 0, 0))
-    kopf += b"\x00" * (aus(hs) - len(kopf))
-    kopf += b"\x00" * aus(certs)
-    kopf += b"\x00" * aus(tickets)
-    tmd = bytearray(struct.pack(">I", 0x00010004))     # RSA_2048_SHA256
-    tmd += b"\x00" * (0x100 + 0x3C)                    # Signatur + Auffuellung
-    kopf_tmd = bytearray(b"\x00" * 0x54)
-    struct.pack_into(">Q", kopf_tmd, 0x4C, titel_id)
-    tmd += kopf_tmd
-    p = tmp_path / name
-    p.write_bytes(bytes(kopf + tmd))
-    return str(p)
-
-
 def test_an_encrypted_3ds_image_is_refused_before_a_seat_is_taken(appmod, tmp_path):
     """Ein verschluesseltes Abbild wird abgelehnt, bevor ein Platz vergeben wird. (#299)
 
@@ -6743,41 +5516,6 @@ def test_a_cia_stays_refused_even_when_the_host_can_decrypt(appmod, tmp_path, mo
         "ein Update gehoert zu einem anderen Titel und startet auch installiert nie"
 
 
-# --- #356: die Fehlerklasse „ausgeliefert und wirkungslos" --------------------------
-
-def test_the_3ds_decrypt_url_names_a_file_that_upstream_actually_has():
-    """Der Dateiname in der Quell-URL muss einer sein, den es gibt. (#356)
-
-    WARUM DAS EINE PRUEFUNG WERT IST: Die erste Fassung zeigte auf `decrypt.py`; das
-    Repository hat `decrypt_3ds.py` und `decrypt_cia.py`. Der Name war geraten. Das Skript
-    bricht bei einem Fehlschlag ABSICHTLICH mit `exit 0` ab, damit der Container startet —
-    also war die Faehigkeit einfach nicht da, ohne dass irgendwo etwas rot wurde.
-    Ausgeliefert und wirkungslos ist der teuerste Zustand: Er sieht aus wie fertig.
-    """
-    pfad = os.path.join(REPO, "contrib/streaming-host/init/23-3ds-entschluesseln")
-    text = open(pfad, encoding="utf-8").read()
-    m = re.search(r"DECRYPT_3DS_URL:-(\S+?)\}", text)
-    assert m, "keine Vorgabe-URL gefunden"
-    assert os.path.basename(m.group(1)) in ("decrypt_3ds.py", "decrypt_cia.py"), \
-        f"{m.group(1)} nennt eine Datei, die es im Repository nicht gibt"
-
-
-def test_the_3ds_setup_does_not_gate_on_a_file_the_tool_never_reads():
-    """Keine Sperre auf `boot9.bin` — das Werkzeug oeffnet die Datei nie. (#356)
-
-    Es traegt die vier Retail-KeyX fest im Quelltext. Die Sperre prueft eine Voraussetzung,
-    die es nicht gibt — und lag zusaetzlich VOR `25-firmware`, das die Datei erst hinlegt.
-    Zwei Fehler ergaenzten sich so zu einem dritten: Sie konnte auf einem frischen
-    Container nie zutreffen.
-    """
-    pfad = os.path.join(REPO, "contrib/streaming-host/init/23-3ds-entschluesseln")
-    for nr, zeile in enumerate(open(pfad, encoding="utf-8"), 1):
-        if zeile.lstrip().startswith("#"):
-            continue
-        assert "boot9" not in zeile, \
-            f"Zeile {nr} macht die Einrichtung von boot9.bin abhaengig: {zeile.strip()}"
-
-
 def test_a_bootable_cia_is_only_promised_when_the_host_can_install(appmod, tmp_path, monkeypatch):
     """Eine startbare CIA ist nur dann eine Zusage, wenn der Host sie installieren kann. (#315)
 
@@ -6824,27 +5562,6 @@ def test_the_two_host_capabilities_come_from_one_request(appmod, monkeypatch):
     assert appmod.host_kann_entschluesseln() is True
     assert appmod.host_kann_cia_installieren() is True
     assert rufe["n"] == 1, "beide Fragen muessen aus derselben Antwort kommen"
-
-
-def test_the_agent_reads_the_same_title_id_as_romseerr(tmp_path):
-    """Agent und Romseerr muessen dieselbe Titel-ID lesen. (#315)
-
-    Zwei Leser derselben Struktur sind eine Stelle, an der spaeter genau eine angepasst
-    wird. Solange es sie gibt, muessen sie nachweislich uebereinstimmen — sonst sagt
-    Romseerr zu, was der Agent ablehnt.
-    """
-    import importlib.util
-    pfad = os.path.join(REPO, "contrib", "streaming-host", "stream-agent.py")
-    spec = importlib.util.spec_from_file_location("stream_agent_tid", pfad)
-    agent = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(agent)
-
-    import app as appmod
-    for kategorie in (0x00040000, 0x00040002, 0x0004000E, 0x0004008C):
-        tid = (kategorie << 32) | 0x00123400
-        datei = _cia_datei(tmp_path, f"T{kategorie:08X}.cia", tid)
-        assert agent.cia_titel_id(datei)[0] == appmod.cia_titel_id(datei)[0] == tid, \
-            f"Agent und Romseerr lesen 0x{kategorie:08X} verschieden"
 
 
 def test_the_inlined_german_table_covers_every_key_any_language_has():
@@ -7029,9 +5746,12 @@ def test_an_import_without_a_platform_names_the_folder_it_landed_in(appmod, tmp_
     monkeypatch.setattr(appmod, "set_state",
                         lambda jid, **kw: gemeldet.update(kw))
     monkeypatch.setattr(appmod, "get_job", lambda jid: {"id": "1", "platform": "", "title": "T"})
-    for name in ("romm_scan", "notify_all", "count_import", "save_jobs"):
+    # `romm_scan` steht NICHT in dieser Schleife: sein Vertrag ist (ok, grund), und
+    # eine pauschale None-Attrappe laesst den Aufrufer beim Entpacken scheitern (#520).
+    for name in ("notify_all", "count_import", "save_jobs"):
         if hasattr(appmod, name):
             monkeypatch.setattr(appmod, name, lambda *a, **k: None)
+    monkeypatch.setattr(appmod, "romm_scan", lambda *a, **k: (True, ""))
 
     appmod.import_folder("1", str(staging))
 
@@ -7102,12 +5822,90 @@ def test_wiiu_uses_the_wii_categories_because_the_indexer_does_not_separate_them
 
     Nachgemessen: `Super.Mario.3D.World.USA.WiiU-PoWeRUp` kommt mit {1030, 101030}, und
     die Standardkategorie fuer Wii U liefert NULL Treffer. Die Zuordnung am Titel raeumt
-    danach auf — `guess_platform` erkennt `WiiU` zuverlaessig.
+    danach auf — aber erst seit #452, siehe die Tests darunter. Bis dahin behauptete das
+    nur ein Kommentar.
     """
     assert appmod.SLUG2USE.get("wiiu"), "Wii U kennt keine Usenet-Kategorie"
     assert set(appmod.SLUG2USE["wiiu"]) >= set(appmod.SLUG2USE["wii"]), \
         "Wii U muss mindestens die Wii-Kategorien mitbenutzen"
     assert appmod.guess_platform("Super.Mario.3D.World.USA.WiiU-PoWeRUp") == "wiiu"
+
+
+# --- #452: Kategorie gegen Titel ------------------------------------------------------
+
+def test_every_category_tenant_can_actually_be_searched(appmod):
+    """Wer in `KAT_LEIHE` steht, MUSS Kategorien haben. (#452)
+
+    Ein leeres `SLUG2USE[slug]` schaltet die Usenet-Suche fuer diese Plattform komplett
+    ab — `search_usenet` steigt bei `not cats` sofort aus. Das ist der lautlose Fall:
+    kein Fehler, keine Meldung, nur null Treffer. Genau so war PS Vita unerreichbar.
+    """
+    for mieter, eigner in appmod.KAT_LEIHE.items():
+        assert appmod.SLUG2USE.get(mieter), \
+            f"{mieter} hat keine Usenet-Kategorie — die Suche ist fuer ihn abgeschaltet"
+        assert set(appmod.SLUG2USE[mieter]) >= set(appmod.SLUG2USE.get(eigner, [])), \
+            f"{mieter} muss die Kategorien von {eigner} mitbenutzen"
+
+
+def test_a_tenant_reclaims_its_own_category_from_the_title(appmod):
+    """Nennt der Titel den Mieter der gefundenen Kategorie, gewinnt der Titel. (#452)
+
+    Gemessen am echten Indexer: 16 von 16 Treffern kamen unter dem Slug des Eigentuemers
+    zurueck. Ein Vita-Titel landete dadurch im PSP-Ordner, und die Wii-U-Treffer aus #375
+    fielen aus dem Wii-U-Filter, weil sie `wii` hiessen.
+    """
+    f = appmod.plattform_aus_kategorie_und_titel
+    assert f("psp", "Uncharted Golden Abyss.PSVITA") == "psvita"
+    assert f("psp", "Uncharted Golden Abyss USA PSV-VENOM") == "psvita"
+    assert f("wii", "Super.Mario.3D.World.USA.WiiU-PoWeRUp") == "wiiu"
+    assert f("wii", "WiiU Super Mario 3D World-(Loadiine Ready2Play)") == "wiiu"
+
+
+def test_a_foreign_platform_in_the_title_does_not_override_the_category(appmod):
+    """Nur der eingetragene Mieter darf umwerfen — sonst niemand. (#452)
+
+    Titel erwaehnen staendig fremde Systeme („Wii version", „PS2 Classics"). Duerfte
+    jeder Titeltreffer die Kategorie schlagen, waere die Zuordnung schlechter als vorher.
+    Die Erlaubnis gilt nur dort, wo die Kategorie nachweislich zu grob ist.
+    """
+    f = appmod.plattform_aus_kategorie_und_titel
+    # `guess_platform` erkennt hier etwas anderes als die Kategorie — trotzdem bleibt sie.
+    assert appmod.guess_platform("Sonic Adventure 2 Dreamcast Port") == "dreamcast"
+    assert f("xbox", "Sonic Adventure 2 Dreamcast Port") == "xbox"
+    assert f("ps3", "Jak and Daxter PS2 Classics") == "ps3"
+    # Der umgekehrte Weg ist ebenfalls gesperrt: PSP faehrt nicht in der Vita-Kategorie.
+    assert f("psvita", "Daxter USA PSP-Googlecus") == "psvita"
+    # Ohne Kategorie bleibt der Titel die einzige Quelle — wie bisher.
+    assert f(None, "Uncharted Golden Abyss.PSVITA") == "psvita"
+    assert f(None, "voellig namenlos") is None
+
+
+def test_the_usenet_search_labels_a_vita_release_as_vita(appmod, monkeypatch):
+    """Die ganze Kette, nicht nur die Entscheidungsfunktion. (#452)
+
+    Der Fehler sass in `search_usenet`, nicht in `guess_platform` — das erkannte `psvita`
+    die ganze Zeit richtig, wurde aber nie gefragt. Ein Test nur auf `guess_platform`
+    haette gruen gestanden, waehrend der Download im PSP-Ordner landete.
+    """
+    appmod.save_settings({"connections": {"prow_url": "http://prow", "prow_apikey": "k"}})
+
+    class R:
+        def json(self):
+            return [{"protocol": "usenet", "title": "Uncharted Golden Abyss.PSVITA",
+                     "size": 3076095179, "indexer": "I", "downloadUrl": "http://prow/1",
+                     "categories": [{"id": 101020}]},
+                    {"protocol": "usenet", "title": "Daxter USA PSP-Googlecus",
+                     "size": 1, "indexer": "I", "downloadUrl": "http://prow/2",
+                     "categories": [{"id": 101020}]}]
+    monkeypatch.setattr(appmod.requests, "get", lambda *a, **k: R())
+
+    out = appmod.search_usenet("Uncharted", appmod.SLUG2USE["psvita"])
+    nach_titel = {o["title"]: o["platform"] for o in out}
+    assert nach_titel["Uncharted Golden Abyss.PSVITA"] == "psvita", \
+        "der Vita-Titel darf nicht als PSP zurueckkommen"
+    assert nach_titel["Daxter USA PSP-Googlecus"] == "psp", \
+        "ein echter PSP-Titel in derselben Kategorie muss PSP bleiben"
+    appmod.save_settings({})
 
 
 # --- #382: gesperrte Archive.org-Eintraege -------------------------------------------
@@ -7264,104 +6062,6 @@ def test_no_connection_tab_reports_a_status_that_cannot_change(appmod):
             fest.append(f"{name} (da:{da}, an:{an})")
     assert not fest, ("diese Reiter melden einen Zustand, der sich nie aendert: "
                       + ", ".join(fest))
-
-
-# --- #388: die Naht zwischen Agent und Entschluesselungswerkzeug ----------------------
-
-def _agent_modul():
-    """`stream-agent.py` als Modul laden (kein `.py`-Import moeglich)."""
-    import importlib.util
-    pfad = os.path.join(REPO, "contrib", "streaming-host", "stream-agent.py")
-    spec = importlib.util.spec_from_file_location("stream_agent_cia", pfad)
-    m = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(m)
-    return m
-
-
-def _falsches_werkzeug(tmp_path, verhalten):
-    """Ein nachgebautes `decrypt_cia.py`. Baut den Namen wie das ECHTE — feste Endung.
-
-    WARUM NACHGEBAUT: Das echte Werkzeug braucht pycryptodome und laeuft auf dem
-    Streaming-Host. Geprueft werden soll hier nicht die Kryptografie, sondern die NAHT —
-    und genau dort lag der Fehler: Die Entschluesselung lief durch, der Agent fand die
-    Datei nicht und meldete Misserfolg.
-    """
-    w = tmp_path / "werkzeug.py"
-    w.write_text(
-        "import os, shutil, sys\n"
-        "ein = sys.argv[1]\n"
-        f"verhalten = {verhalten!r}\n"
-        "if verhalten == 'normal':\n"
-        # exakt wie im Original: Endung fest auf .cia, unabhaengig von der Eingabe
-        "    aus = os.path.splitext(ein)[0] + '-decrypted.cia'\n"
-        "    shutil.copyfile(ein, aus)\n"
-        "elif verhalten == 'anderer_name':\n"
-        # Ein Name, den NIEMAND aus der Eingabe herleiten kann. Genau das trennt „findet
-        # die Ausgabe" von „raet ihren Namen richtig".
-        "    shutil.copyfile(ein, os.path.join(os.path.dirname(ein), 'fertig-xyz.cia'))\n"
-        "elif verhalten == 'nichts':\n"
-        "    pass\n"
-        "print('Done')\n", encoding="utf-8")
-    return str(w)
-
-
-def test_the_decrypted_cia_is_found_whatever_the_tool_names_it(tmp_path, monkeypatch):
-    """Der Agent findet die Ausgabe, ohne ihren Namen nachzurechnen. (#388)
-
-    Der Fehler: `decrypt_cia.py` haengt IMMER `-decrypted.cia` an, der Agent erwartete die
-    Endung der Eingabe. Bei der atomaren `.part`-Datei gingen beide auseinander — die
-    Entschluesselung lief durch, 342 MB lagen korrekt da, und der Start scheiterte mit
-    „keine Ausgabedatei".
-    """
-    agent = _agent_modul()
-    quelle = tmp_path / "Titel.cia"
-    quelle.write_bytes(b"\x00" * 64)
-    cache = tmp_path / "cache"
-    monkeypatch.setattr(agent, "ENTSCHL_CACHE", str(cache))
-    monkeypatch.setattr(agent, "ENTSCHL_WERKZEUG_CIA", _falsches_werkzeug(tmp_path, "normal"))
-    monkeypatch.setattr(agent, "_cache_aufraeumen", lambda schonen="": None)
-
-    ziel, fehler = agent._cia_entschluesseln(str(quelle))
-    assert not fehler, f"unerwarteter Fehler: {fehler}"
-    assert os.path.isfile(ziel) and os.path.getsize(ziel) == 64
-
-    # UND der Fall, der den alten Weg wirklich bricht: ein Ausgabename, den man aus der
-    # Eingabe NICHT herleiten kann. Mit einer sauberen `.cia` als Eingabe waere die
-    # Nachrechnung zufaellig richtig gewesen — dieser Test war ohne diesen Teil
-    # gegenstandslos, was die Gegenprobe gezeigt hat.
-    os.remove(ziel)
-    monkeypatch.setattr(agent, "ENTSCHL_WERKZEUG_CIA",
-                        _falsches_werkzeug(tmp_path, "anderer_name"))
-    ziel2, fehler2 = agent._cia_entschluesseln(str(quelle))
-    assert not fehler2, f"Ausgabe mit unerwartetem Namen nicht gefunden: {fehler2}"
-    assert os.path.isfile(ziel2)
-
-
-def test_nothing_is_left_behind_in_the_cache(tmp_path, monkeypatch):
-    """Weder Erfolg noch Fehlschlag hinterlassen Reste. (#388)
-
-    Der alte Weg loeschte zwei Namen, von denen keiner die echte Ausgabe war: Bei jedem
-    Versuch blieben Hunderte Megabyte liegen — und zaehlten gegen den Deckel des
-    Zwischenspeichers, ohne je benutzt zu werden.
-    """
-    agent = _agent_modul()
-    quelle = tmp_path / "Titel.cia"
-    quelle.write_bytes(b"\x00" * 64)
-    cache = tmp_path / "cache"
-    monkeypatch.setattr(agent, "ENTSCHL_CACHE", str(cache))
-    monkeypatch.setattr(agent, "_cache_aufraeumen", lambda schonen="": None)
-
-    monkeypatch.setattr(agent, "ENTSCHL_WERKZEUG_CIA", _falsches_werkzeug(tmp_path, "normal"))
-    ziel, _ = agent._cia_entschluesseln(str(quelle))
-    assert sorted(os.listdir(cache)) == [os.path.basename(ziel)], \
-        f"nach dem Erfolg liegt mehr im Zwischenspeicher: {os.listdir(cache)}"
-
-    os.remove(ziel)
-    monkeypatch.setattr(agent, "ENTSCHL_WERKZEUG_CIA", _falsches_werkzeug(tmp_path, "nichts"))
-    ziel2, fehler = agent._cia_entschluesseln(str(quelle))
-    assert fehler and not ziel2, "ein Werkzeug ohne Ausgabe muss einen Fehler ergeben"
-    assert os.listdir(cache) == [], \
-        f"nach dem Fehlschlag bleibt etwas liegen: {os.listdir(cache)}"
 def test_every_platform_has_at_least_one_importable_extension(appmod):
     """Jede STREAMBARE Plattform muss mindestens eine Endung haben, die importiert wird. (#391)
 
@@ -7466,55 +6166,6 @@ def test_an_ambiguous_abbreviation_is_not_guessed(appmod):
     """
     assert appmod.guess_platform("Batman DC Collection") != "dreamcast"
     assert appmod.guess_platform("Spiel Directors Cut DC") != "dreamcast"
-
-
-# ---------------- Eine Plattform, die nicht gelesen werden kann, muss auffallen (#381)
-#
-# GEMESSEN, BEVOR HIER ETWAS STAND: `os.walk` wirft bei einem Rechte- oder E/A-Fehler
-# KEINE Ausnahme. Ohne `onerror` ruft es niemanden und liefert einfach nichts. Der
-# `except Exception: pass` im Rumpf von `build_index` wurde bei genau diesem Fall nie
-# betreten — ihn laut zu machen haette nichts geaendert.
-#
-# Live nachgewiesen am 2026-08-12: `/roms/pico8` steht auf `drwx-w----` (Gruppe darf
-# schreiben, nicht lesen), der Container laeuft in dieser Gruppe. 13.202 Dateien,
-# 13.176 distinkte Titel — verbucht wurden 0, und vier Indexlaeufe in Folge meldeten
-# `598 Plattformen, 128177 Titel` ohne ein Wort dazu.
-#
-# EN: os.walk raises nothing on a permission or I/O error — without `onerror` it just
-# yields nothing. Measured live: /roms/pico8 is 0720, so the container may write but not
-# read it; 13,176 titles counted as zero with no log line at all.
-
-def _unlesbar_machen(pfad):
-    """0o000 setzen und PRUEFEN, dass es wirkt. Als root wirkt es nicht — dann None.
-
-    Ein Test, der als root stillschweigend durchlaeuft, prueft nichts. Lieber
-    uebersprungen als gruen ohne Aussage.
-    """
-    os.chmod(pfad, 0o000)
-    try:
-        os.scandir(pfad).close()
-    except PermissionError:
-        return True
-    os.chmod(pfad, 0o755)
-    return False
-
-
-class _Protokoll:
-    """Sammelt, was `log()` geschrieben haette."""
-    def __init__(self): self.zeilen = []
-    def __call__(self, msg): self.zeilen.append(str(msg))
-    def mit(self, teil): return [z for z in self.zeilen if teil in z]
-    @property
-    def schluss(self):
-        z = self.mit("Bibliotheks-Index:")
-        return z[-1] if z else ""
-
-
-def _index_mit_protokoll(appmod, monkeypatch):
-    p = _Protokoll()
-    monkeypatch.setattr(appmod, "log", p)
-    appmod.build_index()
-    return p
 
 
 def test_an_unreadable_platform_is_named_in_the_log(appmod, monkeypatch, tmp_path):
@@ -7667,29 +6318,6 @@ def test_health_reports_platforms_that_could_not_be_read(appmod, client, monkeyp
         appmod.build_index()
 
 
-# --- #379: die schreibenden Endpunkte mit Sicherheitsbezug ---------------------------
-#
-# WARUM GERADE DIESE DREI: Von 24 ungeprueften schreibenden Endpunkten tragen drei eine
-# Grenze, deren Bruch nicht auffaellt — Passwort-Zuruecksetzen, Freigabe fremder Anfragen,
-# Loeschen. Alle drei sind im Quelltext KORREKT abgesichert; gemessen, nicht angenommen.
-# Was fehlte, war die Zusicherung, dass es so bleibt.
-
-def _als(client, appmod, name, passwort="pw123456", rolle="user"):
-    """Melde einen Nutzer an; lege ihn an, wenn er fehlt. -> der Client."""
-    if client.get("/api/auth/status").get_json().get("setup"):
-        client.post("/api/setup", json={"username": "admin", "password": "pw123456",
-                                        "display_name": "Admin"})
-    client.post("/api/login", json={"username": "admin", "password": "pw123456"})
-    if name != "admin":
-        users = appmod.load_users()
-        if name not in users:
-            users[name] = {"pw": appmod.generate_password_hash(passwort), "role": rolle}
-            appmod.save_users(users)
-        client.post("/api/logout")
-        client.post("/api/login", json={"username": name, "password": passwort})
-    return client
-
-
 def test_a_plain_user_cannot_approve_a_request(client, appmod):
     """Freigeben ist an `manage_requests` gebunden — auch fuer die eigene Anfrage. (#379)
 
@@ -7820,7 +6448,25 @@ def test_a_request_row_links_to_the_title(appmod):
     js = open(os.path.join(REPO, "static", "js", "index.js"), encoding="utf-8").read()
     assert "openJobDetail" in js, "es gibt keine Verknuepfung von der Anfrage zur Karte"
     assert "class=jobt" in js, "der Titel der Anfragezeile ist nicht ausgezeichnet"
-    assert "jt.onclick" in js, "der Titel reagiert auf keinen Klick"
+    # AUF DIE EIGENSCHAFT, NICHT AUF DIE SCHREIBWEISE. Die erste Fassung verlangte woertlich
+    # `jt.onclick` — also eine Bindung JE ZEILE. Genau die war der Fehler aus #449: Beim
+    # Neuaufbau der Liste ist die Zeile ein anderes Element, die Bindung weg, und ein Klick
+    # in diesem Moment tut nichts. Der Test haette den Fix also blockiert, obwohl der Titel
+    # danach besser reagiert als vorher.
+    #
+    # Heute der dritte Test, der an einer Schreibweise haengt statt an der Sache
+    # (vorher: der apt-Dolphin-Rueckfall und der leere Anfragen-Text).
+    # NUR DIE BINDUNG DER ANFRAGENLISTE ANSEHEN. Die erste Fassung suchte
+    # `addEventListener('click'` in der GANZEN Datei — das kommt dort mehrfach vor, also
+    # blieb sie gruen, als ich die Bindung zum Ausprobieren entfernte. Ein Test, der auf ein
+    # Vorkommen irgendwo prueft, prueft nichts Bestimmtes.
+    m = re.search(r"^function jobKlickBindung\(.*?\)\{(.*?)^\}", js, re.S | re.M)
+    assert m, "die Klickbindung der Anfragenliste ist nicht mehr auffindbar"
+    koerper = m.group(1)
+    assert "addEventListener('click'" in koerper, "sie bindet keinen Klick"
+    assert "closest('.jobt')" in koerper, \
+        "sie findet den Titel nicht — sie reagierte dann auf die ganze Zeile"
+    assert "openJobDetail" in koerper, "sie fuehrt nicht zur Karte"
 
 
 def test_a_request_without_a_card_says_so_instead_of_opening_nothing(appmod):
@@ -7862,6 +6508,110 @@ def test_an_unpacked_wii_u_game_is_recognised_as_one_title(appmod, tmp_path):
     assert appmod.spielordner_slug(str(sammlung)) == ""
 
 
+def test_an_unpacked_ps_vita_title_is_recognised_as_one_title(appmod, tmp_path):
+    """`eboot.bin`+`sce_sys` macht einen Ordner zu einem Vita-Titel. (#455)
+
+    Der Aufbau ist an einem echten Import gemessen, nicht erfunden — das Release liefert
+    einen ORDNER, dessen Name auf `.vpk` endet. Der Name darf dabei nichts entscheiden:
+    andere Releases liefern denselben Aufbau unter dem blanken Titel.
+    """
+    spiel = tmp_path / "WipEout 2048 [PCSF00007] (v01.00) .vpk"
+    (spiel / "sce_sys").mkdir(parents=True)
+    (spiel / "sce_module").mkdir()
+    (spiel / "PSP2").mkdir()
+    (spiel / "eboot.bin").write_bytes(b"x" * 16)
+    (spiel / "sce_sys" / "param.sfo").write_bytes(b"x" * 8)
+    assert appmod.spielordner_slug(str(spiel)) == "psvita"
+
+    # Derselbe Aufbau ohne die optionalen Teile — muss weiterhin greifen.
+    schlank = tmp_path / "Gravity Rush"
+    (schlank / "sce_sys").mkdir(parents=True)
+    (schlank / "eboot.bin").write_bytes(b"x" * 16)
+    assert appmod.spielordner_slug(str(schlank)) == "psvita"
+
+
+def test_a_lone_eboot_does_not_claim_the_vita_platform(appmod, tmp_path):
+    """`eboot.bin` ALLEIN ist kein Titel. (#455)
+
+    Jeder Vita-Titel hat eine `eboot.bin`, und genau deshalb landete beim Fehlschlag eine
+    namenlose 10-MB-Datei in der Bibliothek. Wuerde die Datei allein schon die Plattform
+    beanspruchen, machte der Fix aus einem Bruchstueck einen anerkannten Titel — das waere
+    schlimmer als der Fehler.
+    """
+    bruchstueck = tmp_path / "irgendwas"
+    bruchstueck.mkdir()
+    (bruchstueck / "eboot.bin").write_bytes(b"x" * 16)
+    assert appmod.spielordner_slug(str(bruchstueck)) == ""
+
+    # Und umgekehrt: `sce_sys` allein (z.B. ein Metadaten-Rest) ebenfalls nicht.
+    rest = tmp_path / "rest"
+    (rest / "sce_sys").mkdir(parents=True)
+    assert appmod.spielordner_slug(str(rest)) == ""
+
+
+def test_every_game_folder_pattern_names_a_known_platform(appmod):
+    """Jeder Slug in `SPIELORDNER_MUSTER` muss eine Plattform sein. (#455)
+
+    Ein Tippfehler im Slug faellt sonst nirgends auf: Der Ordner wird erkannt, wandert
+    als Ganzes — und landet unter einer Plattform, die es nicht gibt.
+    """
+    bekannt = {s for _, paare in appmod.PLATFORMS for s, _ in paare}
+    for slug, _ in appmod.SPIELORDNER_MUSTER:
+        assert slug in bekannt, f"{slug!r} aus SPIELORDNER_MUSTER ist keine Plattform"
+    for _, slug in appmod.SPIELORDNER_DATEI.items():
+        assert slug in bekannt, f"{slug!r} aus SPIELORDNER_DATEI ist keine Plattform"
+
+
+def test_an_import_lands_in_the_folder_that_already_holds_the_platform(appmod):
+    """Liegt die Bibliothek im Alias-Ordner, gehoert der Import dorthin. (#454)
+
+    RetroNAS nennt GameCube `gc`, Romseerrs Slug heisst `ngc`. Ging der Import stur nach
+    `ROMS/<slug>`, landete er NEBEN der Bibliothek statt darin — 561 GB in `gc`, der
+    Download in `ngc`. Sichtbar war das nicht, weil das Lesen beide Ordner zusammenfuegt.
+    """
+    gc = os.path.join(appmod.ROMS, "gc")
+    os.makedirs(gc, exist_ok=True)
+    open(os.path.join(gc, "Luigi's Mansion (USA).rvz"), "w").close()
+    assert appmod.bibliothek_ordner("ngc") == gc, \
+        "der Import muss in den Ordner, in dem die Plattform schon liegt"
+
+
+def test_an_import_falls_back_to_the_slug_when_nothing_exists_yet(appmod, tmp_path, monkeypatch):
+    """Ist noch nichts da, bleibt es beim Slug. (#454)
+
+    Der Rueckfall darf nicht schweigen: Eine Plattform ohne jeden Ordner muss trotzdem ein
+    Ziel bekommen, sonst waere der erste Download jeder neuen Plattform unmoeglich.
+    """
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    assert appmod.bibliothek_ordner("ngc") == str(tmp_path / "ngc")
+
+    # Ein LEERER Alias-Ordner zaehlt nicht — sonst gewaenne der Streuner gegen die
+    # Bibliothek. Genau so herum lagen `ngc` und `dreamcast` auf der Anlage.
+    (tmp_path / "gc").mkdir()
+    assert appmod.bibliothek_ordner("ngc") == str(tmp_path / "ngc")
+
+    # Sobald etwas drin ist, gewinnt er.
+    (tmp_path / "gc" / "spiel.rvz").write_bytes(b"x")
+    assert appmod.bibliothek_ordner("ngc") == str(tmp_path / "gc")
+
+
+def test_no_import_path_is_built_from_the_slug_directly(appmod):
+    """`ROMS/<slug>` darf nur noch in `bibliothek_ordner` stehen. (#454)
+
+    Der Fehler war nicht, dass die Aufloesung fehlte — sie gab es fuer das Lesen laengst.
+    Er war, dass ZWEI Schreibstellen daran vorbeigingen. Eine dritte waere genauso still.
+    """
+    import inspect
+    quelle = inspect.getsource(appmod)
+    zeilen = [i for i, z in enumerate(quelle.splitlines(), 1)
+              if "os.path.join(ROMS, slug)" in z]
+    _, start = inspect.getsourcelines(appmod.bibliothek_ordner)
+    ende = start + len(inspect.getsourcelines(appmod.bibliothek_ordner)[0])
+    draussen = [i for i in zeilen if not (start <= i < ende)]
+    assert not draussen, \
+        f"Zeile(n) {draussen} bauen das Importziel am Alias vorbei — bibliothek_ordner nehmen"
+
+
 def test_the_game_folder_moves_as_one_unit_and_its_files_are_not_scattered(appmod, tmp_path, monkeypatch):
     """Der Ordner wandert als Ganzes, seine Dateien NICHT einzeln. (#391)
 
@@ -7884,9 +6634,12 @@ def test_the_game_folder_moves_as_one_unit_and_its_files_are_not_scattered(appmo
     gemeldet = {}
     monkeypatch.setattr(appmod, "set_state", lambda jid, **kw: gemeldet.update(kw))
     monkeypatch.setattr(appmod, "get_job", lambda jid: {"id": "1", "platform": "wiiu", "title": "T"})
-    for name in ("romm_scan", "notify_all", "count_import", "save_jobs"):
+    # `romm_scan` steht NICHT in dieser Schleife: sein Vertrag ist (ok, grund), und
+    # eine pauschale None-Attrappe laesst den Aufrufer beim Entpacken scheitern (#520).
+    for name in ("notify_all", "count_import", "save_jobs"):
         if hasattr(appmod, name):
             monkeypatch.setattr(appmod, name, lambda *a, **k: None)
+    monkeypatch.setattr(appmod, "romm_scan", lambda *a, **k: (True, ""))
 
     appmod.import_folder("1", str(staging))
 
@@ -8315,48 +7068,6 @@ def test_every_environment_variable_is_mentioned_in_the_example():
         f"nur durch Quelltextlesen auffindbar: {fehlend}")
 
 
-def test_every_contrib_tool_is_named_in_its_readme():
-    """Jedes Werkzeug unter `contrib/` steht in der README daneben. (#395)
-
-    GEMESSEN BEIM FUND: `contrib/streaming-host/README.md` hat 1.444 Zeilen und erwaehnte
-    fuenf der dortigen Dateien mit keinem Wort — darunter `launch-profile.py` mit 1.187
-    Zeilen, also den zweitgroessten Brocken des Verzeichnisses, und `emu-setup`, ohne das
-    sich keine Tastenbelegung setzen laesst.
-
-    Die Dateien selbst sind gut dokumentiert; jede traegt einen zweisprachigen Kopf. Nur
-    erfaehrt man von ihrer Existenz nicht, wenn man nicht ohnehin `ls` tippt. Doku, die
-    voraussetzt, dass man schon weiss, wonach man sucht, hilft genau denen nicht, fuer die
-    sie da ist.
-
-    EN: every tool under contrib/ must be named in the README beside it. The files carry
-    good headers; the problem was that nothing pointed at them.
-    """
-    fehlend = {}
-    for ordner in sorted(os.listdir(os.path.join(REPO, "contrib"))):
-        basis = os.path.join(REPO, "contrib", ordner)
-        readme = os.path.join(basis, "README.md")
-        if not os.path.isdir(basis) or not os.path.isfile(readme):
-            continue
-        text = open(readme, encoding="utf-8").read()
-        luecke = []
-        for wurzel, verz, dateien in os.walk(basis):
-            verz[:] = [v for v in verz
-                       if v not in ("__pycache__", ".pytest_cache", "node_modules")]
-            for datei in dateien:
-                pfad = os.path.join(wurzel, datei)
-                # Nur ausfuehrbare Werkzeuge. Beiwerk (Bilder, .md, Konfiguration im Web-
-                # Verzeichnis) einzeln aufzuzaehlen waere Ballast ohne Nutzen.
-                if datei.endswith(".md") or not os.access(pfad, os.X_OK):
-                    continue
-                if datei not in text:
-                    luecke.append(os.path.relpath(pfad, basis))
-        if luecke:
-            fehlend[ordner] = sorted(luecke)
-    assert not fehlend, (
-        "diese Werkzeuge kommen in der README daneben nicht vor — man findet sie nur, "
-        f"wenn man ohnehin nachsieht: {json.dumps(fehlend, ensure_ascii=False)}")
-
-
 def test_no_markdown_table_row_stands_outside_its_table():
     """Eine Tabellenzeile hinter einem Absatz ist keine Tabelle mehr. (#395)
 
@@ -8475,157 +7186,6 @@ def test_a_file_that_identifies_as_nothing_still_passes(appmod, tmp_path):
     assert appmod.dreids_art(str(tmp_path / "gibtsnicht.3ds")) == ""
 
 
-def test_the_agent_reads_the_same_format_as_romseerr(appmod, tmp_path):
-    """Beide Seiten muessen dieselbe Datei gleich einordnen. (#422)
-
-    WARUM DAS EINE EIGENE PRUEFUNG BRAUCHT: `dreids_art` in `app.py` und `_3ds_art` im
-    Agenten sind zwei Kopien derselben Regel. Laufen sie auseinander, sagt Romseerr zu und
-    der Agent ab — der Nutzer klickt, belegt einen Platz und bekommt eine Absage, die
-    Romseerr eine Sekunde vorher ausgeschlossen hatte. Das ist der unangenehmste Zustand:
-    zwei Aussagen, beide fuer sich stimmig, die sich widersprechen.
-
-    Der Fix fuer #422 musste deshalb auf BEIDEN Seiten passieren. Diese Pruefung haelt sie
-    zusammen, statt sich darauf zu verlassen, dass jemand daran denkt.
-
-    EN: the rule exists twice. If the copies drift, Romseerr promises and the agent refuses
-    a second later. This holds them together instead of relying on someone remembering.
-    """
-    import importlib.util
-    pfad = os.path.join(REPO, "contrib", "streaming-host", "stream-agent.py")
-    os.environ["STREAM_AGENT_TOKEN"] = "testtoken"
-    os.environ["STREAM_ROMS"] = appmod.ROMS
-    spec = importlib.util.spec_from_file_location("stream_agent_422", pfad)
-    agent = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(agent)
-
-    faelle = [
-        (_cia_datei(tmp_path, "getarnte.3ds", 0x0004000000000000), ".cia"),
-        (_cia_datei(tmp_path, "ehrliche.cia", 0x0004000000000000), ".cia"),
-        (_3ds_datei(tmp_path, "abbild.cia", verschluesselt=False), ".3ds"),
-        (_3ds_datei(tmp_path, "abbild.3ds", verschluesselt=False), ".3ds"),
-    ]
-    for datei, erwartet in faelle:
-        a, b = appmod.dreids_art(datei), agent._3ds_art(datei)
-        assert a == b == erwartet, (
-            f"{os.path.basename(datei)}: Romseerr sagt {a!r}, der Agent {b!r}, "
-            f"erwartet {erwartet!r}")
-
-    # Und die Unentschieden-Regel gilt auf beiden Seiten gleich.
-    fremd = tmp_path / "fremd.3ds"
-    fremd.write_bytes(b"\x00" * 4096)
-    assert appmod.dreids_art(str(fremd)) == agent._3ds_art(str(fremd)) == ""
-
-
-# --- #429: Vollbild wird gemessen, nicht angenommen ---------------------------------
-
-def test_the_keystroke_route_does_not_sit_where_it_cannot_fire():
-    """Kein Tastenweg im `--fullscreen`-Schritt — der laeuft VOR dem Start. (#429)
-
-    DER FUND: `xemu_vollbild()` schickt F11 an ein xemu-Fenster. Der Agent ruft
-    `--fullscreen` aber ab, BEVOR der Emulator gestartet wird — damit dieser seine
-    Konfiguration frisch liest. Zu diesem Zeitpunkt gibt es kein Fenster. Am laufenden
-    Host nachgestellt:
-
-        [vollbild] xemu: kein xemu-Fenster gefunden — laeuft der Emulator?
-
-    Die Loesung aus #306 stand also im Quelltext und feuerte nie. Genau das Muster
-    „ausgeliefert und wirkungslos": Es sah aus wie ein Fix, war aber einer, den niemand
-    ausgeloest hat.
-
-    Diese Pruefung haelt die beiden Zeitpunkte auseinander: Was `--fullscreen` tut, muss
-    ohne Fenster sinnvoll sein — also Konfiguration schreiben. Tastensendungen gehoeren in
-    den Fensterschritt nach dem Start.
-
-    EN: `--fullscreen` runs before the emulator starts, so a keystroke route there finds no
-    window and never fires. #306's fix was in the source and inert.
-    """
-    quelle = open(os.path.join(REPO, "contrib", "streaming-host", "launch-profile.py"),
-                  encoding="utf-8").read()
-    m = re.search(r"^PROFILE = \{(.*?)^\}", quelle, re.S | re.M)
-    assert m, "PROFILE nicht gefunden"
-    zugeordnet = set(re.findall(r'"vollbild":\s*([A-Za-z_][A-Za-z0-9_]*)', m.group(1)))
-    zugeordnet.discard("None")
-
-    def rumpf(fn):
-        m = re.search(rf"^def {fn}\(.*?\):(.*?)(?=^def |\Z)", quelle, re.S | re.M)
-        return m.group(1) if m else ""
-
-    for name in sorted(zugeordnet):
-        eigener = rumpf(name)
-        assert eigener, f"{name} ist zugeordnet, aber nicht definiert"
-        # EINE EBENE WEITERVERFOLGEN. Die erste Fassung sah nur in die genannte Funktion —
-        # und `azahar_vollbild` besteht aus einer einzigen Zeile: `return
-        # f11_vollbild("Azahar")`. Der xdotool-Aufruf steht im gemeinsamen Helfer, also
-        # blieb der Waechter gruen, waehrend genau der Fehler wieder dastand, den er
-        # verhindern soll. Aufgefallen NUR, weil die Gegenprobe ihn absichtlich einbaute.
-        aufgerufen = set(re.findall(r"\b([a-z_][a-z0-9_]*)\(", eigener))
-        koerper = eigener + "".join(rumpf(f) for f in aufgerufen if f != name)
-        koerper = re.match(r"(.*)", koerper, re.S)
-        # AUF DEN AUFRUF PRUEFEN, NICHT AUF DAS WORT. Die erste Fassung suchte
-        # "xdotool" im ganzen Funktionskoerper und meldete `pcsx2_vollbild` — das
-        # schreibt eine Konfigurationszeile und erwaehnt xdotool nur in seinem
-        # Kommentar, um zu begruenden, WARUM es den Fenstertrick nicht benutzt. Ein
-        # Waechter, der an einer Erklaerung scheitert, erzieht dazu, Erklaerungen
-        # wegzulassen.
-        assert '_x("xdotool"' not in koerper.group(1), (
-            f"{name} sucht ein Fenster, laeuft aber im `--fullscreen`-Schritt VOR dem "
-            "Start — dort gibt es keins. Tastenwege gehoeren in vollbild_sicherstellen().")
-
-
-def test_fullscreen_is_measured_before_it_is_corrected():
-    """Erst messen, dann F11 — nicht umgekehrt. (#429)
-
-    WARUM DAS DIE ENTSCHEIDENDE REIHENFOLGE IST: **F11 ist ein Umschalter.** Ein Emulator,
-    bei dem der Fenstertrick bereits gewirkt hat, fiele durch ein blindes F11 WIEDER aus
-    dem Vollbild — aus einem funktionierenden Fall wuerde ein kaputter. Die Messung ist
-    hier keine zusaetzliche Vorsicht, sondern das, was die Korrektur ungefaehrlich macht.
-
-    EN: F11 is a toggle. Measuring first is what makes the correction safe rather than a
-    way to break the emulators that already worked.
-    """
-    quelle = open(os.path.join(REPO, "contrib", "streaming-host", "launch-profile.py"),
-                  encoding="utf-8").read()
-    m = re.search(r"^def vollbild_sicherstellen\(.*?\):(.*?)(?=^def |\Z)", quelle,
-                  re.S | re.M)
-    assert m, "vollbild_sicherstellen fehlt"
-    koerper = m.group(1)
-
-    mess = koerper.index("gezeichneter_anteil()")
-    taste = koerper.index('"F11"')
-    assert mess < taste, "F11 wird geschickt, bevor gemessen wurde"
-
-    # Und der Rueckweg ohne Korrektur muss es geben: liegt die Flaeche schon ueber der
-    # Schwelle, darf NICHTS gesendet werden.
-    assert "VOLLBILD_SCHWELLE" in koerper, "es gibt keine Schwelle, ab der nichts passiert"
-    assert re.search(r">= VOLLBILD_SCHWELLE:\s*\n\s*return", koerper), \
-        "ueber der Schwelle wird nicht frueh zurueckgekehrt — F11 traefe auch den Gutfall"
-
-
-# --- #427: Updates und DLC sind keine Spiele ----------------------------------------
-
-def _nsp_datei(tmp_path, name, titel_id):
-    """Ein minimales, aber ECHTES PFS0-Archiv mit einem Ticket im Inhaltsverzeichnis.
-
-    Nicht einfach ein paar Bytes: Die Titel-ID wird aus dem NAMEN des Ticket-Eintrags
-    gelesen, also muss das Inhaltsverzeichnis stimmen. Eine Attrappe ohne gueltiges PFS0
-    pruefte nur den Fehlerpfad und behauptete, die Absage zu pruefen — genau die Falle,
-    in die die ersten CIA-Tests gelaufen sind.
-    """
-    import struct
-    eintraege = [f"{titel_id}0000000000000004.tik", "abcd.nca"]
-    tabelle = b""
-    versatz = []
-    for n in eintraege:
-        versatz.append(len(tabelle))
-        tabelle += n.encode() + b"\x00"
-    kopf = struct.pack("<4sIII", b"PFS0", len(eintraege), len(tabelle), 0)
-    for i, _n in enumerate(eintraege):
-        kopf += struct.pack("<QQII", 0, 16, versatz[i], 0)
-    p = tmp_path / name
-    p.write_bytes(kopf + tabelle + b"\x00" * 64)
-    return str(p)
-
-
 def test_a_switch_update_or_dlc_is_refused_before_a_seat_is_taken(appmod, tmp_path):
     """Update und DLC starten nicht — und das steht VOR der Platzvergabe fest. (#427)
 
@@ -8698,67 +7258,393 @@ def test_an_unreadable_switch_file_still_passes(appmod, tmp_path):
     assert appmod.switch_startbar(str(tmp_path / "gibtsnicht.nsp")) == (True, "")
 
 
-def test_romseerr_and_the_agent_refuse_the_same_switch_packages(appmod, tmp_path):
-    """Beide Seiten sagen dasselbe ab. (#427)
+def test_the_install_example_does_not_point_at_latest():
+    """Das Installationsbeispiel nennt eine Version, nicht `:latest`. (#436)
 
-    Romseerr fragt vor der Platzvergabe, der Agent noch einmal beim Start. Laufen die
-    beiden auseinander, haengt die Zusage daran, welchen Weg jemand genommen hat — und ein
-    direkter Aufruf des Dienstes umgeht die Pruefung ganz.
+    GEMESSEN: `ghcr.io/sparxx947/romseerr:latest` stammt vom 2026-08-07 07:33 (`bd87e6c`)
+    und ist damit AELTER als v1.0.0-beta.1. Der Grund ist richtig — `release-image.yml`
+    setzt `latest` nur fuer stabile Fassungen, damit eine Vorabversion es nicht verschiebt,
+    und stabile gab es noch keine. Die Folge war es nicht: Die READMEs boten genau dieses
+    Tag als Standardinstallation an, also einen Bau ohne Einwurfordner, ohne
+    Archive.org-Schluessel, ohne Download-Proxy, ohne die Switch- und 3DS-Pruefungen.
 
-    EN: if the two drift, whether a launch is refused depends on which route was taken.
+    Ein `latest`, das aelter ist als jeder Release, ist eine Falle — und die Doku darf nicht
+    hineinfuehren. Sobald die erste stabile Fassung erscheint, darf diese Pruefung fallen.
+
+    EN: the published `latest` predates every release, because the tag is reserved for stable
+    versions and none exists yet. The READMEs offered exactly that tag as the default install.
     """
-    import importlib.util
-    pfad = os.path.join(REPO, "contrib", "streaming-host", "stream-agent.py")
-    os.environ["STREAM_AGENT_TOKEN"] = "testtoken"
-    os.environ["STREAM_ROMS"] = appmod.ROMS
-    spec = importlib.util.spec_from_file_location("stream_agent_427", pfad)
-    agent = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(agent)
+    for datei in ("README.md", "README.en.md"):
+        text = open(os.path.join(REPO, datei), encoding="utf-8").read()
+        # Nur die Befehlszeilen, nicht die Erklaerung darueber, WARUM man es nicht nimmt.
+        zeilen = [z.strip() for z in text.splitlines()
+                  if "ghcr.io/sparxx947/romseerr:" in z and not z.strip().startswith(">")]
+        schlecht = [z for z in zeilen if z.endswith(":latest")]
+        assert not schlecht, (
+            f"{datei} bietet `:latest` als Installation an, obwohl es aelter ist als jeder "
+            f"Release: {schlecht}")
+        assert zeilen, f"{datei} nennt gar kein Abbild mehr"
 
-    for kennung, soll_ab in (("0100633007d48000", False), ("0100633007d48800", True),
-                             ("010091d01597d002", True)):
-        f = _nsp_datei(tmp_path, f"x{kennung}.nsp", kennung)
-        rs_ab = not appmod.switch_startbar(f)[0]
-        ag_ab = bool(agent._switch_art(f))
-        assert rs_ab == ag_ab == soll_ab, (
-            f"{kennung}: Romseerr weist ab={rs_ab}, Agent={ag_ab}, erwartet {soll_ab}")
+def test_every_workflow_keeps_write_permissions_on_the_job(appmod):
+    """Kein Schreibrecht auf Workflow-Ebene. (#434)
 
+    WARUM DAS ZAEHLT: Ein `permissions:`-Block ganz oben gilt fuer JEDEN Job der Datei —
+    auch fuer die, die nur lesen. In `release-please.yml` standen `contents: write` und
+    `pull-requests: write` oben, obwohl drei der vier Jobs eigene Bloecke hatten und nur
+    einer sie brauchte. Scorecard meldet das als „high", und die enge Fassung ist ohnehin
+    die ehrlichere Beschreibung: Sie sagt, WELCHER Schritt schreibt.
 
-def test_a_killed_emulator_is_reaped():
-    """Nach `kill()` wird gewartet — sonst bleibt ein Zombie stehen. (#428)
+    Nicht geprueft wird, ob ein Job zu viel verlangt — das entscheidet niemand aus dem
+    Quelltext. Geprueft wird nur, dass die Entscheidung ueberhaupt am Job faellt.
 
-    WAS PASSIERT WAR: `_stop_locked` schickt SIGTERM, wartet 8 s und schickt dann SIGKILL —
-    ohne danach zu warten. Das Kind ist tot, aber nie abgeholt: ein Zombie je beendeter
-    Sitzung, fuer die ganze Laufzeit des Dienstes. Eden verlaesst SIGTERM nicht binnen 8 s,
-    nimmt also immer diesen Zweig.
-
-    WARUM DAS MEHR KOSTET ALS EINEN TABELLENEINTRAG: `ps` zeigt einen Zombie mit demselben
-    Namen und weiterlaufender Zeit wie einen lebenden Prozess. Ich habe daran zweimal die
-    falsche Diagnose gestellt — „der Emulator laeuft nach /stop weiter" — und ein Issue mit
-    dieser Behauptung geschrieben, bevor ich die Zustandsspalte gelesen habe.
-
-    WARUM DAS HIER EINE QUELLTEXTPRUEFUNG IST und kein Verhaltenstest — nachgemessen, nicht
-    angenommen: Ein Verhaltenstest funktioniert in DIESEM Prozess nicht. Jedes
-    `subprocess.Popen` irgendwo im selben Python-Prozess ruft `subprocess._cleanup()` auf
-    und erntet dabei ALLE beendeten Kinder. Im Testlauf gibt es solche Aufrufe, das Kind
-    wird also ohnehin abgeholt — die Pruefung waere mit UND ohne den Fix gruen.
-
-    Gemessen: allein laufend bleibt das Kind ohne `p.wait()` ein Zombie
-    (`State: Z (zombie)` nach 0,3 s, 1 s und 2 s), mit `p.wait()` ist es weg. Unter pytest
-    ist es in beiden Faellen weg. Ein Verhaltenstest haette also Sorgfalt bewiesen, die es
-    nicht gibt — genau das Muster, gegen das die uebrigen Pruefungen hier gebaut sind.
-
-    EN: this is a source check on purpose. Any `subprocess.Popen` in the same process reaps
-    all finished children, so a behavioural test would be green with and without the fix.
-    Measured standalone: without `p.wait()` the child stays `Z (zombie)`; with it, it is gone.
+    EN: a top-level permissions block applies to every job in the file, including the ones
+    that only read. This checks the decision is made per job, not that a job asks for the
+    right amount.
     """
-    quelle = open(os.path.join(REPO, "contrib", "streaming-host", "stream-agent.py"),
-                  encoding="utf-8").read()
-    m = re.search(r"^def _stop_locked\(\):(.*?)(?=^def |\Z)", quelle, re.S | re.M)
-    assert m, "_stop_locked ist nicht mehr auffindbar"
-    koerper = m.group(1)
-    assert "p.kill()" in koerper, "der harte Abbruch fehlt"
-    nach_kill = koerper[koerper.index("p.kill()") + len("p.kill()"):]
-    assert re.search(r"^\s*p\.wait\(\)\s*$", nach_kill, re.M), (
-        "nach p.kill() wird nicht geerntet — das Kind bleibt als Zombie stehen, und `ps` "
-        "zeigt es wie einen laufenden Emulator")
+    import yaml
+    verz = os.path.join(REPO, ".github", "workflows")
+    schreibend = {}
+    for datei in sorted(os.listdir(verz)):
+        if not datei.endswith((".yml", ".yaml")):
+            continue
+        d = yaml.safe_load(open(os.path.join(verz, datei), encoding="utf-8"))
+        oben = (d or {}).get("permissions")
+        if not isinstance(oben, dict):
+            continue          # `read-all` oder gar nichts — beides unbedenklich
+        schreibt = sorted(k for k, v in oben.items() if v == "write")
+        if schreibt:
+            schreibend[datei] = schreibt
+    assert not schreibend, (
+        "diese Workflows halten Schreibrechte auf Datei-Ebene, wo sie fuer jeden Job "
+        f"gelten: {json.dumps(schreibend)}")
+
+
+def test_a_security_policy_exists_and_says_where_to_report():
+    """`SECURITY.md` sagt, wo ein Fund hingehoert. (#434)
+
+    Ein oeffentliches Repository ohne diese Datei laesst jemanden raten, wohin mit einem
+    Fund — und die naheliegende Antwort waere ein oeffentliches Issue, also genau der Weg,
+    der ihn sofort allen zeigt.
+
+    Geprueft wird nicht die Laenge, sondern dass die drei Dinge dastehen, die ein Melder
+    braucht: WOHIN, WAS zaehlt, und WAS ausdruecklich nicht.
+    """
+    pfad = os.path.join(REPO, "SECURITY.md")
+    assert os.path.isfile(pfad), "es gibt keine SECURITY.md"
+    text = open(pfad, encoding="utf-8").read()
+    for stelle, was in (("Security Advisories", "der Meldeweg"),
+                        ("_guard", "was als Fund zaehlt"),
+                        ("API key is admin-equivalent", "was ausdruecklich keiner ist")):
+        assert stelle in text, f"{was} fehlt ({stelle!r})"
+    # Zweisprachig wie jede Doku hier.
+    assert "English below" in text or "## What this project is" in text, \
+        "die englische Haelfte fehlt"
+
+
+def test_the_release_documentation_names_the_step_that_is_easy_to_forget():
+    """Der Handgriff, ohne den kein Release durchgeht, steht geschrieben. (#435)
+
+    GitHub loest fuer Ereignisse aus dem voreingestellten `GITHUB_TOKEN` KEINE Workflows
+    aus — das verhindert, dass ein Workflow sich selbst endlos anstoesst. Es trifft damit
+    ausgerechnet den einen PR, der ein oeffentliches Artefakt erzeugt: Der Release-PR
+    bekommt gar keine Pruefungen, waehrend `dev-ci-gate` acht davon verlangt.
+
+        $ gh pr checks 188
+        no checks reported on the 'release-please--branches--dev' branch
+
+    Schliessen und Wiederoeffnen aus einem Benutzerkonto loest die Ausloeser erneut aus.
+    Das ist ein Ritual, und Rituale leben in jemandes Kopf, bis sie aufgeschrieben sind —
+    beim naechsten Release, den jemand anders schneidet, waere die naheliegende Abhilfe
+    `--admin`, also ein Release, der gruen aussieht und nie geprueft wurde.
+
+    Diese Pruefung haelt die Anleitung an der Stelle, an der sie gebraucht wird.
+
+    EN: GitHub fires no workflows for GITHUB_TOKEN-caused events, so the one PR producing a
+    public artefact gets no checks at all. Close and reopen re-fires them; the obvious
+    alternative, --admin, ships a release that was never checked.
+    """
+    text = open(os.path.join(REPO, ".github", "CONTRIBUTING.md"), encoding="utf-8").read()
+    i = text.find("### Wie ein Release entsteht")
+    assert i >= 0, "der Abschnitt ueber den Release fehlt"
+    abschnitt = text[i:text.find("\n### ", i + 10)]
+
+    assert "GITHUB_TOKEN" in abschnitt, "der Grund fehlt — ohne ihn wirkt der Schritt willkuerlich"
+    assert "schließen" in abschnitt.lower() or "schliessen" in abschnitt.lower(), \
+        "der Handgriff selbst fehlt"
+    assert "--admin" in abschnitt, \
+        "der naheliegende falsche Ausweg wird nicht benannt — genau der wird sonst genommen"
+
+
+# --- #477: ein Ordner-Titel ist EIN Titel, nicht sein Innenleben --------------------
+
+def test_a_folder_title_is_indexed_as_one_title(appmod):
+    """Wii U, Vita und PS3 liegen als ORDNER vor — der Index zaehlt sie als einen. (#477)
+
+    GEMESSENER SCHADEN, nach einem vollstaendigen Neuaufbau am echten Bestand:
+
+        wiiu    31 Eintraege: `app`, `bootDrcTex`, `bootLogoTex`, `bootMovie`
+        psvita  14 Eintraege: `args`, `eboot`, `Gravite`, `icon`
+        ps3     27 Eintraege: `PS3_DISC`, `ICON0`, …
+
+    `bootMovie` ist ein Video IN Captain Toad, `Gravite` die `.psarc` IN Gravity Rush. Die
+    echten Titel fehlten ganz, und `stream_info` fand sie nicht — ein vollstaendiger Titel
+    war ueber die Oberflaeche unerreichbar.
+
+    Der Import weiss das seit #391. Der Index wusste es nicht.
+    """
+    spiel = os.path.join(appmod.ROMS, "wiiu", "Captain Toad Treasure Tracker [AKBP01]")
+    for teil in ("code", "content", "meta"):
+        os.makedirs(os.path.join(spiel, teil), exist_ok=True)
+    open(os.path.join(spiel, "code", "Kinopio.rpx"), "w").close()
+    open(os.path.join(spiel, "content", "bootMovie"), "w").close()
+    open(os.path.join(spiel, "meta", "bootLogoTex"), "w").close()
+
+    appmod.build_index()
+    titel = appmod.LIB["per"].get("wiiu", set())
+    assert appmod.norm("Captain Toad Treasure Tracker [AKBP01]") in titel, \
+        f"der Ordner-Titel fehlt im Index: {sorted(titel)[:6]}"
+    for innerei in ("bootMovie", "bootLogoTex", "Kinopio"):
+        assert appmod.norm(innerei) not in titel, \
+            f"{innerei!r} steht als Titel im Index — das ist Spielinhalt, kein Titel"
+
+
+def test_a_disc_image_set_folder_is_one_title(appmod):
+    """Auch ein Abbild-Set — sonst hiesse ein Dreamcast-Titel `track01`. (#477)
+
+    `spielordner_slug` kennt Wii U, PS3, GameCube, Vita und Xbox, aber KEIN Abbild-Set:
+    Eine `.cue` verraet ihre Plattform nicht. Fuer den Index ist die Plattform aber schon
+    bekannt — dort lautet die Frage nur „ein Titel oder viele?".
+
+    Ohne diesen Weg legt der Index nach dem Umbau `track01`, `track02`, `track03` als
+    Titel ab: derselbe Unsinn wie `bootMovie`, nur mit anderen Namen.
+    """
+    spiel = os.path.join(appmod.ROMS, "dc", "Crazy Taxi (PAL)")
+    os.makedirs(spiel, exist_ok=True)
+    with open(os.path.join(spiel, "Crazy Taxi (PAL).gdi"), "w") as f:
+        f.write("3\n1 0 4 2352 track01.bin 0\n2 600 0 2352 track02.raw 0\n"
+                "3 45000 4 2352 track03.bin 0\n")
+    for n in ("track01.bin", "track02.raw", "track03.bin"):
+        open(os.path.join(spiel, n), "w").close()
+
+    appmod.build_index()
+    titel = appmod.LIB["per"].get("dreamcast", set()) | appmod.LIB["per"].get("dc", set())
+    assert appmod.norm("Crazy Taxi (PAL)") in titel, \
+        f"der Abbild-Set-Ordner fehlt im Index: {sorted(titel)[:6]}"
+    assert appmod.norm("track01") not in titel, "die Spurdateien stehen als Titel im Index"
+
+
+def test_two_games_in_one_folder_are_not_one_title(appmod):
+    """Zwei verschiedene Abbildlisten in einem Ordner = Sammlung, kein Titel. (#477)
+
+    Ohne diese Bedingung machte der Fix aus jedem Sammelordner EINEN Titel und verstaeckte
+    alles darin — dieselbe Fehlrichtung wie vorher, nur andersherum.
+    """
+    ordner = os.path.join(appmod.ROMS, "psx", "Zwei Spiele")
+    os.makedirs(ordner, exist_ok=True)
+    for name in ("Spiel A", "Spiel B"):
+        with open(os.path.join(ordner, f"{name}.cue"), "w") as f:
+            f.write(f'FILE "{name}.bin" BINARY\n')
+        open(os.path.join(ordner, f"{name}.bin"), "w").close()
+
+    assert appmod.ist_titel_ordner(ordner) is False
+
+
+def test_an_incomplete_set_folder_is_not_one_title(appmod):
+    """Fehlt eine genannte Datei, ist der Ordner kein Titel. (#477)
+
+    Ihn trotzdem als Titel zu fuehren hiesse, einen kaputten Satz als vollstaendig
+    auszuweisen — genau das, was in #462 wochenlang niemandem auffiel.
+    """
+    ordner = os.path.join(appmod.ROMS, "dc", "Unvollstaendig")
+    os.makedirs(ordner, exist_ok=True)
+    with open(os.path.join(ordner, "Unvollstaendig.gdi"), "w") as f:
+        f.write("1\n1 0 4 2352 track01.bin 0\n")
+    assert appmod.ist_titel_ordner(ordner) is False
+
+
+# ---------------------------------------------------------------------------
+# #518: Neo Geo CD ist eine eigene Plattform, weil RomM sie getrennt fuehrt.
+# ---------------------------------------------------------------------------
+
+def test_neo_geo_cd_is_not_folded_into_neogeo(appmod):
+    """`neo-geo-cd` darf nicht auf `neogeo` zeigen. (#518)
+
+    NICHT AUS DER KONSOLENGESCHICHTE begruendet, sondern AM LAUFENDEN ROMM GEMESSEN:
+
+        Neo Geo AES   neogeoaes    300 ROMs
+        Neo Geo CD    neo-geo-cd   100 ROMs
+        eine Plattform `neogeo` gibt es dort GAR NICHT
+
+    Solange der Alias stand, fragte `romm_find` nach `neogeo`:
+
+        romm_find("Aero Fighters 2 (World)", "neogeo")      -> None
+        romm_find("Aero Fighters 2 (World)", "neo-geo-cd")  -> Aero Fighters 2
+
+    100 vorhandene, von RomM gescannte Titel waren damit unspielbar — der Play-Knopf
+    konnte gar nicht erscheinen. AES und MVS bleiben zusammengefasst: das ist dieselbe
+    Hardware in anderen Gehaeusen, und RomM fuehrt sie ebenfalls so.
+
+    EN: not argued from console history but measured against the running RomM, which
+    keeps the CD separate and has no `neogeo` platform at all.
+    """
+    assert appmod.FOLDER_ALIASES.get("neo-geo-cd") is None, (
+        "der Alias ist zurueck — romm_find fragt dann wieder nach einer Plattform, "
+        "die es in RomM nicht gibt")
+    assert appmod.FOLDER_ALIASES.get("neogeoaes") == "neogeo"
+    assert appmod.FOLDER_ALIASES.get("neogeomvs") == "neogeo"
+    assert appmod.folder_slug("neo-geo-cd") == "neo-geo-cd"
+
+
+def test_a_neo_geo_cd_title_is_not_eaten_by_the_neo_geo_pattern(appmod):
+    """Das allgemeine `neo geo`-Muster darf die CD nicht schlucken. (#518)
+
+    `guess_platform` geht die Muster DER REIHE NACH durch und nimmt den ersten Treffer.
+    `neo\\s*geo` passt auch auf `Neo Geo CD`. Ohne einen Eintrag DAVOR landet jede
+    Schreibweise wieder bei `neogeo` — der Alias waere entfernt und die Wirkung
+    dieselbe.
+
+    HIER STAND ZUERST `folder_slug`, UND DAS WAR DIE FALSCHE FUNKTION: Sie reicht
+    unbekannte Ordnernamen unveraendert durch und normalisiert nichts. `KW` beschreibt,
+    was aus einem TITEL oder Releasenamen gelesen wird — dort greift die Reihenfolge.
+    """
+    for text in ("Metal Slug (Neo Geo CD)", "neo-geo-cd", "NeoGeo CD Collection",
+                 "Some Game [neo geo cd]"):
+        assert appmod.guess_platform(text) == "neo-geo-cd", text
+    # Die Gegenrichtung: was wirklich Neo Geo ist, bleibt es.
+    for text in ("Metal Slug (Neo Geo)", "NeoGeo AES romset"):
+        assert appmod.guess_platform(text) == "neogeo", text
+
+
+def test_neo_geo_cd_is_playable_and_says_it_needs_a_bios(appmod):
+    """Kern und BIOS-Hinweis gehoeren zusammen. (#518)
+
+    `fbneo` spielt Neo Geo CD — derselbe Kern wie fuer `neogeo`. Aber anders als ein
+    Cartridge-Romset braucht ein CD-Abbild das System-ROM der Konsole. Ohne den Hinweis
+    oeffnet sich ein Spieler, der schwarz bleibt, und das sieht aus wie ein fehlender
+    Kern.
+
+    Der `romset`-Hinweis von `neogeo` passt hier NICHT und steht deshalb nicht dabei:
+    eine CD ist kein Romset.
+    """
+    assert appmod.PLAYABLE.get("neo-geo-cd") == "fbneo"
+    assert "neo-geo-cd" in appmod.NEEDS_BIOS
+    assert appmod.CAVEAT.get("neo-geo-cd") is None, (
+        "der Arcade-Romset-Hinweis passt nicht auf eine CD")
+
+
+# ---------------------------------------------------------------------------
+# #520: romm_scan() lief gegen einen Endpunkt, den es nicht gibt — und schwieg.
+# ---------------------------------------------------------------------------
+
+class _FakeAntwort:
+    def __init__(self, status=200, text="OK"):
+        self.status_code = status
+        self.text = text
+    @property
+    def ok(self):
+        return 200 <= self.status_code < 300
+
+
+class _FakeSitzung:
+    """Ein RomM, das man Schritt fuer Schritt scheitern lassen kann.
+
+    NUR DIE HTTP-SCHICHT IST NACHGEBAUT, nicht RomM. Dass der Ablauf gegen das echte
+    RomM traegt, ist am laufenden Dienst gemessen worden (OPEN -> CONNECT -> `42[...]`
+    -> `scan:update_stats` -> `Scan completed`) und nicht hier bewiesen. Was diese
+    Tests festhalten, ist etwas anderes und ebenso wichtig: dass ein FEHLSCHLAG als
+    Fehlschlag zurueckkommt statt als Erfolg.
+    """
+    def __init__(self, login=200, handshake=200, sid='{"sid":"abc"}',
+                 connect=200, emit=200, antwort=""):
+        self.login, self.handshake, self.sid = login, handshake, sid
+        self.connect, self.emit, self.antwort = connect, emit, antwort
+        self.gesendet = []
+
+    def post(self, url, **kw):
+        self.gesendet.append((url, kw.get("data"), kw.get("params")))
+        if "/api/login" in url:
+            return _FakeAntwort(self.login)
+        daten = kw.get("data") or ""
+        if daten == "40":
+            return _FakeAntwort(self.connect)
+        return _FakeAntwort(self.emit)
+
+    def get(self, url, **kw):
+        if not self.gesendet or all("/api/login" in g[0] for g in self.gesendet):
+            return _FakeAntwort(self.handshake, self.sid)
+        return _FakeAntwort(200, self.antwort or '40{"sid":"x"}')
+
+
+def _romm_konfiguriert(appmod, monkeypatch, sitzung):
+    monkeypatch.setattr(appmod, "cfg", lambda k, d="": {
+        "romm_url": "http://romm:8998", "romm_user": "u", "romm_pass": "p"}.get(k, d))
+    monkeypatch.setattr(appmod.requests, "Session", lambda: sitzung)
+
+
+def test_a_refused_romm_scan_is_reported_as_refused(appmod, monkeypatch):
+    """Eine Absage darf nicht wie ein Erfolg aussehen. (#520)
+
+    RomM weist jeden Scan ab, solange ein Auftrag wartet:
+
+        scan:done_ko  "A scan is already in progress"
+
+    Am 2026-08-13 hatten sich 54 solcher Auftraege gestapelt, und die Bibliothek war
+    sieben Tage eingefroren. Wer die Absage nicht liest, meldet trotzdem Erfolg.
+    """
+    s = _FakeSitzung(antwort='42["scan:done_ko","A scan is already in progress"]')
+    _romm_konfiguriert(appmod, monkeypatch, s)
+    ok, grund = appmod.romm_scan(["snes"])
+    assert ok is False
+    assert "A scan is already in progress" in grund, grund
+
+
+def test_every_step_of_the_romm_scan_is_checked(appmod, monkeypatch):
+    """Jeder Schritt nennt seinen Statuscode. (#520)
+
+    DAS IST DER EIGENTLICHE FEHLER GEWESEN: `requests` wirft bei 4xx nicht. Die alte
+    Fassung stand in einem `except Exception`, das nie betreten wurde — gemessen 403
+    (CSRF) und danach 404 (Endpunkt weg), beides ohne eine einzige Protokollzeile.
+
+    Wer eine dieser Pruefungen entfernt, laesst diesen Test fallen.
+    """
+    for feld, erwartet in (("login", "Anmeldung"), ("handshake", "Handschlag"),
+                           ("connect", "Namensraum"), ("emit", "Scan-Ereignis")):
+        s = _FakeSitzung(**{feld: 403})
+        _romm_konfiguriert(appmod, monkeypatch, s)
+        ok, grund = appmod.romm_scan()
+        assert ok is False, feld
+        assert "403" in grund and erwartet in grund, (feld, grund)
+
+
+def test_a_handshake_without_a_session_id_is_not_treated_as_success(appmod, monkeypatch):
+    """HTTP 200 ohne Sitzungskennung ist kein Handschlag. (#520)
+
+    Ein Statuscode allein genuegt nicht: Liefert der Server 200 und irgendetwas
+    anderes als das OPEN-Paket, gibt es nichts, worauf sich das Ereignis beziehen
+    koennte. Ohne diese Pruefung liefe der Rest mit `sid=None` weiter und meldete
+    Erfolg.
+    """
+    s = _FakeSitzung(sid="<html>Wartungsseite</html>")
+    _romm_konfiguriert(appmod, monkeypatch, s)
+    ok, grund = appmod.romm_scan()
+    assert ok is False
+    assert "Sitzungskennung" in grund, grund
+
+
+def test_the_romm_scan_asks_only_for_the_folders_that_changed(appmod, monkeypatch):
+    """Gezielt statt alles — und als ORDNER, nicht als Slug. (#520)
+
+    RomM waehlt ueber `platform_fs_slugs`, also ueber Ordnernamen. Ein voller Lauf
+    ueber 45.000 ROMs fuer ein paar importierte Dateien dauert Stunden und blockiert
+    dabei jeden weiteren Scan.
+    """
+    s = _FakeSitzung()
+    _romm_konfiguriert(appmod, monkeypatch, s)
+    ok, grund = appmod.romm_scan(["dc", "snes"])
+    assert ok is True, grund
+    ereignis = [d for _u, d, _p in s.gesendet if d and d.startswith("42")]
+    assert ereignis, s.gesendet
+    name, auftrag = json.loads(ereignis[0][2:])
+    assert name == "scan"
+    assert auftrag["platform_fs_slugs"] == ["dc", "snes"], auftrag
+    assert auftrag["platforms"] == [], "beide Auswahlen gleichzeitig zu fuellen ist mehrdeutig"
