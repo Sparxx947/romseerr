@@ -377,6 +377,13 @@ vorhandenen Spuren sind echte Daten; ob sie ersetzbar sind, entscheidet der Betr
 Jede Änderung steht mit Quelle und echtem Ziel in `.abbildpruefung/<plattform>-<zeit>.jsonl`,
 und vor jedem Umschreiben bleibt eine `.vor-fix`-Sicherung liegen.
 
+**Diese Sicherung hat sich schon bezahlt gemacht.** Am 2026-08-13 schrieb die Reparatur
+aus `FILE "QixNeo"` ein `FILE "QixNeo.bin.bin"` — zwei `replace` hintereinander, das
+zweite auf dem Ergebnis des ersten. Solange der alte Verweis eine Endung trug, lief das
+ins Leere; ein Verweis **ohne** Endung ist dagegen ein Präfix seines eigenen Ersatzes
+(#521). Beide Listen kamen unverändert aus der `.vor-fix` zurück. Eine falsch reparierte
+Liste ist schlimmer als eine kaputte — die kaputte fällt auf.
+
 Eine `.m3u` mit Netzadressen (Radio-Streams) gilt **nicht** als defektes Abbild.
 
 ### Was die Werkzeuge nicht tun
@@ -743,6 +750,13 @@ is not**, which is worse than a visibly broken one, because nobody looks again.
 are there are real data, and whether they are replaceable is the operator's call. Every
 change is recorded with source and real destination in
 `.abbildpruefung/<platform>-<time>.jsonl`, and a rewrite leaves a `.vor-fix` copy.
+
+That copy has already earned its keep: on 2026-08-13 a repair turned `FILE "QixNeo"` into
+`FILE "QixNeo.bin.bin"`, because two `replace` calls ran in sequence and the second worked
+on the result of the first. Harmless while the old reference carried an extension; an
+extensionless one is a prefix of its own replacement (#521). Both lists came back
+unchanged from `.vor-fix`. A wrongly repaired list is worse than a broken one — the broken
+one is visible.
 
 An `.m3u` holding stream URLs is **not** counted as a broken image.
 
