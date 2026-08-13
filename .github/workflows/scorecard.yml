@@ -39,11 +39,42 @@ jobs:
       contents: read
       actions: read
     steps:
+      # NUR AUF DEM STANDARDZWEIG — und das ÜBERSPRINGEN statt fehlschlagen. (#470)
+      #
+      # `ossf/scorecard-action` weist jeden anderen Zweig ab („Only the default branch is
+      # supported"). Der `push`-Auslöser wurde deshalb entfernt (#369), aber
+      # `workflow_dispatch` reißt dasselbe Loch von der anderen Seite auf: Ein Aufruf mit
+      # `--ref dev` scheitert zwangsläufig, und danach steht der Workflow auf ROT — bis zum
+      # nächsten Wochenlauf, für alle sichtbar, ohne dass jemand etwas tun könnte.
+      #
+      # Genau so passiert am 2026-08-12: ein `gh workflow run scorecard.yml --ref dev`, und
+      # die Gesamtprüfung meldete tagelang „Workflow rot und seither nie grün".
+      #
+      # Ein roter Workflow, gegen den niemand etwas tun kann, ist schlimmer als keiner: Nach
+      # der zweiten Woche liest ihn niemand mehr, und ein echter Fehlschlag geht darin unter.
+      # Deshalb wird ein falsch gerichteter Aufruf GRÜN beendet, mit klarer Ansage.
+      #
+      # EN: the action rejects any non-default branch. A dispatch with --ref dev fails by
+      # construction and leaves the workflow red until the next scheduled run. Skip with a
+      # message instead — the run was misdirected, not broken.
+      - name: Nur der Standardzweig / default branch only
+        id: zweig
+        run: |
+          if [ "${{ github.ref_name }}" != "${{ github.event.repository.default_branch }}" ]; then
+            echo "uebersprungen=ja" >> "$GITHUB_OUTPUT"
+            echo "::notice::Scorecard läuft nur auf '${{ github.event.repository.default_branch }}';" \
+                 "angefordert war '${{ github.ref_name }}'. Nichts gemessen, nichts kaputt."
+          else
+            echo "uebersprungen=nein" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        if: steps.zweig.outputs.uebersprungen == 'nein'
         with:
           persist-credentials: false
 
       - name: Scorecard
+        if: steps.zweig.outputs.uebersprungen == 'nein'
         uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc  # v2.4.4
         with:
           results_file: results.sarif
@@ -57,6 +88,7 @@ jobs:
           publish_results: false
 
       - name: Ergebnis aufbewahren / keep the result
+        if: steps.zweig.outputs.uebersprungen == 'nein'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: scorecard-results
@@ -64,6 +96,7 @@ jobs:
           retention-days: 30
 
       - name: Ins Code-Scanning / upload to code scanning
+        if: steps.zweig.outputs.uebersprungen == 'nein'
         uses: github/codeql-action/upload-sarif@c4dd10e44af883a891fe31ced449bcb4a6728b9b  # v3
         with:
           sarif_file: results.sarif

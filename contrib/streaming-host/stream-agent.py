@@ -30,6 +30,7 @@ SICHERHEIT: Dieser Dienst startet Prozesse. Er gehört NICHT ins offene Netz.
 import json
 import os
 import re
+import signal
 import time
 import shlex
 import subprocess
@@ -60,6 +61,42 @@ EMULATORS = {
     "psvita":    os.environ.get("EMU_VITA", ""),
 }
 
+
+def fehlende_plattformen():
+    """-> Plattformen, fuer die KEIN startbarer Emulator dasteht. (#440)
+
+    WOZU: `platforms` nennt, was da ist. Was fehlt, stand nirgends — und genau das war der
+    teure Zustand. Am 2026-08-12 fehlten `ps2` und `ps3` seit einem Tag in dieser Liste,
+    weil ein Emulator-Update sein eigenes Verzeichnis nach `.alt1` geraeumt und den neuen
+    Baum als `.neu` liegen gelassen hatte. Romseerr meldete daraufhin `not_supported`, der
+    Streamen-Knopf erschien nicht, und nichts sagte, dass hier etwas WEG ist statt nie
+    dagewesen zu sein.
+
+    Zwei Faelle werden gemeldet:
+
+    - kein Startbefehl gesetzt (`30-agent` setzt ihn nur, wenn `AppRun` existiert)
+    - Befehl gesetzt, aber sein `AppRun` ist inzwischen weg — das faengt den Fall, dass
+      zwischen Agentenstart und jetzt etwas verschwunden ist
+
+    Ein Fehlen ist NICHT automatisch ein Fehler: Wer keinen PS2-Emulator installiert hat,
+    soll deswegen nichts Rotes sehen. Die Auskunft ist eine Tatsache, kein Alarm — sie
+    macht nur den Unterschied zwischen „nicht eingerichtet" und „abhanden gekommen"
+    ueberhaupt sichtbar.
+
+    EN: `platforms` says what is there; nothing said what is missing, and that was the
+    expensive part. Reported as a fact, not an alarm — not everyone installs every emulator.
+    """
+    fehlt = []
+    for slug, cmd in EMULATORS.items():
+        if not cmd:
+            fehlt.append(slug)
+            continue
+        pfade = [t for t in shlex.split(cmd)
+                 if t.startswith("/") and t.endswith("AppRun")]
+        if pfade and not os.access(pfade[0], os.X_OK):
+            fehlt.append(slug)
+    return sorted(fehlt)
+
 # `window` haelt fest, ob nach dem Start wirklich ein Spielfenster erschien (#288):
 #   "" (leer)      noch nichts gestartet
 #   "pending"      Start laeuft, das Fenster wird noch erwartet
@@ -68,7 +105,7 @@ EMULATORS = {
 #   "kein-fenster" nichts Sichtbares entstanden
 # WOZU: Der Start GELINGT auch dann, wenn der Titel scheitert — verschluesselte 3DS-ROMs,
 # NKit-komprimierte Wii-ISOs. Der Nutzer sah bis dahin nur einen leeren Stream.
-_current = {"proc": None, "platform": "", "path": "", "window": "", "window_detail": ""}
+_current = {"proc": None, "platform": "", "path": "", "window": "", "window_detail": "", "last": {}}
 _lock = threading.Lock()
 
 # Ordner-Titel -> die Datei, mit der der Emulator startet.
@@ -80,6 +117,24 @@ _lock = threading.Lock()
 # video, not the boot binary.
 BOOTPFADE = {
     "ps3": ("PS3_GAME/USRDIR/EBOOT.BIN", "USRDIR/EBOOT.BIN", "EBOOT.BIN"),
+}
+# Wo der Dateiname NICHT feststeht, braucht es ein Muster statt eines Pfades (#502).
+#
+# Ein Wii-U-Titel traegt oben `code/`, `content/`, `meta/` — keine einzige Datei mit
+# einer der bekannten Endungen. `_bootdatei` fiel deshalb auf '' zurueck, und der
+# Start-Dienst meldete „Ordner ohne startbaren Inhalt", waehrend `/api/stream` den
+# Titel als startbar auswies. Dasselbe Muster wie #150 und #477: Die eine Seite sagt
+# ja, die andere nein.
+#
+# Der Name der `.rpx` ist je Titel anders (`Kinopio.rpx` bei Captain Toad), ein fester
+# Pfad genuegt also nicht. BEI MEHREREN TREFFERN WIRD ABGESAGT, nicht geraten — im
+# Bestand liegt eine `red-pro2.rpx` herum (#318), und ein zufaellig gewaehltes Programm
+# zu starten waere schlimmer als eine klare Absage.
+# EN: a pattern where the filename is not fixed. A Wii U title has no file with a known
+# boot extension at its top level, so `_bootdatei` returned '' and the two sides
+# disagreed. Several matches are refused rather than guessed at.
+BOOTMUSTER = {
+    "wiiu": ("code/*.rpx",),
 }
 # Rueckfall fuer Ordner ohne bekannte Struktur: eine einzelne Abbilddatei darin ist
 # eindeutig. Bei MEHREREN wird bewusst NICHT geraten — lieber eine klare Absage als
@@ -136,6 +191,34 @@ def _bootdatei(ordner, platform):
         k = os.path.join(ordner, *rel.split("/"))
         if os.path.isfile(k):
             return k
+    # Muster statt fester Pfad (#502). GENAU EIN Treffer zaehlt: Bei mehreren ist nicht
+    # entscheidbar, welches Programm das Spiel ist, und Raten waere hier teuer.
+    #
+    # KEIN `glob` — DIE BIBLIOTHEK IST VOLLER GLOB-SONDERZEICHEN. Der einzige
+    # Wii-U-Titel des Bestands heisst `Captain Toad Treasure Tracker [AKBP01]`, und
+    # `[AKBP01]` ist fuer `glob` eine ZEICHENKLASSE, kein Text: Das Muster passt auf
+    # nichts, und `_bootdatei` liefert '' — also genau der Fehler, der hier behoben
+    # werden sollte, nur mit einer neuen Ursache. Aufgefallen ist es, weil der Test den
+    # ECHTEN Ordnernamen nachbaut statt eines erfundenen.
+    #
+    # `glob.escape` waere die kleine Loesung; ein Verzeichnislisting mit Endungsvergleich
+    # ist die kleinere: Es kennt gar keine Sonderzeichen, und mehr als „welche Dateien
+    # mit dieser Endung liegen dort?" fragt hier niemand.
+    # EN: no glob — library folder names contain `[...]`, which glob reads as a character
+    # class. Listing the directory and comparing the suffix has no metacharacters at all.
+    for muster in BOOTMUSTER.get(platform, ()):
+        unter, _, endung = muster.rpartition("/")
+        verzeichnis = os.path.join(ordner, *unter.split("/")) if unter else ordner
+        suffix = endung[1:].lower() if endung.startswith("*") else endung.lower()
+        try:
+            gefunden = sorted(
+                os.path.join(verzeichnis, e) for e in os.listdir(verzeichnis)
+                if e.lower().endswith(suffix)
+                and os.path.isfile(os.path.join(verzeichnis, e)))
+        except OSError:
+            gefunden = []
+        if len(gefunden) == 1:
+            return gefunden[0]
     treffer = []
     try:
         for e in sorted(os.listdir(ordner)):
@@ -163,9 +246,18 @@ PROFILE_SCRIPT = os.environ.get("PROFILE_SCRIPT", "/opt/launch-profile.py")
 # Plattform -> Emulator, fuer den es ein Profil gibt. Kein Eintrag = der Emulator ordnet
 # ein erkanntes SDL-Pad selbst zu. / No entry = the emulator maps a detected pad itself.
 # Plattform -> Emulator im Startprofil. Ohne Eintrag wird kein Profil angewandt.
-PROFILE_EMU = {"ps2": "pcsx2", "ngc": "dolphin", "wii": "dolphin", "wiiu": "cemu",
-               "switch": "switchemu", "3ds": "azahar", "dreamcast": "flycast",
-               "xbox": "xemu", "ps3": "rpcs3", "psvita": "vita3k"}
+# `psx` FEHLTE HIER SEIT #140 (behoben mit #492). Das Startprofil kennt `duckstation`
+# seit jeher — mit Gamepad-Belegung und Erstlaufdialog —, aber kein PSX-Start hat es je
+# aufgerufen: die Zuordnung wuchs damals von `{"ps2": "pcsx2"}` auf neun Plattformen, und
+# genau die eine blieb liegen. Was auf dem Host richtig stand, stand dort von Hand.
+# Aufgefallen ist es erst, als DuckStation einen NEUEN Dialog aufmachte, den niemand
+# wegraeumte — der Fehler war da schon Tage alt und nur unsichtbar.
+# EN: `psx` was missing here since #140, so the DuckStation profile was never applied on
+# a launch; a ratchet test now checks every profile is reachable from some platform.
+PROFILE_EMU = {"psx": "duckstation", "ps2": "pcsx2", "ngc": "dolphin", "wii": "dolphin",
+               "wiiu": "cemu", "switch": "switchemu", "3ds": "azahar",
+               "dreamcast": "flycast", "xbox": "xemu", "ps3": "rpcs3",
+               "psvita": "vita3k"}
 # Grenze fuer einen Upload. Die groesste Datei, die hier real ankommt, ist Sonys
 # PS3-Paket mit gut 200 MB; 512 MB lassen Luft, ohne dass jemand den Container mit
 # einem Dauerstrom volllaufen lassen kann.
@@ -304,31 +396,113 @@ def installed_emulators():
     return out
 
 
+def _eigene_gruppe(p):
+    """Prozessgruppe des Kindes — aber nur, wenn sie ihm ALLEIN gehoert. -> pgid oder 0
+
+    DIE MESSUNG, DIE DIESE PRUEFUNG ERZWINGT (#489): ohne `start_new_session` steht der
+    Emulator in DERSELBEN Gruppe wie der Agent. Am laufenden Host abgelesen —
+
+        1414  1414  1414  python3 /opt/stream-agent.py
+        11616 1414  1414  /bin/sh …/AppRun.wrapped -r PCSF00024
+        11634 11616 1414  …/usr/bin/Vita3K -r PCSF00024
+
+    — alle drei in Gruppe 1414. Ein `killpg` darauf beendet den DIENST SELBST. Die Gruppe
+    wird deshalb nur benutzt, wenn sie gleich der Kind-PID ist: dann und nur dann hat
+    `start_new_session` gegriffen und die Gruppe enthaelt nichts als diesen Start.
+
+    EN: without start_new_session the emulator shares the agent's process group, so a
+    killpg would take down the service. Only pgid == pid is safe to signal.
+    """
+    try:
+        pgid = os.getpgid(p.pid)
+    except OSError:
+        return 0
+    return pgid if pgid == p.pid else 0
+
+
+def _senden(p, gruppe, sig):
+    """Signal an die ganze Gruppe — und nur ersatzweise an den verfolgten Prozess allein.
+
+    Der Rueckfall ist der Zustand VOR #489: er beendet den Wrapper und laesst den
+    Emulator stehen. Schlechter als die Gruppe, aber besser als gar nichts — und er
+    greift nur, wenn die Gruppe nicht sicher zuzuordnen war.
+    """
+    if gruppe:
+        try:
+            os.killpg(gruppe, sig)
+            return
+        except OSError:
+            pass
+    try:
+        p.send_signal(sig)
+    except (OSError, ValueError):
+        pass
+
+
+def _alles_beendet(p, gruppe, frist):
+    """Wartet, bis der Prozess UND seine Gruppe weg sind. -> True, wenn beides erreicht.
+
+    WARUM NICHT `p.wait(timeout=…)` GENUEGT: `p` ist bei Vita3K die Shell des Wrappers,
+    nicht der Emulator. Die Shell verlaesst SIGTERM sofort — `wait` kaeme also nach
+    Millisekunden zurueck und meldete Erfolg, waehrend der Emulator weiterlaeuft. Genau
+    das ist der verwaiste Prozess aus #489 (`kill` genuegte ihm nicht, erst `kill -9`).
+    Deshalb wird auf die GRUPPE gewartet, nicht auf das verfolgte Kind.
+
+    Erst `poll()`, dann die Gruppe: solange das Kind ein nicht abgeholter Zombie ist,
+    zaehlt es als Mitglied der Gruppe und wuerde sie ewig belebt aussehen lassen.
+
+    EN: p is the wrapper's shell, not the emulator — it leaves on SIGTERM at once, so
+    waiting on it alone reports success while the emulator lives on.
+    """
+    ende = time.monotonic() + frist
+    while True:
+        tot = p.poll() is not None
+        if tot and not (gruppe and _gruppe_lebt(gruppe)):
+            return True
+        if time.monotonic() >= ende:
+            return False
+        time.sleep(0.2)
+
+
+def _gruppe_lebt(gruppe):
+    """Signal 0: fragt nur nach, ob die Gruppe noch Mitglieder hat."""
+    try:
+        os.killpg(gruppe, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True             # EPERM: sie existiert, wir duerfen nur nicht
+    return True
+
+
 def _stop_locked():
     p = _current["proc"]
     if p and p.poll() is None:
-        p.terminate()
-        try:
-            p.wait(timeout=8)
-        except subprocess.TimeoutExpired:
-            p.kill()
-            # NACH `kill()` MUSS GEWARTET WERDEN. Sonst bleibt das Kind als ZOMBIE
-            # stehen — tot, aber nie abgeholt — und zwar fuer die ganze Laufzeit des
-            # Dienstes, ein Eintrag je beendeter Sitzung. Eden verlaesst SIGTERM nicht
-            # binnen 8 s, nimmt also immer diesen Zweig.
-            #
-            # DAS KOSTET MEHR ALS EINEN EINTRAG IN DER PROZESSTABELLE: `ps` zeigt einen
-            # Zombie mit demselben Namen und weiterlaufender Zeit wie einen lebenden
-            # Prozess. Genau daran ist die Diagnose zu #428 zweimal falsch abgebogen —
-            # „laeuft noch" statt „ist tot und nicht abgeholt". Ein Aufraeumfehler, der
-            # die naechste Fehlersuche in die Irre schickt, ist teurer als er aussieht.
-            #
-            # Ohne Zeitgrenze: SIGKILL laesst sich nicht abfangen, das Warten kann also
-            # nicht haengen.
-            # EN: reap after kill(). Otherwise the child lingers as a zombie for the
-            # service's lifetime, and `ps` shows it exactly like a running process — which
-            # is how the diagnosis for #428 went wrong twice.
-            p.wait()
+        # Die Gruppe VOR dem ersten Signal bestimmen: danach kann das Kind schon weg
+        # sein, und `getpgid` weiss dann nichts mehr.
+        gruppe = _eigene_gruppe(p)
+        _senden(p, gruppe, signal.SIGTERM)
+        if not _alles_beendet(p, gruppe, 8):
+            _senden(p, gruppe, signal.SIGKILL)
+            _alles_beendet(p, gruppe, 5)
+        # DAS KIND MUSS ABGEHOLT WERDEN. Sonst bleibt es als ZOMBIE stehen — tot, aber
+        # nie abgeholt — und zwar fuer die ganze Laufzeit des Dienstes, ein Eintrag je
+        # beendeter Sitzung. Eden verlaesst SIGTERM nicht binnen 8 s, nimmt also immer
+        # den Zweig darueber.
+        #
+        # DAS KOSTET MEHR ALS EINEN EINTRAG IN DER PROZESSTABELLE: `ps` zeigt einen
+        # Zombie mit demselben Namen und weiterlaufender Zeit wie einen lebenden
+        # Prozess. Genau daran ist die Diagnose zu #428 zweimal falsch abgebogen —
+        # „laeuft noch" statt „ist tot und nicht abgeholt". Ein Aufraeumfehler, der
+        # die naechste Fehlersuche in die Irre schickt, ist teurer als er aussieht.
+        #
+        # Ohne Zeitgrenze: SIGKILL laesst sich nicht abfangen, das Warten kann also
+        # nicht haengen. `_alles_beendet` hat in aller Regel schon abgeholt — dieser
+        # Aufruf ist der, der es ZUSICHERT, auch wenn dort die Frist ablief.
+        # EN: reap unconditionally. Otherwise the child lingers as a zombie for the
+        # service's lifetime, and `ps` shows it exactly like a running process — which
+        # is how the diagnosis for #428 went wrong twice.
+        p.wait()
     _current.update({"proc": None, "platform": "", "path": "",
                      "window": "", "window_detail": ""})
 
@@ -688,6 +862,302 @@ def _3ds_art(pfad):
     return ""
 
 
+# --- PS Vita: Vita3K will eine KENNUNG, keinen Pfad (#481) ---------------------------
+#
+# Vita3Ks Datenablage. `pref-path` steht in seiner `config.yml` und darunter liegt
+# `ux0/app/<TITLE_ID>` — am laufenden Host abgelesen, nicht angenommen:
+#     pref-path: /config/.local/share/Vita3K/Vita3K
+# `VITA_PREF` haengt die Ablage direkt ein und ist der Weg fuer den Test.
+VITA_CONFIG = os.environ.get("VITA_CONFIG", "/config/.config/Vita3K/config.yml")
+VITA_PREF = os.environ.get("VITA_PREF", "")
+
+
+def vita_ablage():
+    """-> Vita3Ks Datenverzeichnis (das mit `ux0`, `os0`, `vs0` darin).
+
+    Der Vorgabepfad ist die Wahl des Emulators und gilt nur, solange seine
+    Konfiguration nichts anderes sagt — deshalb wird sie zuerst gelesen.
+    EN: the emulator's default only applies while its config says nothing else.
+    """
+    if VITA_PREF:
+        return VITA_PREF
+    try:
+        with open(VITA_CONFIG, encoding="utf-8") as f:
+            for zeile in f:
+                if zeile.startswith("pref-path:"):
+                    wert = zeile.split(":", 1)[1].strip().strip("\"'")
+                    if wert:
+                        return wert
+    except OSError:
+        pass
+    return os.path.expanduser("~/.local/share/Vita3K/Vita3K")
+
+
+def sfo_felder(pfad):
+    """`param.sfo` -> {Schluessel: Wert}. Bei allem Unerwarteten {}.
+
+    Das Format ist ein Kopf, eine Schluessel- und eine Datentabelle. Am echten Titel
+    der Bibliothek abgelesen (`Gravity Rush (Europe).vpk/sce_sys/param.sfo`, 1292 Byte):
+
+        00 50 53 46 | 01 01 00 00 | 24 01 00 00 | e0 01 00 00 | 11 00 00 00
+        "\\0PSF"      Fassung 1.1   Schluessel-   Daten ab      17 Eintraege
+                                    tabelle 0x124  0x1e0
+
+    Jeder Eintrag ist 16 Byte: Schluesselversatz (u16), Format (u16), Laenge (u32),
+    Hoechstlaenge (u32), Datenversatz (u32). Format 0x0204 ist UTF-8 mit Nullbyte,
+    0x0404 eine 32-Bit-Zahl. Gelesen wurden so u. a. `TITLE_ID = 'PCSF00024'`,
+    `TITLE = 'GRAVITY RUSH™'` und `CATEGORY = 'gd'`.
+
+    Zahlen werden bewusst als Zeichenkette zurueckgegeben — hier interessiert nur
+    `TITLE_ID`, und ein einheitlicher Typ erspart dem Aufrufer die Fallunterscheidung.
+
+    EN: minimal SFO reader, built from the real file of the library's only Vita title.
+    """
+    import struct
+    try:
+        with open(pfad, "rb") as f:
+            roh = f.read(1 << 20)
+    except OSError:
+        return {}
+    if roh[:4] != b"\x00PSF":
+        return {}
+    try:
+        schluesselstart, datenstart, anzahl = struct.unpack_from("<III", roh, 8)
+        if not 0 < anzahl <= 1000:
+            return {}
+        felder = {}
+        for i in range(anzahl):
+            kv, fmt, laenge, _max, dv = struct.unpack_from("<HHIII", roh, 0x14 + i * 16)
+            ende = roh.index(b"\x00", schluesselstart + kv)
+            name = roh[schluesselstart + kv:ende].decode("utf-8", "replace")
+            wert = roh[datenstart + dv:datenstart + dv + laenge]
+            if fmt == 0x0404:
+                felder[name] = str(struct.unpack("<I", wert[:4])[0]) if len(wert) >= 4 else ""
+            else:
+                felder[name] = wert.split(b"\x00")[0].decode("utf-8", "replace")
+        return felder
+    except (struct.error, ValueError, IndexError):
+        return {}
+
+
+def vita_startwert(ordner):
+    """-> (Titelkennung fuer `-r`, Absagegrund). Genau eines von beidem ist gesetzt.
+
+    WARUM UEBERHAUPT: Vita3K startet einen Titel ueber seine KENNUNG, nicht ueber
+    seinen Pfad. Seine eigene Hilfe sagt es:
+
+        -r, --installed-path TEXT:{PCSF00024}   Path to the installed app to run
+
+    Die geschweifte Menge ist die Liste der installierten Titel. Mit dem Pfad statt der
+    Kennung endet der Start mit Exit 4, bevor ein Fenster entsteht:
+
+        CLI parsing error: --installed-path: /roms/psvita/Gravity not in {PCSF00024}
+
+    WARUM DIE KENNUNG IM LISTING GESUCHT UND NICHT AN `ux0/app` GEKLEBT WIRD: Sie
+    stammt aus einer Datei der Bibliothek und ist damit eine Eingabe von aussen —
+    dieselbe Ueberlegung wie in `_bibliothekspfad`. Der weitergegebene Wert ist so ein
+    echter Verzeichniseintrag; ein `..` darin kann gar nicht erst wirken.
+
+    NICHT INSTALLIERT IST EINE ABSAGE, kein Startversuch. Ohne `-r` oeffnet Vita3K
+    seine Titelliste: der Start GELINGT, der Stream zeigt einen Emulator, und niemand
+    sieht, warum kein Spiel kommt. Installieren tut dieser Dienst nicht — das ist ein
+    Schritt in Vita3Ks eigener Oberflaeche.
+
+    EN: Vita3K launches an INSTALLED title by its id, not by a path. The id is read
+    from `sce_sys/param.sfo` and then looked up in the listing of `ux0/app`, so the
+    value handed on is a real directory entry. Not installed is refused rather than
+    launched, because without `-r` Vita3K merely opens its title list.
+    """
+    name = os.path.basename(ordner.rstrip(os.sep)) or ordner
+    if not os.path.isdir(ordner):
+        return "", (f"'{name}' ist kein Titelordner — Vita3K startet nur INSTALLIERTE "
+                    "Titel; eine .vpk-Datei muss zuerst in Vita3K installiert werden "
+                    "(File ▸ Install). / not a title folder: Vita3K only launches "
+                    "installed titles, a .vpk file has to be installed there first")
+    kennung = sfo_felder(os.path.join(ordner, "sce_sys", "param.sfo")).get("TITLE_ID", "").strip()
+    if not kennung:
+        return "", (f"Keine Titelkennung in '{name}' — `sce_sys/param.sfo` fehlt oder "
+                    "nennt kein TITLE_ID; ohne sie weiss Vita3K nicht, was es starten "
+                    "soll. / no title id: `sce_sys/param.sfo` is missing or has no "
+                    "TITLE_ID")
+    try:
+        installiert = os.listdir(os.path.join(vita_ablage(), "ux0", "app"))
+    except OSError:
+        installiert = []
+    if kennung not in installiert:
+        return "", (f"'{name}' ist in Vita3K nicht installiert (Titelkennung {kennung}). "
+                    "Vita3K startet nur, was unter `ux0/app` liegt — den Titel einmal in "
+                    "Vita3K installieren. / not installed in Vita3K (title id "
+                    f"{kennung}); install it once, then streaming works.")
+    return kennung, ""
+
+
+def hostlast():
+    """-> Was der Host im Moment sonst noch tut. (#527)
+
+    WOZU: Am 2026-08-13 meldete ein Nutzer „es ruckelt extrem und laeuft wohl auf der
+    CPU statt auf der GPU". Beides klang plausibel und beides war falsch — nachgemessen:
+
+        GL_RENDERER  Mesa Intel(R) Arc(tm) A310 Graphics   <- sehr wohl auf der GPU
+        RCS (3D)     0,00 %                                <- die noetige Einheit: frei
+        tdarr-ffmpeg 759 %   tdarr-ffmpeg 733 %   xemu 201 %
+        28 Kerne, Load 45,9
+
+    Zwei Umrechnungen belegten rund 15 Kerne, und die Xbox-Emulation ist CPU-gebunden.
+    Der Emulator bekam die Schuld fuer eine Last, die von woanders kam.
+
+    OHNE DIESE ANGABE IST JEDE AUSSAGE „laeuft fluessig" WERTLOS: Sie gilt nur fuer den
+    Zustand, in dem gemessen wurde — und der stand nirgends. Deshalb wird er beim Start
+    festgehalten, nicht auf Zuruf erhoben; hinterher laesst er sich nicht rekonstruieren.
+
+    Bewusst KEINE Bewertung und keine Absage: Ob eine Last zu hoch ist, haengt vom Titel
+    ab. Festgehalten wird, was war.
+
+    WAS DIESE ANGABE NICHT LEISTET — und das entscheidet, wie sie zu lesen ist (#531):
+
+        ps IM Container:   sh selkies xfce4-panel xfdesktop Xvfb xfce4-session
+        ps AUF dem Host:   tdarr-ffmpeg tdarr-ffmpeg shfs find
+
+    Der Dienst laeuft im PID-Namensraum des Containers. Die Prozessliste kann `tdarr-ffmpeg`
+    also GAR NICHT nennen — ausgerechnet den Fall, fuer den sie gebaut wurde. Sie heisst
+    deshalb `top_container` und traegt `top_scope`, damit niemand sie als „was lief sonst
+    auf dem Host" liest und aus einer harmlosen Liste auf eine ruhige Maschine schliesst.
+
+    `load` dagegen kommt aus `/proc/loadavg` und ist NICHT namensraumgetrennt — im
+    Container und auf dem Host bitgleich (38.47 39.89 41.99 gegen 38.47 39.89 41.99).
+    Sie ist damit die tragende Angabe: Sie beantwortet „war die Maschine beschaeftigt",
+    und genau das ist die Frage.
+
+    EN: the process list is container-scoped and can never name the host processes this
+    was built to catch — hence `top_container` and an explicit `top_scope`. The load
+    average is not namespaced and is the part that carries the answer.
+
+    EN: records what else the host was doing at launch. A stutter report is otherwise
+    answered by guesswork — the obvious reading ("it must be on the CPU") was exactly
+    wrong once, and the state it referred to was gone by the time anyone asked.
+    """
+    daten = {}
+    try:
+        daten["load"] = [round(x, 2) for x in os.getloadavg()]
+        daten["cpus"] = os.cpu_count() or 0
+    except OSError:
+        return {}
+    try:
+        # `ps` statt /proc-Eigenbau: die Prozentwerte sind dieselben, die ein Mensch
+        # beim Nachsehen bekommt — und genau die stehen spaeter im Bericht.
+        #
+        # DIE MESSUNG DARF SICH NICHT SELBST SEHEN. (#529)
+        #
+        # `ps` rechnet %CPU als Rechenzeit ueber die LEBENSDAUER. Ein Prozess, der
+        # Millisekunden alt ist und ein paar davon verbraucht hat, steht damit bei
+        # nahezu 100 % — der `ps`-Aufruf selbst landet also zuverlaessig auf Platz eins
+        # und der eigene Interpreter meist auf Platz zwei. Direkt nach dem Ausrollen
+        # gemessen:
+        #
+        #     100,0 %  ps          <- die Messung
+        #      73,3 %  python3     <- der Messende
+        #      25,0 %  xfce4-panel
+        #
+        # Die Liste hat FUENF Plaetze. Zwei davon an die Messung zu verlieren heisst,
+        # dass zwei echte Verbraucher aus der Aufzeichnung fallen — und die gibt es nur,
+        # um genau die zu nennen. Dieselbe Falle wie bei `pgrep`/`pkill`, die die eigene
+        # Sitzung treffen.
+        #
+        # Der Agent bleibt sichtbar, wenn er WIRKLICH beschaeftigt ist; weg muss die
+        # Beobachtung, nicht der Beobachter.
+        # EN: ps computes %CPU over process lifetime, so the measuring call itself scores
+        # ~100 % and takes a slot the record exists to give to real consumers.
+        r = subprocess.run(["ps", "-eo", "pid,ppid,pcpu,comm", "--sort=-pcpu"],
+                           capture_output=True, text=True, timeout=5)
+        selbst = {str(os.getpid())}
+        top = []
+        for z in r.stdout.splitlines()[1:]:
+            teile = z.split(None, 3)
+            if len(teile) < 4:
+                continue
+            pid, ppid, pcpu, name = teile
+            if not pcpu.replace(".", "", 1).isdigit():
+                continue
+            # Der `ps`-Prozess selbst (Kind dieses Prozesses) und dieser Prozess,
+            # SOLANGE er nur misst — beides gehoert nicht in die Auskunft.
+            if name.strip() == "ps" and ppid in selbst:
+                continue
+            if pid in selbst:
+                continue
+            top.append({"cpu": float(pcpu), "name": name.strip()})
+            if len(top) >= 5:
+                break
+        daten["top_container"] = top
+        daten["top_scope"] = "container"
+    except Exception:                                        # noqa: BLE001
+        daten["top_container"] = []
+        daten["top_scope"] = "container"
+    return daten
+
+
+def _wiiu_art(ordner):
+    """-> Absagegrund, oder "" wenn der Ordner ein Basisspiel sein kann. (#502)
+
+    DIE ERSTEN ACHT HEXZIFFERN DER TITEL-ID SAGEN, WAS ES IST:
+
+        00050000  Basisspiel      startbar
+        0005000E  Update          patcht ein Basisspiel, hat selbst keinen Inhalt
+        0005000C  DLC             desgleichen
+        0005001B  Systemtitel     gehoert ins mlc, nicht in die Bibliothek
+
+    Sie steht im Klartext in `code/app.xml`, es braucht keine Schluessel.
+
+    WARUM `app.xml` UND NICHT `meta.xml`: Weil die beiden sich widersprechen koennen —
+    und genau das war der Fall, der diese Pruefung ausgeloest hat. Gemessen am einzigen
+    Wii-U-Titel des Bestands:
+
+        meta/meta.xml   title_id = 0005000010180700   (Basisspiel)
+        code/app.xml    title_id = 0005000E10180700   (Update)
+
+    Cemu liest `app.xml`, sieht das Update und antwortet:
+
+        Unable to mount title.
+        File which failed to load: …/code/Kinopio.rpx
+
+    Diese Meldung nennt eine Datei und verschweigt die Ursache. Wer sie liest, sucht am
+    Pfad — dort ist nichts. Nachgemessen: Ordner und `.rpx` scheitern IDENTISCH, die
+    Argumentform war also nie die Frage.
+
+    IM ZWEIFEL DURCHLASSEN, wie bei Switch (#427) und 3DS: Fehlt `app.xml` oder steht
+    dort keine lesbare Kennung, geht der Titel durch. Eine falsche Absage kostet mehr
+    als ein Fehlversuch.
+
+    EN: the first eight hex digits of the title id say what a title is; 0005000E is an
+    update and 0005000C is DLC, neither of which has bootable content of its own. The id
+    sits in plain text in `code/app.xml` — no keys needed. `app.xml` rather than
+    `meta.xml` because the two can disagree, which is exactly the case that prompted
+    this. When in doubt, let it through.
+    """
+    xml = os.path.join(ordner, "code", "app.xml")
+    try:
+        with open(xml, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read(8192)
+    except OSError:
+        return ""
+    m = re.search(r"<title_id[^>]*>\s*([0-9A-Fa-f]{16})\s*<", text)
+    if not m:
+        return ""
+    kennung = m.group(1).upper()
+    art = {
+        "0005000E": ("ein UPDATE", "an UPDATE"),
+        "0005000C": ("ein ZUSATZINHALT (DLC)", "add-on content (DLC)"),
+        "0005001B": ("ein SYSTEMTITEL", "a SYSTEM title"),
+    }.get(kennung[:8])
+    if not art:
+        return ""
+    de, en = art
+    return (f"'{os.path.basename(ordner)}' ist {de}, kein Spiel (Titelkennung "
+            f"{kennung}). Ein Update patcht ein Basisspiel und hat selbst keinen "
+            f"startbaren Inhalt — Cemu meldet darauf nur 'Unable to mount title'. "
+            f"Das Basisspiel (00050000…) fehlt in der Bibliothek. / this is {en}, not a "
+            f"game (title id {kennung}); it patches a base title that is not present.")
+
+
 def _switch_art(pfad):
     """-> Absagegrund, oder "" wenn die Datei ein Spiel sein kann. (#427)
 
@@ -827,6 +1297,14 @@ def launch(path, platform, rel="", region=""):
         if art:
             return False, art
 
+    # Wii U ebenso (#502), nur ist der Titel hier ein ORDNER. Ohne diese Absage startet
+    # Cemu ein Update und antwortet mit „Unable to mount title" — einer Meldung, die
+    # eine Datei nennt und die Ursache verschweigt.
+    if platform == "wiiu" and os.path.isdir(real):
+        art = _wiiu_art(real)
+        if art:
+            return False, art
+
     # 3DS vor dem Start pruefen (#299): Was verschluesselt ist, kann Azahar nicht
     # spielen — das jetzt zu sagen ist ehrlicher als ein Stream, der leer aufgeht.
     if platform == "3ds" and os.path.isfile(real):
@@ -865,7 +1343,19 @@ def launch(path, platform, rel="", region=""):
     # A title is not always a file: a PS3 disc is a directory. The previous `isfile`
     # check rejected those with a message about differing mount points — plausible
     # and wrong, which is the worst kind of error message.
-    if os.path.isdir(real):
+    #
+    # PS VITA GEHT EINEN ANDEREN WEG (#481): Dort ist ein Titel ebenfalls ein Ordner,
+    # aber Vita3K bekommt keine Datei daraus, sondern die TITELKENNUNG des installierten
+    # Titels. Bis dahin lief ein Vita-Titel in die Absage unten hinein — gemessen am
+    # laufenden Dienst, denn ein Vita-Ordner traegt keine der bekannten Startdateien:
+    #     {"ok": false, "msg": "Ordner ohne startbaren Inhalt … Gravity Rush (Europe).vpk"}
+    # EN: for PS Vita the folder yields an id, not a boot file.
+    vita_id = ""
+    if platform == "psvita":
+        vita_id, fehler = vita_startwert(real)
+        if fehler:
+            return False, fehler
+    elif os.path.isdir(real):
         boot = _bootdatei(real, platform)
         if not boot:
             return False, (f"Ordner ohne startbaren Inhalt / folder has no bootable file: "
@@ -894,10 +1384,13 @@ def launch(path, platform, rel="", region=""):
         # es laeuft nur "komisch".
         # Guessing a region would be worse than leaving it: a wrong BIOS does not
         # announce itself, the game merely behaves oddly.
-        # Reihenfolge: Controller, BIOS, Vollbild — alles BEVOR der Emulator seine
-        # Konfiguration liest. Danach zu setzen hiesse, gegen einen laufenden Prozess
-        # zu arbeiten, der seine eigene Geometrie zurueckschreibt.
-        auftraege = [["--apply", profil], ["--fullscreen", profil]]
+        # Reihenfolge: Controller, BIOS, Startdialoge, Vollbild — alles BEVOR der
+        # Emulator seine Konfiguration liest. Danach zu setzen hiesse, gegen einen
+        # laufenden Prozess zu arbeiten, der seine eigene Geometrie zurueckschreibt —
+        # und bei Vita3K auch alles andere: der schreibt seine `config.yml` schon beim
+        # START zurueck, nicht erst beim Beenden (nachgemessen, #488).
+        # EN: `--dialogs` takes away the modal windows that otherwise catch the launch.
+        auftraege = [["--apply", profil], ["--dialogs", profil], ["--fullscreen", profil]]
         if region:
             auftraege.insert(1, ["--bios", profil, region])
         for a in auftraege:
@@ -910,22 +1403,74 @@ def launch(path, platform, rel="", region=""):
 
     # argv ist damit: fester Befehl aus der Umgebung (der Betreiber setzt ihn) + genau EIN
     # geprueftes Argument aus der Bibliothek. Keine Shell, keine Wortzerlegung durch execve.
-    argv = [real if part == "%s" else part for part in shlex.split(cmd)]
+    #
+    # Das Argument ist der PFAD — ausser bei PS Vita, wo es die Titelkennung ist (#481).
+    # `real` bleibt trotzdem der Pfad: er ist es, was `/status` meldet und was im Bericht
+    # steht. / the argument is the path, except for PS Vita where it is the title id.
+    startwert = vita_id or real
+    argv = [startwert if part == "%s" else part for part in shlex.split(cmd)]
     if "%s" not in cmd:
-        argv.append(real)
+        argv.append(startwert)
     umgebung = start_umgebung(platform)
     with _lock:
         _stop_locked()
+        # DAS GRUNDBILD MUSS GENAU HIER STEHEN (#495). Die Vollbildmessung vergleicht den
+        # Schirm mit einer Aufnahme des LEEREN Desktops — ohne die kann sie ein Spiel
+        # nicht von einem Hintergrundbild unterscheiden. Frueher aufgenommen stuende der
+        # VORTITEL im Bild (die Profilschritte oben laufen, waehrend er noch laeuft),
+        # spaeter der neue. Zwischen `_stop_locked()` und `Popen` ist das einzige
+        # Zeitfenster, in dem der Desktop wirklich leer ist.
+        #
+        # Schlaegt es fehl, wird trotzdem gestartet: ohne Grundbild unterbleibt nur die
+        # Vollbildkorrektur, und die Aufnahme lehnt sich selbst ab, wenn noch ein Fenster
+        # im Bild steht — das alte Grundbild bleibt dann liegen und ist genauso gut, denn
+        # der Desktop aendert sich nicht.
+        # EN: between stopping the old emulator and starting the new one is the only
+        # moment the desktop is actually empty. A failure here costs the fullscreen
+        # correction, never the launch.
+        if os.path.isfile(PROFILE_SCRIPT):
+            try:
+                r = subprocess.run([sys.executable, PROFILE_SCRIPT, "--grundbild"],
+                                   capture_output=True, text=True, timeout=30)
+                print((r.stdout + r.stderr).strip(), flush=True)
+            except (subprocess.TimeoutExpired, OSError) as e:
+                print(f"[grundbild] {e.__class__.__name__}", flush=True)
         try:
             # Kein shell=True: die Argumentliste geht unveraendert an execve.
+            #
+            # `start_new_session`: EIGENE SITZUNG JE START (#489). Nicht Kosmetik, sondern
+            # die Voraussetzung dafuer, dass `/stop` ueberhaupt eine Gruppe beenden DARF —
+            # ohne sie steht der Emulator in der Gruppe des Agenten, und ein `killpg`
+            # beendet den Dienst selbst (am laufenden Host gemessen, siehe `_eigene_gruppe`).
+            #
+            # WARUM UEBERHAUPT DIE GRUPPE: Vita3Ks `AppRun.wrapped` ist als einziges ein
+            # Shell-Skript und startet den Emulator als KIND, ohne `exec`. Die verfolgte
+            # PID ist damit die der Shell — `/stop` beendete sie, und der Emulator lief
+            # verwaist weiter (PPid 1) und hielt die GPU. Der Weg ueber die Prozessgruppe
+            # ist emulatorunabhaengig: er trifft auch den naechsten Wrapper, den
+            # `linuxdeploy` erzeugt, ohne dass ihn jemand hier eintragen muss.
+            # EN: one session per launch — that is what makes killpg safe, and it catches
+            # any wrapper that starts the emulator as a child instead of exec'ing it.
             _current["proc"] = subprocess.Popen(argv, stdout=subprocess.DEVNULL,
-                                                stderr=subprocess.DEVNULL, env=umgebung)
+                                                stderr=subprocess.DEVNULL, env=umgebung,
+                                                start_new_session=True)
         except OSError as e:
             return False, f"Start fehlgeschlagen / launch failed: {e.__class__.__name__}"
         _current["platform"] = platform
         _current["path"] = real
         _current["window"] = "pending"
         _current["window_detail"] = ""
+        # JETZT messen, nicht spaeter: Beim naechsten Nachfragen ist der Zustand weg,
+        # und genau er entscheidet, ob ein Ruckeln am Emulator liegt (#527).
+        _current["last"] = hostlast()
+        if _current["last"]:
+            l = _current["last"]
+            oben = ", ".join(f"{t['name']} {t['cpu']:.0f}%"
+                             for t in l.get("top_container", [])[:3])
+            # „im Container" gehoert in die Zeile, nicht in eine Fussnote: Die Liste
+            # sieht den Host nicht, und ohne den Zusatz liest sie sich, als taete sie es.
+            print(f"[last] beim Start: load {l['load'][0]} auf {l['cpus']} Kernen"
+                  + (f" — im Container: {oben}" if oben else ""), flush=True)
 
     # Nur das Emulatorfenster zeigen (#141). Im Hintergrund, weil auf das Fenster bis
     # zu 20 Sekunden gewartet wird — der Aufrufer soll darauf nicht haengen. Schlaegt
@@ -1161,8 +1706,13 @@ class Handler(BaseHTTPRequestHandler):
                                  "platform": _current["platform"],
                                  "window": _current["window"],
                                  "window_detail": _current["window_detail"],
+                                 # Der Zustand des Hosts BEIM START — nicht der jetzige.
+                                 # Wer nachtraeglich misst, misst den falschen Moment.
+                                 "host_load": _current.get("last") or {},
                                  "file": os.path.basename(_current["path"]) if _current["path"] else "",
                                  "platforms": sorted(k for k, v in EMULATORS.items() if v),
+                                 # Was NICHT geht, ist so wichtig wie was geht (#440).
+                                 "platforms_missing": fehlende_plattformen(),
                                  "emulators": installed_emulators(),
                                  # Damit Romseerr weiss, ob ein verschluesselter 3DS-Titel eine
                                    # Absage wert ist oder nur eine Wartezeit (#354).
@@ -1182,4 +1732,13 @@ if __name__ == "__main__":
                  "laeuft nicht ungeschuetzt. / refusing to run without a token.")
     print(f"stream-agent auf :{PORT}, Bibliothek {ROMS}, "
           f"Plattformen: {', '.join(sorted(k for k, v in EMULATORS.items() if v))}", flush=True)
+    # DAS FEHLEN AUCH SAGEN (#440). Die Zeile darueber nennt seit jeher nur, was da ist —
+    # und so stand ein Tag lang nirgends, dass `ps2` und `ps3` abhanden gekommen waren.
+    # Wer das Protokoll liest, soll den Unterschied zwischen „nie eingerichtet" und
+    # „verschwunden" sehen koennen, ohne die Liste im Kopf zu vergleichen.
+    fehlt = fehlende_plattformen()
+    if fehlt:
+        print(f"stream-agent: OHNE Emulator: {', '.join(fehlt)} "
+              f"— kein Startbefehl oder AppRun fehlt / no launcher configured or AppRun gone",
+              flush=True)
     HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()  # nosec B104 - Container-Dienst
