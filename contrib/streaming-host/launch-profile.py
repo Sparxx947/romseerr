@@ -769,6 +769,136 @@ def dolphin_gcpad(pruefen=False):
     return True, f"GameCube-Port 1 auf {DOLPHIN_GERAET} gelegt"
 
 
+def dolphin_wiimote_ini():
+    return os.path.join(CONFIG, ".config/dolphin-emu/WiimoteNew.ini")
+
+
+# WIIMOTE-BELEGUNG (#297). Zwei Vokabulare treffen hier aufeinander, und BEIDE sind
+# abgelesen, keines geraten:
+#
+#   Steuernamen (links)  aus der vorhandenen `WiimoteNew.ini`, die Dolphin selbst
+#                        angelegt hat — `Buttons/1`, `IR/Up`, `Shake/X`, `Nunchuk/…`
+#   Eingaenge (rechts)   aus `GCPadNew.ini`, wo dieselbe Schreibweise nachweislich
+#                        funktioniert (siehe DOLPHIN_PAD)
+#
+# WAS DEN AUSSCHLAG GAB: `SELECT` und `MODE` kommen in der GameCube-Datei NICHT vor.
+# Waeren sie von dort abgeleitet worden, blieben Minus und Home leer. Sie stammen aus
+# einer Messung am Geraet selbst:
+#
+#   BTN_A BTN_B BTN_NORTH BTN_WEST BTN_TL BTN_TR BTN_SELECT BTN_START BTN_MODE
+#   BTN_THUMBL BTN_THUMBR
+#   ABS_X ABS_Y ABS_Z ABS_RX ABS_RY ABS_RZ ABS_HAT0X ABS_HAT0Y
+#
+# Das ist die Liste, die die Bruecke wirklich anlegt — nicht die, die ein Xbox-Pad
+# ueblicherweise hat.
+#
+# ZWEI ENTSCHEIDUNGEN, die keine Messung sind und deshalb hier stehen:
+#
+#   1. `Tilt` UND `Nunchuk/Stick` liegen beide auf dem linken Stick. Ein Spiel liest
+#      entweder Neigung oder Nunchuk, nie beides — sie stoeren sich also nicht, und
+#      eine Umschaltung je Spiel waere Aufwand ohne Gegenwert.
+#   2. `B` liegt auf dem rechten Trigger, nicht auf einer Taste: Am echten Geraet ist B
+#      der Abzug an der Unterseite.
+#
+# `Tilt/Forward` ist ZUSAMMENGESETZT: die Gruppe `Tilt` stammt aus der Dolphin-Binaerdatei,
+# die Richtungsnamen aus `IMUAccelerometer/Forward` derselben Datei. Beide Haelften sind
+# belegt, die Verbindung war es nicht — bis ein Mensch am Pad bestaetigt hat, dass das
+# Kippen ankommt (2026-08-13, Kororinpa).
+#
+# EN: both vocabularies are read, not guessed — control names from the file Dolphin wrote
+# itself, input spellings from the GameCube file where they demonstrably work. SELECT and
+# MODE come from measuring the device, because the GameCube file never uses them. Two
+# choices are judgement, not measurement: tilt and the nunchuk stick share the left stick,
+# and B sits on the right trigger because that is where it is on the real device.
+DOLPHIN_WIIMOTE = [
+    ("Buttons/A", "SOUTH"),
+    ("Buttons/B", "`Axis 5+`"),
+    ("Buttons/1", "WEST"),
+    ("Buttons/2", "NORTH"),
+    ("Buttons/-", "SELECT"),
+    ("Buttons/+", "START"),
+    ("Buttons/Home", "MODE"),
+    ("D-Pad/Up", "`Axis 7-`"),
+    ("D-Pad/Down", "`Axis 7+`"),
+    ("D-Pad/Left", "`Axis 6-`"),
+    ("D-Pad/Right", "`Axis 6+`"),
+    ("IR/Up", "`Axis 4-`"),
+    ("IR/Down", "`Axis 4+`"),
+    ("IR/Left", "`Axis 3-`"),
+    ("IR/Right", "`Axis 3+`"),
+    ("Tilt/Forward", "`Axis 1+`"),
+    ("Tilt/Backward", "`Axis 1-`"),
+    ("Tilt/Left", "`Axis 0-`"),
+    ("Tilt/Right", "`Axis 0+`"),
+    ("Shake/X", "TL"),
+    ("Shake/Y", "TL"),
+    ("Shake/Z", "TL"),
+    ("Extension", "Nunchuk"),
+    ("Nunchuk/Buttons/C", "THUMBL"),
+    ("Nunchuk/Buttons/Z", "`Axis 2+`"),
+    ("Nunchuk/Stick/Up", "`Axis 1-`"),
+    ("Nunchuk/Stick/Down", "`Axis 1+`"),
+    ("Nunchuk/Stick/Left", "`Axis 0-`"),
+    ("Nunchuk/Stick/Right", "`Axis 0+`"),
+    ("Nunchuk/Stick/Calibration", KALIBRIERUNG),
+]
+
+
+def dolphin_wiimote(pruefen=False):
+    """-> (geaendert, meldung). Legt Wii-Remote 1 auf das gebrueckte Gamepad. (#297)
+
+    WARUM ES DAS BRAUCHT, obwohl der GameCube-Controller laengst ging: Dolphin fuehrt
+    beide Belegungen in GETRENNTEN Dateien, und nur `GCPadNew.ini` war gesetzt. Gemessen
+    am laufenden Host:
+
+        GCPadNew.ini    Device = evdev/0/Microsoft X-Box 360 pad     <- funktionierte
+        WiimoteNew.ini  Device = XInput2/0/Virtual core pointer      <- Mausklicks
+
+    `Buttons/A = ``Click 1``` — die Wii-Remote hing am X11-Zeiger. Ein Wii-Titel bekam
+    also nie eine Eingabe, waehrend derselbe Emulator am GameCube tadellos lief. Von
+    aussen sah das nach einem kaputten Controller aus.
+
+    Nur `[Wiimote1]` wird ersetzt; Wiimote 2 bis 4 und das Balance Board bleiben stehen.
+    Rueckweg als `.vor-gamepad` daneben.
+
+    EN: Dolphin keeps the two mappings in separate files and only the GameCube one was
+    set — the Wii Remote was bound to the X11 pointer, so Wii titles received nothing
+    while the same emulator worked fine on GameCube.
+    """
+    pfad = dolphin_wiimote_ini()
+    block = ["[Wiimote1]", f"Device = {DOLPHIN_GERAET}"]
+    block += [f"{schluessel} = {wert}" for schluessel, wert in DOLPHIN_WIIMOTE]
+
+    if os.path.isfile(pfad):
+        with open(pfad, encoding="utf-8", errors="ignore") as f:
+            zeilen = f.read().splitlines()
+    else:
+        zeilen = []
+
+    start = next((i for i, z in enumerate(zeilen) if z.strip() == "[Wiimote1]"), None)
+    if start is None:
+        if pruefen:
+            return True, "Wiimote1 wuerde angelegt"
+        zeilen = block + ([""] + zeilen if zeilen else [])
+    else:
+        ende = next((i for i in range(start + 1, len(zeilen))
+                     if zeilen[i].startswith("[")), len(zeilen))
+        if [z.strip() for z in zeilen[start:ende] if z.strip()] == block:
+            return False, "Wii-Remote-Belegung steht bereits"
+        if pruefen:
+            return True, "Wii-Remote haengt nicht am Pad"
+        sicherung = pfad + ".vor-gamepad"
+        if not os.path.exists(sicherung):
+            with open(sicherung, "w", encoding="utf-8") as f:
+                f.write("\n".join(zeilen) + "\n")
+        zeilen[start:ende] = block
+
+    os.makedirs(os.path.dirname(pfad), exist_ok=True)
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write("\n".join(zeilen) + "\n")
+    return True, f"Wii-Remote 1 auf {DOLPHIN_GERAET} gelegt"
+
+
 def dolphin_apply(pruefen=False):
     """-> (geaendert, meldung). Gamepad-Belegung UND Dual Core.
 
@@ -778,7 +908,7 @@ def dolphin_apply(pruefen=False):
     EN: this was listed as the controller step while only ever setting dual core.
     """
     geaendert = []
-    for schritt in (dolphin_gcpad, dolphin_dualcore):
+    for schritt in (dolphin_gcpad, dolphin_wiimote, dolphin_dualcore):
         tat, meldung = schritt(pruefen)
         if tat:
             geaendert.append(meldung)

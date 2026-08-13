@@ -837,7 +837,7 @@ Controller im Spiel gedrückt.
 | PlayStation 1 | DuckStation | ✅¹ | ✅ | ✅ | von einem Menschen bestätigt (2026-08-10). ¹Am 2026-08-12/13 startete gar kein Titel — drei modale Fenster, seit #492 stehen alle drei ab. Danach stand das Spiel auf 640 × 480 in der Ecke; **behoben seit #493** — nicht der Fensterschritt war es, sondern ein F11, das DuckStations eigenes Vollbild abschaltete. Nach dem Ausrollen gemessen: **39 von 39 Messpunkten über 80 s** unverändert 1920 × 1080, Vollbildzustand durchgehend gesetzt |
 | PlayStation 2 | PCSX2 | ✅ | ✅ | ✅ | |
 | GameCube | Dolphin | ✅ | ✅ | ✅ | |
-| Wii | Dolphin | ✅ | ✅ | (⁠—⁠) | Controller nicht eigens geprüft — gleicher Emulator und gleiche Belegung wie GameCube |
+| Wii | Dolphin | ✅ | ✅ | ✅ | **Dieselbe Belegung wie GameCube war eine falsche Annahme** — Dolphin führt beide in getrennten Dateien, und `WiimoteNew.ini` hing am X11-Zeiger (`Buttons/A = `Click 1``). Ein Wii-Titel bekam nie eine Eingabe, während derselbe Emulator am GameCube tadellos lief. Seit #297 auf `evdev` gelegt, von einem Menschen bestätigt (Kororinpa, 2026-08-13) — samt Neigung auf dem linken Stick |
 | PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
 | Switch | Eden | ✅ | ✅ | (⁠—⁠) | Controller nicht eigens geprüft |
 | Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | erst seit der Entschlüsselung (#354/#356); Vollbild an den Pixeln gemessen (#316); Controller nicht eigens geprüft |
@@ -2383,7 +2383,7 @@ pressed in-game.
 | PlayStation 1 | DuckStation | ✅¹ | ✅ | ✅ | confirmed by a human (2026-08-10). ¹on 2026-08-12/13 no title started at all — three modal windows, all three switched off since #492. The game then sat at 640 × 480 in the corner; **fixed since #493** — not the window step but an F11 that switched off DuckStation's own fullscreen. Measured after the rollout: **39 of 39 samples over 80 s** unchanged at 1920 × 1080, fullscreen state held throughout |
 | PlayStation 2 | PCSX2 | ✅ | ✅ | ✅ | |
 | GameCube | Dolphin | ✅ | ✅ | ✅ | |
-| Wii | Dolphin | ✅ | ✅ | (⁠—⁠) | controller not checked separately — same emulator and same mapping as GameCube |
+| Wii | Dolphin | ✅ | ✅ | ✅ | **"same mapping as GameCube" was a false assumption** — Dolphin keeps the two in separate files, and `WiimoteNew.ini` was bound to the X11 pointer (`Buttons/A = `Click 1``). Wii titles received no input at all while the same emulator worked fine on GameCube. Moved to `evdev` in #297 and confirmed by a person (Kororinpa, 2026-08-13), tilt included on the left stick |
 | PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
 | Switch | Eden | ✅ | ✅ | (⁠—⁠) | controller not checked separately |
 | Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | only since decryption (#354/#356); fullscreen measured at the pixels (#316); controller not separately checked |
