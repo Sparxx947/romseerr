@@ -443,6 +443,33 @@ the only Wii U title here claims to be a game in `meta.xml` and is an update in
 `app.xml`. Cemu's answer to that, `Unable to mount title`, names a file and hides the
 cause.*
 
+**xemu braucht eine Bibliothek, die nirgends auf dem Suchpfad liegt.** `libusb-1.0.so.0`
+steckt weder im Abbild noch in xemus eigenem AppImage. `init/22-xemu-vorbereiten` leiht sie
+aus einem anderen Emulator und legt sie nach `/config/lib` — aber der Lader kennt dieses
+Verzeichnis nicht:
+
+```
+ldconfig -p | grep -c libusb   ->  0
+/etc/ld.so.conf.d/*.conf       ->  kein Eintrag für /config
+```
+
+Ohne den Pfad endet xemu **sofort**:
+
+```
+error while loading shared libraries: libusb-1.0.so.0
+```
+
+Von außen ist das nicht von „der Emulator kann die Plattform nicht" zu unterscheiden — der
+Stream geht auf und bleibt leer. Die Startzeile setzt deshalb `LD_LIBRARY_PATH=/config/lib`,
+und zwar **nur für xemu**: Ein Eintrag in `ld.so.conf` gälte für jedes Programm im Container
+und könnte Bibliotheken verdrängen, die ein anderes AppImage selbst mitbringt (#525).
+
+*EN: xemu needs `libusb-1.0.so.0`, which neither the image nor its own AppImage provides.
+The init borrows it into `/config/lib`, but nothing put that directory on the loader's path,
+so xemu exited immediately — indistinguishable from "platform not supported". The launch
+line now sets `LD_LIBRARY_PATH` for xemu alone rather than adding it to `ld.so.conf`, which
+would affect every process in the container.*
+
 **Root-eigene Reste sperren Emulatoren aus, ohne es zu sagen.** Der Dienst lief früher
 als `root`; was er damals anlegte, gehört bis heute `root`, und der als `abc` laufende
 Emulator kommt nicht daran. `init/30-agent` heilt das bei jedem Start — aber nur in den

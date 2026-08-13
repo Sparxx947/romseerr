@@ -239,7 +239,30 @@ unset _e _n
 # der Ferne niemand schliesst. / EN: -batch boots straight into the title and exits with
 # it, instead of leaving a window nobody can close remotely.
 [ -x "$EMU/duckstation/AppRun" ] && EMU_PSX="$(apprun duckstation) -batch -fullscreen %s" && export EMU_PSX
-[ -x "$EMU/xemu/AppRun" ]      && EMU_XBOX="$(apprun xemu) -dvd_path %s" && export EMU_XBOX
+# XEMU BRAUCHT EINE BIBLIOTHEK, DIE NICHT AUF DEM SUCHPFAD LIEGT (#525).
+#
+# `init/22-xemu-vorbereiten` leiht `libusb-1.0.so.0` aus einem anderen Emulator-AppImage
+# und legt sie nach `/config/lib`. Nur wusste davon niemand:
+#
+#     ldconfig -p | grep -c libusb   -> 0
+#     /etc/ld.so.conf.d/*.conf       -> kein Eintrag fuer /config
+#
+# Ohne den Pfad endet xemu SOFORT:
+#
+#     error while loading shared libraries: libusb-1.0.so.0
+#
+# Von aussen ist das nicht von „der Emulator kann die Plattform nicht" zu unterscheiden:
+# Der Stream geht auf und bleibt leer. Am laufenden Host beidseitig nachgemessen — ohne
+# den Pfad der Abbruch, mit ihm ein Fenster „xemu | v0.8.136".
+#
+# WARUM HIER UND NICHT IN `ld.so.conf`: Ein Eintrag im Systempfad gilt fuer ALLE
+# Programme im Container und ueberschreibt im Zweifel Bibliotheken, die ein anderes
+# AppImage selbst mitbringt. Der Bedarf ist auf xemu beschraenkt, die Ausnahme also auch.
+#
+# EN: the init borrows libusb into /config/lib, but nothing put that on the loader's
+# path, so xemu exited immediately — indistinguishable from "platform not supported".
+# Scoped to xemu rather than added to ld.so.conf, which would affect every process.
+[ -x "$EMU/xemu/AppRun" ]      && EMU_XBOX="env LD_LIBRARY_PATH=/config/lib $(apprun xemu) -dvd_path %s" && export EMU_XBOX
 [ -x "$EMU/cemu/AppRun" ]      && EMU_WIIU="$(apprun cemu) -g %s" && export EMU_WIIU
 [ -x "$EMU/azahar/AppRun" ]    && EMU_3DS="$(apprun azahar) %s" && export EMU_3DS
 # VITA3K: `%s` IST HIER KEIN PFAD, SONDERN DIE TITELKENNUNG. (#481)
