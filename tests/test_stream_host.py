@@ -3000,3 +3000,79 @@ def test_flycast_says_so_when_the_config_does_not_exist_yet(tmp_path):
     geaendert, msg = m.flycast_apply()
     assert not geaendert
     assert "gibt es noch nicht" in msg, msg
+
+
+# ---------------------------------------------------------------------------
+# #298: Edens Spieler 1 liegt auf der Tastatur — gemessen, nicht angenommen.
+# ---------------------------------------------------------------------------
+
+def _eden_ini(tmp_path, inhalt):
+    d = tmp_path / ".config" / "eden"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "qt-config.ini").write_text(inhalt, encoding="utf-8")
+    return d / "qt-config.ini"
+
+
+def test_eden_reports_that_player_one_is_on_the_keyboard(tmp_path):
+    """Der stille Defekt wird zu einer Zeile im Protokoll. (#298)
+
+    AM LAUFENDEN HOST GEMESSEN, in `qt-config.ini`:
+
+        player_0_button_a="engine:keyboard,code:67,toggle:0"
+        player_0_button_b="engine:keyboard,code:88,toggle:0"
+        player_0_lstick="engine:analog_from_button,…keyboard…"
+
+    70 `player_0_*`-Zeilen, keine einzige `guid:`-Angabe. Die bisherige Einstufung
+    „ordnet ein erkanntes SDL-Pad selbst zu" war eine Annahme und ist damit widerlegt.
+
+    Das Fehlerbild ist dasselbe wie bei RPCS3 vor #304: Der Stream geht auf, das Spiel
+    laeuft, der Controller tut nichts — von aussen nicht von „Emulator kaputt" zu
+    unterscheiden.
+
+    EN: measured, not assumed — player 1 is bound to the keyboard and no guid appears
+    anywhere. Same failure shape as RPCS3 before #304: a working stream with a dead pad.
+    """
+    m = _profil_modul(tmp_path)
+    _eden_ini(tmp_path, 'player_0_connected=true\n'
+                        'player_0_button_a="engine:keyboard,code:67,toggle:0"\n')
+    geaendert, msg = m.switchemu_apply()
+    assert not geaendert
+    assert "TASTATUR" in msg, msg
+    assert "#298" in msg, "ohne Verweis findet der Leser die Vorgeschichte nicht"
+
+
+def test_eden_says_nothing_when_a_pad_is_bound(tmp_path):
+    """Die Gegenrichtung: liegt ein Pad an, gibt es nichts zu melden. (#298)
+
+    Ohne diesen Test waere eine Funktion, die IMMER „Tastatur" meldet, ebenfalls gruen —
+    und die Meldung nach dem zweiten Mal nicht mehr gelesen.
+    """
+    m = _profil_modul(tmp_path)
+    _eden_ini(tmp_path, 'player_0_button_a="engine:sdl,guid:030081b85e04,port:0,button:0"\n')
+    geaendert, msg = m.switchemu_apply()
+    assert not geaendert
+    assert "Pad" in msg and "TASTATUR" not in msg, msg
+
+
+def test_eden_does_not_write_a_binding_it_cannot_verify(tmp_path):
+    """Sie MELDET und repariert nicht — mit Absicht. (#298, Regel aus #304)
+
+    Edens Bindungssyntax steht nicht im Programm (`strings` findet keine
+    `engine:`-Zeichenketten). Sie zu erfinden ist genau die Abkuerzung, an der die
+    DuckStation-Reparatur schon einmal gescheitert ist: eine plausible Vermutung, die
+    sich als falsch herausstellte.
+
+    Eine falsch geschriebene Belegung waere schlimmer als gar keine — sie saehe richtig
+    aus. Deshalb bleibt die Datei UNVERAENDERT, und der Test haelt das fest, damit
+    niemand die Funktion spaeter „vervollstaendigt", ohne die Syntax gelesen zu haben.
+    """
+    m = _profil_modul(tmp_path)
+    inhalt = 'player_0_button_a="engine:keyboard,code:67,toggle:0"\n'
+    p = _eden_ini(tmp_path, inhalt)
+    vorher = p.read_bytes()
+    m.switchemu_apply()
+    m.switchemu_apply(pruefen=False)
+    assert p.read_bytes() == vorher, (
+        "die Datei wurde veraendert — eine Belegung, deren Syntax nicht belegt ist, "
+        "darf nicht geschrieben werden")
+    assert not list(p.parent.glob("*.vor-*")), "es wurde sogar gesichert, also geschrieben"

@@ -443,6 +443,29 @@ the only Wii U title here claims to be a game in `meta.xml` and is an update in
 `app.xml`. Cemu's answer to that, `Unable to mount title`, names a file and hides the
 cause.*
 
+**„Der Emulator ordnet sein Pad selbst zu" ist eine Annahme, bis sie gemessen ist.** Für
+Eden (Switch) stand das jahrelang so in der Tabelle — und stimmt nicht. In seiner
+`qt-config.ini`:
+
+```
+player_0_button_a="engine:keyboard,code:67,toggle:0"
+player_0_button_b="engine:keyboard,code:88,toggle:0"
+player_0_lstick="engine:analog_from_button,…keyboard…"
+```
+
+70 `player_0_*`-Zeilen, **keine einzige `guid:`-Angabe**. Spieler 1 liegt auf der
+Tastatur. Das Fehlerbild ist dasselbe wie bei RPCS3: Der Stream geht auf, das Spiel läuft,
+der Controller tut nichts — von außen nicht von „Emulator kaputt" zu unterscheiden.
+
+`launch-profile.py` **meldet das und repariert es nicht.** Edens Bindungssyntax steht nicht
+im Programm (`strings` findet keine `engine:`-Zeichenketten), und sie zu erfinden ist genau
+die Abkürzung, an der die DuckStation-Reparatur schon einmal gescheitert ist. Eine falsch
+geschriebene Belegung wäre schlimmer als gar keine — sie sähe richtig aus.
+
+Der Weg zur echten Reparatur ist derselbe wie bei Dolphin: Eden einmal in seiner Oberfläche
+ein Pad zuordnen lassen und die entstandene Datei vergleichen. Das braucht einen Menschen,
+nicht mehr Raten (#298).
+
 **Ein Wert auf der Startzeile ist nicht dasselbe wie ein gesetzter Wert.** Flycast bekommt
 seit jeher `-config config:pvr.rend=4` mit und läuft damit auf Vulkan — nachgemessen:
 

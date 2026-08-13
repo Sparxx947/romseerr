@@ -899,6 +899,60 @@ def eden_vollbild():
 
 # --------------------------------------------------------------- Azahar (3DS)
 
+def eden_ini():
+    return os.path.join(CONFIG, ".config", "eden", "qt-config.ini")
+
+
+def switchemu_apply(pruefen=False):
+    """-> (geaendert, meldung). MELDET, ob Edens Spieler 1 auf einem Pad liegt. (#298)
+
+    SCHREIBT ABSICHTLICH NICHTS. Das ist keine Faulheit, sondern die Regel aus #304:
+    Vokabular wird gelesen, nicht geraten. Edens Bindungssyntax steht nicht im Programm
+    (`strings` findet keine `engine:`-Zeichenketten), und genau an dieser Abkuerzung ist
+    die DuckStation-Reparatur schon einmal gescheitert — eine plausible Vermutung, die
+    sich als falsch herausstellte.
+
+    WAS HIER GEMESSEN WURDE, am laufenden Host in `qt-config.ini`:
+
+        player_0_button_a="engine:keyboard,code:67,toggle:0"
+        player_0_button_b="engine:keyboard,code:88,toggle:0"
+        player_0_lstick="engine:analog_from_button,…keyboard…"
+
+    70 `player_0_*`-Zeilen, keine einzige `guid:`-Angabe. Spieler 1 liegt auf der
+    TASTATUR. Die bisherige Einstufung „ordnet ein erkanntes SDL-Pad selbst zu" war eine
+    Annahme und ist damit widerlegt.
+
+    Das Fehlerbild ist dasselbe wie bei RPCS3 vor #304: Der Stream geht auf, das Spiel
+    laeuft, und der Controller tut nichts — von aussen nicht von „Emulator kaputt" zu
+    unterscheiden. Ein stiller Defekt wird hier zu einer Zeile im Protokoll; mehr kann
+    diese Funktion ehrlicherweise nicht leisten.
+
+    DER WEG ZUR ECHTEN REPARATUR: Eden einmal selbst ein Pad zuordnen lassen (in seiner
+    Oberflaeche) und die entstandene Datei vergleichen — so wurde Dolphins Schreibweise
+    gefunden. Das braucht einen Menschen an der Oberflaeche, nicht mehr Raten.
+
+    EN: reports, does not write. Eden's binding vocabulary is not readable from the
+    binary, and guessing it is exactly the shortcut that produced a wrong answer for
+    DuckStation. Measured: player 1 is bound to the keyboard, with no guid anywhere —
+    the previous "maps an SDL pad itself" was an assumption and is disproved.
+    """
+    pfad = eden_ini()
+    if not os.path.isfile(pfad):
+        return False, "qt-config.ini gibt es noch nicht — Eden legt sie beim ersten Start an"
+    with open(pfad, encoding="utf-8", errors="ignore") as f:
+        text = f.read()
+    zeilen = [z for z in text.splitlines() if z.startswith("player_0_button_a=")]
+    if not zeilen:
+        return False, "keine Belegung fuer Spieler 1 gefunden — Eden hat noch nichts geschrieben"
+    belegung = zeilen[0].split("=", 1)[1].strip().strip('"')
+    if "guid:" in text or "engine:sdl" in belegung:
+        return False, "Spieler 1 liegt auf einem Pad"
+    # KEINE Reparatur, aber auch kein Schweigen.
+    return False, (f"Spieler 1 liegt auf der TASTATUR ({belegung[:34]}…) — der Controller "
+                   "tut im Spiel nichts. Zuordnung einmal in Edens Oberflaeche vornehmen, "
+                   "dann kann sie hier festgeschrieben werden (#298)")
+
+
 def flycast_cfg():
     return os.path.join(CONFIG, ".config", "flycast", "emu.cfg")
 
@@ -1413,7 +1467,11 @@ PROFILE = {
     "rpcs3":     {"system": "PS3",           "controller": rpcs3_apply,
                   "bios": None, "vollbild": None,
                   "geprueft": True},
-    "switchemu": {"system": "Switch",        "controller": None, "bios": None,
+    # `controller` war None mit der Begruendung „ordnet ein erkanntes SDL-Pad selbst zu".
+    # Das war eine ANNAHME und ist widerlegt: Spieler 1 liegt auf der Tastatur (#298).
+    # Die Funktion repariert nichts — sie macht den stillen Defekt zu einer Zeile im
+    # Protokoll, bis Edens Bindungssyntax gelesen statt geraten werden kann.
+    "switchemu": {"system": "Switch",        "controller": switchemu_apply, "bios": None,
                   # Tastenweg: siehe xemu — greift nach dem Start, nicht hier. (#429)
                   "vollbild": None,
                   "geprueft": False},
