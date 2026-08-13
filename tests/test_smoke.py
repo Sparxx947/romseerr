@@ -1756,32 +1756,85 @@ def test_stream_finds_a_title_that_is_a_folder(appmod, tmp_path, monkeypatch):
 
 # ---------------------------------------------------------------------------
 # #477 Teil 2: Der Index kennt Ordner-Titel seit #478 — die Stream-Suche nicht.
-# Alle drei folgenden Aufbauten sind AM BESTAND GEMESSEN (2026-08-13), nicht erfunden.
+#
+# JEDER AUFBAU SAGT IN SEINEM KOPF, OB ER GEMESSEN ODER ERFUNDEN IST (#501). Hier stand
+# vorher pauschal „alle am Bestand gemessen" — und einer war es nicht: Er ließ genau die
+# Dateien weg, die das Ergebnis entscheiden, und behauptete trotzdem, die Bibliothek zu
+# zeigen. Eine Pauschalzusage über mehrere Aufbauten hinweg verfaellt beim ersten, der
+# nachtraeglich abweicht, und faellt niemandem auf, weil alle gruen sind.
+#
+# EN: each fixture states in its own docstring whether it is measured or constructed. A
+# blanket claim across several fixtures decays the moment one drifts, and nobody notices
+# because they are all green.
 # ---------------------------------------------------------------------------
+
+def test_stream_takes_the_nested_image_set_over_the_unbootable_parent(
+        appmod, tmp_path, monkeypatch):
+    """So sieht `/roms/dc` WIRKLICH aus — und darum gewinnt das GDI-Set. (#477, #501)
+
+    NACHGEBAUT AUS DEM BESTAND, mit dem Teil, den die erste Fassung dieses Tests
+    weggelassen hat:
+
+        Sonic Adventure.cdi                                   757 MB
+        Sonic Adventure (PAL)/Replayers.url
+        Sonic Adventure (PAL)/[GDI] Sonic Adventure (PAL)/
+            Sonic Adventure v1.003 (1999)(Sega)(PAL)(M5)[!].gdi      89 B
+            track01.bin / track02.raw / track03.bin           zus. 1,2 GB
+
+    Alle drei Namen normalisieren auf `sonic adventure`. Der ELTERNORDNER war der
+    Defekt: Er gewann, trägt aber nur eine `.url` und einen Unterordner. Am
+    laufenden Host nachgemessen, mit dem `_bootdatei` des Start-Dienstes:
+
+        /roms/dc/Sonic Adventure (PAL)                              -> ''
+        /roms/dc/Sonic Adventure (PAL)/[GDI] Sonic Adventure (PAL)  -> '…gdi'
+
+    Das verschachtelte Set IST ein Titelordner (eine `.gdi` nennt Dateien daneben),
+    also liefert der Ordnerzweig es zurück, bevor die Dateisuche drankommt — die
+    `.cdi` gewinnt hier NICHT. Das ist richtig so: Beides ist spielbar, und der
+    Ordnerzweig soll Titelordner vorziehen.
+
+    WARUM DIESER TEST EIGENS EXISTIERT: Die erste Fassung ließ den Unterordner leer
+    und behauptete im Kopf trotzdem, sie sei am Bestand gemessen. Sie war grün und
+    beschrieb ein Verhalten, das die Bibliothek nicht zeigt (#501). Ein Test, dessen
+    Aufbau von dem abweicht, was er zu reproduzieren vorgibt, ist schlimmer als
+    keiner — ihm wird geglaubt.
+
+    EN: the real `/roms/dc` layout, including the tracks the first version of this
+    test omitted. The nested folder IS an image set, so it is returned before the
+    file search — the `.cdi` does not win, and that is correct. The defect was the
+    parent folder, which resolves to '' and used to win.
+    """
+    dc = tmp_path / "dc"
+    satz = dc / "Sonic Adventure (PAL)" / "[GDI] Sonic Adventure (PAL)"
+    satz.mkdir(parents=True)
+    (satz / "Sonic Adventure v1.003 (1999)(Sega)(PAL)(M5)[!].gdi").write_text(
+        "3\n1 0 4 2352 track01.bin 0\n2 600 0 2352 track02.raw 0\n"
+        "3 45000 4 2352 track03.bin 0\n")
+    for spur in ("track01.bin", "track02.raw", "track03.bin"):
+        (satz / spur).write_bytes(b"x")
+    (dc / "Sonic Adventure (PAL)" / "Replayers.url").write_bytes(b"x")
+    (dc / "Sonic Adventure.cdi").write_bytes(b"x")
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path))
+    assert appmod.stream_find_file("Sonic Adventure", "dreamcast") == str(satz)
+
 
 def test_stream_prefers_the_image_over_a_folder_without_bootable_content(
         appmod, tmp_path, monkeypatch):
-    """Ein gleichnamiger Ordner darf ein spielbares Abbild nicht verdraengen. (#477)
+    """Ein Ordner OHNE Startbares darf ein spielbares Abbild nicht verdraengen. (#477)
 
-    GEMESSEN in `/roms/dc`:
+    Derselbe Aufbau wie oben, nur ohne das GDI-Set: Dann ist unter dem gleichnamigen
+    Ordner nichts, was ein Titel sein könnte, und die Datei daneben muss gewinnen.
+    Sonst meldet die Auskunft den Titel als streambar, nennt den Ordner, und der
+    Start-Dienst antwortet darauf `Ordner ohne startbaren Inhalt` — zwei Seiten, die
+    sich widersprechen, waehrend das Abbild danebenliegt.
 
-        Sonic Adventure.cdi                            757 MB, spielbar
-        Sonic Adventure (PAL)/Replayers.url
-        Sonic Adventure (PAL)/[GDI] Sonic Adventure (PAL)/…gdi
+    Dieser Aufbau ist ERFUNDEN, nicht gemessen: In `/roms/dc` traegt der Unterordner
+    heute die Spuren (siehe der Test darueber). Er haelt den urspruenglichen Defekt
+    aus #477 fest, unabhaengig davon, wie die Bibliothek gerade aussieht.
 
-    Beide normalisieren auf `sonic adventure`. Die Suche nahm den ORDNER, weil der
-    Ordnerzweig vor der Dateisuche steht — und der Ordner traegt oben nichts
-    Startbares. Am laufenden Streaming-Host nachgemessen:
-
-        stream_info("Sonic Adventure", "dreamcast") -> /roms/dc/Sonic Adventure (PAL)
-        _bootdatei("/roms/dc/Sonic Adventure (PAL)", "dreamcast") -> ''
-
-    Der Agent haette also `Ordner ohne startbaren Inhalt` gemeldet, waehrend das
-    Abbild danebenliegt. Der Vorrang des Ordners GILT WEITER, aber nur fuer einen
-    Ordner, der wirklich ein Titel ist (`ist_titel_ordner`).
-
-    EN: a same-named folder must not outrank a playable image when the folder holds
-    nothing bootable. Measured on the live host, not invented.
+    EN: same layout minus the image set — nothing under the folder can be a title, so
+    the playable file beside it must win. This fixture is constructed, not measured,
+    and pins the original #477 defect independently of the library's current shape.
     """
     dc = tmp_path / "dc"
     (dc / "Sonic Adventure (PAL)" / "[GDI] Sonic Adventure (PAL)").mkdir(parents=True)
