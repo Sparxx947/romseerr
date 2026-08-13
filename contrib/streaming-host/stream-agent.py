@@ -118,6 +118,24 @@ _lock = threading.Lock()
 BOOTPFADE = {
     "ps3": ("PS3_GAME/USRDIR/EBOOT.BIN", "USRDIR/EBOOT.BIN", "EBOOT.BIN"),
 }
+# Wo der Dateiname NICHT feststeht, braucht es ein Muster statt eines Pfades (#502).
+#
+# Ein Wii-U-Titel traegt oben `code/`, `content/`, `meta/` — keine einzige Datei mit
+# einer der bekannten Endungen. `_bootdatei` fiel deshalb auf '' zurueck, und der
+# Start-Dienst meldete „Ordner ohne startbaren Inhalt", waehrend `/api/stream` den
+# Titel als startbar auswies. Dasselbe Muster wie #150 und #477: Die eine Seite sagt
+# ja, die andere nein.
+#
+# Der Name der `.rpx` ist je Titel anders (`Kinopio.rpx` bei Captain Toad), ein fester
+# Pfad genuegt also nicht. BEI MEHREREN TREFFERN WIRD ABGESAGT, nicht geraten — im
+# Bestand liegt eine `red-pro2.rpx` herum (#318), und ein zufaellig gewaehltes Programm
+# zu starten waere schlimmer als eine klare Absage.
+# EN: a pattern where the filename is not fixed. A Wii U title has no file with a known
+# boot extension at its top level, so `_bootdatei` returned '' and the two sides
+# disagreed. Several matches are refused rather than guessed at.
+BOOTMUSTER = {
+    "wiiu": ("code/*.rpx",),
+}
 # Rueckfall fuer Ordner ohne bekannte Struktur: eine einzelne Abbilddatei darin ist
 # eindeutig. Bei MEHREREN wird bewusst NICHT geraten — lieber eine klare Absage als
 # ein zufaellig gewaehltes Spiel.
@@ -173,6 +191,34 @@ def _bootdatei(ordner, platform):
         k = os.path.join(ordner, *rel.split("/"))
         if os.path.isfile(k):
             return k
+    # Muster statt fester Pfad (#502). GENAU EIN Treffer zaehlt: Bei mehreren ist nicht
+    # entscheidbar, welches Programm das Spiel ist, und Raten waere hier teuer.
+    #
+    # KEIN `glob` — DIE BIBLIOTHEK IST VOLLER GLOB-SONDERZEICHEN. Der einzige
+    # Wii-U-Titel des Bestands heisst `Captain Toad Treasure Tracker [AKBP01]`, und
+    # `[AKBP01]` ist fuer `glob` eine ZEICHENKLASSE, kein Text: Das Muster passt auf
+    # nichts, und `_bootdatei` liefert '' — also genau der Fehler, der hier behoben
+    # werden sollte, nur mit einer neuen Ursache. Aufgefallen ist es, weil der Test den
+    # ECHTEN Ordnernamen nachbaut statt eines erfundenen.
+    #
+    # `glob.escape` waere die kleine Loesung; ein Verzeichnislisting mit Endungsvergleich
+    # ist die kleinere: Es kennt gar keine Sonderzeichen, und mehr als „welche Dateien
+    # mit dieser Endung liegen dort?" fragt hier niemand.
+    # EN: no glob — library folder names contain `[...]`, which glob reads as a character
+    # class. Listing the directory and comparing the suffix has no metacharacters at all.
+    for muster in BOOTMUSTER.get(platform, ()):
+        unter, _, endung = muster.rpartition("/")
+        verzeichnis = os.path.join(ordner, *unter.split("/")) if unter else ordner
+        suffix = endung[1:].lower() if endung.startswith("*") else endung.lower()
+        try:
+            gefunden = sorted(
+                os.path.join(verzeichnis, e) for e in os.listdir(verzeichnis)
+                if e.lower().endswith(suffix)
+                and os.path.isfile(os.path.join(verzeichnis, e)))
+        except OSError:
+            gefunden = []
+        if len(gefunden) == 1:
+            return gefunden[0]
     treffer = []
     try:
         for e in sorted(os.listdir(ordner)):
@@ -946,6 +992,69 @@ def vita_startwert(ordner):
     return kennung, ""
 
 
+def _wiiu_art(ordner):
+    """-> Absagegrund, oder "" wenn der Ordner ein Basisspiel sein kann. (#502)
+
+    DIE ERSTEN ACHT HEXZIFFERN DER TITEL-ID SAGEN, WAS ES IST:
+
+        00050000  Basisspiel      startbar
+        0005000E  Update          patcht ein Basisspiel, hat selbst keinen Inhalt
+        0005000C  DLC             desgleichen
+        0005001B  Systemtitel     gehoert ins mlc, nicht in die Bibliothek
+
+    Sie steht im Klartext in `code/app.xml`, es braucht keine Schluessel.
+
+    WARUM `app.xml` UND NICHT `meta.xml`: Weil die beiden sich widersprechen koennen —
+    und genau das war der Fall, der diese Pruefung ausgeloest hat. Gemessen am einzigen
+    Wii-U-Titel des Bestands:
+
+        meta/meta.xml   title_id = 0005000010180700   (Basisspiel)
+        code/app.xml    title_id = 0005000E10180700   (Update)
+
+    Cemu liest `app.xml`, sieht das Update und antwortet:
+
+        Unable to mount title.
+        File which failed to load: …/code/Kinopio.rpx
+
+    Diese Meldung nennt eine Datei und verschweigt die Ursache. Wer sie liest, sucht am
+    Pfad — dort ist nichts. Nachgemessen: Ordner und `.rpx` scheitern IDENTISCH, die
+    Argumentform war also nie die Frage.
+
+    IM ZWEIFEL DURCHLASSEN, wie bei Switch (#427) und 3DS: Fehlt `app.xml` oder steht
+    dort keine lesbare Kennung, geht der Titel durch. Eine falsche Absage kostet mehr
+    als ein Fehlversuch.
+
+    EN: the first eight hex digits of the title id say what a title is; 0005000E is an
+    update and 0005000C is DLC, neither of which has bootable content of its own. The id
+    sits in plain text in `code/app.xml` — no keys needed. `app.xml` rather than
+    `meta.xml` because the two can disagree, which is exactly the case that prompted
+    this. When in doubt, let it through.
+    """
+    xml = os.path.join(ordner, "code", "app.xml")
+    try:
+        with open(xml, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read(8192)
+    except OSError:
+        return ""
+    m = re.search(r"<title_id[^>]*>\s*([0-9A-Fa-f]{16})\s*<", text)
+    if not m:
+        return ""
+    kennung = m.group(1).upper()
+    art = {
+        "0005000E": ("ein UPDATE", "an UPDATE"),
+        "0005000C": ("ein ZUSATZINHALT (DLC)", "add-on content (DLC)"),
+        "0005001B": ("ein SYSTEMTITEL", "a SYSTEM title"),
+    }.get(kennung[:8])
+    if not art:
+        return ""
+    de, en = art
+    return (f"'{os.path.basename(ordner)}' ist {de}, kein Spiel (Titelkennung "
+            f"{kennung}). Ein Update patcht ein Basisspiel und hat selbst keinen "
+            f"startbaren Inhalt — Cemu meldet darauf nur 'Unable to mount title'. "
+            f"Das Basisspiel (00050000…) fehlt in der Bibliothek. / this is {en}, not a "
+            f"game (title id {kennung}); it patches a base title that is not present.")
+
+
 def _switch_art(pfad):
     """-> Absagegrund, oder "" wenn die Datei ein Spiel sein kann. (#427)
 
@@ -1082,6 +1191,14 @@ def launch(path, platform, rel="", region=""):
     # Weg jemand genommen hat.
     if platform == "switch" and os.path.isfile(real):
         art = _switch_art(real)
+        if art:
+            return False, art
+
+    # Wii U ebenso (#502), nur ist der Titel hier ein ORDNER. Ohne diese Absage startet
+    # Cemu ein Update und antwortet mit „Unable to mount title" — einer Meldung, die
+    # eine Datei nennt und die Ursache verschweigt.
+    if platform == "wiiu" and os.path.isdir(real):
+        art = _wiiu_art(real)
         if art:
             return False, art
 

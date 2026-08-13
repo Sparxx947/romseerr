@@ -2589,3 +2589,140 @@ def test_the_window_check_looks_at_the_children_too(tmp_path):
     finally:
         eltern.kill()
         eltern.wait()
+
+
+# ---------------------------------------------------------------------------
+# #502: Wii U — die Auskunft sagte startbar, der Start-Dienst fand nichts Startbares.
+# Alle Aufbauten hier sind AM EINZIGEN WII-U-TITEL DES BESTANDS gemessen (2026-08-13).
+# ---------------------------------------------------------------------------
+
+def _wiiu_titel(wurzel, name, title_id_app, title_id_meta=None, rpx=("Kinopio.rpx",)):
+    """Einen Wii-U-Titelordner nachbauen: code/ content/ meta/.
+
+    `title_id_app` und `title_id_meta` sind getrennt, weil sie sich im Bestand
+    WIDERSPRECHEN — genau daran hing #502.
+    """
+    t = wurzel / name
+    (t / "code").mkdir(parents=True)
+    (t / "content").mkdir()
+    (t / "meta").mkdir()
+    for r in rpx:
+        (t / "code" / r).write_bytes(b"\x7fELF")
+    (t / "code" / "app.xml").write_text(
+        '<?xml version="1.0"?>\n<app>\n'
+        f'  <title_id type="hexBinary" length="8">{title_id_app}</title_id>\n'
+        '</app>\n', encoding="utf-8")
+    (t / "meta" / "meta.xml").write_text(
+        '<?xml version="1.0"?>\n<menu>\n'
+        f'  <title_id type="hexBinary" length="8">{title_id_meta or title_id_app}</title_id>\n'
+        '</menu>\n', encoding="utf-8")
+    return t
+
+
+def test_the_launcher_resolves_a_wiiu_title_to_its_rpx(tmp_path):
+    """Ein Wii-U-Ordner muss eine Startdatei ergeben. (#502)
+
+    GEMESSEN am laufenden Dienst, vor der Reparatur:
+
+        /api/stream  Captain Toad / wiiu -> streamable: true, path: <Ordner>
+        _bootdatei(<Ordner>, "wiiu")     -> ''   (= 'Ordner ohne startbaren Inhalt')
+
+    `BOOTPFADE` kannte nur `ps3`, und ein Wii-U-Titel traegt oben `code/`, `content/`,
+    `meta/` — keine Datei mit einer der bekannten Endungen. Dasselbe Muster wie #150
+    und #477: eine Seite sagt ja, die andere nein.
+
+    Der Name der `.rpx` ist je Titel anders, ein fester Pfad genuegt also nicht.
+
+    DER ORDNERNAME TRAEGT ABSICHTLICH ECKIGE KLAMMERN. Die erste Fassung dieser
+    Reparatur benutzte `glob`, und `[AKBP01]` ist dort eine ZEICHENKLASSE, kein Text:
+    Das Muster passte auf nichts und lieferte wieder '' — derselbe Fehler mit neuer
+    Ursache. Aufgefallen ist das nur, weil hier der ECHTE Ordnername steht. Wer ihn zu
+    `Captain Toad` vereinfacht, nimmt die Probe heraus, ohne dass ein Test rot wird.
+
+    EN: a Wii U folder must resolve to a boot file; the table only knew ps3 and a Wii U
+    title carries no known boot extension at its top level. The brackets in the folder
+    name are deliberate — the first version of this fix used glob, where `[AKBP01]` is a
+    character class, and it silently matched nothing.
+    """
+    m = _agent_module(tmp_path)
+    t = _wiiu_titel(tmp_path / "wiiu", "Captain Toad [AKBP01]", "0005000010180700")
+    assert m._bootdatei(str(t), "wiiu") == str(t / "code" / "Kinopio.rpx")
+
+
+def test_the_launcher_refuses_rather_than_guessing_between_two_rpx(tmp_path):
+    """Mehrere `.rpx` -> Absage, nicht Raten. (#502)
+
+    Im Bestand liegt eine `red-pro2.rpx` herum (#318). Ein zufaellig gewaehltes
+    Programm zu starten waere schlimmer als eine klare Absage: Der Stream ginge auf,
+    irgendetwas liefe, und niemand wuesste warum es nicht das Spiel ist.
+
+    DIESER TEST UNTERSCHEIDET NICHT — er ist eine RATSCHE. Am Stand vor #502 ist er
+    ebenfalls gruen, weil `_bootdatei` fuer Wii U damals immer '' lieferte, also auch
+    hier. Er haelt fest, dass die neue Aufloesung nicht uebereifrig wird; als Beleg,
+    dass die Reparatur wirkt, taugt er nicht. Das tun die drei anderen.
+
+    EN: several matches are refused rather than guessed at. This test does NOT
+    discriminate — it is a ratchet: it passes against the pre-#502 code too, where the
+    resolution returned '' for everything. It guards against over-eagerness, it does not
+    prove the fix.
+    """
+    m = _agent_module(tmp_path)
+    t = _wiiu_titel(tmp_path / "wiiu", "Zweideutig", "0005000010180700",
+                    rpx=("Kinopio.rpx", "red-pro2.rpx"))
+    assert m._bootdatei(str(t), "wiiu") == ""
+
+
+def test_a_wiiu_update_is_refused_by_name_not_by_cemus_error(tmp_path):
+    """Ein Update wird abgesagt, bevor Cemu ratlos wird. (#502)
+
+    AM BESTAND GEMESSEN — die beiden Beschreibungsdateien widersprechen sich:
+
+        meta/meta.xml   title_id = 0005000010180700   (Basisspiel)
+        code/app.xml    title_id = 0005000E10180700   (Update)
+
+    Cemu liest `app.xml`, sieht `0005000E` und antwortet:
+
+        Unable to mount title.
+        File which failed to load: …/code/Kinopio.rpx
+
+    Diese Meldung nennt eine Datei und verschweigt die Ursache — wer sie liest, sucht
+    am Pfad, und dort ist nichts. Nachgemessen: Ordner UND `.rpx` scheitern identisch.
+
+    EN: refused by name before Cemu answers with a message that names a file and hides
+    the cause.
+    """
+    m = _agent_module(tmp_path)
+    t = _wiiu_titel(tmp_path / "wiiu", "Captain Toad [AKBP01]",
+                    title_id_app="0005000E10180700",     # Update
+                    title_id_meta="0005000010180700")    # behauptet Basisspiel
+    grund = m._wiiu_art(str(t))
+    assert grund, "das Update ging durch"
+    assert "0005000E10180700" in grund, grund
+    assert "UPDATE" in grund, grund
+
+
+def test_a_wiiu_base_game_and_an_unreadable_one_both_pass(tmp_path):
+    """Basisspiel durch — und im Zweifel ebenfalls. (#502, wie #427/#299)
+
+    Fehlt `app.xml` oder steht dort keine lesbare Kennung, geht der Titel durch. Eine
+    falsche Absage kostet mehr als ein Fehlversuch; dieselbe Regel wie bei Switch und
+    3DS. Ohne diesen Test waere eine Pruefung, die IMMER absagt, ebenfalls gruen.
+    """
+    m = _agent_module(tmp_path)
+    basis = _wiiu_titel(tmp_path / "wiiu", "Echtes Spiel", "0005000010180700")
+    assert m._wiiu_art(str(basis)) == ""
+
+    ohne = tmp_path / "wiiu" / "Ohne app.xml"
+    (ohne / "code").mkdir(parents=True)
+    (ohne / "code" / "Spiel.rpx").write_bytes(b"\x7fELF")
+    assert m._wiiu_art(str(ohne)) == ""
+
+
+def test_a_wiiu_dlc_and_a_system_title_are_refused_too(tmp_path):
+    """`0005000C` ist DLC, `0005001B` ein Systemtitel — beides kein Spiel. (#502)"""
+    m = _agent_module(tmp_path)
+    for kennung, wort in (("0005000C10180700", "DLC"),
+                          ("0005001B10180700", "SYSTEMTITEL")):
+        t = _wiiu_titel(tmp_path / "wiiu", f"T{kennung}", kennung)
+        grund = m._wiiu_art(str(t))
+        assert grund and wort in grund, (kennung, grund)
