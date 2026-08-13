@@ -2781,6 +2781,74 @@ def test_the_host_load_is_recorded_with_the_launch(tmp_path):
         assert "cpu" in eintrag and "name" in eintrag, eintrag
 
 
+def test_the_load_recording_does_not_see_itself(tmp_path):
+    """Die Messung darf nicht in ihrem eigenen Ergebnis stehen. (#529)
+
+    `ps` rechnet %CPU als Rechenzeit ueber die LEBENSDAUER. Ein Prozess, der
+    Millisekunden alt ist, steht damit bei nahezu 100 % — direkt nach dem Ausrollen
+    von #527 gemessen:
+
+        100,0 %  ps            <- die Messung
+         73,3 %  python3       <- der Messende
+         25,0 %  xfce4-panel
+
+    Die Liste hat FUENF Plaetze. Zwei an die Messung zu verlieren heisst, dass zwei
+    echte Verbraucher aus der Aufzeichnung fallen — und die gibt es nur, um genau die
+    zu nennen. Im Fall, der #527 ausgeloest hat, waren die Antwort zwei `tdarr-ffmpeg`
+    mit 759 % und 733 %.
+
+    Dieselbe Falle wie bei `pgrep`/`pkill`, die die eigene Sitzung treffen.
+
+    EN: ps computes %CPU over lifetime, so the measuring call scores ~100 % and takes a
+    slot the record exists to give to real consumers.
+    """
+    m = _agent_module(tmp_path)
+
+    # DIE AUSGABE WIRD VORGEGEBEN, NICHT ERHOFFT. Ein erster Versuch las einfach die
+    # echte Prozessliste — und bestand auch gegen den FEHLERHAFTEN Stand, weil `ps` auf
+    # dem Testlaeufer zufaellig nicht unter den ersten fuenf stand. Eine kurze Probe
+    # beweist keine Abwesenheit.
+    eigen = os.getpid()
+    # Dieselben Prozesse, in JEDEM Spaltenformat das gefragt sein kann. Ein erster
+    # Versuch gab starr vier Spalten zurueck — gegen den alten Stand, der nur `pcpu,comm`
+    # abfragt, scheiterte der Test dann an der ZERLEGUNG statt am fehlenden Filter, und
+    # eine Meldung ueber die falsche Ursache schickt den naechsten Leser ans falsche Ende.
+    prozesse = [(90001, eigen, 100.0, "ps"),          # die Messung selbst
+                (eigen, 1, 73.3, "python3"),          # der Messende
+                (90003, 1, 759.0, "tdarr-ffmpeg"),
+                (90004, 1, 733.0, "tdarr-ffmpeg"),
+                (90005, 1, 201.0, "AppRun"),
+                (90006, 1, 25.0, "xfce4-panel"),
+                (90007, 1, 17.0, "xfdesktop")]
+
+    def _fake(args, **kw):
+        spalten = args[args.index("-eo") + 1].split(",")
+        kopf = " ".join(x.upper() for x in spalten)
+        zeilen = [kopf]
+        for pid, ppid, pcpu, comm in prozesse:
+            werte = {"pid": pid, "ppid": ppid, "pcpu": pcpu, "comm": comm}
+            zeilen.append(" ".join(str(werte[x]) for x in spalten))
+        class _Lauf:
+            stdout = "\n".join(zeilen) + "\n"
+        return _Lauf()
+
+    monkeypatch_ziel = m.subprocess.run
+    m.subprocess.run = _fake
+    try:
+        l = m.hostlast()
+    finally:
+        m.subprocess.run = monkeypatch_ziel
+
+    namen = [t["name"] for t in l["top"]]
+    assert "ps" not in namen, f"die Messung steht in ihrem eigenen Ergebnis: {namen}"
+    assert "python3" not in namen, f"der Messende steht darin: {namen}"
+    # Und die echten Verbraucher muessen ALLE durchkommen — der Filter darf keinen
+    # Platz kosten, sonst faellt weiter unten wieder einer heraus.
+    assert namen == ["tdarr-ffmpeg", "tdarr-ffmpeg", "AppRun", "xfce4-panel",
+                     "xfdesktop"], namen
+    assert l["top"][0]["cpu"] == 759.0, l["top"][0]
+
+
 def test_the_status_reports_the_load_from_the_launch_not_from_now():
     """Gemeldet wird der Zustand BEIM START, nicht der aktuelle. (#527)
 
