@@ -1013,6 +1013,25 @@ def hostlast():
     Bewusst KEINE Bewertung und keine Absage: Ob eine Last zu hoch ist, haengt vom Titel
     ab. Festgehalten wird, was war.
 
+    WAS DIESE ANGABE NICHT LEISTET — und das entscheidet, wie sie zu lesen ist (#531):
+
+        ps IM Container:   sh selkies xfce4-panel xfdesktop Xvfb xfce4-session
+        ps AUF dem Host:   tdarr-ffmpeg tdarr-ffmpeg shfs find
+
+    Der Dienst laeuft im PID-Namensraum des Containers. Die Prozessliste kann `tdarr-ffmpeg`
+    also GAR NICHT nennen — ausgerechnet den Fall, fuer den sie gebaut wurde. Sie heisst
+    deshalb `top_container` und traegt `top_scope`, damit niemand sie als „was lief sonst
+    auf dem Host" liest und aus einer harmlosen Liste auf eine ruhige Maschine schliesst.
+
+    `load` dagegen kommt aus `/proc/loadavg` und ist NICHT namensraumgetrennt — im
+    Container und auf dem Host bitgleich (38.47 39.89 41.99 gegen 38.47 39.89 41.99).
+    Sie ist damit die tragende Angabe: Sie beantwortet „war die Maschine beschaeftigt",
+    und genau das ist die Frage.
+
+    EN: the process list is container-scoped and can never name the host processes this
+    was built to catch — hence `top_container` and an explicit `top_scope`. The load
+    average is not namespaced and is the part that carries the answer.
+
     EN: records what else the host was doing at launch. A stutter report is otherwise
     answered by guesswork — the obvious reading ("it must be on the CPU") was exactly
     wrong once, and the state it referred to was gone by the time anyone asked.
@@ -1068,9 +1087,11 @@ def hostlast():
             top.append({"cpu": float(pcpu), "name": name.strip()})
             if len(top) >= 5:
                 break
-        daten["top"] = top
+        daten["top_container"] = top
+        daten["top_scope"] = "container"
     except Exception:                                        # noqa: BLE001
-        daten["top"] = []
+        daten["top_container"] = []
+        daten["top_scope"] = "container"
     return daten
 
 
@@ -1444,9 +1465,12 @@ def launch(path, platform, rel="", region=""):
         _current["last"] = hostlast()
         if _current["last"]:
             l = _current["last"]
-            oben = ", ".join(f"{t['name']} {t['cpu']:.0f}%" for t in l.get("top", [])[:3])
+            oben = ", ".join(f"{t['name']} {t['cpu']:.0f}%"
+                             for t in l.get("top_container", [])[:3])
+            # „im Container" gehoert in die Zeile, nicht in eine Fussnote: Die Liste
+            # sieht den Host nicht, und ohne den Zusatz liest sie sich, als taete sie es.
             print(f"[last] beim Start: load {l['load'][0]} auf {l['cpus']} Kernen"
-                  + (f" — {oben}" if oben else ""), flush=True)
+                  + (f" — im Container: {oben}" if oben else ""), flush=True)
 
     # Nur das Emulatorfenster zeigen (#141). Im Hintergrund, weil auf das Fenster bis
     # zu 20 Sekunden gewartet wird — der Aufrufer soll darauf nicht haengen. Schlaegt

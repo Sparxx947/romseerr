@@ -2776,8 +2776,8 @@ def test_the_host_load_is_recorded_with_the_launch(tmp_path):
     assert l, "keine Angabe zur Hostlast"
     assert isinstance(l.get("load"), list) and len(l["load"]) == 3, l
     assert l.get("cpus", 0) >= 1, l
-    assert isinstance(l.get("top"), list), l
-    for eintrag in l["top"]:
+    assert isinstance(l.get("top_container"), list), l
+    for eintrag in l["top_container"]:
         assert "cpu" in eintrag and "name" in eintrag, eintrag
 
 
@@ -2839,14 +2839,47 @@ def test_the_load_recording_does_not_see_itself(tmp_path):
     finally:
         m.subprocess.run = monkeypatch_ziel
 
-    namen = [t["name"] for t in l["top"]]
+    namen = [t["name"] for t in l["top_container"]]
     assert "ps" not in namen, f"die Messung steht in ihrem eigenen Ergebnis: {namen}"
     assert "python3" not in namen, f"der Messende steht darin: {namen}"
     # Und die echten Verbraucher muessen ALLE durchkommen — der Filter darf keinen
     # Platz kosten, sonst faellt weiter unten wieder einer heraus.
     assert namen == ["tdarr-ffmpeg", "tdarr-ffmpeg", "AppRun", "xfce4-panel",
                      "xfdesktop"], namen
-    assert l["top"][0]["cpu"] == 759.0, l["top"][0]
+    assert l["top_container"][0]["cpu"] == 759.0, l["top_container"][0]
+
+
+def test_the_recorded_process_list_says_it_is_container_only(tmp_path):
+    """Die Liste muss sagen, WO sie aufgenommen wurde. (#531)
+
+    GEMESSEN, und der Unterschied ist der ganze Punkt:
+
+        ps IM Container:   sh selkies xfce4-panel xfdesktop Xvfb xfce4-session
+        ps AUF dem Host:   tdarr-ffmpeg tdarr-ffmpeg shfs find
+
+    Der Dienst laeuft im PID-Namensraum des Containers und kann `tdarr-ffmpeg` GAR NICHT
+    nennen — ausgerechnet den Fall, fuer den #527 gebaut wurde. Wer
+
+        "top": [{"cpu": 87.5, "name": "xfce4-session"}, …]
+
+    liest, schliesst auf eine ruhige Maschine, waehrend zwei Umrechnungen 15 von 28
+    Kernen nehmen. Eine beruhigende Liste ueber einer verschwiegenen Tatsache ist
+    schlimmer als gar keine.
+
+    `load` kommt dagegen aus `/proc/loadavg`, ist NICHT namensraumgetrennt und im
+    Container bitgleich zum Host — sie ist die tragende Angabe.
+
+    EN: the list is container-scoped and can never name the host processes it was built
+    to catch, so the scope must be part of the field, not a footnote.
+    """
+    m = _agent_module(tmp_path)
+    l = m.hostlast()
+    assert l.get("top_scope") == "container", (
+        "ohne Geltungsbereich liest sich die Liste als „was lief auf dem Host\" — "
+        "und genau das kann sie nicht sein")
+    assert "top" not in l, (
+        "das alte, mehrdeutige Feld ist zurueck: `top` sagt nicht, wo gemessen wurde")
+    assert isinstance(l.get("top_container"), list)
 
 
 def test_the_status_reports_the_load_from_the_launch_not_from_now():

@@ -465,6 +465,22 @@ Zwei Umrechnungen belegten rund 15 Kerne. Xbox-Emulation ist CPU-gebunden — xe
 einen Pentium III nach —, also rechnete es auf einer **leerlaufenden** 3D-Einheit und
 verhungerte an der CPU.
 
+**Die Prozessliste sieht nur den Container.** Der Dienst läuft in dessen PID-Namensraum:
+
+```
+ps IM Container:   sh selkies xfce4-panel xfdesktop Xvfb xfce4-session
+ps AUF dem Host:   tdarr-ffmpeg tdarr-ffmpeg shfs find
+```
+
+Sie kann `tdarr-ffmpeg` also **gar nicht** nennen — ausgerechnet den Fall, für den das
+Ganze gebaut wurde. Deshalb heißt sie `top_container` und trägt `top_scope`: Wer eine
+harmlose Liste sieht und daraus auf eine ruhige Maschine schließt, liegt sonst genau
+falsch (#531).
+
+**Der Load trägt die Aussage.** `/proc/loadavg` ist nicht namensraumgetrennt und im
+Container bitgleich zum Host (`38.47 39.89 41.99` gegen `38.47 39.89 41.99`). Er
+beantwortet „war die Maschine beschäftigt" — und das ist die Frage.
+
 **Genommen wird der Wert beim Start, nicht auf Nachfrage.** Wer hinterher misst, misst den
 falschen Moment: Die Umrechnung, die das Ruckeln verursacht hat, kann längst fertig sein.
 Bewertet wird nichts und abgelehnt wird nichts — ob eine Last zu hoch ist, hängt vom Titel
