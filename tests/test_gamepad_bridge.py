@@ -218,3 +218,71 @@ def test_geraetesuche_ist_abgeschaltet(bruecke):
     """
     from evdev import UInput
     assert UInput._find_device(object(), 0) is None
+
+
+# --- #535: Reihenfolge der Geraeteknoten -------------------------------------------
+
+def test_devices_are_created_in_socket_order_during_a_reconnect_storm(bruecke):
+    """Alle vier gleichzeitig -> Knoten entstehen in Socket-Reihenfolge. (#535)
+
+    AM 2026-08-13 GENAU SO SCHIEFGEGANGEN, aus dem Protokoll der Bruecke:
+
+        12:58:43,618  selkies_js2.sock  ->  /dev/input/js0
+        12:58:43,621  selkies_js0.sock  ->  /dev/input/js1   <- das Pad, auf Platz zwei
+        12:58:43,633  selkies_js1.sock  ->  /dev/input/js2
+
+    Socket js2 war vier Millisekunden schneller. Der Kernel vergibt `jsN` in der
+    Reihenfolge der Entstehung, und weil alle vier Geraete dieselbe SDL-Kennung tragen,
+    kann ein Emulator sie nicht unterscheiden — er nimmt das erste. Das war das stumme.
+    Eden band `port:0`, der Controller war tot; nach der Korrektur `port:1`, und es ging.
+
+    Die Reihenfolge war bisher nur beim ERSTEN Start geordnet. Ein Neuladen der Seite
+    verbindet alle vier gleichzeitig neu, und dann entschied das Rennen.
+
+    EN: node numbers follow creation order, and four identical devices give an emulator
+    nothing to choose by. Ordering held at startup only; a page reload reconnects all
+    four at once.
+    """
+    import threading
+    anzahl = 4
+    bruecke._DRAN = 0
+    reihenfolge = []
+    sperre = threading.Lock()
+    los = threading.Event()
+
+    def arbeiter(i):
+        los.wait()
+        assert bruecke._warte_bis_dran(i, anzahl), f"{i} kam nicht an die Reihe"
+        with sperre:
+            reihenfolge.append(i)
+        bruecke._naechster_dran(i, anzahl)
+
+    # Absichtlich verdrehte Startreihenfolge — genau wie im echten Sturm.
+    faeden = [threading.Thread(target=arbeiter, args=(i,)) for i in (2, 0, 3, 1)]
+    for f in faeden:
+        f.start()
+    los.set()
+    for f in faeden:
+        f.join(timeout=10)
+    assert reihenfolge == [0, 1, 2, 3], reihenfolge
+
+
+def test_a_lone_reconnect_is_not_blocked_by_peers_that_never_ask(bruecke, monkeypatch):
+    """Ein einzeln wiederverbindender Socket wartet nicht ewig. (#535)
+
+    Die Frist ist der Punkt, nicht das Warten. Verbindet sich NUR Socket 2 neu, fordern
+    die anderen drei ihren Platz nie an — ohne Frist stuende er fuer immer. Nach der
+    Frist legt er trotzdem an und bekommt die Nummer, die er vorher hatte; genau dort
+    gilt die alte Annahme weiter, und genau dort war sie richtig.
+
+    Ohne diesen Test waere eine Schranke, die IMMER blockiert, ebenfalls gruen — und der
+    Controller nach jedem einzelnen Verbindungsabbruch tot.
+    """
+    monkeypatch.setattr(bruecke, "_REIHE_FRIST", 0.3)
+    bruecke._DRAN = 0
+    import time as _t
+    start = _t.monotonic()
+    dran = bruecke._warte_bis_dran(2, 4)      # 0 ist an der Reihe, nicht 2
+    dauer = _t.monotonic() - start
+    assert dran is False, "haette nicht an der Reihe sein duerfen"
+    assert 0.2 < dauer < 3, f"Frist nicht eingehalten: {dauer:.2f}s"

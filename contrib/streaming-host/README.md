@@ -443,7 +443,45 @@ the only Wii U title here claims to be a game in `meta.xml` and is an update in
 `app.xml`. Cemu's answer to that, `Unable to mount title`, names a file and hides the
 cause.*
 
-**„Der Emulator ordnet sein Pad selbst zu" ist eine Annahme, bis sie gemessen ist.** Für
+**„Der Emulator ordnet sein Pad selbst zu" **Vier gleiche Pads, und nur eines spricht.** Die Brücke legt für jeden Selkies-Socket ein
+virtuelles Gamepad an — vier Stück, alle mit derselben SDL-Kennung. Ein Emulator kann sie
+damit nicht unterscheiden und nimmt das erste. Trägt das keine Daten, tut der Controller
+nichts, und zwar **bei allen Emulatoren gleichzeitig**.
+
+Der Kernel vergibt `/dev/input/jsN` in der Reihenfolge der **Entstehung**, nicht nach dem
+Socketnamen. Am 2026-08-13 sah das so aus:
+
+```
+12:58:43,618  selkies_js2.sock  ->  /dev/input/js0
+12:58:43,621  selkies_js0.sock  ->  /dev/input/js1   <- das Pad, auf Platz zwei
+12:58:43,633  selkies_js1.sock  ->  /dev/input/js2
+```
+
+Vier Millisekunden. Eden band daraufhin `port:0` — das stumme Gerät —, und der Controller
+war tot; nach der Korrektur schrieb es `port:1`, und es ging sofort. Die Emulatoren waren
+nie schuld.
+
+Die Reihenfolge war bisher **nur beim ersten Start** geordnet. Ein Neuladen der Seite
+verbindet alle vier gleichzeitig neu, und dann entschied das Rennen. Jetzt stellen sich die
+Arbeiter an — mit einer Frist, damit ein **einzeln** wiederverbindender Socket nicht auf
+Nachbarn wartet, die ihren Platz nie anfordern (#535).
+
+**Zwei Fallen beim Messen**, beide haben hier Zeit gekostet:
+
+- Die Brücke protokolliert nach `/config/gamepad-bridge.log`, **nicht** nach stdout.
+  `docker logs` zeigt nichts von ihr — sie sieht stumm aus und ist es nicht.
+- Die Gamepad-API des Browsers sendet **nur, solange die Seite den Fokus hat**. Wer zum
+  Ablesen ins Terminal wechselt und dann drückt, misst zwangsläufig nichts. Messung
+  verzögert starten, dann im Browser bleiben.
+
+*EN: the bridge creates one virtual pad per socket — four, all with the same SDL GUID, so
+an emulator cannot tell them apart and takes the first. Node numbers follow creation order,
+not socket name, so a reconnect storm decided by four milliseconds which socket got js0.
+Ordering held at startup only; it now holds on every connect, with a timeout so a lone
+reconnect is not blocked. Two measurement traps: the bridge logs to a file rather than
+stdout, and the browser Gamepad API only reports while the page has focus.*
+
+ist eine Annahme, bis sie gemessen ist.** Für
 Eden (Switch) stand das jahrelang so in der Tabelle — und stimmt nicht. In seiner
 `qt-config.ini`:
 
