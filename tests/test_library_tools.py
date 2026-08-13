@@ -1481,3 +1481,44 @@ def test_ancillary_files_are_not_mistaken_for_a_track(abb, tmp_path):
     (d / "QixNeo.nfo").write_text("x")
     (d / "QixNeo.bin").write_bytes(b"x")
     assert abb.loesung_finden("QixNeo.cue", "QixNeo", os.listdir(d), set()) == "QixNeo.bin"
+
+
+def test_a_reference_is_not_replaced_twice(abb, tmp_path):
+    """Aus `QixNeo` darf `QixNeo.bin` werden, nicht `QixNeo.bin.bin`. (#521)
+
+    Hier standen zwei `replace` hintereinander, und das zweite lief auf dem ERGEBNIS
+    des ersten. Solange der alte Verweis eine Endung trug, war das folgenlos: Nach
+    `Alt.bin` -> `Neu.bin` kommt `Alt.bin` im Text nicht mehr vor.
+
+    Seit #517 kann der Verweis ohne Endung sein — und ist damit ein PRAEFIX seines
+    eigenen Ersatzes. AM ECHTEN BESTAND PASSIERT:
+
+        FILE "QixNeo" BINARY   ->   FILE "QixNeo.bin.bin" BINARY
+
+    Zurueckgeholt aus den `.vor-fix`-Sicherungen, die das Werkzeug vor jeder Aenderung
+    anlegt. Eine falsch reparierte Liste ist schlimmer als eine kaputte: die kaputte
+    faellt auf.
+
+    EN: at most one replacement per reference. The second call ran on the result of the
+    first, harmless only while the old reference carried an extension.
+    """
+    p = tmp_path / "QixNeo.cue"
+    p.write_text('FILE "QixNeo" BINARY\n  TRACK 01 MODE2/2352\n', encoding="utf-8")
+    ok, grund = abb.liste_umschreiben(str(p), {"QixNeo": "QixNeo.bin"})
+    assert ok, grund
+    text = p.read_text(encoding="utf-8")
+    assert 'FILE "QixNeo.bin" BINARY' in text, text
+    assert ".bin.bin" not in text, text
+
+
+def test_a_reference_with_a_path_is_still_rewritten(abb, tmp_path):
+    """Die Ratsche zur Gegenseite: der Basisname-Versuch darf nicht verlorengehen. (#521)
+
+    Er ist fuer Listen da, die ihre Spur MIT Pfad nennen. Wer den Doppelersatz einfach
+    streicht, nimmt diesen Fall mit — deshalb steht er hier fest.
+    """
+    p = tmp_path / "Spiel.cue"
+    p.write_text('FILE "tracks/Alt.bin" BINARY\n', encoding="utf-8")
+    ok, grund = abb.liste_umschreiben(str(p), {"Alt.bin": "Neu.bin"})
+    assert ok, grund
+    assert 'FILE "tracks/Neu.bin" BINARY' in p.read_text(encoding="utf-8")

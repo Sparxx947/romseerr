@@ -243,8 +243,31 @@ def liste_umschreiben(pfad, loesungen):
         return False, f"nicht lesbar: {e.strerror}"
     neu = text
     for alt, ersatz in loesungen.items():
-        neu = neu.replace(alt, ersatz)
-        neu = neu.replace(os.path.basename(alt), ersatz)
+        # HOECHSTENS EINE ERSETZUNG JE VERWEIS. (#521)
+        #
+        # Hier standen zwei `replace` hintereinander, und das zweite lief auf dem
+        # Ergebnis des ersten. Solange `alt` eine Endung trug, war das folgenlos: Nach
+        # `Alt.bin` -> `Neu.bin` kommt `Alt.bin` im Text nicht mehr vor.
+        #
+        # Seit #517 kann `alt` ein Verweis OHNE Endung sein — und dann ist er ein
+        # PRAEFIX seines eigenen Ersatzes:
+        #
+        #     FILE "QixNeo" BINARY
+        #       1. QixNeo -> QixNeo.bin   =>  FILE "QixNeo.bin" BINARY
+        #       2. QixNeo -> QixNeo.bin   =>  FILE "QixNeo.bin.bin" BINARY
+        #
+        # Am echten Bestand passiert, an `QixNeo.cue` und `mrdomino.cue`, und aus den
+        # `.vor-fix`-Sicherungen zurueckgeholt. Der zweite Versuch (Basisname) ist fuer
+        # Listen gedacht, die ihre Spur mit Pfad nennen — er darf nur greifen, wenn der
+        # volle Verweis GAR NICHT im Text steht.
+        #
+        # EN: at most one replacement per reference. The second call ran on the result of
+        # the first, which was harmless only while `alt` carried an extension; an
+        # extensionless reference is a prefix of its own replacement.
+        for kandidat in (alt, os.path.basename(alt)):
+            if kandidat and kandidat != ersatz and kandidat in neu:
+                neu = neu.replace(kandidat, ersatz)
+                break
     if neu == text:
         return False, "Verweis steht so nicht im Text"
     try:
