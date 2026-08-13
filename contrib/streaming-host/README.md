@@ -189,6 +189,50 @@ setzt für Xbox deshalb `LD_LIBRARY_PATH` auf beide Pfade.
 > System-`libpulsecommon` — `undefined symbol: pa_in_valgrind`, und der Ton bleibt
 > wieder weg. Es wird deshalb **genau eine Datei** geliehen, kein Verzeichnis.
 
+#### Und ein drittes: xemu läuft als einziger **ohne VirtualGL**, dafür mit Vulkan
+
+VirtualGLs Rückleseschicht folgt einer Fenstergrößenänderung nicht: Sie liest weiter in
+der alten Größe, sodass nur die alte Ecke bemalt wird und der Rest das stehen lässt, was
+vorher auf dem Schirm war. Beim Vollbild sah das aus wie ein Emulator, der sein Bild
+nicht skaliert. Gemeldet als [VirtualGL/virtualgl#287](https://github.com/VirtualGL/virtualgl/issues/287);
+der Betreuer hat als Ursache bestätigt, dass die `ConfigureNotify`-Ereignisse nie
+ankommen, auf die VirtualGL dafür wartet.
+
+Nachgemessen, **ein Faktor auf einmal** — Fenster in allen drei Zeilen 1920×1080, die
+bemalte Fläche gegen eine Aufnahme des leeren Desktops verglichen:
+
+| Renderer | `vglrun` | bemalte Fläche nach Vollbild |
+|---|---|---|
+| OpenGL | ja | ~62 % |
+| Vulkan | ja | 62,9 % |
+| **Vulkan** | **nein** | **100 %** |
+
+Die mittlere Zeile ist die wichtige: **Vulkan allein genügt nicht.** Solange VirtualGL
+dazwischenliegt, geht die Bildausgabe weiter über den abgefangenen GL-Pfad. Beides
+zusammen wirkt — deshalb setzt `launch-profile.py` zusätzlich `renderer = 'VULKAN'` in
+die `xemu.toml`; einen Schalter auf der Kommandozeile kennt xemu dafür nicht.
+
+Die Karte bleibt dabei in Betrieb, das ist am Protokoll geprüft und nicht angenommen:
+
+```
+Available physical devices:
+- Intel(R) Arc(tm) A310 Graphics (DG2)
+- llvmpipe (LLVM 21.1.8, 256 bits)
+Selected physical device: Intel(R) Arc(tm) A310 Graphics (DG2)
+```
+
+> **Warum nur xemu?** Weil nur xemu Ende zu Ende geprüft ist — Bild, Ton und Controller
+> von einem Menschen bestätigt. Dass OpenGL die Karte auch ohne VirtualGL erreicht, ist
+> im Container gemessen (`glxinfo -B` meldet ohne `vglrun` dieselbe Arc, DRI3 funktioniert
+> also), aber `glxinfo` ist ein einfacher GL-Kunde und kein Emulator mit eigenen
+> Bibliotheken. Der breite Schnitt gehört in ein eigenes Vorhaben mit eigener Messung.
+
+**Was das nicht behebt:** xemu ruckelt weiterhin, und das hat einen anderen Grund. Der
+Engpass ist **ein einziger Thread** (21.351 Ticks gegen 3.757 beim nächsten), die Kerne
+liegen bei 1995 MHz gegen eine Obergrenze von 2500 MHz, weil mehrere andere Lasten laufen
+— und die Arc langweilt sich bei 28 bis 44 %. Das ist eine Grenze der Einzelkernleistung,
+kein Grafikproblem.
+
 ### Und vor allem: das richtige BIOS
 
 **Alle Retail-BIOS-Dumps führen zu einem schwarzen Bild** oder zum Hinweis „Ihre Xbox
@@ -1935,6 +1979,48 @@ The agent therefore sets `LD_LIBRARY_PATH` to both paths for Xbox.
 > `libpulse.so.0` shadows the system one and does not match the system
 > `libpulsecommon` — `undefined symbol: pa_in_valgrind`, and audio breaks again. Exactly
 > **one file** is borrowed, never a directory.
+
+#### And a third: xemu is the only emulator launched **without VirtualGL**, using Vulkan
+
+VirtualGL's readback does not follow a window resize: it keeps reading at the old size, so
+only the old rectangle is painted and the rest keeps whatever was on screen before. In
+fullscreen this looked like an emulator that refuses to scale its picture. Reported as
+[VirtualGL/virtualgl#287](https://github.com/VirtualGL/virtualgl/issues/287); the maintainer
+confirmed the cause — the `ConfigureNotify` events VirtualGL waits for never arrive.
+
+Measured **one factor at a time** — window 1920x1080 in all three rows, painted area
+compared against a capture of the bare desktop:
+
+| renderer | `vglrun` | painted share after fullscreen |
+|---|---|---|
+| OpenGL | yes | ~62 % |
+| Vulkan | yes | 62.9 % |
+| **Vulkan** | **no** | **100 %** |
+
+The middle row is the important one: **Vulkan alone is not enough.** While VirtualGL sits in
+between, presentation still goes through the intercepted GL path. Both changes together are
+what works — which is why `launch-profile.py` also writes `renderer = 'VULKAN'` into
+`xemu.toml`; xemu has no command-line switch for it.
+
+The GPU stays in use, verified in the log rather than assumed:
+
+```
+Available physical devices:
+- Intel(R) Arc(tm) A310 Graphics (DG2)
+- llvmpipe (LLVM 21.1.8, 256 bits)
+Selected physical device: Intel(R) Arc(tm) A310 Graphics (DG2)
+```
+
+> **Why only xemu?** Because only xemu was verified end to end — picture, sound and gamepad
+> confirmed by a person. OpenGL does reach the GPU without VirtualGL here (`glxinfo -B`
+> reports the same Arc without `vglrun`, so DRI3 works), but `glxinfo` is a trivial GL client,
+> not an emulator with its own bundled libraries. Widening the change deserves its own
+> measurement.
+
+**What this does not fix:** xemu still stutters, for an unrelated reason. The bottleneck is a
+**single thread** (21,351 ticks against 3,757 for the next one), cores sit at 1995 MHz against
+a 2500 MHz ceiling because several other workloads are running, and the Arc idles at 28-44 %.
+That is a single-thread CPU limit, not a graphics problem.
 
 ### And above all: the right BIOS
 
