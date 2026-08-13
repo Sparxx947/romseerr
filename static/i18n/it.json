@@ -387,5 +387,8 @@
  "drop_running": "in corso …",
  "drop_done": "{a} archiviati, {o} rimasti",
  "stream_nsp_update": "È un aggiornamento, non un gioco: appartiene a un altro titolo e non si avvia nemmeno installato.",
- "stream_nsp_dlc": "È un contenuto aggiuntivo (DLC), non un gioco a sé."
+ "stream_nsp_dlc": "È un contenuto aggiuntivo (DLC), non un gioco a sé.",
+ "stream_wiiu_update": "Questo è un aggiornamento, non un gioco: aggiorna un titolo base che qui non c'è.",
+ "stream_wiiu_dlc": "Questo è un contenuto aggiuntivo (DLC), non un gioco a sé.",
+ "stream_wiiu_system": "Questo è un titolo di sistema della console, non un gioco."
 }

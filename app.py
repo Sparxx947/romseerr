@@ -3856,6 +3856,47 @@ def switch_titel_id(pfad):
     return "", "kein Ticket im Archiv"
 
 
+# Wii U: die ersten acht Hexziffern der Titelkennung sagen, WAS ein Titel ist. (#512)
+# Dieselbe Idee wie `_CIA_ZUBEHOER` beim 3DS (`0004000E`) — nur die Konsolenfamilie
+# daneben. Sie fehlte, und deshalb bot Romseerr ein Update als startbar an, waehrend der
+# Start-Dienst es seit #502 ablehnt: eine Zusage, die die andere Seite nicht haelt.
+_WIIU_ZUBEHOER = {"0005000E": "wiiu_update", "0005000C": "wiiu_dlc",
+                  "0005001B": "wiiu_system"}
+
+
+def wiiu_startbar(ordner):
+    """-> (startbar, grund) fuer einen Wii-U-Titelordner. (#512)
+
+    GELESEN WIRD `code/app.xml`, NICHT `meta/meta.xml`. Die beiden koennen sich
+    widersprechen, und beim einzigen Wii-U-Titel des Bestands tun sie es:
+
+        meta/meta.xml   title_id = 0005000010180700   (behauptet: Basisspiel)
+        code/app.xml    title_id = 0005000E10180700   (Update)
+
+    Cemu liest `app.xml` und antwortet darauf `Unable to mount title` — eine Meldung, die
+    eine Datei nennt und die Ursache verschweigt. Wer `meta.xml` liest, bekommt mit voller
+    Ueberzeugung die falsche Antwort.
+
+    IM ZWEIFEL DURCHLASSEN, wie bei Switch und 3DS: Fehlt `app.xml` oder steht dort keine
+    lesbare Kennung, geht der Titel durch. Eine falsche Absage kostet mehr als ein
+    Fehlversuch.
+
+    EN: reads `code/app.xml`, not `meta/meta.xml` — the two can disagree, and in the one
+    Wii U title here they do. Anything unreadable passes.
+    """
+    xml = os.path.join(ordner, "code", "app.xml")
+    try:
+        with open(xml, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read(8192)
+    except OSError:
+        return True, ""
+    m = re.search(r"<title_id[^>]*>\s*([0-9A-Fa-f]{16})\s*<", text)
+    if not m:
+        return True, ""
+    grund = _WIIU_ZUBEHOER.get(m.group(1).upper()[:8])
+    return (False, grund) if grund else (True, "")
+
+
 def switch_startbar(pfad):
     """-> (startbar, grund) fuer eine Switch-Datei.
 
@@ -3974,6 +4015,13 @@ def stream_info(title, slug, user=""):
         # Dieselbe Frage wie bei 3DS und aus demselben Grund: Ein Update oder ein DLC
         # startet nicht fuer sich, und das steht VOR der Platzvergabe fest. (#427)
         startbar, grund = switch_startbar(path)
+        if not startbar:
+            return {"streamable": False, "reason": grund, "platform": slug}
+    if slug == "wiiu" and os.path.isdir(path):
+        # Dieselbe Frage wie bei Switch und 3DS. Der Start-Dienst lehnt ein Update seit
+        # #502 ab — ohne diese Zeile zeigt Romseerr trotzdem den Knopf, und die Absage
+        # kommt erst NACH dem Klick. (#512)
+        startbar, grund = wiiu_startbar(path)
         if not startbar:
             return {"streamable": False, "reason": grund, "platform": slug}
     if slug == "3ds":

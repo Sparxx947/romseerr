@@ -335,6 +335,56 @@ not ship, which cannot work and looks like any other button. `GET /api/play/core
 checks each one. `IGNORE_FOLDERS` hides directories with no game content; content that
 merely lacks a core stays visible.*
 
+### Beide Seiten müssen dieselbe Frage stellen (#427, #502, #512)
+
+Ob ein Titel startbar ist, beantworten **zwei** Stellen: `stream_info` in Romseerr, bevor
+der Knopf erscheint, und der Start-Dienst, bevor er einen Prozess startet. Das ist
+Absicht, keine Doppelarbeit — ein direkter Aufruf des Dienstes umgeht Romseerr, und wer
+nur dort prüft, hat eine Zusage, die vom gewählten Weg abhängt.
+
+Fragt umgekehrt nur der Dienst, bekommt der Nutzer den Knopf, **belegt einen Platz** und
+liest die Absage erst danach. Genau so lag es bei Wii U: Der Dienst lehnte ein Update
+seit #502 ab, Romseerr bot es weiter an.
+
+| Plattform | Woran erkannt | Quelle |
+|---|---|---|
+| 3DS | Titel-ID `0004000E` / `0004008C` | TMD in der `.cia` |
+| Switch | letzte drei Stellen der Titel-ID | `<rights-id>.tik` in der NSP |
+| Wii U | Titel-ID `0005000E` / `0005000C` / `0005001B` | `code/app.xml` |
+
+Bei Wii U ausdrücklich `code/app.xml` und **nicht** `meta/meta.xml`: Die beiden können
+sich widersprechen, und beim einzigen Wii-U-Titel des Bestands tun sie es —
+`meta.xml` behauptet `00050000…` (Spiel), `app.xml` sagt `0005000E…` (Update). Cemu liest
+`app.xml`. Wer die andere Datei nimmt, bekommt mit voller Überzeugung die falsche Antwort.
+
+**Überall gilt: im Zweifel durchlassen.** Was sich nicht eindeutig als Zubehör ausweist,
+bleibt startbar. Eine falsche Absage nimmt einen vorhandenen Titel dauerhaft aus dem
+Angebot, und danach sucht niemand mehr.
+
+#### Ein Grund ohne Text ist keine Auskunft
+
+Die Kette hat drei Glieder: `app.py` liefert einen Code, `STREAM_GRUND` in `index.js`
+bildet ihn auf einen Schlüssel ab, die Sprachdateien tragen den Satz. Reißt das mittlere
+Glied, fällt der Code stumm in „Streamen gerade nicht möglich" — der Satz existiert, ist
+aber unerreichbar.
+
+Genau das war seit #427 der Fall: `stream_nsp_update` und `stream_nsp_dlc` lagen in
+**allen fünf Sprachen** bereit und fehlten nur in `STREAM_GRUND`. Der Test dagegen sammelte
+nur Codes, die als **wörtlicher String** in `stream_info` stehen — und alle
+Plattformprüfungen liefern ihren Grund über eine Hilfsfunktion, als Variable. Er meldete
+also Erfolg für etwas, das er nicht prüfte (#513). Gesammelt wird jetzt zusätzlich aus den
+`*_startbar`-Funktionen und ihren `_*_ZUBEHOER`-Tabellen.
+
+*EN: two places answer "is this startable" — Romseerr before the button appears and the
+launch service before it starts a process. Deliberately both: calling the service directly
+bypasses Romseerr, and checking only there means the user takes a seat before reading the
+refusal. Wii U reads `code/app.xml`, not `meta/meta.xml`, because the two can disagree and
+here they do. Everywhere: when in doubt, let it through — a wrong refusal removes a title
+that exists. The reason travels through three links (code → `STREAM_GRUND` → translations);
+when the middle one is missing the code falls silently into the generic sentence, which is
+what happened to the Switch texts, and the test that should have caught it only saw reasons
+spelled out literally rather than those returned through a helper.*
+
 ## Benutzerverwaltung
 
 Session-basiert (signierte Cookies, Secret in `/config/secret.key`). Beim ersten

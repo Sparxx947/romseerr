@@ -3874,19 +3874,144 @@ def test_shrinking_the_user_list_is_logged(appmod, tmp_path, monkeypatch):
     appmod.save_users({})
 
 
+def _wiiu_ordner(wurzel, name, app_id, meta_id=None):
+    """Wii-U-Titelordner. `app_id` und `meta_id` getrennt, weil sie sich im Bestand
+    WIDERSPRECHEN — genau daran hing #512."""
+    t = wurzel / name
+    (t / "code").mkdir(parents=True)
+    (t / "content").mkdir()
+    (t / "meta").mkdir()
+    (t / "code" / "Spiel.rpx").write_bytes(b"\x7fELF")
+    (t / "code" / "app.xml").write_text(
+        f'<app><title_id type="hexBinary" length="8">{app_id}</title_id></app>',
+        encoding="utf-8")
+    (t / "meta" / "meta.xml").write_text(
+        f'<menu><title_id type="hexBinary" length="8">{meta_id or app_id}</title_id></menu>',
+        encoding="utf-8")
+    return t
+
+
+def test_romseerr_refuses_a_wiiu_update_before_the_button_appears(appmod, tmp_path):
+    """Der Knopf darf gar nicht erst erscheinen. (#512)
+
+    Der Start-Dienst lehnt ein Wii-U-Update seit #502 ab. Romseerr fragte nicht — also
+    zeigte es den Knopf, der Nutzer klickte, belegte einen Platz, und ERST DANN kam die
+    Absage. Dieselbe Lüge wie vor #299 beim 3DS, nur eine Plattform weiter.
+
+    AM BESTAND GEMESSEN — die beiden Beschreibungsdateien widersprechen sich:
+
+        meta/meta.xml   0005000010180700   (behauptet: Basisspiel)
+        code/app.xml    0005000E10180700   (Update)
+
+    Deshalb wird `app.xml` gelesen. Wer `meta.xml` nimmt, bekommt mit voller Überzeugung
+    die falsche Antwort.
+    """
+    t = _wiiu_ordner(tmp_path / "wiiu", "Captain Toad [AKBP01]",
+                     app_id="0005000E10180700", meta_id="0005000010180700")
+    startbar, grund = appmod.wiiu_startbar(str(t))
+    assert not startbar
+    assert grund == "wiiu_update", grund
+
+
+def test_a_wiiu_base_game_stays_streamable(appmod, tmp_path):
+    """Die Ratsche: ein echtes Spiel darf nicht mitabgesagt werden. (#512)
+
+    Ohne sie wäre eine Prüfung, die IMMER absagt, ebenfalls grün — und Wii U damit
+    vollständig unerreichbar, statt nur seine Updates.
+    """
+    t = _wiiu_ordner(tmp_path / "wiiu", "Echtes Spiel", "0005000010180700")
+    assert appmod.wiiu_startbar(str(t)) == (True, "")
+
+
+def test_an_unreadable_wiiu_title_passes_rather_than_being_refused(appmod, tmp_path):
+    """Im Zweifel durchlassen — wie bei Switch (#427) und 3DS (#299). (#512)
+
+    Eine falsche Absage kostet mehr als ein Fehlversuch: Sie nimmt einen vorhandenen
+    Titel dauerhaft aus dem Angebot, und niemand sucht danach.
+    """
+    ohne = tmp_path / "wiiu" / "Ohne app.xml"
+    (ohne / "code").mkdir(parents=True)
+    assert appmod.wiiu_startbar(str(ohne)) == (True, "")
+
+    unlesbar = _wiiu_ordner(tmp_path / "wiiu", "Muell", "0005000010180700")
+    (unlesbar / "code" / "app.xml").write_text("kein xml", encoding="utf-8")
+    assert appmod.wiiu_startbar(str(unlesbar)) == (True, "")
+
+
+def test_a_wiiu_dlc_and_a_system_title_are_refused_as_well(appmod, tmp_path):
+    """`0005000C` ist DLC, `0005001B` ein Systemtitel — beides kein Spiel. (#512)"""
+    for kennung, erwartet in (("0005000C10180700", "wiiu_dlc"),
+                              ("0005001B10180700", "wiiu_system")):
+        t = _wiiu_ordner(tmp_path / "wiiu", f"T{kennung}", kennung)
+        assert appmod.wiiu_startbar(str(t)) == (False, erwartet), kennung
+
+
 def test_every_stream_reason_has_a_text(appmod):
     """Jeder Grund aus stream_info hat einen Eintrag in der Oberfläche. (#175)
 
     Die Lücke entstand, weil `ambiguous_platform` im Server eingeführt wurde und in der
     Oberfläche niemand nachzog: der Code fiel stumm in den allgemeinen Satz. Nichts hat
     das bemerkt, weil nichts die beiden Seiten vergleicht — genau das tut dieser Test.
+
+    ER TAT ES LANGE NUR HALB (#513). Gesammelt wurden ausschliesslich Gründe, die als
+    WÖRTLICHER String in `stream_info` stehen:
+
+        gruende = re.findall('"reason": "(...)"', ...)   # nur Literale
+
+    Die Plattformprüfungen liefern ihren Grund aber über eine Hilfsfunktion, und er
+    reist als Variable weiter:
+
+        startbar, grund = switch_startbar(path)
+        return {"streamable": False, "reason": grund, ...}
+
+    Damit war jeder so gelieferte Code unsichtbar. Gemessen: `nsp_update` und `nsp_dlc`
+    fehlten in `STREAM_GRUND`, obwohl `stream_nsp_update` und `stream_nsp_dlc` seit #427
+    in ALLEN FÜNF Sprachen bereitlagen. Ein Switch-Update zeigte „Streamen gerade nicht
+    möglich" — der passende Satz lag drei Dateien weiter und war unerreichbar.
+
+    Das Schlimmere war nicht der fehlende Satz, sondern dass diese Prüfung GRÜN meldete
+    für etwas, das sie nicht prüfte. Wer danach einen Grund hinzufügte, verliess sich
+    darauf.
+
+    Gesammelt wird deshalb aus zwei Quellen: den wörtlichen Gründen in `stream_info` und
+    den Absagen der Funktionen, die `stream_info` befragt — das sind die `*_startbar`.
+
+    NICHT modulweit nach `return False, "…"` suchen: Das fängt `dns`, `invalid`,
+    `private` und `scheme` aus der URL-Prüfung mit ein, die mit dem Stream nichts zu tun
+    haben. Eine Prüfung, die Fremdes einsammelt, verlangt Texte für Codes, die nie an der
+    Oberfläche ankommen — und wird dann entnervt wieder entschärft.
+
+    EN: the check only saw reasons spelled out literally in `stream_info`; every reason
+    delivered through a helper — which is how all platform checks work — was invisible,
+    and the check reported success for something it did not perform.
     """
     import re
     quelle = open("app.py", encoding="utf-8").read()
     i = quelle.index("def stream_info(")
     j = quelle.index("\ndef ", i + 10)
     gruende = set(re.findall(r'"reason":\s*"([a-z_]+)"', quelle[i:j]))
+
+    # Was über eine Hilfsfunktion kommt (#513). Massgeblich sind die `*_startbar`, denn
+    # genau die ruft `stream_info` auf; ihre Absagen reisen als Variable weiter und waren
+    # deshalb unsichtbar.
+    import ast as _ast
+    baum = _ast.parse(quelle)
+    zeilen = quelle.splitlines(keepends=True)
+    for k in baum.body:
+        if not (isinstance(k, _ast.FunctionDef) and k.name.endswith("_startbar")):
+            continue
+        rumpf = "".join(zeilen[k.lineno - 1:k.end_lineno])
+        gruende |= set(re.findall(r'return\s+\(?\s*False\s*,\s*"([a-z_]+)"', rumpf))
+        # Tabellen wie `_CIA_ZUBEHOER` liefern den Grund als Wert, nicht als Literal am
+        # `return`. Sie stehen ausserhalb der Funktion, gehoeren aber dazu.
+        for tabelle in re.findall(r'\b(_[A-Z0-9_]*ZUBEHOER)\b', rumpf):
+            m2 = re.search(rf'^{tabelle}\s*=\s*\{{(.*?)\}}', quelle, re.S | re.M)
+            if m2:
+                gruende |= set(re.findall(r':\s*"([a-z_]+)"', m2.group(1)))
     gruende.discard("")
+    assert len(gruende) >= 8, (
+        f"nur {len(gruende)} Gründe gefunden — die Sammlung ist kaputt, nicht die "
+        f"Oberfläche: {sorted(gruende)}")
 
     js = open("static/js/index.js", encoding="utf-8").read()
     m = re.search(r"const STREAM_GRUND=\{(.*?)\};", js, re.S)
