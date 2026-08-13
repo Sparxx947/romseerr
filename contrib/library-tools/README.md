@@ -243,6 +243,24 @@ bleiben bewusst liegen: Sie kommen auf einem Dutzend Plattformen vor, und eine f
 Zuordnung ist teurer als eine ausgelassene — der Titel läge danach unter der falschen
 Konsole und fiele niemandem auf, während eine liegengebliebene Datei sichtbar bleibt.
 
+**Die Tabelle wächst nur gegen einen Befund.** Nach dem Gesamtumbau hielt `Mixed` 536
+Dateien, und der Trockenlauf verschob nichts — zu Recht, bis auf eine Endung:
+
+| | | |
+|---|---|---|
+| `.jpg` 52 · `.txt` 51 · `.html` 41 · `.wav` 41 | Beiwerk | bleibt |
+| `.exe` 29 | Windows-Programme | bleibt |
+| `.vpl` 17 · `.vrs` 14 | VICE-Konfiguration | bleibt |
+| `.bin` 28 | mehrdeutig | bleibt **mit Absicht** |
+| `.caq` 13 | Mattel Aquarius | **fehlte in der Tabelle** (#515) |
+
+Die 13 `.caq` stammen aus derselben `Mattel Intellivision & Aquarius ROMs`-Sammlung, deren
+Intellivision-Hälfte über `.int` sauber einsortiert wurde; der Ordner `aquarius` existierte
+längst. Zwischen 52 Werbescans fällt ein Kassettenabzug niemandem auf — genau dafür gibt es
+die Tabelle.
+
+`.cas` bleibt draußen: Das Kassettenformat tragen MSX und ColecoVision ebenfalls.
+
 ### Beiwerk landet in `_beiwerk/`
 
 Ebene 1 ist die **Spielebene** — RomM zählt dort jeden Eintrag als genau ein Spiel. Bilder,
@@ -605,6 +623,14 @@ It only maps **unambiguous extensions**. `.bin`, `.iso`, `.rom` and `.img` are d
 left alone: they occur on a dozen platforms, and a wrong mapping costs more than a skipped
 one — the title would sit under the wrong console unnoticed, while a skipped file stays
 visible.
+
+**The table only grows against a finding.** After the full rebuild `Mixed` held 536 files
+and the dry run moved nothing — correctly, except for one extension: 13 `.caq`, the Mattel
+Aquarius cassette format, which belongs to nothing else and whose platform folder already
+existed (#515). They come from the same `Mattel Intellivision & Aquarius ROMs` collection
+whose Intellivision half was placed correctly via `.int`. Everything else stays for good
+reasons — ancillary files, Windows programs, VICE configuration, and `.bin`, which is
+ambiguous on purpose. `.cas` stays out too: MSX and ColecoVision use it as well.
 
 ### Ancillary files go to `_beiwerk/`
 
