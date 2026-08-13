@@ -2743,3 +2743,67 @@ def test_a_wiiu_dlc_and_a_system_title_are_refused_too(tmp_path):
         t = _wiiu_titel(tmp_path / "wiiu", f"T{kennung}", kennung)
         grund = m._wiiu_art(str(t))
         assert grund and wort in grund, (kennung, grund)
+
+
+# ---------------------------------------------------------------------------
+# #527: Ein Ruckeln wird dem Emulator angelastet, weil niemand festhaelt, was der
+# Host sonst tat.
+# ---------------------------------------------------------------------------
+
+def test_the_host_load_is_recorded_with_the_launch(tmp_path):
+    """Was der Host beim Start sonst tat, wird mitgeschrieben. (#527)
+
+    AM 2026-08-13 GEMESSEN, und die naheliegende Deutung war falsch:
+
+        Nutzer: „es ruckelt extrem und laeuft wohl auf der CPU statt auf der GPU"
+
+        GL_RENDERER  Mesa Intel(R) Arc(tm) A310 Graphics   <- sehr wohl auf der GPU
+        RCS (3D)     0,00 %                                <- die noetige Einheit: FREI
+        tdarr-ffmpeg 759 %  tdarr-ffmpeg 733 %  xemu 201 %
+        28 Kerne, Load 45,9
+
+    Zwei Umrechnungen belegten rund 15 Kerne. Der Emulator bekam die Schuld fuer eine
+    Last, die von woanders kam — und die Antwort kostete eine halbe Stunde Messen.
+
+    Der Zustand laesst sich hinterher NICHT rekonstruieren; deshalb wird er beim Start
+    genommen. Bewertet wird nichts: ob eine Last zu hoch ist, haengt vom Titel ab.
+
+    EN: records what else the host was doing at launch, because that state is gone by
+    the time anyone asks — and the obvious reading was exactly wrong once.
+    """
+    m = _agent_module(tmp_path)
+    l = m.hostlast()
+    assert l, "keine Angabe zur Hostlast"
+    assert isinstance(l.get("load"), list) and len(l["load"]) == 3, l
+    assert l.get("cpus", 0) >= 1, l
+    assert isinstance(l.get("top"), list), l
+    for eintrag in l["top"]:
+        assert "cpu" in eintrag and "name" in eintrag, eintrag
+
+
+def test_the_status_reports_the_load_from_the_launch_not_from_now():
+    """Gemeldet wird der Zustand BEIM START, nicht der aktuelle. (#527)
+
+    Der Unterschied ist der ganze Zweck: Wer nachtraeglich misst, misst den falschen
+    Moment — die Umrechnung, die das Ruckeln verursacht hat, kann laengst fertig sein.
+    Der Wert wird deshalb einmal genommen und danach nicht mehr angefasst.
+    """
+    quelle = open(os.path.join(REPO, "contrib", "streaming-host", "stream-agent.py"),
+                  encoding="utf-8").read()
+
+    # 1. Genommen wird er BEIM START — dort, wo auch Plattform und Pfad gesetzt werden.
+    i = quelle.index('_current["window_detail"] = ""')
+    j = quelle.index("\n\n", i)
+    assert 'hostlast()' in quelle[i:j], (
+        "die Hostlast wird beim Start nicht genommen — nachtraeglich gemessen ist es "
+        "der falsche Moment")
+
+    # 2. Gemeldet wird das FESTGEHALTENE, nicht eine frische Messung. Stuende in der
+    #    Statusantwort `hostlast()`, waere der Wert der von JETZT — und die Umrechnung,
+    #    die das Ruckeln verursacht hat, laengst fertig.
+    k = quelle.index('"window_detail": _current["window_detail"]')
+    ende = quelle.index("}", k)
+    antwort = quelle[k:ende]
+    assert '_current.get("last")' in antwort, antwort[:200]
+    assert "hostlast()" not in antwort, (
+        "die Statusantwort misst neu statt zu berichten, was beim Start galt")
