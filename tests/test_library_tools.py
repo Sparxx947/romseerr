@@ -270,6 +270,36 @@ def test_the_sorter_recognises_clear_extensions(mix):
         assert endung in mix.ENDUNG_PLATTFORM, f"{endung} sollte zugeordnet werden"
 
 
+def test_the_sorter_places_aquarius_cassettes(mix, tmp_path):
+    """`.caq` gehoert zum Mattel Aquarius und zu sonst nichts. (#515)
+
+    GEMESSEN nach dem Gesamtumbau: `Mixed` hielt 536 Dateien, und der Trockenlauf
+    verschob NICHTS. Zu Recht — bis auf eine Endung:
+
+        .jpg 52  .txt 51  .html 41  .wav 41  .ico 38  .png 31
+        .exe 29  .bin 28  .gif 22  .vpl 17  .vrs 14  .caq 13
+
+    Alles andere bleibt aus gutem Grund liegen: Beiwerk, Windows-Programme,
+    VICE-Konfiguration, und `.bin`, das bewusst mehrdeutig ist. Die 13 `.caq` stammen
+    aus derselben `Mattel Intellivision & Aquarius ROMs`-Sammlung, deren
+    Intellivision-Haelfte ueber `.int` sauber einsortiert wurde — die Aquarius-Haelfte
+    hatte kein Ziel, obwohl der Ordner `aquarius` existiert.
+
+    Zwischen 52 Werbescans faellt ein Kassettenabzug niemandem auf. Genau dafuer gibt
+    es die Tabelle.
+
+    EN: `.caq` is the Aquarius cassette format and belongs to nothing else. Measured
+    after the full rebuild: it was the only unambiguous extension still sitting in
+    `Mixed`, while the folder it belongs to already existed.
+    """
+    assert mix.ENDUNG_PLATTFORM.get(".caq") == "aquarius"
+    assert mix.plattform_fuer("Alien Quest (19xx)(-)(Part 1 of 2).caq") == "aquarius"
+    # Die Ratsche: die Aufnahme darf nichts anderes mitziehen. `.cas` etwa ist ein
+    # Kassettenformat mehrerer Systeme (MSX, Coleco) und bleibt draussen.
+    assert ".cas" not in mix.ENDUNG_PLATTFORM, (
+        ".cas liegt auf mehreren Systemen und darf nicht zugeordnet werden")
+
+
 def test_emulators_and_bios_are_not_games(mix):
     """Emulatoren und BIOS-Abbilder werden nicht als Spiele einsortiert."""
     assert mix.plattform_fuer("WinUAE1610.exe") is None
