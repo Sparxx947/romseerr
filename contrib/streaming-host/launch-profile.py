@@ -35,6 +35,10 @@ import tempfile
 import time
 
 CONFIG = os.environ.get("FW_CONFIG_ROOT", "/config")
+# Flycasts Renderer-Kennziffern: 0 und 3 sind OpenGL, 4 und 5 Vulkan
+# (5 mit Per-Pixel-Sortierung). 4 ist der Wert, den die Startzeile seit #304
+# mitgibt — hier steht er, damit beide Wege dieselbe Zahl meinen.
+FLYCAST_RENDERER = "4"
 
 # PCSX2: Namen aus s_sdl_button_setting_names / s_sdl_axis_setting_names
 # (pcsx2/Input/SDLInputSource.cpp) — abgelesen, nicht geraten.
@@ -895,6 +899,93 @@ def eden_vollbild():
 
 # --------------------------------------------------------------- Azahar (3DS)
 
+def flycast_cfg():
+    return os.path.join(CONFIG, ".config", "flycast", "emu.cfg")
+
+
+def flycast_apply(pruefen=False):
+    """-> (geaendert, meldung). Schreibt den Vulkan-Renderer in Flycasts Konfiguration.
+
+    WARUM UEBERHAUPT, wo die Startzeile `-config config:pvr.rend=4` doch mitgibt: weil
+    Flycast diesen Wert NICHT uebernimmt. Am laufenden Host nachgemessen — Flycast mit
+    dem Renderer auf der Kommandozeile gestartet, Vulkan bestaetigt:
+
+        rend/vulkan/vulkan_context.cpp: Vulkan API 1.1. Device Intel(R) Arc(tm) A310
+
+    danach sauber beendet (die Datei wurde um 12:48:51 neu geschrieben, es lag also
+    nicht an einem harten Abbruch) — und in `emu.cfg` steht weiterhin NUR:
+
+        [window]
+        fullscreen = yes
+        height = 480 …
+
+    Kein `[config]`-Abschnitt. Ein `-config`-Wert ist fuer Flycast fluechtig und
+    wandert nie in den gespeicherten Satz.
+
+    DIE FOLGE ist keine Kleinigkeit: Ueber den Start-Dienst laeuft Flycast auf Vulkan,
+    ueber den Desktop gestartet auf dem eingebauten Standard. Derselbe Emulator,
+    dasselbe Spiel, zwei Verhaltensweisen — und die Ursache steht in einer Zeile, die
+    niemand sieht.
+
+    DASS ES TRAEGT, IST GEPRUEFT und nicht angenommen: Wert von Hand eingetragen,
+    Flycast gestartet, beendet, Datei erneut gelesen — der Abschnitt stand noch da.
+    Flycast liest ihn also und schreibt ihn zurueck.
+
+    GEPRUEFT WIRD DER WERT, NICHT DER SCHLUESSEL. Genau daran ist die DuckStation-
+    Reparatur einmal gescheitert: Der Assistent kam wieder, weil nur geprueft wurde, ob
+    der Schluessel existiert — und der Emulator ihn beim Beenden auf `true` zurueckschrieb.
+
+    EN: the renderer given on the command line is transient — Flycast never writes it
+    back, so the same title runs on Vulkan through the service and on the built-in
+    default from the desktop. Verified by hand that a value written into the file does
+    survive a full launch/exit cycle. The VALUE is checked, not the key.
+    """
+    pfad = flycast_cfg()
+    if not os.path.isfile(pfad):
+        return False, "emu.cfg gibt es noch nicht — Flycast legt sie beim ersten Beenden an"
+    with open(pfad, encoding="utf-8", errors="ignore") as f:
+        zeilen = f.read().splitlines()
+
+    abschnitt, wert = "", None
+    for z in zeilen:
+        t = z.strip()
+        if t.startswith("[") and t.endswith("]"):
+            abschnitt = t[1:-1]
+        elif abschnitt == "config" and t.replace(" ", "").startswith("pvr.rend="):
+            wert = t.split("=", 1)[1].strip()
+    if wert == FLYCAST_RENDERER:
+        return False, f"Renderer steht bereits auf {FLYCAST_RENDERER} (Vulkan)"
+    if pruefen:
+        return True, (f"Renderer steht auf {wert or 'nichts'} statt {FLYCAST_RENDERER}"
+                      " — ueber den Desktop gestartet liefe Flycast anders")
+
+    neu, gesetzt, in_config = [], False, False
+    for z in zeilen:
+        t = z.strip()
+        if t.startswith("[") and t.endswith("]"):
+            if in_config and not gesetzt:
+                neu.append(f"pvr.rend = {FLYCAST_RENDERER}")
+                gesetzt = True
+            in_config = t == "[config]"
+        if in_config and t.replace(" ", "").startswith("pvr.rend="):
+            neu.append(f"pvr.rend = {FLYCAST_RENDERER}")
+            gesetzt = True
+            continue
+        neu.append(z)
+    if not gesetzt:
+        # Kein `[config]`-Abschnitt vorhanden — er gehoert VOR den Rest, damit er nicht
+        # versehentlich unter `[window]` landet.
+        neu = ["[config]", f"pvr.rend = {FLYCAST_RENDERER}", ""] + neu
+
+    sicherung = pfad + ".vor-renderer"
+    if not os.path.exists(sicherung):
+        shutil.copy2(pfad, sicherung)
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write("\n".join(neu) + "\n")
+    return True, (f"Renderer auf {FLYCAST_RENDERER} (Vulkan) gesetzt, "
+                  f"Rueckweg: {sicherung}")
+
+
 def xemu_toml():
     return os.path.join(CONFIG, ".local", "share", "xemu", "xemu", "xemu.toml")
 
@@ -1271,8 +1362,8 @@ PROFILE = {
     #   Ton     : ebenfalls von einem Menschen bestaetigt (2026-08-12). Damit ist bei
     #             Flycast alles drei belegt — Bild, Ton, Gamepad — und nichts davon aus
     #             einem Protokoll geschlossen.
-    "flycast":   {"system": "Dreamcast",     "controller": None, "bios": None, "vollbild": None,
-                  "geprueft": True},
+    "flycast":   {"system": "Dreamcast",     "controller": flycast_apply, "bios": None,
+                  "vollbild": None, "geprueft": True},
     # Fenster und Ton am laufenden Host bestaetigt (2026-08-10, #300) — es brauchte
     # KEINE Konfigurationsdatei, nur libusb, den Pulse-Pfad und das Festplattenabbild
     # (init/22-xemu-vorbereiten). Der Controller ist NICHT geprueft.

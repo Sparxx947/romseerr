@@ -443,6 +443,37 @@ the only Wii U title here claims to be a game in `meta.xml` and is an update in
 `app.xml`. Cemu's answer to that, `Unable to mount title`, names a file and hides the
 cause.*
 
+**Ein Wert auf der Startzeile ist nicht dasselbe wie ein gesetzter Wert.** Flycast bekommt
+seit jeher `-config config:pvr.rend=4` mit und läuft damit auf Vulkan — nachgemessen:
+
+```
+rend/vulkan/vulkan_context.cpp: Vulkan API 1.1. Device Intel(R) Arc(tm) A310 Graphics
+```
+
+Beim Beenden schreibt Flycast seine Konfiguration neu (Zeitstempel bestätigt), und darin
+steht der Renderer **nicht**:
+
+```
+[window]
+fullscreen = yes
+height = 480 …
+```
+
+Ein `-config`-Wert ist für Flycast flüchtig. Die Folge ist keine Kleinigkeit: über den
+Start-Dienst läuft es auf Vulkan, vom Desktop gestartet auf dem eingebauten Standard —
+derselbe Emulator, dasselbe Spiel, zwei Verhaltensweisen, und die Ursache steht in einer
+Zeile, die niemand sieht. `launch-profile.py` schreibt den Wert deshalb in `emu.cfg`.
+
+Dass das trägt, ist geprüft und nicht angenommen: Wert eingetragen, Flycast gestartet,
+beendet, Datei erneut gelesen — der Abschnitt stand noch da. Geprüft wird der **Wert**,
+nicht der Schlüssel; genau daran ist die DuckStation-Reparatur einmal gescheitert (#304).
+
+*EN: a value on the launch line is not the same as a value that is set. Flycast runs on
+Vulkan when started through the service, but never writes that back — its rewritten
+`emu.cfg` has no `[config]` section at all — so the same title runs on the built-in default
+when started from the desktop. The profile now writes it into the file, verified by a full
+launch/exit cycle, and checks the value rather than the key.*
+
 **Ein Ruckeln sagt nichts über den Emulator, solange die Last daneben fehlt.** Der
 Start-Dienst hält deshalb beim Start fest, was der Host sonst tat — Load, Kernzahl und die
 fünf CPU-stärksten Prozesse. Sie stehen in `/status` als `host_load` und als Zeile im
@@ -644,7 +675,7 @@ Controller im Spiel gedrückt.
 | PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
 | Switch | Eden | ✅ | ✅ | (⁠—⁠) | Controller nicht eigens geprüft |
 | Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | erst seit der Entschlüsselung (#354/#356); Vollbild an den Pixeln gemessen (#316); Controller nicht eigens geprüft |
-| Dreamcast | Flycast | ✅ | ✅ | ✅ | Vollbild und **Vulkan** in der Startzeile, an den Pixeln gemessen (#304); Bild, Ton und Controller von einem Menschen in Fatal Fury bestätigt — Flycast belegt die Pads selbst, als einziger Emulator hier |
+| Dreamcast | Flycast | ✅ | ✅ | ✅ | Vollbild und **Vulkan** — seit #304 nicht mehr nur in der Startzeile, sondern **in `emu.cfg` geschrieben**: Flycast übernimmt einen `-config`-Wert NICHT, also lief es vom Desktop gestartet auf dem eingebauten Standard (siehe unten). Bild, Ton und Controller von einem Menschen bestätigt — Flycast belegt die Pads selbst, als einziger Emulator hier |
 | Xbox | xemu | ✅ | ✅ | ✅ | braucht **COMPLEX 4627 + MCPX 1.0** — Retail-BIOS bleiben schwarz |
 | Wii U | Cemu | — | — | — | Titel vorhanden seit #452/#455 — noch nicht gestartet |
 | PS Vita | Vita3K | — | — | — | Titel vorhanden seit #452/#455; Vollbild und Vulkan stehen in der Konfiguration (#304); der Start übergibt seit #481 die **Titelkennung** statt des Pfades; seit #488 stehen die beiden Startdialoge ab, und der Titel bootet gemessen bis ins Ladefenster — ein Mensch hat ihn noch nicht gesehen; seit #489 beendet `/stop` ihn wirklich und `/status` findet sein Fenster |
@@ -2108,7 +2139,7 @@ pressed in-game.
 | PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
 | Switch | Eden | ✅ | ✅ | (⁠—⁠) | controller not checked separately |
 | Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | only since decryption (#354/#356); fullscreen measured at the pixels (#316); controller not separately checked |
-| Dreamcast | Flycast | ✅ | ✅ | ✅ | fullscreen and **Vulkan** set on the launch line, measured at the pixels (#304); picture, sound and controller all confirmed by a human in Fatal Fury — Flycast maps the pads by itself, the only emulator here that does |
+| Dreamcast | Flycast | ✅ | ✅ | ✅ | fullscreen and **Vulkan** — since #304 no longer only on the launch line but **written into `emu.cfg`**: Flycast does not adopt a `-config` value, so started from the desktop it ran on the built-in default (see below). Picture, sound and controller confirmed by a human — Flycast maps the pads by itself, the only emulator here that does |
 | Xbox | xemu | ✅ | ✅ | ✅ | needs **COMPLEX 4627 + MCPX 1.0** — retail BIOS stays black |
 | Wii U | Cemu | — | — | — | a title is in the library since #452/#455 — not launched yet |
 | PS Vita | Vita3K | — | — | — | a title is in the library since #452/#455; fullscreen and Vulkan are set in the config (#304); since #481 the launch passes the **title id** instead of the path; since #488 both startup dialogs are switched off and the title was measured booting into its loading window — no human has seen it yet; since #489 `/stop` really ends it and `/status` finds its window |
