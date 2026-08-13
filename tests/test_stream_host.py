@@ -1651,6 +1651,86 @@ def test_every_emulator_is_launched_with_appdir_and_appimage():
         "und die Fensterpruefung sieht die Shell (#489)")
 
 
+def _heilungsschleife():
+    """Die Schleife aus `init/30-agent`, die root-eigene Dateien zurueckgibt.
+
+    Herausgeschnitten von `for baum in` bis zum zugehoerigen `done`, damit der Test das
+    AUSGELIEFERTE Skript prueft und nicht eine Kopie im Test.
+    """
+    quelle = open(os.path.join(REPO, "contrib", "streaming-host", "init", "30-agent"),
+                  encoding="utf-8").read().splitlines()
+    try:
+        start = next(i for i, z in enumerate(quelle) if z.startswith("for baum in "))
+    except StopIteration:
+        raise AssertionError("die Heilungsschleife fehlt in init/30-agent")
+    ende = next(i for i in range(start, len(quelle)) if quelle[i].strip() == "done")
+    return "\n".join(quelle[start:ende + 1])
+
+
+def test_the_ownership_healing_covers_the_cache_directory(tmp_path):
+    """`/config/.cache` muss mitgeheilt werden — daran hing Cemu. (#509)
+
+    GEMESSEN am 2026-08-13 am laufenden Host:
+
+        drwxr-xr-x 2 root root  /config/.cache/Cemu        (angelegt 2026-08-10)
+        3044 Dateien unter /config/.cache gehoerten root
+
+    Cemu oeffnete daraufhin einen modalen Dialog — „Cemu can't write to
+    /config/.cache/Cemu!" — und kam nie bis zur eigenen Initialisierung: kein Protokoll,
+    kein Hauptfenster, und der Dialog reagierte auf keine Taste und keinen Klick. Von
+    aussen sah das nach einem kaputten Startpfad aus (#502).
+
+    DER TEST FUEHRT DIE SCHLEIFE AUS, mit zwei Anpassungen, die er offenlegt:
+
+      * `/config` zeigt auf ein Wegwerfverzeichnis — sonst wuerde er am echten
+        Container arbeiten.
+      * `-user 0` wird zur eigenen Kennung. Ohne root lassen sich keine root-eigenen
+        Dateien anlegen; die Frage „welche Baeume laeuft die Schleife ab und was gibt
+        sie weiter?" bleibt davon unberuehrt.
+
+    `chown` ist eine Attrappe im PATH, die nur mitschreibt. Damit braucht der Test keine
+    Rechte und veraendert nichts.
+
+    EN: executes the healing loop against a throwaway tree with `chown` stubbed, so it
+    needs no privileges. `/config` and `-user 0` are substituted, and the test says so.
+    """
+    schleife = _heilungsschleife()
+
+    wurzel = tmp_path / "config"
+    for teil in (".config/PCSX2", ".local/share/Cemu", ".cache/Cemu",
+                 ".cache/mesa_shader_cache/17"):
+        (wurzel / teil).mkdir(parents=True)
+        (wurzel / teil / "datei").write_text("x")
+    (wurzel / "agent-token").write_text("geheim")
+
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    mitschrift = tmp_path / "chown.log"
+    (stub / "chown").write_text(
+        f'#!/bin/sh\nshift\nfor a in "$@"; do echo "$a" >> "{mitschrift}"; done\n')
+    (stub / "chown").chmod(0o755)
+
+    angepasst = (schleife.replace("/config", str(wurzel))
+                         .replace("-user 0", '-user "$(id -u)"'))
+    lauf = subprocess.run(["bash", "-c", angepasst], capture_output=True, text=True,
+                          env={**os.environ, "PATH": f"{stub}:{os.environ['PATH']}"})
+    assert lauf.returncode == 0, lauf.stderr
+
+    beruehrt = mitschrift.read_text().splitlines() if mitschrift.exists() else []
+    for erwartet in (".config/PCSX2/datei", ".local/share/Cemu/datei",
+                     ".cache/Cemu/datei", ".cache/mesa_shader_cache/17/datei"):
+        assert any(p.endswith(erwartet) for p in beruehrt), (
+            f"{erwartet} wurde nicht geheilt — dort blieb es root-eigen. "
+            f"Beruehrt wurden: {beruehrt}")
+
+    # DIE GEGENRICHTUNG, und sie ist die wichtigere: `/config/agent-token` gehoert root
+    # mit Absicht und muss es bleiben. Es ist das Einzige zwischen einer Anfrage und
+    # einem gestarteten Prozess auf dem Host — ein `chown -R /config` wuerde es `abc`
+    # uebergeben, und die Pruefung oben waere trotzdem gruen.
+    assert not any(p.endswith("agent-token") for p in beruehrt), (
+        "das Token wurde mitgeheilt — es muss root:600 bleiben (siehe README, #273)")
+
+
 def test_a_missing_agent_refuses_instead_of_starting_a_stale_copy(tmp_path):
     """Ohne `/opt/stream-agent.py` bricht der Start ab — er weicht NICHT aus. (#500)
 
