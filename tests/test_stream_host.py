@@ -1632,8 +1632,17 @@ def test_every_emulator_is_launched_with_appdir_and_appimage():
     # Nur nach `$(apprun ` zu suchen haette die zweite Form fuer einen rohen Start
     # gehalten; nur die Zahl zu senken haette Vita3K klammheimlich aus der Pruefung
     # genommen. Gezaehlt wird deshalb, was eine EMU_*-Startzeile ist, egal welche Form.
+    # `[^"]*` VOR dem Helferaufruf: Eine Startzeile darf etwas voranstellen — xemu
+    # setzt `env LD_LIBRARY_PATH=/config/lib` (#525). Ohne diese Lockerung fiel genau
+    # diese Zeile aus der Zaehlung, und der Test blieb gruen, weil 10 >= 10 noch
+    # stimmte. Eine Pruefung, aus der ein Fall stillschweigend herausfaellt, ist
+    # schlimmer als eine, die fehlt.
     zeilen = [z.strip() for z in quelle.splitlines()
-              if re.search(r'\bEMU_[A-Z0-9]+="\$\(apprun', z)]
+              if re.search(r'\bEMU_[A-Z0-9]+="[^"]*\$\(apprun', z)]
+    alle = [z.strip() for z in quelle.splitlines() if re.search(r'\bEMU_[A-Z0-9]+="', z)]
+    assert len(zeilen) == len(alle), (
+        "diese Startzeilen werden nicht mitgezaehlt und damit nicht geprueft: "
+        f"{[z for z in alle if z not in zeilen]}")
     assert len(zeilen) >= 10, f"nur {len(zeilen)} Startzeilen gefunden — Muster kaputt?"
 
     # Kein Emulator darf an beiden Helfern vorbei gestartet werden.
@@ -1645,6 +1654,14 @@ def test_every_emulator_is_launched_with_appdir_and_appimage():
 
     # Und die zweite Form muss es wirklich geben — sonst faellt Vita3K stumm auf den
     # Wrapper zurueck, und #489 ist wieder da.
+    # xemu startet ohne diesen Pfad SOFORT nicht — `libusb-1.0.so.0` liegt in
+    # /config/lib, und nichts sonst macht das dem Lader bekannt (#525).
+    xemu = [z for z in zeilen if "EMU_XBOX=" in z]
+    assert xemu, "die xemu-Startzeile fehlt"
+    assert "LD_LIBRARY_PATH=/config/lib" in xemu[0], (
+        "xemu wird ohne Bibliothekspfad gestartet und endet sofort mit "
+        f"'error while loading shared libraries: libusb-1.0.so.0': {xemu[0]}")
+
     assert "apprun_direkt()" in quelle, "der Helfer aus #489 fehlt"
     assert any("apprun_direkt vita3k" in z for z in zeilen), (
         "Vita3K wird wieder ueber den Shell-Wrapper gestartet — /stop wirkt dann nicht "
