@@ -431,7 +431,7 @@ Controller im Spiel gedrückt.
 
 | Plattform | Emulator | Bild | Ton | Controller | Anmerkung |
 |---|---|---|---|---|---|
-| PlayStation 1 | DuckStation | ✅ | ✅ | ✅ | |
+| PlayStation 1 | DuckStation | ✅¹ | ✅ | ✅ | von einem Menschen bestätigt (2026-08-10). ¹**Einschränkung, gemessen 2026-08-13:** Am 2026-08-12/13 startete gar kein Titel — drei modale Fenster, seit #492 stehen alle drei ab. Das Spiel kommt seither ins Bild, aber der Fensterschritt des Dienstes holt DuckStation aus seinem eigenen Vollbild: 1920 × 1080 → **640 × 480 in der Ecke** (#493) |
 | PlayStation 2 | PCSX2 | ✅ | ✅ | ✅ | |
 | GameCube | Dolphin | ✅ | ✅ | ✅ | |
 | Wii | Dolphin | ✅ | ✅ | (⁠—⁠) | Controller nicht eigens geprüft — gleicher Emulator und gleiche Belegung wie GameCube |
@@ -774,6 +774,54 @@ saves next to the other consoles. It needs a 512 KiB PS1 BIOS in
 matches by size because the filename varies. Note the trap: DuckStation opens a modal
 setup wizard on first run that nobody can see in a container, and every launch stalls
 behind it — the launch profile sets `SetupWizardIncomplete = false`.*
+
+### Drei modale Fenster, nicht eins — und das Profil lief gar nicht (#492)
+
+Der Setup-Wizard oben ist nur der erste. Am 2026-08-13 startete **kein einziger
+PSX-Titel**: statt des Spiels stand ein Fenster von 500 × 193 Pixeln da, *„Would you like
+to create a launcher shortcut for DuckStation?"*. Ist das aus dem Weg, kommt sofort das
+nächste — **„Automatic Updater"**, 651 × 474, mitten auf dem Spielfenster. Beide stehen
+jetzt ab (`launch-profile.py --dialogs duckstation`):
+
+| Schalter | Abschnitt | Wert | wofür |
+|---|---|---|---|
+| `NoDesktopFile` | `[Main]` | `true` | die Verknüpfungs-Abfrage |
+| `CheckAtStartup` | `[AutoUpdater]` | `false` | die Update-Abfrage |
+
+Beide Werte sind **gemessen, nicht abgelesen**, jeder mit Gegenprobe:
+
+| `NoDesktopFile` | `CheckAtStartup` | Fenster |
+|---|---|---|
+| (fehlt) | (fehlt) | nur „DuckStation" 500 × 193 — **kein Spielfenster** |
+| `true` | (fehlt) | Spiel **und** „Automatic Updater" 651 × 474 |
+| `true` | `false` | Spiel, kein Dialog; `/status` meldet `window: "ok"` |
+| `true` | `true` *(Gegenprobe)* | „Automatic Updater" wieder da |
+| (entfernt) | `false` *(Gegenprobe)* | „DuckStation" wieder da, kein Spielfenster |
+
+Den ersten Wert hat **DuckStation selbst geschrieben**: Der Dialog hat ein Kästchen
+*„Don't ask again"*, und nach einem Klick darauf stand genau eine neue Zeile in der
+`settings.ini` — sonst keine.
+
+**Der eigentliche Fund liegt daneben.** `psx` fehlte in der Zuordnung
+Plattform → Startprofil (`PROFILE_EMU` im Start-Dienst), seit sie mit #140 von einer auf
+neun Plattformen wuchs. Das Profil für DuckStation gab es die ganze Zeit — **aufgerufen
+hat es bei einem Start nie jemand**. Gamepad-Belegung und Erstlaufdialog standen auf dem
+Host nur deshalb richtig, weil sie einmal von Hand gesetzt worden waren. Sichtbar wurde
+die Lücke erst, als DuckStation ein neues Fenster aufmachte. Ein Test hält das jetzt
+fest: **jeder Emulator im Startprofil muss an einer Plattform hängen.**
+
+Was **nicht** geklärt ist: warum die Verknüpfungs-Abfrage am 2026-08-10 noch nicht kam.
+Fassung und `settings.ini` sind seither unverändert; das bleibt **ungeprüft**.
+
+*EN: the setup wizard is only the first of three. On 2026-08-13 no PSX title started at
+all — a 500 × 193 window asked whether to create a launcher shortcut, and behind it sat
+the automatic updater. Both are now switched off before the launch (`NoDesktopFile` in
+`[Main]`, `CheckAtStartup` in `[AutoUpdater]`), each value measured with a counter-check;
+DuckStation wrote the first one itself after "Don't ask again" was ticked. The real find
+is next to it: `psx` had been missing from the platform → profile map since #140, so the
+DuckStation profile was never applied on a launch — what was right on the host was right
+by hand. A test now checks that every profile is reachable from some platform. Why the
+shortcut prompt did not appear on 2026-08-10 is unmeasured.*
 
 ## PS Vita (Vita3K): der Titel wird über seine **Kennung** gestartet
 
@@ -1553,7 +1601,7 @@ pressed in-game.
 
 | Platform | Emulator | Picture | Sound | Controller | Note |
 |---|---|---|---|---|---|
-| PlayStation 1 | DuckStation | ✅ | ✅ | ✅ | |
+| PlayStation 1 | DuckStation | ✅¹ | ✅ | ✅ | confirmed by a human (2026-08-10). ¹**Caveat, measured 2026-08-13:** on 2026-08-12/13 no title started at all — three modal windows, all three switched off since #492. The game reaches the screen again, but the service's window step pulls DuckStation out of its own fullscreen: 1920 × 1080 → **640 × 480 in the corner** (#493) |
 | PlayStation 2 | PCSX2 | ✅ | ✅ | ✅ | |
 | GameCube | Dolphin | ✅ | ✅ | ✅ | |
 | Wii | Dolphin | ✅ | ✅ | (⁠—⁠) | controller not checked separately — same emulator and same mapping as GameCube |
