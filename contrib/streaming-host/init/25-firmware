@@ -87,7 +87,15 @@ KATALOG=(
   # Mindestgroesse: die echte Firmware ist gut 130 MB, eine verirrte kleine .PUP nicht.
   # Sony's file is PSVUPDAT.PUP; the name here was simply wrong, and real downloads
   # carry a prefix.
-  "psvita|PlayStation Vita|vita3k|firmware/psvita|*PSVUPDAT.PUP=>100000000|https://github.com/Vita3K/Vita3K|"
+  # ABLAGE NICHT LEER LASSEN (#479): Eine PUP ist ein UPDATE-PAKET — sie muss in den
+  # Emulator eingespielt werden und wird nie an Ort und Stelle benutzt. Ohne Ablage
+  # greift im Status der Zweig "Ohne Ablage ist die Frage gegenstandslos (true)", und
+  # er meldet GRUEN, obwohl Vita3Ks `vs0`, `os0` und `sa0` LEER waren: 133 MB
+  # bereitgelegt, null eingespielt. Aufgefallen erst beim Startversuch, an Vita3Ks
+  # "Welcome"-Fenster — der Dialog war die richtige Meldung, nicht das Problem.
+  # EN: a PUP is an update package, never used in place. Without an Ablage the status
+  # reports green for firmware the emulator does not have.
+  "psvita|PlayStation Vita|vita3k|firmware/psvita|*PSVUPDAT.PUP=>100000000|https://github.com/Vita3K/Vita3K|.local/share/Vita3K/Vita3K/vs0;.local/share/Vita3K/Vita3K/sa0"
 )
 # Dolphin (GameCube/Wii) fehlt bewusst: es braucht keine Firmware, um zu starten.
 # Dolphin is deliberately absent; it needs no firmware to run.
@@ -236,10 +244,28 @@ status_json() {
     done
     # Eingespielt? Ohne Ablage im Katalog ist die Frage gegenstandslos (true).
     # Mit Ablage zaehlt, ob dort etwas liegt — nicht, ob die Quelldatei existiert.
+    # MEHRERE ABLAGEN, ALLE NOETIG (#484). Die Vita braucht ZWEI Teile: die Firmware-PUP
+    # (landet in `vs0`/`os0`) und das FONT-PAKET (landet in `sa0`). Mit nur einer Ablage
+    # meldete der Status „eingespielt", waehrend Vita3K selbst sagte:
+    #
+    #     Firmware is not fully installed.
+    #
+    # Ein Teil von zwei ist nicht eingespielt, sondern halb — und halb ist hier unbrauchbar.
+    # Getrennt durch `;`, damit die naechste Plattform mit mehrteiliger Firmware keinen
+    # Sonderfall im Code braucht.
+    #
+    # EN: several Ablagen, all required. The Vita needs firmware AND a font package; with
+    # only one directory checked the status read "installed" while the emulator said
+    # "Firmware is not fully installed."
     local ablage eingespielt=1
     ablage=$(feld "$e" 7)
     if [ -n "$ablage" ]; then
-      [ -n "$(find "$CFG/$ablage" -type f -print -quit 2>/dev/null)" ] || eingespielt=0
+      local a
+      IFS=';' read -ra ablagen <<< "$ablage"
+      for a in "${ablagen[@]}"; do
+        [ -n "$a" ] || continue
+        [ -n "$(find "$CFG/$a" -type f -print -quit 2>/dev/null)" ] || eingespielt=0
+      done
     fi
     [ $erste -eq 0 ] && printf ','; erste=0
     printf '{"platform":"%s","name":"%s","emulator":"%s","dir":"%s","ready":%s,"installed":%s,"needs_install":%s,"vendor_fetch":%s,"docs":"%s","files":[%s]}' \

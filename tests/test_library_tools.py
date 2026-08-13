@@ -16,12 +16,14 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 
 import pytest
 
 WURZEL = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WERKZEUG = os.path.join(WURZEL, "contrib", "library-tools", "retronas-organisieren")
 SORTIERER = os.path.join(WURZEL, "contrib", "library-tools", "retronas-mixed-sortieren")
+PRUEFER = os.path.join(WURZEL, "contrib", "library-tools", "rom-abbilder-pruefen")
 
 
 def _laden(pfad, name):
@@ -56,6 +58,11 @@ def org():
 @pytest.fixture(scope="module")
 def mix():
     return _laden(SORTIERER, "retronas_mixed_sortieren")
+
+
+@pytest.fixture(scope="module")
+def abb():
+    return _laden(PRUEFER, "rom_abbilder_pruefen")
 
 
 # --- Datentraeger-Marker: das einzige verlaessliche Zeichen -------------------------
@@ -120,6 +127,103 @@ def test_a_collection_is_not_one_game(org, tmp_path):
     assert org.ist_spielordner(str(d), "c64") is False
 
 
+def _dreamcast_titel(wurzel, name, spuren=("track01.bin", "track02.raw", "track03.bin")):
+    """Baut den GEMESSENEN Dreamcast-Aufbau nach — nicht einen erfundenen.
+
+    Vorlage ist `dc/Bangai-O (PAL)(M3)/` von der Anlage: eine `.gdi` mit dem Titelnamen,
+    daneben generisch benannte Spuren. Genau diese Kombination hat der alte Test nie
+    abgedeckt.
+    """
+    d = wurzel / name
+    d.mkdir()
+    zeilen = [str(len(spuren))]
+    for i, s in enumerate(spuren, 1):
+        zeilen.append(f"{i} {i * 600} 4 2352 {s} 0")
+        (d / s).write_bytes(b"x" * 32)
+    (d / f"{name}.gdi").write_text("\n".join(zeilen) + "\n", encoding="utf-8")
+    return d
+
+
+def test_a_disc_image_set_is_one_game(org, tmp_path):
+    """Eine `.gdi` samt ihrer Spuren ist EIN Spiel. (#462)
+
+    DER SCHADEN, DEN DIESER TEST VERHINDERT: Ohne ihn galt der Ordner als Sammlung und
+    wurde flachgelegt. Die Spurnamen sind bei JEDEM Dreamcast-Spiel dieselben, kollidierten
+    also und wurden zu `track01 (53).bin` — waehrend die `.gdi` weiter `track01.bin` nennt.
+    Alle 138 Titel zeigten danach auf dieselbe Datei; am Emulator gemessen als tausende
+    `W[GDROM]: Sector Read miss`, und Flycast blieb im BIOS stehen.
+
+    Die alte Regel KONNTE das nicht sehen: Sie vergleicht Namen, und hier ist die
+    Namensgleichheit absichtlich abwesend.
+    """
+    d = _dreamcast_titel(tmp_path, "Bangai-O v1.001 (2000)(Virgin)(PAL)(M3)[!]")
+    assert org.ist_spielordner(str(d), "dc") is True
+
+
+def test_a_disc_image_set_with_more_tracks_than_the_file_limit_is_still_one_game(org, tmp_path):
+    """Auch mit 38 Spuren. (#462)
+
+    `SPIEL_MAX_DATEIEN` ist 12, und `Bangai-O` hatte gemessen 38 Dateien. Stuende die
+    Abbild-Pruefung HINTER der Dateizahl-Schranke, waere der Ordner weiterhin eine
+    Sammlung — der Fix waere da und wirkungslos.
+    """
+    spuren = [f"track{i:02d}.raw" for i in range(1, 39)]
+    d = _dreamcast_titel(tmp_path, "Grosses Spiel", spuren=spuren)
+    assert len(list(d.iterdir())) > org.SPIEL_MAX_DATEIEN
+    assert org.ist_spielordner(str(d), "dc") is True
+
+
+def test_a_cue_sheet_names_its_own_bin(org, tmp_path):
+    """`.cue` + `.bin` genauso — die Liste nennt ihre Datei. (#462)"""
+    d = tmp_path / "Spiel (USA)"
+    d.mkdir()
+    (d / "Spiel (USA).bin").write_bytes(b"x" * 32)
+    (d / "Spiel (USA).cue").write_text(
+        'FILE "Spiel (USA).bin" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n',
+        encoding="utf-8")
+    assert org.ist_spielordner(str(d), "psx") is True
+
+
+def test_two_different_titles_in_one_folder_stay_a_collection(org, tmp_path):
+    """Zwei verschiedene Abbildlisten -> Sammlung, kein Spiel. (#462)
+
+    Sonst wuerde der Fix aus jedem Ordner mit mehreren Abbildern ein einziges „Spiel"
+    machen und das urspruengliche Problem in die andere Richtung wiederholen.
+    """
+    d = tmp_path / "Zwei Spiele"
+    d.mkdir()
+    for name in ("Spiel A", "Spiel B"):
+        (d / f"{name}.bin").write_bytes(b"x" * 32)
+        (d / f"{name}.cue").write_text(f'FILE "{name}.bin" BINARY\n', encoding="utf-8")
+    assert org.ist_spielordner(str(d), "psx") is False
+
+
+def test_a_multi_disc_game_with_two_cues_is_still_one_game(org, tmp_path):
+    """Aber `(Disc 1)`/`(Disc 2)` desselben Titels bleibt EIN Spiel. (#462)
+
+    Die Marker-Regel gilt weiter — sie wird auf die LISTEN angewandt, nicht auf die
+    Spurdateien. Ohne diesen Fall waere jedes Mehrfach-Disc-Spiel ploetzlich eine Sammlung.
+    """
+    d = tmp_path / "Final Fantasy VII (USA)"
+    d.mkdir()
+    for i in (1, 2, 3):
+        (d / f"Final Fantasy VII (USA) (Disc {i}).bin").write_bytes(b"x" * 32)
+        (d / f"Final Fantasy VII (USA) (Disc {i}).cue").write_text(
+            f'FILE "Final Fantasy VII (USA) (Disc {i}).bin" BINARY\n', encoding="utf-8")
+    assert org.ist_spielordner(str(d), "psx") is True
+
+
+def test_a_disc_set_missing_a_track_is_not_treated_as_one_game(org, tmp_path):
+    """Fehlt eine genannte Datei, ist der Ordner kaputt — und bleibt eine Sammlung. (#462)
+
+    Ihn trotzdem als Einheit zu behandeln wuerde den Schaden festigen: Der Ordner waende
+    unangetastet weitergereicht, und niemand saehe, dass er unvollstaendig ist.
+    """
+    d = _dreamcast_titel(tmp_path, "Unvollstaendig")
+    (d / "track02.raw").unlink()
+    assert org.ist_spielordner(str(d), "dc") is False
+
+
 def test_platforms_whose_folders_are_always_one_game(org, tmp_path):
     """Bei DOS, PS3, ScummVM & Co. ist ein Ordner IMMER ein Spiel.
 
@@ -164,6 +268,36 @@ def test_the_sorter_recognises_clear_extensions(mix):
     """Eindeutige Endungen werden zugeordnet — sonst waere das Werkzeug wirkungslos."""
     for endung in (".d64", ".nes", ".sfc", ".gba"):
         assert endung in mix.ENDUNG_PLATTFORM, f"{endung} sollte zugeordnet werden"
+
+
+def test_the_sorter_places_aquarius_cassettes(mix, tmp_path):
+    """`.caq` gehoert zum Mattel Aquarius und zu sonst nichts. (#515)
+
+    GEMESSEN nach dem Gesamtumbau: `Mixed` hielt 536 Dateien, und der Trockenlauf
+    verschob NICHTS. Zu Recht — bis auf eine Endung:
+
+        .jpg 52  .txt 51  .html 41  .wav 41  .ico 38  .png 31
+        .exe 29  .bin 28  .gif 22  .vpl 17  .vrs 14  .caq 13
+
+    Alles andere bleibt aus gutem Grund liegen: Beiwerk, Windows-Programme,
+    VICE-Konfiguration, und `.bin`, das bewusst mehrdeutig ist. Die 13 `.caq` stammen
+    aus derselben `Mattel Intellivision & Aquarius ROMs`-Sammlung, deren
+    Intellivision-Haelfte ueber `.int` sauber einsortiert wurde — die Aquarius-Haelfte
+    hatte kein Ziel, obwohl der Ordner `aquarius` existiert.
+
+    Zwischen 52 Werbescans faellt ein Kassettenabzug niemandem auf. Genau dafuer gibt
+    es die Tabelle.
+
+    EN: `.caq` is the Aquarius cassette format and belongs to nothing else. Measured
+    after the full rebuild: it was the only unambiguous extension still sitting in
+    `Mixed`, while the folder it belongs to already existed.
+    """
+    assert mix.ENDUNG_PLATTFORM.get(".caq") == "aquarius"
+    assert mix.plattform_fuer("Alien Quest (19xx)(-)(Part 1 of 2).caq") == "aquarius"
+    # Die Ratsche: die Aufnahme darf nichts anderes mitziehen. `.cas` etwa ist ein
+    # Kassettenformat mehrerer Systeme (MSX, Coleco) und bleibt draussen.
+    assert ".cas" not in mix.ENDUNG_PLATTFORM, (
+        ".cas liegt auf mehreren Systemen und darf nicht zugeordnet werden")
 
 
 def test_emulators_and_bios_are_not_games(mix):
@@ -827,3 +961,564 @@ def test_xemu_does_nothing_without_a_config(tmp_path):
     mod = _profil(tmp_path)
     geaendert, meldung = mod.xemu_apply()
     assert not geaendert and "gibt es noch nicht" in meldung, meldung
+
+
+# --- #442: Entpacken gegen eine gleichnamige Datei ----------------------------------
+
+def test_unpacking_survives_a_file_with_the_archive_s_name(org, tmp_path):
+    """Ein Archiv neben einer gleichnamigen DATEI darf den Lauf nicht abreissen. (#442)
+
+    DIE ECHTE LAGE, an der der Umbau dreimal gescheitert ist. Unter `amiga` lagen
+    nebeneinander:
+
+        Kolumbus          <- eine Datei, 357 kB, endungslos (bei Amiga voellig normal)
+        Kolumbus (2)
+        Kolumbus.rar
+
+    Schritt 1 entpackt Archive in einen Ordner, der nach dem Archiv heisst — also
+    `Kolumbus`. `os.makedirs(ziel, exist_ok=True)` verzeiht aber NUR ein vorhandenes
+    Verzeichnis. Gegen eine gleichnamige Datei wirft es `FileExistsError`, und die Ausnahme
+    nimmt die ganze Plattform mit:
+
+        amiga: FileExistsError: [Errno 17] File exists: '/roms/amiga/Kolumbus'
+
+    WARUM ES SICH NIE VON SELBST LOESTE: Der erste Durchlauf hebt die Datei auf Ebene 1,
+    das Archiv liegt noch da. Der naechste Lauf beginnt die Plattform von vorn und
+    kollidiert an derselben Stelle. `amiga` konnte damit NIE fertig werden — unabhaengig
+    davon, ob ein Container-Neustart dazwischenkam.
+
+    Das `(2)` daneben zeigt, dass `freier_name()` ueberall sonst greift. Das Entpackziel
+    war die einzige Stelle ohne.
+
+    EN: an archive beside a same-named file aborted the whole platform, and on resume it
+    happened again every time — so the platform could never finish.
+    """
+    import zipfile
+
+    basis = tmp_path / "amiga"
+    basis.mkdir()
+    # Die Datei, die den Namen schon belegt.
+    (basis / "Kolumbus").write_bytes(b"\x00" * 64)
+    # Und das Archiv, das genau dorthin entpackt werden soll.
+    with zipfile.ZipFile(basis / "Kolumbus.zip", "w") as z:
+        z.writestr("spiel.adf", b"\x00" * 32)
+
+    protokoll = org.Protokoll(str(tmp_path / "prot.jsonl"), False)
+    try:
+        org.umbauen(str(tmp_path), "amiga", False, protokoll)
+    finally:
+        protokoll.zu()
+
+    # Die vorhandene Datei bleibt, und der Archivinhalt ist angekommen.
+    assert (basis / "Kolumbus").is_file(), "die gleichnamige Datei wurde ueberschrieben"
+    adf = list(basis.glob("**/spiel.adf"))
+    assert adf, f"der Archivinhalt fehlt — Inhalt: {sorted(p.name for p in basis.iterdir())}"
+
+
+def test_the_extraction_target_goes_through_the_collision_check(org):
+    """Kein Entpackziel mehr ohne `freier_name`. (#442)
+
+    Der Verhaltenstest daneben deckt den einen bekannten Fall ab. Diese Pruefung deckt die
+    Regel: Es darf keinen zweiten Weg geben, auf dem ein Entpackziel ohne Kollisionspruefung
+    entsteht — sonst kehrt derselbe Fehler an anderer Stelle zurueck.
+    """
+    import inspect
+    import re
+    quelle = inspect.getsource(org.umbauen)
+    # AUF DIE DIREKTE ZUWEISUNG PRUEFEN. Die erste Fassung suchte nur nach
+    # `os.path.splitext(a)[0]` und meldete die REPARIERTE Zeile — dort steht der Ausdruck
+    # weiterhin, nur eben als Argument von `freier_name`. Ein Waechter, der die Loesung
+    # anzeigt, ist so unbrauchbar wie einer, der das Problem uebersieht.
+    assert not re.search(r"^\s*ziel\s*=\s*os\.path\.splitext\(a\)\[0\]\s*$",
+                         quelle, re.M), \
+        "ein Entpackziel wird direkt aus dem Archivnamen gebildet, ohne freier_name"
+
+    # Und die Gegenrichtung: die Zuweisung im Archiv-Zweig MUSS ueber freier_name gehen.
+    #
+    # KEIN ZEICHENFENSTER. Die erste Fassung sah sich die ersten 1600 Zeichen nach
+    # `for a in archive:` an — und die waren vom Kommentar ueber genau diesen Fix gefuellt,
+    # sodass der Waechter an der Erklaerung scheiterte statt an der Sache. Willkuerliche
+    # Fenstergroessen sind eine Annahme ueber Formatierung, keine Pruefung.
+    zweig = quelle[quelle.index("for a in archive:"):]
+    ohne_kommentar = "\n".join(z for z in zweig.splitlines()
+                                if not z.strip().startswith("#"))
+    zuweisung = ohne_kommentar[:ohne_kommentar.index("if trocken:")]
+    assert "freier_name(" in zuweisung, \
+        f"das Entpackziel geht nicht ueber freier_name: {zuweisung.strip()!r}"
+
+
+# --- #447: RAR, LZH und LHA muessen aufgehen ----------------------------------------
+
+def test_the_unpacker_prefers_unar_over_7z(org):
+    """`unar` steht vor `7z` — und `7z` bleibt als Ersatz. (#447)
+
+    GEMESSEN am Umbau vom 2026-08-12, allein auf `amiga`:
+
+        45 zip · 28 lzh · 7 rar · 4 lha     = 84 Archive, die geschlossen blieben
+
+    Die `.rar` sind ECHTE RAR-Dateien — `52 61 72 21` (`Rar!`) in den ersten vier Bytes,
+    keine falsch benannten. Der Umbau lief in `python:3.12-alpine` mit `p7zip`, und dessen
+    RAR-Codec fehlt, weil er unfrei ist. `.lzh` und `.lha` sind auf dem Amiga das NORMALE
+    Verteilformat: Ein Archiv mit zwanzig Spielen zaehlte so als ein einziger Eintrag.
+
+    `7z` bleibt als Ersatz stehen, damit das Werkzeug auch in einem Container laeuft, in dem
+    nur das vorhanden ist — die Reihenfolge entscheidet, nicht das Entweder-oder.
+
+    EN: Alpine's p7zip ships without the non-free RAR codec, and lzh/lha are the normal
+    Amiga distribution formats. unar handles all of them; 7z stays as a fallback.
+    """
+    namen = [n for n, _ in org._ENTPACKER]
+    assert namen[0] == "unar", f"unar steht nicht an erster Stelle: {namen}"
+    assert "7z" in namen, "7z ist als Ersatz verschwunden"
+
+
+def test_a_rejected_zip_is_handed_on_instead_of_given_up(org, tmp_path):
+    """Ein `.zip`, das Python ablehnt, wird weitergereicht statt aufgegeben. (#447/#422)
+
+    45 der 84 Fehlschlaege trugen `.zip`. Python meldete `BadZipFile: File is not a zip
+    file` — die Datei heisst so, ist aber keine. In diesen Bestaenden sind das haeufig
+    falsch benannte LHA-Archive.
+
+    Vorher endete der Versuch dort: `except Exception: return False`. Der Name entschied
+    also, ob ein Archiv aufgeht. Dieselbe Lehre wie bei den 3DS-Abbildern (#422) — der
+    INHALT entscheidet, und ein Werkzeug, das ihn liest, bekommt seine Gelegenheit.
+
+    Geprueft wird am echten Verhalten: eine Datei mit `.zip` im Namen, die in Wahrheit ein
+    TAR ist. Python lehnt sie ab; ein Entpacker, der den Inhalt liest, schafft sie.
+    """
+    import tarfile
+    getarnt = tmp_path / "spiel.zip"
+    inhalt = tmp_path / "inhalt.adf"
+    inhalt.write_bytes(b"\x00" * 32)
+    with tarfile.open(getarnt, "w") as t:
+        t.add(inhalt, arcname="inhalt.adf")
+
+    ziel = tmp_path / "raus"
+    ok = org.entpacken(str(getarnt), str(ziel))
+    if not any(shutil.which(n) for n, _ in org._ENTPACKER):
+        pytest.skip("weder unar noch 7z vorhanden — der Weiterreich-Zweig ist hier nicht messbar")
+    assert ok, "das getarnte Archiv wurde aufgegeben, statt weitergereicht zu werden"
+    assert (ziel / "inhalt.adf").exists() or list(ziel.rglob("inhalt.adf")), \
+        f"Inhalt fehlt: {[p.name for p in ziel.rglob('*')]}"
+
+
+# --- Abbildlisten pruefen (#465) -------------------------------------------------------
+
+def _cue(ordner, name, nennt):
+    (ordner / f"{name}.cue").write_text(
+        "".join(f'FILE "{n}" BINARY\n' for n in nennt), encoding="utf-8")
+
+
+def test_a_renamed_data_file_is_recognised_as_solvable(abb, tmp_path):
+    """Nennt die `.cue` einen alten Namen und liegt die Datei unter IHREM Stamm da,
+    ist der Fall eindeutig. (#465)
+
+    Am Bestand gemessen: `Sexy Parodius (Japan).cue` sucht
+    `Sexy Parodius (J) [SLPM-86009].bin`, daneben liegt `Sexy Parodius (Japan).bin`.
+    """
+    d = tmp_path / "psx"
+    d.mkdir()
+    _cue(d, "Spiel (Japan)", ["Spiel (J) [SLPM-1].bin"])
+    (d / "Spiel (Japan).bin").write_bytes(b"x" * 64)
+    befunde, _ = abb.ordner_pruefen(str(d), os.listdir(d))
+    assert len(befunde) == 1
+    assert befunde[0]["ursache"] == "umbenannt"
+    assert befunde[0]["loesungen"] == {"Spiel (J) [SLPM-1].bin": "Spiel (Japan).bin"}
+
+
+def test_a_broken_cue_does_not_grab_another_games_image(abb, tmp_path):
+    """Eine kaputte `.cue` darf NICHT auf fremde Daten umgebogen werden. (#465)
+
+    DAS WAR EIN ECHTER FEHLER IN DER ERSTEN FASSUNG. Die Regel lautete „gibt es genau eine
+    Datei dieser Endung, ist sie gemeint". Im Ordner lagen eine heile `.cue` mit ihrer
+    `.bin` und eine zweite `.cue`, deren Daten wirklich fehlen — und die bekam die `.bin`
+    des ersten Spiels zugewiesen. Am Probebestand aufgefallen, bevor es den echten sah.
+
+    Ein geratener Verweis sieht heil aus und ist es nicht. Das ist schlechter als ein
+    sichtbar kaputter, weil niemand mehr hinsieht.
+    """
+    d = tmp_path / "psx"
+    d.mkdir()
+    _cue(d, "Spiel (Japan)", ["Spiel (J) [SLPM-1].bin"])
+    (d / "Spiel (Japan).bin").write_bytes(b"x" * 64)
+    _cue(d, "Verloren", ["Weg.bin"])
+    befunde, _ = abb.ordner_pruefen(str(d), os.listdir(d))
+    nach_liste = {b["liste"]: b for b in befunde}
+    assert nach_liste["Verloren.cue"]["ursache"] == "fehlend", \
+        "die kaputte Liste wurde auf fremde Daten umgebogen"
+    assert not nach_liste["Verloren.cue"]["loesungen"]
+    assert nach_liste["Spiel (Japan).cue"]["ursache"] == "umbenannt"
+
+
+def test_shared_references_are_reported_even_when_every_name_resolves(abb, tmp_path):
+    """Der Kollisionsfall — den die Frage nach fehlenden Dateien NICHT sehen kann. (#465)
+
+    In `/roms/dc` meldete die naheliegende Pruefung NULL Defekte, obwohl alle 138 Titel
+    kaputt waren: Im flachgelegten Ordner existiert `track01.bin` ja, jede `.gdi` fand
+    einen Treffer — nur den falschen. Namenspraesenz ist nicht dasselbe wie die richtige
+    Datei.
+    """
+    d = tmp_path / "dc"
+    d.mkdir()
+    zeilen = "3\n1 0 4 2352 track01.bin 0\n2 600 0 2352 track02.raw 0\n3 45000 4 2352 track03.bin 0\n"
+    for name in ("Spiel A", "Spiel B"):
+        (d / f"{name}.gdi").write_text(zeilen, encoding="utf-8")
+    for n in ("track01.bin", "track02.raw", "track03.bin"):
+        (d / n).write_bytes(b"x" * 32)
+    befunde, geteilt = abb.ordner_pruefen(str(d), os.listdir(d))
+    assert befunde == [], "keine Datei fehlt — die erste Frage sieht hier nichts"
+    assert len(geteilt) == 3, f"der Kollisionsschaden wurde nicht gemeldet: {geteilt}"
+
+
+def test_a_playlist_of_stream_urls_is_not_a_broken_image(abb, tmp_path):
+    """`.m3u` mit Netzadressen ist kein defektes Abbild. (#465)
+
+    Am Bestand: `RG350/heavy-metal.m3u` verweist auf einen Radio-Stream. Ohne diese
+    Unterscheidung wuerde das Werkzeug ihn „reparieren" wollen.
+    """
+    d = tmp_path / "RG350"
+    d.mkdir()
+    (d / "heavy-metal.m3u").write_text(
+        "#EXTM3U\nhttp://stream.rockantenne.de/heavy-metal\n", encoding="utf-8")
+    befunde, _ = abb.ordner_pruefen(str(d), os.listdir(d))
+    assert befunde == [], f"Stream-Adressen als Defekt gemeldet: {befunde}"
+
+
+def test_repairing_keeps_a_copy_of_the_original(abb, tmp_path):
+    """Vor dem Umschreiben bleibt eine Sicherung liegen. (#465)
+
+    Eine kaputte Liste ist ersetzbar; eine FALSCH reparierte faellt niemandem auf. Deshalb
+    ist der Rueckweg Pflicht und nicht Kuer.
+    """
+    d = tmp_path / "psx"
+    d.mkdir()
+    _cue(d, "Spiel", ["Alt.bin"])
+    (d / "Spiel.bin").write_bytes(b"x" * 64)
+    ok, grund = abb.liste_umschreiben(str(d / "Spiel.cue"), {"Alt.bin": "Spiel.bin"})
+    assert ok, grund
+    assert 'FILE "Spiel.bin"' in (d / "Spiel.cue").read_text(encoding="utf-8")
+    assert (d / "Spiel.cue.vor-fix").exists(), "keine Sicherung angelegt"
+    assert 'FILE "Alt.bin"' in (d / "Spiel.cue.vor-fix").read_text(encoding="utf-8")
+
+
+def test_sorting_out_moves_and_never_deletes(abb, tmp_path):
+    """`--aussortieren` VERSCHIEBT nach `_defekt/`. (#465)
+
+    Die vorhandenen Spuren sind echte Daten. Ob sie ersetzbar sind, entscheidet der
+    Betreiber — ein Skript, das sie loescht, nimmt ihm diese Entscheidung ab.
+    """
+    d = tmp_path / "psx"
+    d.mkdir()
+    _cue(d, "Verloren", ["Weg.bin"])
+    (d / "Verloren.bin.teilstueck").write_bytes(b"x" * 8)
+    z = abb.plattform_pruefen(str(tmp_path), "psx", reparieren=False, aussortieren=True)
+    assert z["aussortiert"] >= 1
+    assert (d / "_defekt" / "Verloren.cue").exists()
+    assert not (d / "Verloren.cue").exists()
+    protokoll = list((tmp_path / ".abbildpruefung").glob("*.jsonl"))
+    assert protokoll, "kein Protokoll geschrieben"
+    zeilen = [json.loads(z) for z in protokoll[0].read_text(encoding="utf-8").splitlines()]
+    assert any(e["art"] == "verschoben" and e["von"] and e["nach"] for e in zeilen)
+
+
+def test_a_failed_rewrite_says_why(abb, tmp_path):
+    """Ein Fehlschlag nennt seinen Grund, statt nur eine Zahl nicht zu erhoehen. (#465)
+
+    DAS IST AM ECHTEN BESTAND PASSIERT. Der Lauf meldete „11 gefunden, 0 repariert" — und
+    kein Wort dazu, dass JEDER Schreibversuch an `Permission denied` gescheitert war (der
+    Container laeuft als uid 1000, die Bibliothek gehoert 99:users). Das las sich wie
+    „nichts zu tun" und war „nichts ging".
+    """
+    d = tmp_path / "psx"
+    d.mkdir()
+    _cue(d, "Spiel", ["Alt.bin"])
+    (d / "Spiel.bin").write_bytes(b"x" * 8)
+    (d / "Spiel.cue").chmod(0o444)
+    d.chmod(0o555)
+    try:
+        ok, grund = abb.liste_umschreiben(str(d / "Spiel.cue"), {"Alt.bin": "Spiel.bin"})
+    finally:
+        d.chmod(0o755)
+        (d / "Spiel.cue").chmod(0o644)
+    assert ok is False
+    assert grund, "der Fehlschlag blieb stumm"
+    assert "schreibbar" in grund or "lesbar" in grund, grund
+
+
+def test_a_missing_reference_that_is_not_in_the_text_is_reported(abb, tmp_path):
+    """Auch „steht so gar nicht drin" ist ein Grund, kein stilles False. (#465)"""
+    d = tmp_path / "psx"
+    d.mkdir()
+    _cue(d, "Spiel", ["Alt.bin"])
+    ok, grund = abb.liste_umschreiben(str(d / "Spiel.cue"), {"Gibtsnicht.bin": "X.bin"})
+    assert ok is False and grund
+
+
+# --- Dubletten: Satzmitglieder sind tabu (#467) ----------------------------------------
+
+def test_a_shared_cd_track_is_never_deduplicated(org, tmp_path, capsys):
+    """Zwei Spiele mit BITGLEICHER Spur 01 behalten beide ihre Datei. (#467)
+
+    DER GEMESSENE SCHADEN, nicht ein erfundener. Aus dem Laufprotokoll:
+
+        dublette_entfernt  turbografx-cd/Monster Lair (USA) (Track 01).bin
+                           gleich_wie  turbografx-cd/Valis II (USA) (Track 01).bin
+
+    Zwei verschiedene Spiele. Bei CD-Titeln ist Spur 01 haeufig identisch — eine leere
+    Datenspur. Danach nennt Monster Lairs `.cue` eine Datei, die es nicht mehr gibt.
+    Unter `dc` sind so 375 Dateien geloescht worden.
+
+    Bitgleichheit macht zwei Spuren NICHT austauschbar: Jeder Satz braucht sein eigenes
+    Exemplar.
+    """
+    d = tmp_path / "turbografx-cd"
+    d.mkdir()
+    gleich = b"\x00" * 2048
+    for spiel in ("Monster Lair (USA)", "Valis II (USA)"):
+        (d / f"{spiel} (Track 01).bin").write_bytes(gleich)
+        (d / f"{spiel} (Track 02).bin").write_bytes(spiel.encode() * 8)
+        (d / f"{spiel}.cue").write_text(
+            f'FILE "{spiel} (Track 01).bin" BINARY\nFILE "{spiel} (Track 02).bin" BINARY\n',
+            encoding="utf-8")
+
+    class P:
+        def schreiben(self, *a, **k):
+            pass
+    org.umbauen(str(tmp_path), "turbografx-cd", False, P())
+
+    for spiel in ("Monster Lair (USA)", "Valis II (USA)"):
+        assert (d / f"{spiel} (Track 01).bin").exists(), \
+            f"{spiel} hat seine Spur 01 an das andere Spiel verloren"
+
+
+def test_a_real_duplicate_that_no_list_claims_is_still_removed(org, tmp_path):
+    """Die Dublettenerkennung bleibt sonst scharf. (#467)
+
+    Ohne diesen Test koennte man #467 „loesen", indem man Schritt 3b ganz abschaltet —
+    gruen und nutzlos. Was keine Abbildliste nennt, wird weiterhin entfernt.
+    """
+    d = tmp_path / "snes"
+    d.mkdir()
+    (d / "Spiel.sfc").write_bytes(b"y" * 512)
+    (d / "Spiel (2).sfc").write_bytes(b"y" * 512)
+
+    class P:
+        def schreiben(self, *a, **k):
+            pass
+    org.umbauen(str(tmp_path), "snes", False, P())
+    uebrig = sorted(p.name for p in d.iterdir())
+    assert len(uebrig) == 1, f"die echte Dublette blieb liegen: {uebrig}"
+
+
+def test_a_deeply_nested_set_is_not_skipped(abb, tmp_path):
+    """Ein Titel drei Ebenen tief wird geprueft, nicht uebersprungen. (#465)
+
+    DER TEUERSTE FEHLER, DEN EIN PRUEFWERKZEUG HABEN KANN. `tiefe=2` liess das Werkzeug
+    129 von 138 Dreamcast-Titeln nie ansehen — sie liegen unter
+    `dc/MODE/Dreamcast/<Titel>/`. Gemeldet wurden „2 defekt", eine unabhaengige Zaehlung
+    fand 126. Aus „nicht geprueft" wurde damit „in Ordnung".
+
+    Derselbe Blindfleck kostete eine Reparatur: In
+    `psp/PSX2PSP/PSX Images/Super Puzzle Fighter 2 Turbo-NTSC/` lag die gesuchte `.bin`
+    direkt neben ihrer `.cue`.
+    """
+    tief = tmp_path / "dc" / "MODE" / "Dreamcast" / "Spiel"
+    tief.mkdir(parents=True)
+    (tief / "Spiel.cue").write_text('FILE "Weg.bin" BINARY\n', encoding="utf-8")
+
+    z = abb.plattform_pruefen(str(tmp_path), "dc", reparieren=False, aussortieren=False)
+    assert z["fehlend"] == 1, (
+        "der Titel drei Ebenen tief wurde uebersprungen — das Werkzeug haette Entwarnung "
+        "gegeben")
+
+
+def test_a_deeply_nested_rename_is_repaired(abb, tmp_path):
+    """Und die Reparatur greift dort ebenfalls. (#465)"""
+    tief = tmp_path / "psp" / "PSX2PSP" / "PSX Images" / "Spiel"
+    tief.mkdir(parents=True)
+    (tief / "Spiel.cue").write_text('FILE "Alt.bin" BINARY\n', encoding="utf-8")
+    (tief / "Spiel.bin").write_bytes(b"x" * 32)
+
+    z = abb.plattform_pruefen(str(tmp_path), "psp", reparieren=True, aussortieren=False)
+    assert z["repariert"] == 1, "die Reparatur erreichte die tiefe Ebene nicht"
+    assert 'FILE "Spiel.bin"' in (tief / "Spiel.cue").read_text(encoding="utf-8")
+
+
+# --- „kein Archiv" ist kein Fehlschlag (#447) ------------------------------------------
+
+def test_a_file_that_is_not_an_archive_is_not_reported_as_a_failure(org, tmp_path,
+                                                                    monkeypatch, capsys):
+    """Eine Datei mit lügender Endung ist KEIN beschädigtes Archiv. (#447)
+
+    Unter `amiga` liegen Dateien, die `.ZIP` oder `.LZH` heissen und keine sind — kein
+    `PK\\x03\\x04`, kein LHA-Kopf, sondern Amiga-Cruncher-Formate (`85 15 02 41`,
+    `95 0a 02 41`). Sie als „Archiv liess sich nicht entpacken" zu melden behauptet einen
+    Schaden, den es nicht gibt, UND begraebt die echten: Von 78 Meldungen waren 49 solche
+    Dateien, und darunter lagen genau ZWEI wirklich beschaedigte Archive.
+
+    Die beiden Befunde verlangen verschiedene Antworten — neu beschaffen gegen umbenennen.
+    """
+    d = tmp_path / "amiga"
+    d.mkdir()
+    (d / "APHOR.ZIP").write_bytes(bytes.fromhex("85150241") + b"\x00" * 64)
+
+    monkeypatch.setattr(org, "ist_ueberhaupt_ein_archiv", lambda p: False)
+    monkeypatch.setattr(org, "entpacken", lambda a, z: False)
+
+    class P:
+        def __init__(self):
+            self.arten = []
+        def schreiben(self, art, **k):
+            self.arten.append(art)
+    prot = P()
+    org.umbauen(str(tmp_path), "amiga", False, prot)
+
+    assert "kein_archiv" in prot.arten, "der Befund wurde gar nicht festgehalten"
+    assert "fehler" not in prot.arten, \
+        "als Fehler gezaehlt — damit begraebt es die echten Fehlschlaege"
+
+
+def test_a_genuinely_damaged_archive_is_still_a_failure(org, tmp_path, monkeypatch):
+    """Ein ECHTES Archiv, das nicht aufgeht, bleibt ein Fehler. (#447)
+
+    Ohne diesen Test liesse sich #447 „loesen", indem man alle Entpackfehler leise
+    schluckt — gruen und blind. `DARKSEED.RAR` ist ein echtes RAR (`lsar` listet
+    `Darksee1.adf`), dessen Inhalt beim Entpacken an „Wrong checksum" scheitert. Genau
+    dieser Fall muss sichtbar bleiben.
+    """
+    d = tmp_path / "amiga"
+    d.mkdir()
+    (d / "DARKSEED.RAR").write_bytes(b"Rar!\x1a\x07\x00" + b"\x00" * 64)
+
+    monkeypatch.setattr(org, "ist_ueberhaupt_ein_archiv", lambda p: True)
+    monkeypatch.setattr(org, "entpacken", lambda a, z: False)
+
+    class P:
+        def __init__(self):
+            self.arten = []
+        def schreiben(self, art, **k):
+            self.arten.append(art)
+    prot = P()
+    org.umbauen(str(tmp_path), "amiga", False, prot)
+
+    assert "fehler" in prot.arten, \
+        "ein beschaedigtes Archiv wurde stillschweigend uebergangen"
+
+
+# --- #517: Verweise ohne Endung ------------------------------------------------------
+
+def test_a_cue_that_names_its_track_without_an_extension_is_solvable(abb, tmp_path):
+    """`QixNeo.cue` nennt `QixNeo`, daneben liegt `QixNeo.bin`. (#517)
+
+    AM BESTAND GEMESSEN, in `psp/PSX2PSP/PSX Images`:
+
+        QixNeo.cue     -> vermisst ["QixNeo"]      QixNeo.bin     liegt daneben
+        mrdomino.cue   -> vermisst ["mrdomino"]    mrdomino.bin   liegt daneben
+
+    `loesung_finden` stieg in der ERSTEN Zeile aus:
+
+        endung = os.path.splitext(vermisst)[1].lower()
+        if not endung:
+            return None
+
+    Damit war der leichteste Fall ueberhaupt — ein Name ohne Endung und genau eine Datei
+    daneben, die so heisst — der einzige, den das Werkzeug nie loesen konnte. Beide Wege
+    darueber (Stamm der Liste, einzige freie Datei der Endung) waren unerreichbar.
+
+    EN: a cue may name its track without an extension, and in the library it does. The
+    function returned before either of its two routes could run.
+    """
+    d = tmp_path / "psx"
+    d.mkdir()
+    (d / "QixNeo.cue").write_text('FILE "QixNeo" BINARY\n  TRACK 01 MODE2/2352\n')
+    (d / "QixNeo.bin").write_bytes(b"x" * 64)
+    assert abb.loesung_finden("QixNeo.cue", "QixNeo", os.listdir(d), set()) == "QixNeo.bin"
+
+
+def test_an_extensionless_reference_is_not_guessed_at(abb, tmp_path):
+    """Zwei Kandidaten sind keine Eindeutigkeit. (#517)
+
+    Die Enge ist der Punkt, nicht die Nachsicht. Ein geratener Verweis sieht heil aus
+    und ist es nicht — dieselbe Falle, an der die erste Fassung von `loesung_finden`
+    schon einmal eine kaputte `.cue` auf das Abbild eines FREMDEN Spiels umgebogen hat.
+
+    Drei Ratschen in einem Test, weil sie dieselbe Frage aus drei Richtungen stellen.
+
+    DIESER TEST UNTERSCHEIDET NICHT. Am Stand vor #517 ist er ebenfalls gruen, weil die
+    Funktion fuer endungslose Verweise IMMER `None` lieferte — also auch hier. Er haelt
+    fest, dass der neue Weg nicht uebereifrig wird; als Beleg, dass die Reparatur wirkt,
+    taugt er nicht. Das tun die beiden anderen.
+    """
+    d = tmp_path / "psx"
+    d.mkdir()
+    (d / "QixNeo.cue").write_text('FILE "QixNeo" BINARY\n')
+
+    # 1. zwei moegliche Spuren -> keine Antwort
+    (d / "QixNeo.bin").write_bytes(b"x")
+    (d / "QixNeo.iso").write_bytes(b"x")
+    assert abb.loesung_finden("QixNeo.cue", "QixNeo", os.listdir(d), set()) is None
+
+    # 2. die einzige Spur gehoert schon einer anderen Liste
+    (d / "QixNeo.iso").unlink()
+    assert abb.loesung_finden("QixNeo.cue", "QixNeo", os.listdir(d),
+                              {"qixneo.bin"}) is None
+
+    # 3. der Stamm muss EXAKT stimmen — kein Anfang, kein Enthaltensein
+    assert abb.loesung_finden("QixNeo.cue", "Qix", os.listdir(d), set()) is None
+
+
+def test_ancillary_files_are_not_mistaken_for_a_track(abb, tmp_path):
+    """Eine `.txt` mit demselben Stamm ist keine Spur. (#517)
+
+    Ohne die Endungsliste waere `QixNeo.txt` ein zweiter Kandidat gewesen — und aus
+    einem eindeutigen Treffer eine Auswahl geworden, also gar keine Loesung mehr.
+    Beiwerk liegt in dieser Bibliothek ueberall neben den Spielen.
+    """
+    d = tmp_path / "psx"
+    d.mkdir()
+    (d / "QixNeo.cue").write_text('FILE "QixNeo" BINARY\n')
+    (d / "QixNeo.txt").write_text("Beschreibung")
+    (d / "QixNeo.nfo").write_text("x")
+    (d / "QixNeo.bin").write_bytes(b"x")
+    assert abb.loesung_finden("QixNeo.cue", "QixNeo", os.listdir(d), set()) == "QixNeo.bin"
+
+
+def test_a_reference_is_not_replaced_twice(abb, tmp_path):
+    """Aus `QixNeo` darf `QixNeo.bin` werden, nicht `QixNeo.bin.bin`. (#521)
+
+    Hier standen zwei `replace` hintereinander, und das zweite lief auf dem ERGEBNIS
+    des ersten. Solange der alte Verweis eine Endung trug, war das folgenlos: Nach
+    `Alt.bin` -> `Neu.bin` kommt `Alt.bin` im Text nicht mehr vor.
+
+    Seit #517 kann der Verweis ohne Endung sein — und ist damit ein PRAEFIX seines
+    eigenen Ersatzes. AM ECHTEN BESTAND PASSIERT:
+
+        FILE "QixNeo" BINARY   ->   FILE "QixNeo.bin.bin" BINARY
+
+    Zurueckgeholt aus den `.vor-fix`-Sicherungen, die das Werkzeug vor jeder Aenderung
+    anlegt. Eine falsch reparierte Liste ist schlimmer als eine kaputte: die kaputte
+    faellt auf.
+
+    EN: at most one replacement per reference. The second call ran on the result of the
+    first, harmless only while the old reference carried an extension.
+    """
+    p = tmp_path / "QixNeo.cue"
+    p.write_text('FILE "QixNeo" BINARY\n  TRACK 01 MODE2/2352\n', encoding="utf-8")
+    ok, grund = abb.liste_umschreiben(str(p), {"QixNeo": "QixNeo.bin"})
+    assert ok, grund
+    text = p.read_text(encoding="utf-8")
+    assert 'FILE "QixNeo.bin" BINARY' in text, text
+    assert ".bin.bin" not in text, text
+
+
+def test_a_reference_with_a_path_is_still_rewritten(abb, tmp_path):
+    """Die Ratsche zur Gegenseite: der Basisname-Versuch darf nicht verlorengehen. (#521)
+
+    Er ist fuer Listen da, die ihre Spur MIT Pfad nennen. Wer den Doppelersatz einfach
+    streicht, nimmt diesen Fall mit — deshalb steht er hier fest.
+    """
+    p = tmp_path / "Spiel.cue"
+    p.write_text('FILE "tracks/Alt.bin" BINARY\n', encoding="utf-8")
+    ok, grund = abb.liste_umschreiben(str(p), {"Alt.bin": "Neu.bin"})
+    assert ok, grund
+    assert 'FILE "tracks/Neu.bin" BINARY' in p.read_text(encoding="utf-8")
