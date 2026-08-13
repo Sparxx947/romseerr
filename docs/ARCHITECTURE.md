@@ -529,6 +529,43 @@ set does not reveal — the index already knows the platform and only asks "one 
 many?". Depth stays at two levels: three costs 3.3x for 7.6% more files, and normalising
 deeper trees is the library rebuild's job.*
 
+### Zwei Wanderungen über denselben Baum laufen auseinander (#477)
+
+Dass der Index Ordner-Titel kennt, war nur die halbe Miete. `stream_find_file()` lief eine
+**zweite, eigene** Wanderung — und die hatte drei Fehler, jeden davon am Bestand gemessen:
+
+| Fehler | gemessen |
+|---|---|
+| Ordner schlug **immer** die Datei | `Sonic Adventure (PAL)/` (nur eine `.url` + ein Unterordner) verdrängte `Sonic Adventure.cdi`, 757 MB, spielbar |
+| nur Ebene 1 | `ps3/DmC … BLUS30723/Devil May Cry 5/` steht im Index, die Auskunft sagte `not_in_library` |
+| `break` statt `dirs[:] = []` | beendete die **ganze** Wanderung am ersten verschachtelten Ordner: `dc` 64 von 173 Dateien gesehen, `psx` 2925 von 2993 |
+
+Der erste ist der bösartigste, weil beide Seiten *scheinbar* funktionierten: Die Auskunft
+meldete den Titel als streambar und nannte den Ordner — der Start-Dienst öffnete ihn und
+antwortete `Ordner ohne startbaren Inhalt`, während das spielbare Abbild danebenlag.
+
+**Die Regel dahinter:** Zwei Wanderungen über denselben Baum driften auseinander. Es gibt
+jetzt **eine**, mit derselben Tiefe wie der Index, und der Ordnerzweig stellt dieselbe Frage
+wie der Index — `ist_titel_ordner()`. Nur ein Ordner, der wirklich ein Titel *ist*, schlägt
+ein spielbares Abbild.
+
+**Die Ratsche gegen den Übereifer:** 39 Ordner im Bestand sind weder Titelaufbau noch
+Abbild-Set und enthalten auch keinen — `gc/Pikmin (USA) (v1.00)` etwa trägt eine einzelne
+`.rvz`, die der Start-Dienst selbst auflöst. Die kommen weiterhin zurück, aber als
+**Rückfall**, erst nachdem keine Datei gepasst hat. Wer den Ordnerzweig strenger macht,
+darf sie nicht verlieren.
+
+*EN: the index knowing about folder titles was only half of it — `stream_find_file()` ran a
+second, separate walk with three measured faults: a folder always outranked a file (an empty
+`Sonic Adventure (PAL)/` beat a playable 757 MB `.cdi`), it only looked one level down, and
+`break` ended the whole walk at the first nested folder instead of pruning that branch (`dc`
+saw 64 of 173 files). The first is the worst kind, because both sides appeared to work: the
+API called the title streamable and named the folder, and the launcher then reported "folder
+with nothing bootable" while the image sat beside it. Two walks over one tree drift apart —
+there is now one, at the index's depth, asking the index's question (`ist_titel_ordner()`).
+A folder that is neither a title layout nor an image set is still returned, but only as a
+fallback once no file matched: 39 such folders exist and must not be lost.*
+
 ### Wenn ein Ordner EIN Spiel ist (#391, #455)
 
 Für manche Plattformen ist ein Titel kein *File*, sondern ein *Ordner*. Der Import lief
