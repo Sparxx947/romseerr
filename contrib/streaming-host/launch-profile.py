@@ -40,6 +40,11 @@ CONFIG = os.environ.get("FW_CONFIG_ROOT", "/config")
 # mitgibt — hier steht er, damit beide Wege dieselbe Zahl meinen.
 FLYCAST_RENDERER = "4"
 
+# xemus Renderer. Anders als bei Flycast ist das keine Kennziffer, sondern ein Name aus
+# `CONFIG_DISPLAY_RENDERER__COUNT` — im Binary abgelesen, nicht geraten. Seit #498 laeuft
+# xemu OHNE VirtualGL; ohne diesen Eintrag landete OpenGL dann auf dem Software-Rasterer.
+XEMU_RENDERER = "VULKAN"
+
 # PCSX2: Namen aus s_sdl_button_setting_names / s_sdl_axis_setting_names
 # (pcsx2/Input/SDLInputSource.cpp) — abgelesen, nicht geraten.
 PCSX2 = {
@@ -1107,6 +1112,96 @@ def xemu_apply(pruefen=False):
     return True, "Spieler 1 auf das gebrueckte Pad gelegt"
 
 
+def xemu_renderer(pruefen=False):
+    """-> (geaendert, meldung). Schreibt den Vulkan-Renderer in xemus Konfiguration. (#498)
+
+    WARUM: Ohne diesen Eintrag laeuft xemu auf OpenGL. Das war solange folgenlos, wie der
+    Emulator ueber VirtualGL gestartet wurde — seit #498 tut er das NICHT mehr, und ohne
+    Bruecke landet OpenGL auf dem Software-Rasterer. Der Eintrag ist damit kein Feinschliff,
+    sondern die Bedingung dafuer, dass die Startzeile ueberhaupt funktioniert.
+
+    WARUM NICHT AUF DER KOMMANDOZEILE: xemu kennt dafuer keinen Schalter. Gepruefte
+    Schluesselnamen aus dem Binary (`CONFIG_DISPLAY_RENDERER__COUNT`), nicht geraten.
+
+    NACHGEMESSEN, ein Faktor auf einmal, Fenster in allen drei Zeilen 1920x1080:
+
+        Renderer   vglrun   bemalte Flaeche nach Vollbild
+        OpenGL     ja       ~62 %
+        Vulkan     ja       62,9 %
+        Vulkan     nein     100 %
+
+    Die mittlere Zeile ist die wichtige: Vulkan ALLEIN reicht nicht. Solange VirtualGL
+    dazwischen liegt, laeuft die Bildausgabe weiter ueber den abgefangenen GL-Pfad und das
+    Bild bleibt beschnitten. Erst beides zusammen wirkt.
+
+    DASS VULKAN GREIFT, ist am Protokoll geprueft und nicht am Vorhandensein der Zeile:
+
+        Selected physical device: Intel(R) Arc(tm) A310 Graphics (DG2)
+
+    Im OpenGL-Lauf steht diese Zeile kein einziges Mal, im Vulkan-Lauf genau einmal.
+
+    GEPRUEFT WIRD DER WERT, NICHT DER SCHLUESSEL — dieselbe Falle wie bei Flycast und
+    DuckStation: Ein vorhandener Schluessel mit falschem Wert sieht aus wie Erfolg.
+
+    EN: without this entry xemu renders with OpenGL, which was harmless only while it was
+    launched through VirtualGL. Since #498 it no longer is, and unbridged OpenGL falls back
+    to the software rasteriser — so this is a precondition, not a refinement. Vulkan alone
+    does not fix the crop (middle row); both changes are needed. The VALUE is checked.
+    """
+    pfad = xemu_toml()
+    if not os.path.isfile(pfad):
+        return False, "xemu.toml gibt es noch nicht — der Emulator legt sie beim ersten Start an"
+    with open(pfad, encoding="utf-8", errors="ignore") as f:
+        zeilen = f.read().splitlines()
+
+    abschnitt, wert = "", None
+    for z in zeilen:
+        t = z.strip()
+        if t.startswith("[") and t.endswith("]"):
+            abschnitt = t[1:-1]
+        elif abschnitt == "display" and t.replace(" ", "").startswith("renderer="):
+            wert = t.split("=", 1)[1].strip().strip("'\"")
+    if wert == XEMU_RENDERER:
+        return False, f"Renderer steht bereits auf {XEMU_RENDERER}"
+    if pruefen:
+        return True, (f"Renderer steht auf {wert or 'nichts'} statt {XEMU_RENDERER}"
+                      " — ohne VirtualGL waere das der Software-Rasterer")
+
+    # `[display]` MUSS VOR `[display.window]` STEHEN. In TOML ist eine Obertabelle nach
+    # ihren Untertabellen zwar erlaubt, aber sie hier davorzusetzen macht die Datei auch
+    # fuer aeltere Parser eindeutig — und xemu schreibt sie beim Beenden ohnehin neu.
+    neu, gesetzt, in_display = [], False, False
+    for z in zeilen:
+        t = z.strip()
+        if t.startswith("[") and t.endswith("]"):
+            if in_display and not gesetzt:
+                neu.append(f"renderer = '{XEMU_RENDERER}'")
+                gesetzt = True
+            in_display = t == "[display]"
+        if in_display and t.replace(" ", "").startswith("renderer="):
+            neu.append(f"renderer = '{XEMU_RENDERER}'")
+            gesetzt = True
+            continue
+        neu.append(z)
+    if not gesetzt:
+        eingefuegt, fertig = [], False
+        for z in neu:
+            if not fertig and z.strip().startswith("[display"):
+                eingefuegt += ["[display]", f"renderer = '{XEMU_RENDERER}'", ""]
+                fertig = True
+            eingefuegt.append(z)
+        if not fertig:
+            eingefuegt += ["", "[display]", f"renderer = '{XEMU_RENDERER}'"]
+        neu = eingefuegt
+
+    sicherung = pfad + ".vor-renderer"
+    if not os.path.exists(sicherung):
+        shutil.copy2(pfad, sicherung)
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write("\n".join(neu) + "\n")
+    return True, f"Renderer auf {XEMU_RENDERER} gesetzt, Rueckweg: {sicherung}"
+
+
 def azahar_ini():
     return os.path.join(CONFIG, ".config", "azahar-emu", "qt-config.ini")
 
@@ -1435,6 +1530,12 @@ PROFILE = {
                   # Der Tastenweg steht jetzt in `vollbild_sicherstellen()`, das NACH dem
                   # Start misst und nur nachhilft, wenn das Bild zu klein ist. (#429)
                   "vollbild": None,
+                  # EIGENER PLATZ, weil `controller` hier schon belegt ist (#498). Flycast
+                  # schreibt seinen Renderer noch unter `controller` mit — das traegt, solange
+                  # ein Emulator nur EINE Sache zu setzen hat. xemu hat zwei, und zwei Anliegen
+                  # in eine Funktion zu ziehen, damit die Tabelle passt, waere die falsche
+                  # Reihenfolge: Die Tabelle hat sich nach dem Emulator zu richten.
+                  "einstellungen": [xemu_renderer],
                   "geprueft": True},
     "cemu":      {"system": "Wii U",         "controller": None, "bios": None, "vollbild": None,
                   "geprueft": False},
@@ -2282,10 +2383,20 @@ def main(argv):
     if ziel not in PROFILE:
         print(f"kein Profil fuer '{ziel}' / no profile for it", file=sys.stderr)
         return 1
+    # WEITERE EINSTELLUNGEN ZUERST. Sie entscheiden, WIE der Emulator startet (xemus
+    # Renderer etwa), waehrend die Controllerbindung nur beeinflusst, was er dann
+    # entgegennimmt. Scheitert eine davon, soll das sichtbar sein, bevor irgendjemand
+    # den Controller fuer die Ursache haelt.
+    fehler = False
+    for fn_extra in PROFILE[ziel].get("einstellungen") or []:
+        _, msg = sicher(fn_extra)
+        print(f"[einstellungen] {ziel}: {msg}")
+        fehler = fehler or msg.startswith("KEIN ZUGRIFF")
+
     fn = PROFILE[ziel]["controller"]
     if not fn:
         print(f"[controller] {ziel}: ordnet ein erkanntes SDL-Pad selbst zu")
-        return 0
+        return 1 if fehler else 0
     geaendert, msg = sicher(fn)
     print(f"[controller] {ziel}: {msg}")
     # Ein Rechtefehler ist KEIN Erfolg. Frueher verliess er das Programm als Traceback,
@@ -2293,7 +2404,7 @@ def main(argv):
     # BIOS und ohne Vollbild — das Ergebnis war ein Dialog statt eines Spiels.
     # EN: a permission error is not success; it used to leave as a traceback while the
     # exit code stayed 0 and the emulator came up unconfigured.
-    return 1 if msg.startswith("KEIN ZUGRIFF") else 0
+    return 1 if (fehler or msg.startswith("KEIN ZUGRIFF")) else 0
 
 
 if __name__ == "__main__":
