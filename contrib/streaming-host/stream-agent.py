@@ -105,7 +105,7 @@ def fehlende_plattformen():
 #   "kein-fenster" nichts Sichtbares entstanden
 # WOZU: Der Start GELINGT auch dann, wenn der Titel scheitert — verschluesselte 3DS-ROMs,
 # NKit-komprimierte Wii-ISOs. Der Nutzer sah bis dahin nur einen leeren Stream.
-_current = {"proc": None, "platform": "", "path": "", "window": "", "window_detail": ""}
+_current = {"proc": None, "platform": "", "path": "", "window": "", "window_detail": "", "last": {}}
 _lock = threading.Lock()
 
 # Ordner-Titel -> die Datei, mit der der Emulator startet.
@@ -992,6 +992,50 @@ def vita_startwert(ordner):
     return kennung, ""
 
 
+def hostlast():
+    """-> Was der Host im Moment sonst noch tut. (#527)
+
+    WOZU: Am 2026-08-13 meldete ein Nutzer „es ruckelt extrem und laeuft wohl auf der
+    CPU statt auf der GPU". Beides klang plausibel und beides war falsch — nachgemessen:
+
+        GL_RENDERER  Mesa Intel(R) Arc(tm) A310 Graphics   <- sehr wohl auf der GPU
+        RCS (3D)     0,00 %                                <- die noetige Einheit: frei
+        tdarr-ffmpeg 759 %   tdarr-ffmpeg 733 %   xemu 201 %
+        28 Kerne, Load 45,9
+
+    Zwei Umrechnungen belegten rund 15 Kerne, und die Xbox-Emulation ist CPU-gebunden.
+    Der Emulator bekam die Schuld fuer eine Last, die von woanders kam.
+
+    OHNE DIESE ANGABE IST JEDE AUSSAGE „laeuft fluessig" WERTLOS: Sie gilt nur fuer den
+    Zustand, in dem gemessen wurde — und der stand nirgends. Deshalb wird er beim Start
+    festgehalten, nicht auf Zuruf erhoben; hinterher laesst er sich nicht rekonstruieren.
+
+    Bewusst KEINE Bewertung und keine Absage: Ob eine Last zu hoch ist, haengt vom Titel
+    ab. Festgehalten wird, was war.
+
+    EN: records what else the host was doing at launch. A stutter report is otherwise
+    answered by guesswork — the obvious reading ("it must be on the CPU") was exactly
+    wrong once, and the state it referred to was gone by the time anyone asked.
+    """
+    daten = {}
+    try:
+        daten["load"] = [round(x, 2) for x in os.getloadavg()]
+        daten["cpus"] = os.cpu_count() or 0
+    except OSError:
+        return {}
+    try:
+        # `ps` statt /proc-Eigenbau: die Prozentwerte sind dieselben, die ein Mensch
+        # beim Nachsehen bekommt — und genau die stehen spaeter im Bericht.
+        r = subprocess.run(["ps", "-eo", "pcpu,comm", "--sort=-pcpu"],
+                           capture_output=True, text=True, timeout=5)
+        zeilen = [z.split(None, 1) for z in r.stdout.splitlines()[1:6] if z.strip()]
+        daten["top"] = [{"cpu": float(a), "name": b.strip()}
+                        for a, b in zeilen if a.replace(".", "", 1).isdigit()]
+    except Exception:                                        # noqa: BLE001
+        daten["top"] = []
+    return daten
+
+
 def _wiiu_art(ordner):
     """-> Absagegrund, oder "" wenn der Ordner ein Basisspiel sein kann. (#502)
 
@@ -1357,6 +1401,14 @@ def launch(path, platform, rel="", region=""):
         _current["path"] = real
         _current["window"] = "pending"
         _current["window_detail"] = ""
+        # JETZT messen, nicht spaeter: Beim naechsten Nachfragen ist der Zustand weg,
+        # und genau er entscheidet, ob ein Ruckeln am Emulator liegt (#527).
+        _current["last"] = hostlast()
+        if _current["last"]:
+            l = _current["last"]
+            oben = ", ".join(f"{t['name']} {t['cpu']:.0f}%" for t in l.get("top", [])[:3])
+            print(f"[last] beim Start: load {l['load'][0]} auf {l['cpus']} Kernen"
+                  + (f" — {oben}" if oben else ""), flush=True)
 
     # Nur das Emulatorfenster zeigen (#141). Im Hintergrund, weil auf das Fenster bis
     # zu 20 Sekunden gewartet wird — der Aufrufer soll darauf nicht haengen. Schlaegt
@@ -1592,6 +1644,9 @@ class Handler(BaseHTTPRequestHandler):
                                  "platform": _current["platform"],
                                  "window": _current["window"],
                                  "window_detail": _current["window_detail"],
+                                 # Der Zustand des Hosts BEIM START — nicht der jetzige.
+                                 # Wer nachtraeglich misst, misst den falschen Moment.
+                                 "host_load": _current.get("last") or {},
                                  "file": os.path.basename(_current["path"]) if _current["path"] else "",
                                  "platforms": sorted(k for k, v in EMULATORS.items() if v),
                                  # Was NICHT geht, ist so wichtig wie was geht (#440).

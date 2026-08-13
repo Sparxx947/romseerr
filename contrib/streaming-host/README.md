@@ -443,6 +443,40 @@ the only Wii U title here claims to be a game in `meta.xml` and is an update in
 `app.xml`. Cemu's answer to that, `Unable to mount title`, names a file and hides the
 cause.*
 
+**Ein Ruckeln sagt nichts über den Emulator, solange die Last daneben fehlt.** Der
+Start-Dienst hält deshalb beim Start fest, was der Host sonst tat — Load, Kernzahl und die
+fünf CPU-stärksten Prozesse. Sie stehen in `/status` als `host_load` und als Zeile im
+Protokoll.
+
+Warum das nötig ist, zeigt der Fall, der es ausgelöst hat (2026-08-13). Gemeldet wurde
+*„es ruckelt extrem und läuft wohl auf der CPU statt auf der Arc"* — beides klang
+plausibel, beides war falsch:
+
+```
+GL_RENDERER   Mesa Intel(R) Arc(tm) A310 Graphics (DG2)   ← sehr wohl auf der GPU
+RCS (3D)      0,00 %                                      ← die nötige Einheit: FREI
+VCS / VECS    21–29 % / 16–23 %                           ← Tdarr, nur Video-Einheiten
+
+tdarr-ffmpeg 759 %   tdarr-ffmpeg 733 %   xemu 201 %
+28 Kerne, Load 45,9
+```
+
+Zwei Umrechnungen belegten rund 15 Kerne. Xbox-Emulation ist CPU-gebunden — xemu bildet
+einen Pentium III nach —, also rechnete es auf einer **leerlaufenden** 3D-Einheit und
+verhungerte an der CPU.
+
+**Genommen wird der Wert beim Start, nicht auf Nachfrage.** Wer hinterher misst, misst den
+falschen Moment: Die Umrechnung, die das Ruckeln verursacht hat, kann längst fertig sein.
+Bewertet wird nichts und abgelehnt wird nichts — ob eine Last zu hoch ist, hängt vom Titel
+ab (#527).
+
+*EN: a stutter says nothing about the emulator unless the load beside it is recorded. The
+service captures load, core count and the top CPU consumers at launch, reported as
+`host_load`. The case that prompted it: "it stutters, it must be on the CPU rather than the
+Arc" — it was on the Arc, the 3D engine was idle, and two Tdarr transcodes were taking 15 of
+28 cores while CPU-bound Xbox emulation starved. Captured at launch, because measuring later
+measures the wrong moment; nothing is judged or refused.*
+
 **xemu braucht eine Bibliothek, die nirgends auf dem Suchpfad liegt.** `libusb-1.0.so.0`
 steckt weder im Abbild noch in xemus eigenem AppImage. `init/22-xemu-vorbereiten` leiht sie
 aus einem anderen Emulator und legt sie nach `/config/lib` — aber der Lader kennt dieses
