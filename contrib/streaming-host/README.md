@@ -263,6 +263,38 @@ startet xemu auch ohne Konfigurationsdatei und ohne `eeprom.bin`, das es sich se
 anlegt. Der anfängliche `Failed to load BIOS '(null)'` war ein Folgefehler der
 fehlenden Platte.
 
+### Ein PS3-Titel starb nach 21 Sekunden — an einer Pruefdatei
+
+Der Fehler sah nach einem kaputten Abbild aus: Ein Titel startete, lief kurz und beendete
+sich, während andere derselben Bibliothek liefen. Die Ursache steht in der Fehlerzeile,
+wenn man sie zu Ende liest:
+
+```
+SIG: Thread terminated due to fatal error: unknown error Read only
+(local=.../PS3_GAME/USRDIR/test_writability)   errno=30=Read-only file system
+```
+
+Das Spiel legt eine **Prüfdatei in seinem eigenen Verzeichnis** an, um zu sehen, ob es dort
+schreiben darf — auf einer echten PS3 läge es auf der Festplatte. Hier liegt es auf der ROM-
+Freigabe, und die ist `ro` eingehängt. Das bleibt sie auch: Ein Spiel, das nach
+Schreibrechten fragt, ist kein Grund, die Bibliothek zu öffnen.
+
+Umgelenkt wird stattdessen **`/app_home`**, das RPCS3 ohne `vfs.yml` mit dem
+Spielverzeichnis belegt. Gemessen, mit genau dem Titel, an dem es aufgefallen war:
+
+| | `/app_home` zeigt auf | fatale Fehler |
+|---|---|---|
+| vorher | `…/PS3_GAME/USRDIR/` | **1**, Abbruch nach 21 s |
+| nachher | `…/rpcs3/app_home/` | **0** |
+
+Danach lief der Titel über eine Minute weiter bei 99,9 % Bildfläche, und der Ordner blieb
+**leer** — die Prüfdatei wird angelegt und gleich wieder entfernt.
+
+> **Hier stand einmal, `/app_home` sei nicht umlenkbar.** Das stützte sich auf den
+> Konfigurationsabzug im Protokoll, in dem der Schlüssel fehlt. Im Programm steht er sehr
+> wohl, neben `vfs.yml` und den übrigen VFS-Pfaden. Der Abzug zeigt eben nicht alles.
+
+
 ## Ein Update darf den Emulator nicht löschen
 
 `installiere()` entpackt nach `<name>.neu` und ruft dann `generationen_schieben`, das die
@@ -2170,6 +2202,36 @@ a guess.
 Measure it objectively by counting **exact digital zeros**, not "quiet": an absolute
 threshold such as "below 30" marks a quiet signal as dropouts and once sent an hour of
 debugging in the wrong direction.
+
+### A PS3 title died after 21 seconds — over a probe file
+
+It looked like a bad dump: one title started, ran briefly and quit, while others from the
+same library were fine. The cause is in the error line, once read to the end:
+
+```
+SIG: Thread terminated due to fatal error: unknown error Read only
+(local=.../PS3_GAME/USRDIR/test_writability)   errno=30=Read-only file system
+```
+
+The game creates a **probe file in its own directory** to check whether it may write there —
+on a real PS3 that directory sits on the hard disk. Here it sits on the ROM share, mounted
+`ro`. And it stays that way: a game asking for write access is no reason to open the library.
+
+What gets redirected instead is **`/app_home`**, which RPCS3 points at the title's directory
+when no `vfs.yml` exists. Measured with the exact title that failed:
+
+| | `/app_home` points to | fatal errors |
+|---|---|---|
+| before | `…/PS3_GAME/USRDIR/` | **1**, quit after 21 s |
+| after | `…/rpcs3/app_home/` | **0** |
+
+The title then kept running for over a minute at 99.9 % painted area, and the directory
+stayed **empty** — the probe file is created and removed again.
+
+> **This section once said `/app_home` could not be redirected.** That rested on the config
+> dump in the log, where the key is absent. The binary has it, alongside `vfs.yml` and the
+> other VFS paths. The dump does not show everything.
+
 
 ## The launch service
 

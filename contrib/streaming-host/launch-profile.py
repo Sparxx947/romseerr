@@ -307,6 +307,90 @@ RPCS3_BELEGUNG = [
 ]
 
 
+def rpcs3_vfs_yml():
+    return os.path.join(CONFIG, ".config", "rpcs3", "vfs.yml")
+
+
+# RPCS3s VFS-Zuordnung. Ohne `vfs.yml` belegt RPCS3 `/app_home` mit dem SPIELVERZEICHNIS —
+# und das liegt schreibgeschuetzt eingehaengt. (#539)
+RPCS3_VFS = """# Von launch-profile.py gesetzt (#539) — nicht von Hand pflegen.
+#
+# WOZU: Ohne Eintrag belegt RPCS3 `/app_home` mit dem Verzeichnis des gestarteten Titels.
+# Die ROM-Freigabe ist `ro` eingehaengt, und Titel, die dort eine Pruefdatei anlegen,
+# sterben daran:
+#
+#     SIG: Thread terminated due to fatal error: unknown error Read only
+#     (local=.../PS3_GAME/USRDIR/test_writability)  errno=30=Read-only file system
+#
+# EN: without this, RPCS3 points /app_home at the title's own directory, which is mounted
+# read-only; titles that probe for write access there die.
+$(EmulatorDir): ""
+/dev_hdd0/: $(EmulatorDir)dev_hdd0/
+/dev_flash/: $(EmulatorDir)dev_flash/
+/dev_usb000/: $(EmulatorDir)dev_usb000/
+/games/: $(EmulatorDir)games/
+/app_home/: $(EmulatorDir)app_home/
+"""
+
+
+def rpcs3_vfs(pruefen=False):
+    """-> (geaendert, meldung). Lenkt RPCS3s `/app_home` auf einen beschreibbaren Ort. (#539)
+
+    DER FEHLER SAH NACH EINEM KAPUTTEN ABBILD AUS. Ein Titel startete, lief 21 Sekunden und
+    starb dann — bei anderen Titeln derselben Bibliothek passierte nichts dergleichen. Die
+    Ursache steht in der Fehlerzeile, wenn man sie ganz liest:
+
+        local=.../PS3_GAME/USRDIR/test_writability   errno=30=Read-only file system
+
+    Das Spiel legt eine Pruefdatei in seinem EIGENEN Verzeichnis an, um zu sehen, ob es dort
+    schreiben darf, und haelt das Scheitern fuer toedlich. Auf einer echten PS3 laege es auf
+    der Festplatte; hier liegt es auf einer `ro` eingehaengten Freigabe.
+
+    WARUM DIE FREIGABE SCHREIBGESCHUETZT BLEIBT: Sie enthaelt die Bibliothek. Ein Spiel, das
+    nach Schreibrechten fragt, ist kein Grund, sie ihm zu geben.
+
+    WAS VORHER FALSCH BEHAUPTET WURDE, und zwar von mir: dass `/app_home` nicht umlenkbar
+    sei. Das stuetzte sich auf den Konfigurationsabzug im Protokoll, in dem der Schluessel
+    fehlt. Im Programm steht er sehr wohl — neben `vfs.yml` und den uebrigen VFS-Pfaden:
+
+        /app_home/   /dev_bdvd/   /dev_flash/   /games/   …
+
+    NACHGEMESSEN am laufenden Host, mit genau dem Titel, an dem es aufgefallen war:
+
+        vorher:  Mounted "/app_home" to ".../PS3_GAME/USRDIR/"   -> 1x fatal, Abbruch
+        nachher: Mounted "/app_home" to ".../rpcs3/app_home/"    -> 0 fatal, 0 "Read only"
+
+    Das Spiel lief danach ueber eine Minute weiter, 99,9 % Bildflaeche, und der Ordner blieb
+    LEER — die Pruefdatei wird angelegt und gleich wieder entfernt.
+
+    NUR WENN ES SIE NOCH NICHT GIBT: Eine bestehende `vfs.yml` kann von Hand gepflegte
+    Pfade enthalten; die zu ueberschreiben waere anmassend.
+
+    EN: a title died after 21 seconds because it probes for write access in its own
+    directory, which sits on a read-only mount. I previously claimed /app_home could not be
+    redirected — that rested on the config dump in the log, where the key is absent; the
+    binary has it. Measured before and after on the title that failed: one fatal error
+    versus none.
+    """
+    pfad = rpcs3_vfs_yml()
+    if os.path.isfile(pfad):
+        with open(pfad, encoding="utf-8", errors="ignore") as f:
+            vorhanden = f.read()
+        if "/app_home/:" in vorhanden:
+            return False, "app_home ist bereits umgelenkt"
+        return False, ("es gibt bereits eine vfs.yml ohne app_home-Eintrag — bleibt "
+                       "unangetastet, damit eigene Pfade nicht verloren gehen")
+    if pruefen:
+        return True, ("app_home zeigt auf das Spielverzeichnis — Titel, die dort schreiben "
+                      "wollen, sterben auf der schreibgeschuetzten Freigabe")
+    os.makedirs(os.path.dirname(pfad), exist_ok=True)
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write(RPCS3_VFS)
+    # Das Ziel muss es geben, sonst faellt RPCS3 still zurueck.
+    os.makedirs(os.path.join(CONFIG, ".config", "rpcs3", "app_home"), exist_ok=True)
+    return True, "app_home auf $(EmulatorDir)app_home/ umgelenkt"
+
+
 def rpcs3_input():
     return os.path.join(CONFIG, ".config/rpcs3/input_configs/global/Default.yml")
 
@@ -1903,6 +1987,9 @@ PROFILE = {
     # Warnung „Adding empty device" verschwindet, war nur der Hinweis — den Nachweis
     # hat ein Mensch am Pad erbracht.
     "rpcs3":     {"system": "PS3",           "controller": rpcs3_apply,
+                  # Muss VOR dem Start wirken: RPCS3 liest die VFS-Zuordnung
+                  # beim Hochfahren, nicht beim Laden des Titels. (#539)
+                  "einstellungen": [rpcs3_vfs],
                   "bios": None, "vollbild": None,
                   "geprueft": True},
     # `controller` war None mit der Begruendung „ordnet ein erkanntes SDL-Pad selbst zu".
