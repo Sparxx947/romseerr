@@ -14,7 +14,7 @@ pyyaml>=6.0.3                  # von test_smoke.py für docs/openapi.yaml gebrau
 pytest-cov>=5.0
 
 # Browsertests: echtes HTML, echtes JavaScript, echte Tastatur
-pytest-playwright>=0.5
+pytest-playwright>=0.9.0
 
 # Barrierefreiheit. Fängt Kontrast, fehlende Namen und kaputtes ARIA — NICHT anklickbare
 # `div`s ohne Rolle; dafür gibt es keine Regel, das prüft der Tastaturdurchlauf.
