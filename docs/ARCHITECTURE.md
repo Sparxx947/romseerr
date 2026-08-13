@@ -335,6 +335,47 @@ not ship, which cannot work and looks like any other button. `GET /api/play/core
 checks each one. `IGNORE_FOLDERS` hides directories with no game content; content that
 merely lacks a core stays visible.*
 
+### Ein Alias ist erst richtig, wenn RomM ihn auch zieht (#518)
+
+`FOLDER_ALIASES` fasst Ordner zusammen, die dieselbe Plattform meinen — `neogeoaes` und
+`neogeomvs` sind dieselbe Hardware in anderen Gehäusen, und sie zeigen beide auf `neogeo`.
+`neo-geo-cd` zeigte ebenfalls dorthin, und das war falsch.
+
+**Nicht wegen der Konsolengeschichte, sondern weil RomM sie trennt:**
+
+```
+RomM:  Neo Geo AES   neogeoaes    300 ROMs
+       Neo Geo CD    neo-geo-cd   100 ROMs
+       eine Plattform `neogeo` gibt es dort GAR NICHT
+```
+
+`play_info` fragt nicht den eigenen Index, sondern `romm_find()`. Mit dem Alias fragte es
+nach einer Plattform, die RomM nicht kennt:
+
+```
+romm_find("Aero Fighters 2 (World)", "neogeo")      -> None
+romm_find("Aero Fighters 2 (World)", "neo-geo-cd")  -> Aero Fighters 2
+```
+
+100 vorhandene, von RomM gescannte Titel waren damit unspielbar — und der Play-Knopf
+konnte gar nicht erst erscheinen, ohne dass irgendwo etwas rot wurde.
+
+**Die Regel:** Ein Alias darf nur zusammenfassen, was RomM ebenfalls zusammenfasst. Wo die
+beiden auseinandergehen, gewinnt RomM — es hält die Daten, an denen `play_info` hängt.
+
+Dazu gehören drei Kleinigkeiten, die sonst nachziehen müssen: der Kern (`fbneo`, derselbe
+wie für Neo Geo), der **BIOS-Hinweis** (ein CD-Abbild braucht das System-ROM, ein
+Cartridge-Romset nicht) und die Reihenfolge in `KW` — `neo\s*geo` passt auch auf
+`Neo Geo CD`, das genauere Muster muss davor stehen.
+
+*EN: `FOLDER_ALIASES` may only merge what RomM merges. It kept `neo-geo-cd` under
+`neogeo`, but RomM has no `neogeo` platform at all — so `play_info`, which asks
+`romm_find()` rather than the local index, found nothing for 100 present and scanned
+titles, and the play button simply never appeared. Where the two disagree, RomM wins: it
+holds the data play depends on. Three things follow — the core, the BIOS note (a CD image
+needs the system ROM, a cartridge romset does not), and the order in `KW`, where the
+narrower pattern must precede the general one.*
+
 ### Beide Seiten müssen dieselbe Frage stellen (#427, #502, #512)
 
 Ob ein Titel startbar ist, beantworten **zwei** Stellen: `stream_info` in Romseerr, bevor

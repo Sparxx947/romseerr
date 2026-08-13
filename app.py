@@ -358,7 +358,8 @@ PLATFORMS = [
    ("sg1000","SG-1000")]),
  ("Sony", [("psx","PS1"),("ps2","PS2"),("ps3","PS3"),("ps4","PS4"),("psp","PSP"),("psvita","Vita")]),
  ("Microsoft", [("xbox","Xbox"),("xbox360","Xbox 360"),("xboxone","Xbox One")]),
- ("Sonstige", [("turbografx16","PC Engine"),("neogeo","Neo Geo"),("neogeopocket","NGP"),
+ ("Sonstige", [("turbografx16","PC Engine"),("neogeo","Neo Geo"),
+   ("neo-geo-cd","Neo Geo CD"),("neogeopocket","NGP"),
    ("wonderswan","WonderSwan"),("atari2600","Atari 2600"),("atari5200","Atari 5200"),
    ("atari7800","Atari 7800"),
    ("lynx","Lynx"),("jaguar","Jaguar"),("3do","3DO"),("amiga","Amiga"),
@@ -440,7 +441,7 @@ LIB_GRP_PREFIX = "lib_grp_"
 IGDB_PLAT = {"snes":19,"nes":18,"n64":4,"gb":33,"gbc":22,"gba":24,"nds":20,"3ds":37,"ngc":21,
  "wii":5,"switch":130,"genesis":29,"sms":64,"gamegear":35,"saturn":32,"dreamcast":23,
  "psx":7,"ps2":8,"ps3":9,"psp":38,"xbox":11,"xbox360":12,"arcade":52,"turbografx16":86,
- "atari2600":59,"neogeo":80}
+ "atari2600":59,"neogeo":80,"neo-geo-cd":136}
 # Startseite: Reihenfolge der wichtigsten Konsolen
 DISCOVER_ORDER = ["snes","nes","n64","gb","gba","genesis","psx","ps2","nds","ngc","dreamcast","arcade","switch"]
 # Schlüsselwort -> bevorzugter Slug (für Archive.org-Titel/Sammlung und Fallback)
@@ -479,6 +480,8 @@ KW = [
  (r"\bxbox\b|\bxbe\b", "xbox"),
  (r"turbografx|pc\s*engine|\bpce\b", "turbografx16"),
  (r"neo\s*geo\s*pocket", "neogeopocket"),
+ # VOR dem allgemeinen Muster — sonst schluckt `neo geo` auch die CD. (#518)
+ (r"neo[\s-]*geo[\s-]*cd", "neo-geo-cd"),
  (r"neo\s*geo", "neogeo"),
  (r"wonderswan", "wonderswan"),
  (r"atari\s*2600", "atari2600"),
@@ -928,7 +931,23 @@ FOLDER_ALIASES = {
     "dc": "dreamcast",
     "tg16": "turbografx16",
     "turbografx-cd": "turbografx16",
-    "neogeoaes": "neogeo", "neogeomvs": "neogeo", "neo-geo-cd": "neogeo",
+    "neogeoaes": "neogeo", "neogeomvs": "neogeo",
+    # `neo-geo-cd` steht bewusst NICHT hier (#518). AES und MVS sind dieselbe
+    # Hardware in anderen Gehaeusen; die Neo Geo CD ist eine eigene Konsole mit
+    # eigenem BIOS und CD-Abbildern statt Cartridge-Romsets.
+    #
+    # ENTSCHEIDEND IST ABER NICHT DIE HISTORIE, SONDERN DASS ROMM SIE TRENNT:
+    #
+    #     RomM: Neo Geo AES  neogeoaes    300 ROMs
+    #           Neo Geo CD   neo-geo-cd   100 ROMs
+    #           (eine Plattform `neogeo` gibt es dort gar nicht)
+    #
+    # Solange der Alias stand, fragte `romm_find` nach `neogeo` und bekam nichts:
+    #     romm_find("Aero Fighters 2 (World)", "neogeo")      -> None
+    #     romm_find("Aero Fighters 2 (World)", "neo-geo-cd")  -> Aero Fighters 2
+    # 100 vorhandene, gescannte Titel waren damit unspielbar.
+    # EN: RomM keeps them apart, so aliasing them together made romm_find miss
+    # every CD title.
     "neo-geo-pocket": "neogeopocket", "neo-geo-pocket-color": "neogeopocket",
     "wonderswan-color": "wonderswan",
     "sega32": "sega32x", "sega-32x": "sega32x",
@@ -3273,7 +3292,7 @@ PLAYABLE = {   # Slug -> EmulatorJS-Kern (nur zur Nachvollziehbarkeit dokumentie
     "neogeopocket": "mednafen_ngp", "wonderswan": "mednafen_wswan", "lynx": "handy",
     "jaguar": "virtualjaguar", "atari2600": "stella2014", "atari7800": "prosystem",
     "3do": "opera", "amiga": "puae", "c64": "vice_x64", "dos": "dosbox_pure",
-    "arcade": "fbneo", "neogeo": "fbneo",
+    "arcade": "fbneo", "neogeo": "fbneo", "neo-geo-cd": "fbneo",
     # Heimcomputer und fruehe Konsolen (#124). Die Kernnamen wurden NICHT aus der
     # libretro-Liste abgeschrieben, sondern in der eingesetzten RomM-Fassung
     # nachgesehen — ein Eintrag auf einen Kern, den der Player nicht mitbringt, waere
@@ -3307,7 +3326,7 @@ PLAYABLE = {   # Slug -> EmulatorJS-Kern (nur zur Nachvollziehbarkeit dokumentie
 # not copied from libretro's catalogue. Intellivision was listed and could not work.
 # Plattformen, deren Kern ohne BIOS startet und dann scheitert — der Nutzer soll das
 # VORHER lesen, statt vor einer schwarzen Flaeche zu sitzen.
-NEEDS_BIOS = {"psx", "3do", "saturn", "amiga", "segacd", "amiga-cd32"}
+NEEDS_BIOS = {"psx", "3do", "saturn", "amiga", "segacd", "amiga-cd32", "neo-geo-cd"}
 # Arcade-Kerne brauchen zum Kern passende Romsets; ein pauschaler Play-Knopf scheitert
 # bei den meisten Dumps. Nicht verstecken, aber ehrlich beschriften.
 CAVEAT = {"arcade": "romset", "neogeo": "romset"}
