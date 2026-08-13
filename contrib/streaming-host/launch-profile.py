@@ -1413,6 +1413,117 @@ def cemu_audio(pruefen=False):
     return True, f"Audio auf Backend {CEMU_AUDIO_API} (Cubeb) gesetzt, Rueckweg: {sicherung}"
 
 
+def cemu_controller_profil():
+    return os.path.join(CONFIG, ".config", "Cemu", "controllerProfiles", "controller0.xml")
+
+
+# CEMUS ZUORDNUNG, WORTGETREU UEBERNOMMEN (#304).
+#
+# Die Paare sind undurchsichtige Zahlen — `<mapping>` ist Cemus interne Nummer der
+# Wii-U-Taste, `<button>` die des SDL-Eingangs. Was welche Zahl bedeutet, steht nirgends
+# ausserhalb des Quelltexts von Cemu, und **es muss auch niemand wissen**: Diese Liste
+# stammt aus der Datei, die Cemu SELBST geschrieben hat, nachdem in seiner Oberflaeche ein
+# Pad hinzugefuegt wurde — und ein Mensch hat sie am 2026-08-13 am Pad bestaetigt.
+#
+# WARUM NICHT DIE NAMEN NACHSCHLAGEN: Weil jede Uebersetzung eine Fehlerquelle waere, die
+# nichts gewinnt. Die Zahlen ohne Umweg zu uebernehmen ist die einzige Fassung, die
+# nachweislich funktioniert hat.
+#
+# EN: opaque numbers on purpose. `<mapping>` is Cemu's internal Wii U button id, `<button>`
+# the SDL input id; the meaning lives in Cemu's source. This list is what Cemu itself wrote
+# after a pad was added in its UI, confirmed at the pad by a person. Translating the numbers
+# into names would only add a place to be wrong.
+CEMU_ZUORDNUNG = [
+    (24, 40),
+    (23, 46),
+    (22, 41),
+    (21, 47),
+    (20, 38),
+    (19, 44),
+    (18, 39),
+    (17, 45),
+    (16, 8),
+    (15, 7),
+    (14, 14),
+    (1, 1),
+    (2, 0),
+    (3, 3),
+    (4, 2),
+    (5, 9),
+    (6, 10),
+    (7, 42),
+    (8, 43),
+    (9, 6),
+    (10, 4),
+    (11, 11),
+    (12, 12),
+    (13, 13),
+]
+
+# Cemus Schreibweise fuer dasselbe Pad ist eine DRITTE: `<index>_<GUID>`, waehrend Eden
+# `port:N` + GUID ohne Namenspruefsumme schreibt und Azahar `port:N` + GUID MIT Pruefsumme.
+# Wer das vereinheitlicht, bricht zwei davon. / EN: a third spelling for the same pad.
+# Bewusst als Zeichenkette und NICHT ueber PAD_GUID: Diese Konstante steht weiter unten
+# in der Datei, und ein Verweis nach vorn liesse das Modul beim Laden mit einem
+# NameError sterben — was genau einmal passiert ist, beim Schreiben dieser Zeile.
+# EN: deliberately a literal; PAD_GUID is defined further down and a forward
+# reference kills the module at import time.
+CEMU_UUID = os.environ.get("CEMU_PAD_UUID",
+                           "0_030081b85e0400008e02000000010000")
+
+
+def cemu_controller(pruefen=False):
+    """-> (geaendert, meldung). Legt Cemus Wii-U-GamePad auf das gebrueckte Pad. (#304)
+
+    OHNE DIESE DATEI GIBT ES GAR KEINE ZUORDNUNG. Am 2026-08-13 nachgesehen: Der Ordner
+    `controllerProfiles` war leer, Cemu war nie eingerichtet worden. Das faellt nicht auf,
+    weil Cemu trotzdem startet, das Spiel laeuft und der Ton kommt — nur die Eingabe
+    fehlt, und das sieht nach einem toten Controller aus.
+
+    Die Datei wird NUR angelegt, wenn keine da ist. Wer sein Pad in Cemus Oberflaeche
+    selbst zugeordnet hat, soll das behalten — eine bestehende Zuordnung zu ueberschreiben
+    waere anmassend und liesse sich schwer bemerken.
+
+    EN: without this file there is no mapping at all, and nothing about the launch says so —
+    Cemu starts, the game runs, audio plays, only input is missing. Written only when
+    absent, so a hand-made mapping is never overwritten.
+    """
+    pfad = cemu_controller_profil()
+    if os.path.isfile(pfad):
+        with open(pfad, encoding="utf-8", errors="ignore") as f:
+            vorhanden = f.read()
+        if CEMU_UUID in vorhanden:
+            return False, "Zuordnung steht bereits auf dem gebrueckten Pad"
+        return False, ("es gibt bereits ein Profil fuer ein ANDERES Geraet — bleibt "
+                       "unangetastet, damit eine eigene Zuordnung nicht verloren geht")
+    if pruefen:
+        return True, "keine Zuordnung vorhanden — der Controller taete nichts"
+
+    eintraege = "\n".join(
+        "\t\t\t<entry>\n\t\t\t\t<mapping>%d</mapping>\n\t\t\t\t<button>%d</button>\n\t\t\t</entry>"
+        % paar for paar in CEMU_ZUORDNUNG)
+    inhalt = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        "<emulated_controller>\n"
+        "\t<type>Wii U GamePad</type>\n"
+        "\t<controller>\n"
+        "\t\t<api>SDLController</api>\n"
+        "\t\t<uuid>%s</uuid>\n"
+        "\t\t<display_name>Xbox 360 Game Controller</display_name>\n"
+        "\t\t<rumble>0</rumble>\n"
+        "\t\t<axis>\n\t\t\t<deadzone>0.25</deadzone>\n\t\t\t<range>1</range>\n\t\t</axis>\n"
+        "\t\t<rotation>\n\t\t\t<deadzone>0.25</deadzone>\n\t\t\t<range>1</range>\n\t\t</rotation>\n"
+        "\t\t<trigger>\n\t\t\t<deadzone>0.25</deadzone>\n\t\t\t<range>1</range>\n\t\t</trigger>\n"
+        "\t\t<mappings>\n%s\n\t\t</mappings>\n"
+        "\t</controller>\n"
+        "</emulated_controller>\n") % (CEMU_UUID, eintraege)
+
+    os.makedirs(os.path.dirname(pfad), exist_ok=True)
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write(inhalt)
+    return True, f"Wii-U-GamePad auf {CEMU_UUID} gelegt ({len(CEMU_ZUORDNUNG)} Zuordnungen)"
+
+
 def azahar_ini():
     return os.path.join(CONFIG, ".config", "azahar-emu", "qt-config.ini")
 
@@ -1748,7 +1859,7 @@ PROFILE = {
                   # Reihenfolge: Die Tabelle hat sich nach dem Emulator zu richten.
                   "einstellungen": [xemu_renderer],
                   "geprueft": True},
-    "cemu":      {"system": "Wii U",         "controller": None, "bios": None, "vollbild": None,
+    "cemu":      {"system": "Wii U",         "controller": cemu_controller, "bios": None, "vollbild": None,
                   # Cemu ordnet ein SDL-Pad selbst zu, sobald es in seiner Oberflaeche
                   # hinzugefuegt wurde — die Belegung schreibt es dann nach
                   # `controllerProfiles/controller0.xml`. Der Ton dagegen steht auf einem
@@ -1762,15 +1873,22 @@ PROFILE = {
     # genuegt, der gezeichnete Bereich waechst mit. Gemessen am laufenden Emulator ueber
     # die Pixel, nicht ueber die Fenstergeometrie — die meldet den Rahmen, nicht den
     # Inhalt, und genau daran ist der Fall bei xemu lange unbemerkt geblieben.
+    # geprueft: Bild (97,6 %), Ton UND Gamepad am laufenden Host bestaetigt
+    # (2026-08-13). Der Controller brauchte dieselbe Korrektur wie Eden — Azahar hatte
+    # sich `port:2` aus der Zeit vor #535 gemerkt.
     "azahar":    {"system": "3DS",           "controller": azahar_apply,
                   # Tastenweg: siehe xemu — greift nach dem Start, nicht hier. (#429)
                   "bios": None, "vollbild": None,
-                  "geprueft": False},
+                  "geprueft": True},
     # Am laufenden Host abgelesen (2026-08-12, #304): `backend-renderer` steht bereits auf
     # Vulkan, `boot-apps-full-screen` stand auf `false`. Der Schalter kommt in die
     # Konfiguration und NICHT als Tastensendung — die braeuchte ein Fenster, das es zum
     # Zeitpunkt der Vorbereitung nicht gibt (#429). `geprueft` bleibt False, bis ein
     # Mensch Bild, Ton und Pad im Spiel bestaetigt hat (#303).
+    # geprueft: Bild (100 %, 60 FPS), Ton und Gamepad am laufenden Host bestaetigt
+    # (2026-08-13, AM2R). Vita3K ordnet ein erkanntes SDL-Pad SELBST zu — es meldet beim
+    # Start `1 Controllers Connected: Xbox 360 Controller` und nahm die Eingaben ohne jede
+    # Konfigurationsdatei an. `controller: None` ist hier gemessen, nicht ungeprueft.
     "vita3k":    {"system": "PS Vita",       "controller": None, "bios": None,
                   "vollbild": vita3k_vollbild,
                   # EIGENER PLATZ, nicht in `controller` mit hineingelegt (#488). Bei
@@ -1780,7 +1898,7 @@ PROFILE = {
                   # der heisst, was er tut, ehrlicher als ein Sammelplatz. Andere
                   # Emulatoren duerfen `dialoge` weglassen.
                   "dialoge": vita3k_dialoge,
-                  "geprueft": False},
+                  "geprueft": True},
     # geprueft: Bild, Ton und Gamepad im Spiel bestaetigt (2026-08-10, #119). Dass die
     # Warnung „Adding empty device" verschwindet, war nur der Hinweis — den Nachweis
     # hat ein Mensch am Pad erbracht.
@@ -1791,10 +1909,13 @@ PROFILE = {
     # Das war eine ANNAHME und ist widerlegt: Spieler 1 liegt auf der Tastatur (#298).
     # Die Funktion repariert nichts — sie macht den stillen Defekt zu einer Zeile im
     # Protokoll, bis Edens Bindungssyntax gelesen statt geraten werden kann.
+    # geprueft: Bild (100 %), Ton und Gamepad am laufenden Host bestaetigt
+    # (2026-08-13). Die Zuordnung stand auf `port:1` aus der Zeit vor #535 und musste
+    # nachgezogen werden.
     "switchemu": {"system": "Switch",        "controller": switchemu_apply, "bios": None,
                   # Tastenweg: siehe xemu — greift nach dem Start, nicht hier. (#429)
                   "vollbild": None,
-                  "geprueft": False},
+                  "geprueft": True},
 }
 # "geprueft: False" heisst NICHT "funktioniert nicht", sondern "noch nicht am
 # laufenden Emulator nachgemessen". Die Unterscheidung ist der Punkt: sie zeigt, wo

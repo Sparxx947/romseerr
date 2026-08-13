@@ -839,12 +839,12 @@ Controller im Spiel gedrückt.
 | GameCube | Dolphin | ✅ | ✅ | ✅ | |
 | Wii | Dolphin | ✅ | ✅ | ✅ | **Dieselbe Belegung wie GameCube war eine falsche Annahme** — Dolphin führt beide in getrennten Dateien, und `WiimoteNew.ini` hing am X11-Zeiger (`Buttons/A = `Click 1``). Ein Wii-Titel bekam nie eine Eingabe, während derselbe Emulator am GameCube tadellos lief. Seit #297 auf `evdev` gelegt, von einem Menschen bestätigt (Kororinpa, 2026-08-13) — samt Neigung auf dem linken Stick |
 | PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
-| Switch | Eden | ✅ | ✅ | (⁠—⁠) | Controller nicht eigens geprüft |
-| Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | erst seit der Entschlüsselung (#354/#356); Vollbild an den Pixeln gemessen (#316); Controller nicht eigens geprüft |
+| Switch | Eden | ✅ | ✅ | ✅ | von einem Menschen bestätigt (2026-08-13). Die Zuordnung stand auf `port:1` aus der Zeit **vor** #535 und zeigte damit auf ein stummes Gerät — die Kennung selbst war die ganze Zeit richtig |
+| Nintendo 3DS | Azahar | ✅ | ✅ | ✅ | Controller von einem Menschen bestätigt (2026-08-13) — die Zuordnung stand auf `port:2` aus der Zeit vor #535; erst seit der Entschlüsselung (#354/#356); Vollbild an den Pixeln gemessen (#316); Controller nicht eigens geprüft |
 | Dreamcast | Flycast | ✅ | ✅ | ✅ | Vollbild und **Vulkan** — seit #304 nicht mehr nur in der Startzeile, sondern **in `emu.cfg` geschrieben**: Flycast übernimmt einen `-config`-Wert NICHT, also lief es vom Desktop gestartet auf dem eingebauten Standard (siehe unten). Bild, Ton und Controller von einem Menschen bestätigt — Flycast belegt die Pads selbst, als einziger Emulator hier |
 | Xbox | xemu | ✅ | ✅ | ✅ | braucht **COMPLEX 4627 + MCPX 1.0** — Retail-BIOS bleiben schwarz |
-| Wii U | Cemu | — | — | — | Titel vorhanden seit #452/#455 — noch nicht gestartet |
-| PS Vita | Vita3K | — | — | — | Titel vorhanden seit #452/#455; Vollbild und Vulkan stehen in der Konfiguration (#304); der Start übergibt seit #481 die **Titelkennung** statt des Pfades; seit #488 stehen die beiden Startdialoge ab, und der Titel bootet gemessen bis ins Ladefenster — ein Mensch hat ihn noch nicht gesehen; seit #489 beendet `/stop` ihn wirklich und `/status` findet sein Fenster |
+| Wii U | Cemu | ✅ | ✅ | ✅ | von einem Menschen bestätigt (2026-08-13), 60 FPS auf Vulkan. Es brauchte drei Dinge: ein **Basisspiel** (die Bibliothek hatte nur ein Update, #302), das Audio-Backend Cubeb statt DirectSound (#541) und ein Controllerprofil — es gab **gar keines** (#304) |
+| PS Vita | Vita3K | ✅ | ✅ | ✅ | von einem Menschen bestätigt (2026-08-13, AM2R), 60 FPS. Vita3K ordnet ein erkanntes SDL-Pad **selbst** zu — gemessen, nicht angenommen. Der erste Anlauf scheiterte am Titel, nicht am Emulator: ein Vitamin-Dump, den Vita3K ausdrücklich ablehnt; Vollbild und Vulkan stehen in der Konfiguration (#304); der Start übergibt seit #481 die **Titelkennung** statt des Pfades; seit #488 stehen die beiden Startdialoge ab, und der Titel bootet gemessen bis ins Ladefenster — ein Mensch hat ihn noch nicht gesehen; seit #489 beendet `/stop` ihn wirklich und `/status` findet sein Fenster |
 
 Ein `—` heißt **ungeprüft**, nicht „defekt". Für Dreamcast, Wii U und PS Vita liegen
 seit #452/#455 Titel bereit; sie sind ungeprüft, weil noch niemand sie gestartet hat —
@@ -2385,12 +2385,12 @@ pressed in-game.
 | GameCube | Dolphin | ✅ | ✅ | ✅ | |
 | Wii | Dolphin | ✅ | ✅ | ✅ | **"same mapping as GameCube" was a false assumption** — Dolphin keeps the two in separate files, and `WiimoteNew.ini` was bound to the X11 pointer (`Buttons/A = `Click 1``). Wii titles received no input at all while the same emulator worked fine on GameCube. Moved to `evdev` in #297 and confirmed by a person (Kororinpa, 2026-08-13), tilt included on the left stick |
 | PlayStation 3 | RPCS3 | ✅ | ✅ | ✅ | |
-| Switch | Eden | ✅ | ✅ | (⁠—⁠) | controller not checked separately |
-| Nintendo 3DS | Azahar | ✅ | ✅ | (⁠—⁠) | only since decryption (#354/#356); fullscreen measured at the pixels (#316); controller not separately checked |
+| Switch | Eden | ✅ | ✅ | ✅ | confirmed by a person (2026-08-13). The mapping still said `port:1` from **before** #535 and therefore pointed at a silent device — the GUID itself had been right all along |
+| Nintendo 3DS | Azahar | ✅ | ✅ | ✅ | controller confirmed by a person (2026-08-13) — the mapping said `port:2` from before #535; only since decryption (#354/#356); fullscreen measured at the pixels (#316); controller not separately checked |
 | Dreamcast | Flycast | ✅ | ✅ | ✅ | fullscreen and **Vulkan** — since #304 no longer only on the launch line but **written into `emu.cfg`**: Flycast does not adopt a `-config` value, so started from the desktop it ran on the built-in default (see below). Picture, sound and controller confirmed by a human — Flycast maps the pads by itself, the only emulator here that does |
 | Xbox | xemu | ✅ | ✅ | ✅ | needs **COMPLEX 4627 + MCPX 1.0** — retail BIOS stays black |
-| Wii U | Cemu | — | — | — | a title is in the library since #452/#455 — not launched yet |
-| PS Vita | Vita3K | — | — | — | a title is in the library since #452/#455; fullscreen and Vulkan are set in the config (#304); since #481 the launch passes the **title id** instead of the path; since #488 both startup dialogs are switched off and the title was measured booting into its loading window — no human has seen it yet; since #489 `/stop` really ends it and `/status` finds its window |
+| Wii U | Cemu | ✅ | ✅ | ✅ | confirmed by a person (2026-08-13), 60 FPS on Vulkan. It needed three things: a **base game** (the library held only an update, #302), the Cubeb audio backend instead of DirectSound (#541), and a controller profile — there was **none at all** (#304) |
+| PS Vita | Vita3K | ✅ | ✅ | ✅ | confirmed by a person (2026-08-13, AM2R), 60 FPS. Vita3K maps a recognised SDL pad **by itself** — measured, not assumed. The first attempt failed on the title, not the emulator: a vitamin dump, which Vita3K refuses outright; fullscreen and Vulkan are set in the config (#304); since #481 the launch passes the **title id** instead of the path; since #488 both startup dialogs are switched off and the title was measured booting into its loading window — no human has seen it yet; since #489 `/stop` really ends it and `/status` finds its window |
 
 A `—` means **untested**, not "broken". Dreamcast, Wii U and PS Vita have had content since
 #452/#455; they are untested because nobody has launched them yet, not because there is
