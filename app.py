@@ -3222,7 +3222,19 @@ def import_folder(jid, folder):
         if folder.startswith(STAGING): subprocess.run(["rm","-rf",folder])
     except Exception: pass
     build_index()
-    romm_scan()
+    # NUR DIE BETROFFENEN PLATTFORMEN. Ein voller Lauf ueber 45.000 ROMs fuer eine
+    # Handvoll importierter Dateien dauert Stunden und blockiert dabei jeden weiteren
+    # Scan.
+    #
+    # UMRECHNEN, NICHT DURCHREICHEN: `by_plat` traegt Romseerr-SLUGS, RomM erwartet
+    # ORDNERNAMEN (`platform_fs_slugs`). Die beiden weichen ab — `dreamcast` liegt in
+    # `dc`, `ngc` in `gc`. Ungerechnet liefe der Scan ins Leere und meldete trotzdem
+    # Erfolg, also genau der Fehler, den #520 behebt, nur eine Schicht tiefer.
+    ordner = sorted({o for sl in by_plat if sl != UNSORTIERT
+                     for o in slug_folders(sl)})
+    ok, grund = romm_scan(ordner or None)
+    if not ok:
+        log(f"RomM-Scan nicht ausgeloest: {grund}")
     # Nichts importiert UND nichts war schon vorhanden, aber es lagen Nicht-ROM-Dateien vor
     # -> als Fehler melden (mislabeltes Item ohne echte ROM), statt „done" vorzutäuschen. (#61)
     if moved == 0 and not by_plat and skipped:
@@ -3264,15 +3276,80 @@ def import_folder(jid, folder):
     return True
 
 # ---------- Worker: fertige SAB/JD-Downloads einsortieren ----------
-def romm_scan():
-    """Optional: RomM zu einem schnellen Bibliotheks-Scan anstoßen (nur wenn konfiguriert)."""
-    if not (cfg("romm_url") and cfg("romm_user") and cfg("romm_pass")): return
+def romm_scan(fs_slugs=None):
+    """RomM einen Scan anstoßen. -> (ok, grund). Optional auf Ordner begrenzt.
+
+    WAS HIER VORHER STAND UND WARUM ES NIE FUNKTIONIERT HAT (#520): Ein `POST /api/scan`
+    mit einem `except Exception` drumherum. Am laufenden RomM gemessen:
+
+        POST /api/login  -> 200
+        POST /api/scan   -> 403  "CSRF token verification failed"
+        (mit korrektem CSRF-Kopf) -> 404  {"detail":"Not Found"}
+
+    Zwei unabhängige Fehler — und BEIDE unsichtbar, weil `requests` bei 4xx nichts wirft.
+    Der `except`-Zweig wurde nie betreten, `log()` schrieb nie eine Zeile, und jeder
+    Aufrufer hielt einen Scan für angefordert. Ein Aufruf, der zurückkehrt, erfolgreich
+    aussieht und nichts tut.
+
+    DEN SCAN GIBT ES NICHT ALS REST-ENDPUNKT. Er ist ein Socket.IO-Ereignis
+    (`@socket_server.on("scan")`), eingehängt unter `/ws`. Die Aufgabe `scan_library`
+    trägt `manual_run: false`, `POST /api/tasks/run/scan_library` scheitert also mit 400.
+
+    WARUM POLLING UND KEIN WEBSOCKET: Socket.IO spricht auch reines HTTP — OPEN, CONNECT,
+    dann das Ereignis als POST. Damit genügt `requests`, das ohnehin hier ist; ein
+    `websockets`- oder `python-socketio`-Paket wäre eine neue Abhängigkeit für einen
+    Aufruf, der einmal je Import passiert.
+
+    `fs_slugs` begrenzt den Lauf auf einzelne Ordner. Für ein paar importierte Dateien
+    45.000 ROMs anzufassen ist kein Verhältnis — und ein voller Lauf dauert Stunden.
+
+    EN: there is no REST endpoint for the scan; it is a Socket.IO event under `/ws`.
+    The previous code posted to a route that returns 403 and then 404, and reported
+    neither, because requests does not raise on 4xx. Plain HTTP polling keeps this
+    dependency-free.
+    """
+    if not (cfg("romm_url") and cfg("romm_user") and cfg("romm_pass")):
+        return False, "nicht konfiguriert"
+    u = cfg("romm_url").rstrip("/")
+    basis = f"{u}/ws/socket.io/"
+    p = {"EIO": "4", "transport": "polling"}
     try:
         s = requests.Session()
-        s.post(f"{cfg("romm_url")}/api/login", auth=(cfg("romm_user"),cfg("romm_pass")), timeout=10)
-        s.post(f"{cfg("romm_url")}/api/scan", json={"platforms":[], "type":"quick"}, timeout=10)
+        r = s.post(f"{u}/api/login", auth=(cfg("romm_user"), cfg("romm_pass")), timeout=10)
+        # JEDER SCHRITT WIRD GEPRUEFT. Genau das fehlte.
+        if not r.ok:
+            return False, f"Anmeldung: HTTP {r.status_code}"
+        r = s.get(basis, params=p, timeout=15)
+        if not r.ok:
+            return False, f"Socket-Handschlag: HTTP {r.status_code}"
+        m = re.search(r'"sid":"([^"]+)"', r.text or "")
+        if not m:
+            return False, f"keine Sitzungskennung in der Antwort: {(r.text or '')[:60]}"
+        p = dict(p, sid=m.group(1))
+        r = s.post(basis, params=p, data="40", timeout=15)
+        if not r.ok:
+            return False, f"Namensraum: HTTP {r.status_code}"
+        s.get(basis, params=p, timeout=15)          # Bestaetigung abholen
+        auftrag = {"platforms": [], "type": "quick", "apis": [], "roms_ids": [],
+                   "platform_fs_slugs": list(fs_slugs or [])}
+        r = s.post(basis, params=p, data="42" + json.dumps(["scan", auftrag]), timeout=15)
+        if not r.ok:
+            return False, f"Scan-Ereignis: HTTP {r.status_code}"
+        # EINE ABSAGE IST KEINE ZUSAGE. RomM weist ab, solange ein Scan-Auftrag wartet —
+        # und wartende Auftraege stapeln sich, wenn niemand sie abholt. Ohne dieses
+        # Nachlesen sieht die Absage wie ein Erfolg aus, und genau darum geht es hier.
+        r = s.get(basis, params=p, timeout=25)
+        for teil in (r.text or "").split("\x1e"):
+            if teil.startswith("42") and "scan:done_ko" in teil:
+                try:
+                    grund = json.loads(teil[2:])[1]
+                except Exception:
+                    grund = teil[:80]
+                return False, f"RomM lehnt ab: {grund}"
     except Exception as e:
-        log(f"RomM-Scan-Hinweis: {e}")
+        log(f"RomM-Scan fehlgeschlagen: {type(e).__name__}: {e}")
+        return False, str(e)
+    return True, ""
 
 # ---------- Play im Browser: Verweis auf RomMs Spieler (#69) ----------
 # RomM bringt EmulatorJS fest eingebaut mit — kein zusaetzlicher Container, kein CDN.

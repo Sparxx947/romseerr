@@ -3448,7 +3448,9 @@ def test_import_names_what_it_skipped(appmod, tmp_path, monkeypatch):
                        "state": "downloading", "platform": "nes"}]
     monkeypatch.setattr(appmod, "save_jobs", lambda: None)
     monkeypatch.setattr(appmod, "build_index", lambda: None)
-    monkeypatch.setattr(appmod, "romm_scan", lambda: None)
+    # Der Vertrag ist (ok, grund) und nimmt die Ordnerliste entgegen (#520) —
+    # eine Attrappe ohne Parameter wuerde den Aufrufer sprengen.
+    monkeypatch.setattr(appmod, "romm_scan", lambda *a, **k: (True, ""))
     d = tmp_path / "job"; d.mkdir()
     (d / "spielstand.sav.wasd").write_text("x")     # unbekannt in BEIDEN Ebenen
     (d / "beipack.exe").write_text("x")
@@ -3793,7 +3795,9 @@ def test_successful_import_resets_the_attempt_counter(appmod, tmp_path, monkeypa
     """Was einmal geklappt hat, fängt später nicht bei „3. Versuch" an. (#200)"""
     monkeypatch.setattr(appmod, "save_jobs", lambda: None)
     monkeypatch.setattr(appmod, "build_index", lambda: None)
-    monkeypatch.setattr(appmod, "romm_scan", lambda: None)
+    # Der Vertrag ist (ok, grund) und nimmt die Ordnerliste entgegen (#520) —
+    # eine Attrappe ohne Parameter wuerde den Aufrufer sprengen.
+    monkeypatch.setattr(appmod, "romm_scan", lambda *a, **k: (True, ""))
     monkeypatch.setattr(appmod, "notify_available", lambda *a, **k: None)
     monkeypatch.setattr(appmod, "send_push_to_user", lambda *a, **k: None)
     monkeypatch.setattr(appmod, "ROMS", str(tmp_path / "roms"))
@@ -5715,9 +5719,12 @@ def test_an_import_without_a_platform_names_the_folder_it_landed_in(appmod, tmp_
     monkeypatch.setattr(appmod, "set_state",
                         lambda jid, **kw: gemeldet.update(kw))
     monkeypatch.setattr(appmod, "get_job", lambda jid: {"id": "1", "platform": "", "title": "T"})
-    for name in ("romm_scan", "notify_all", "count_import", "save_jobs"):
+    # `romm_scan` steht NICHT in dieser Schleife: sein Vertrag ist (ok, grund), und
+    # eine pauschale None-Attrappe laesst den Aufrufer beim Entpacken scheitern (#520).
+    for name in ("notify_all", "count_import", "save_jobs"):
         if hasattr(appmod, name):
             monkeypatch.setattr(appmod, name, lambda *a, **k: None)
+    monkeypatch.setattr(appmod, "romm_scan", lambda *a, **k: (True, ""))
 
     appmod.import_folder("1", str(staging))
 
@@ -6600,9 +6607,12 @@ def test_the_game_folder_moves_as_one_unit_and_its_files_are_not_scattered(appmo
     gemeldet = {}
     monkeypatch.setattr(appmod, "set_state", lambda jid, **kw: gemeldet.update(kw))
     monkeypatch.setattr(appmod, "get_job", lambda jid: {"id": "1", "platform": "wiiu", "title": "T"})
-    for name in ("romm_scan", "notify_all", "count_import", "save_jobs"):
+    # `romm_scan` steht NICHT in dieser Schleife: sein Vertrag ist (ok, grund), und
+    # eine pauschale None-Attrappe laesst den Aufrufer beim Entpacken scheitern (#520).
+    for name in ("notify_all", "count_import", "save_jobs"):
         if hasattr(appmod, name):
             monkeypatch.setattr(appmod, name, lambda *a, **k: None)
+    monkeypatch.setattr(appmod, "romm_scan", lambda *a, **k: (True, ""))
 
     appmod.import_folder("1", str(staging))
 
@@ -7493,3 +7503,121 @@ def test_neo_geo_cd_is_playable_and_says_it_needs_a_bios(appmod):
     assert "neo-geo-cd" in appmod.NEEDS_BIOS
     assert appmod.CAVEAT.get("neo-geo-cd") is None, (
         "der Arcade-Romset-Hinweis passt nicht auf eine CD")
+
+
+# ---------------------------------------------------------------------------
+# #520: romm_scan() lief gegen einen Endpunkt, den es nicht gibt — und schwieg.
+# ---------------------------------------------------------------------------
+
+class _FakeAntwort:
+    def __init__(self, status=200, text="OK"):
+        self.status_code = status
+        self.text = text
+    @property
+    def ok(self):
+        return 200 <= self.status_code < 300
+
+
+class _FakeSitzung:
+    """Ein RomM, das man Schritt fuer Schritt scheitern lassen kann.
+
+    NUR DIE HTTP-SCHICHT IST NACHGEBAUT, nicht RomM. Dass der Ablauf gegen das echte
+    RomM traegt, ist am laufenden Dienst gemessen worden (OPEN -> CONNECT -> `42[...]`
+    -> `scan:update_stats` -> `Scan completed`) und nicht hier bewiesen. Was diese
+    Tests festhalten, ist etwas anderes und ebenso wichtig: dass ein FEHLSCHLAG als
+    Fehlschlag zurueckkommt statt als Erfolg.
+    """
+    def __init__(self, login=200, handshake=200, sid='{"sid":"abc"}',
+                 connect=200, emit=200, antwort=""):
+        self.login, self.handshake, self.sid = login, handshake, sid
+        self.connect, self.emit, self.antwort = connect, emit, antwort
+        self.gesendet = []
+
+    def post(self, url, **kw):
+        self.gesendet.append((url, kw.get("data"), kw.get("params")))
+        if "/api/login" in url:
+            return _FakeAntwort(self.login)
+        daten = kw.get("data") or ""
+        if daten == "40":
+            return _FakeAntwort(self.connect)
+        return _FakeAntwort(self.emit)
+
+    def get(self, url, **kw):
+        if not self.gesendet or all("/api/login" in g[0] for g in self.gesendet):
+            return _FakeAntwort(self.handshake, self.sid)
+        return _FakeAntwort(200, self.antwort or '40{"sid":"x"}')
+
+
+def _romm_konfiguriert(appmod, monkeypatch, sitzung):
+    monkeypatch.setattr(appmod, "cfg", lambda k, d="": {
+        "romm_url": "http://romm:8998", "romm_user": "u", "romm_pass": "p"}.get(k, d))
+    monkeypatch.setattr(appmod.requests, "Session", lambda: sitzung)
+
+
+def test_a_refused_romm_scan_is_reported_as_refused(appmod, monkeypatch):
+    """Eine Absage darf nicht wie ein Erfolg aussehen. (#520)
+
+    RomM weist jeden Scan ab, solange ein Auftrag wartet:
+
+        scan:done_ko  "A scan is already in progress"
+
+    Am 2026-08-13 hatten sich 54 solcher Auftraege gestapelt, und die Bibliothek war
+    sieben Tage eingefroren. Wer die Absage nicht liest, meldet trotzdem Erfolg.
+    """
+    s = _FakeSitzung(antwort='42["scan:done_ko","A scan is already in progress"]')
+    _romm_konfiguriert(appmod, monkeypatch, s)
+    ok, grund = appmod.romm_scan(["snes"])
+    assert ok is False
+    assert "A scan is already in progress" in grund, grund
+
+
+def test_every_step_of_the_romm_scan_is_checked(appmod, monkeypatch):
+    """Jeder Schritt nennt seinen Statuscode. (#520)
+
+    DAS IST DER EIGENTLICHE FEHLER GEWESEN: `requests` wirft bei 4xx nicht. Die alte
+    Fassung stand in einem `except Exception`, das nie betreten wurde — gemessen 403
+    (CSRF) und danach 404 (Endpunkt weg), beides ohne eine einzige Protokollzeile.
+
+    Wer eine dieser Pruefungen entfernt, laesst diesen Test fallen.
+    """
+    for feld, erwartet in (("login", "Anmeldung"), ("handshake", "Handschlag"),
+                           ("connect", "Namensraum"), ("emit", "Scan-Ereignis")):
+        s = _FakeSitzung(**{feld: 403})
+        _romm_konfiguriert(appmod, monkeypatch, s)
+        ok, grund = appmod.romm_scan()
+        assert ok is False, feld
+        assert "403" in grund and erwartet in grund, (feld, grund)
+
+
+def test_a_handshake_without_a_session_id_is_not_treated_as_success(appmod, monkeypatch):
+    """HTTP 200 ohne Sitzungskennung ist kein Handschlag. (#520)
+
+    Ein Statuscode allein genuegt nicht: Liefert der Server 200 und irgendetwas
+    anderes als das OPEN-Paket, gibt es nichts, worauf sich das Ereignis beziehen
+    koennte. Ohne diese Pruefung liefe der Rest mit `sid=None` weiter und meldete
+    Erfolg.
+    """
+    s = _FakeSitzung(sid="<html>Wartungsseite</html>")
+    _romm_konfiguriert(appmod, monkeypatch, s)
+    ok, grund = appmod.romm_scan()
+    assert ok is False
+    assert "Sitzungskennung" in grund, grund
+
+
+def test_the_romm_scan_asks_only_for_the_folders_that_changed(appmod, monkeypatch):
+    """Gezielt statt alles — und als ORDNER, nicht als Slug. (#520)
+
+    RomM waehlt ueber `platform_fs_slugs`, also ueber Ordnernamen. Ein voller Lauf
+    ueber 45.000 ROMs fuer ein paar importierte Dateien dauert Stunden und blockiert
+    dabei jeden weiteren Scan.
+    """
+    s = _FakeSitzung()
+    _romm_konfiguriert(appmod, monkeypatch, s)
+    ok, grund = appmod.romm_scan(["dc", "snes"])
+    assert ok is True, grund
+    ereignis = [d for _u, d, _p in s.gesendet if d and d.startswith("42")]
+    assert ereignis, s.gesendet
+    name, auftrag = json.loads(ereignis[0][2:])
+    assert name == "scan"
+    assert auftrag["platform_fs_slugs"] == ["dc", "snes"], auftrag
+    assert auftrag["platforms"] == [], "beide Auswahlen gleichzeitig zu fuellen ist mehrdeutig"
