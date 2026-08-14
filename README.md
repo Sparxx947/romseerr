@@ -1015,6 +1015,16 @@ selbst importiert. Die Testwerkzeuge in `requirements-dev.txt` bleiben **bewusst
 ein driftendes Testwerkzeug wird in der CI rot und damit sichtbar, eine driftende
 Laufzeitabhängigkeit fährt still ins Image.
 
+**Dependabot bündelt seine Aktualisierungen** (`groups` in `.github/dependabot.yml`, #585),
+je Ökosystem eine Gruppe für `minor`/`patch` und eine für `major`. Grund ist nicht Ordnung,
+sondern Aufwand: `dev` verlangt, dass ein Zweig aktuell ist, und Auto-Merge ist im
+Repository abgeschaltet — **jeder Merge setzt damit alle übrigen Dependabot-PRs zurück**,
+und jeder braucht danach eine eigene volle CI-Runde. Am 2026-08-14 kosteten sechs
+einzeilige Versionssprünge rund 40 Minuten und sechs CI-Läufe, dazu einen Merge-Konflikt
+zwischen benachbarten Zeilen derselben Workflow-Datei. Die Majors bleiben getrennt, weil
+sie brechen können — vier der sechs waren welche — und ein roter Sprung sonst auch die
+harmlosen Aktualisierungen blockierte.
+
 ---
 
 ## Projektstatus
