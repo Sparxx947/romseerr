@@ -8452,3 +8452,60 @@ def test_the_result_of_a_finished_run_stays_readable(appmod, client, tmp_path, m
     assert e["plattform"] == "gb" and e["trocken"] is True
     assert e["ausgabe"], "die Ausgabe des Laufs fehlt — genau sie ist das Ergebnis"
     assert any("gb" in z for z in e["ausgabe"]), e["ausgabe"]
+
+
+# --- #607: PS5-Releases sind keine Switch-Treffer -----------------------------------
+
+def test_ps5_and_xbox_series_are_recognised(appmod):
+    """Beide Plattformen fehlten in der Titelerkennung. (#607)
+
+    GEMESSEN: `guess_platform("Resident.Evil.4.PS5-DUPLEX")` gab **None** zurueck, waehrend
+    `PS4` und `XBOX` erkannt wurden. Mit `None` greift „die Kategorie des Indexers gewinnt"
+    (#452) — und die war Switch. Drei der vier Switch-Treffer fuer Resident Evil 4 waren
+    damit PS5, der groesste 62 GB.
+
+    Die Muster stehen VOR den allgemeineren: `playstation` allein faellt sonst auf `psx`.
+    """
+    assert appmod.guess_platform("Resident.Evil.4.PS5-DUPLEX") == "ps5"
+    assert appmod.guess_platform("Resident.Evil.4.PS5.iNTERNAL-PS5B") == "ps5"
+    assert appmod.guess_platform("Some.Game.PlayStation 5.Edition") == "ps5"
+    assert appmod.guess_platform("Some.Game.XBOX.SERIES.X-GRP") == "xboxseries"
+    # Gegenprobe: Die bestehende Zuordnung darf sich nicht verschieben.
+    assert appmod.guess_platform("Some.Game.PS4-DUPLEX") == "ps4"
+    assert appmod.guess_platform("Resident.Evil.4.NSW-VENOM") == "switch"
+    assert appmod.guess_platform("Final Fantasy VII PlayStation") == "psx"
+
+
+def test_a_ps5_hit_is_dropped_instead_of_being_called_switch(appmod, monkeypatch):
+    """Ein Treffer fuer eine nicht bediente Plattform faellt raus. (#607)
+
+    NICHT NUR UMBENANNT: `guess_platform` allein zu lehren, was PS5 ist, haette nichts
+    geaendert — die Regel aus #452 laesst die Kategorie gewinnen, solange die Plattform
+    aus dem Titel kein eingetragener Mieter dieser Kategorie ist. Ein PS5-Release ist hier
+    aber nie richtig: kein Ordner, kein Emulator, kein Importweg.
+
+    Geprueft wird deshalb der Weg durch `search_usenet`, nicht die Hilfsfunktion.
+    """
+    antwort = [
+        {"protocol": "usenet", "title": "Resident.Evil.4.PS5-DUPLEX", "size": 66520000000,
+         "downloadUrl": "http://x/1", "categories": [{"id": 101035}], "indexer": "i"},
+        {"protocol": "usenet", "title": "Resident.Evil.4.NSW-VENOM", "size": 14010000000,
+         "downloadUrl": "http://x/2", "categories": [{"id": 101035}], "indexer": "i"},
+        {"protocol": "usenet", "title": "Some.Game.XBOX.SERIES.X-GRP", "size": 1,
+         "downloadUrl": "http://x/3", "categories": [{"id": 101035}], "indexer": "i"},
+    ]
+
+    class _R:
+        status_code = 200
+        def json(self): return antwort
+    monkeypatch.setattr(appmod, "cfg", lambda k, *a: "x" if k in ("prow_url", "prow_apikey") else "")
+    monkeypatch.setattr(appmod.requests, "get", lambda *a, **k: _R())
+    zeilen = []
+    monkeypatch.setattr(appmod, "log", lambda m: zeilen.append(m))
+
+    out = appmod.search_usenet("Resident Evil 4", "101035")
+    titel = [x["title"] for x in out]
+    assert titel == ["Resident.Evil.4.NSW-VENOM"], titel
+    assert out[0]["platform"] == "switch"
+    # Und es wird gesagt: Eine Suche, die still weniger liefert, ist schwer zu deuten.
+    assert any("verworfen" in z for z in zeilen), zeilen

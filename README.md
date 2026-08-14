@@ -86,6 +86,14 @@ Die vollständige Regel steht in
   grenzt die Suche ein; eine reine Retro-Auswahl schaltet Usenet aus.
 - **Dedup** gegen die bestehende Bibliothek: vorhandene Titel werden markiert und ans Ende
   sortiert; ein erneuter Download wird server- und clientseitig verhindert.
+- **Was dieser Stack nicht bedient, taucht nicht auf.** PS5- und Xbox-Series-Releases
+  werden verworfen, statt einer Plattform zugeschlagen zu werden (#607). Der Grund ist
+  konkret: Die Titelerkennung kannte `PS5` nicht, lieferte `None` — und dann gewinnt die
+  Kategorie des Indexers. Drei der vier „Switch"-Treffer für *Resident Evil 4* waren so
+  PS5, der größte **62 GB**. Das ist ausdrücklich etwas anderes als eine zu grobe Kategorie
+  (Wii U fährt unter Wii mit, #452): Für PS5 gibt es hier keinen Ordner, keinen Emulator
+  und keinen Importweg, ein solcher Treffer ist also **nie** richtig. Verworfene Treffer
+  stehen im Protokoll — eine Suche, die still weniger liefert, wäre nicht deutbar.
 - **Cover** über IGDB (SteamGridDB als Fallback), für Usenet-Treffer lazy nachgeladen.
 
 ### Detailseite

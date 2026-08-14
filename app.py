@@ -473,6 +473,13 @@ KW = [
  (r"playstation\s*vita|\bpsvita\b|\bpsv\b|\bvita\b", "psvita"),
  (r"playstation\s*2|\bps2\b", "ps2"),
  (r"playstation\s*3|\bps3\b", "ps3"),
+ # NICHT BEDIENTE PLATTFORMEN, und sie stehen VOR den allgemeineren Mustern (#607):
+ # `playstation` allein faellt sonst auf `psx`, und `PS5` wurde bis dahin GAR NICHT
+ # erkannt — `guess_platform` gab None zurueck, womit die Indexer-Kategorie gewann und
+ # ein PS5-Release als Switch-Treffer erschien. Gemessen: drei der vier "Switch"-Treffer
+ # fuer Resident Evil 4 waren PS5, einer davon 62 GB.
+ (r"playstation\s*5|\bps5\b", "ps5"),
+ (r"xbox[\s._-]*series|\bxsx\b|\bxss\b", "xboxseries"),   # Trenner: Release-Namen nutzen Punkte
  (r"playstation\s*4|\bps4\b", "ps4"),
  (r"playstation|\bpsx\b|\bps1\b|psone", "psx"),
  (r"xbox\s*360|\bx360\b", "xbox360"),
@@ -494,6 +501,17 @@ KW = [
  (r"\bdos\b|ms-?dos", "dos"),
  (r"arcade|\bmame\b", "arcade"),
 ]
+
+# WAS DIESER STACK NICHT BEDIENT (#607). Kein Ordner, kein Emulator, kein Importweg —
+# ein solcher Treffer ist hier NIE richtig, egal unter welcher Kategorie er ankommt.
+#
+# Das ist ausdruecklich ein anderer Fall als #452: Dort ist die Kategorie eines Indexers
+# zu grob (Wii U faehrt unter Wii mit), und die Regel „die Kategorie gewinnt" ist richtig.
+# Hier gewinnt sie etwas, das niemand gebrauchen kann.
+#
+# EN: platforms this stack does not serve at all; such a hit is never right here, whatever
+# category it arrives under — a different case from #452, where a category is merely coarse.
+NICHT_BEDIENT = {"ps5", "xboxseries"}
 
 def guess_platform(text):
     t = (text or "").lower()
@@ -2081,6 +2099,7 @@ def plattform_aus_kategorie_und_titel(aus_kategorie, titel):
 
 def search_usenet(q, cats, limit=30):
     out = []
+    verworfen = 0
     if not (cfg("prow_url") and cfg("prow_apikey") and cats): return out
     try:
         u = f"{cfg("prow_url")}/api/v1/search"
@@ -2092,12 +2111,23 @@ def search_usenet(q, cats, limit=30):
             slug = None
             for c in cats:
                 if c in USENET_CAT: slug = USENET_CAT[c]; break
+            # ZUERST das Unbrauchbare aussortieren (#607) — bevor irgendeine Kategorie
+            # ihm eine Plattform gibt. Ein PS5-Release ist hier auch dann falsch, wenn der
+            # Indexer es unter Switch fuehrt; frueher kam es damit als Switch-Treffer an.
+            if guess_platform(it.get("title", "")) in NICHT_BEDIENT:
+                verworfen += 1
+                continue
             slug = plattform_aus_kategorie_und_titel(slug, it.get("title",""))
             out.append({"source":"usenet","ref":it.get("downloadUrl"),"title":it.get("title","")[:140],
                         "platform":slug,"size":int(it.get("size") or 0),
                         "cover":"", "extra":it.get("indexer","")})
     except Exception as e:
         log(f"Usenet-Suche-Fehler: {e}")
+    if verworfen:
+        # NICHT STILL WENIGER LIEFERN. Wer sucht und nichts findet, soll nachlesen
+        # koennen, ob es nichts gab oder ob etwas aussortiert wurde.
+        log(f"Usenet-Suche '{q[:40]}': {verworfen} Treffer fuer nicht bediente "
+            f"Plattformen verworfen")
     return out
 
 SET_RE = re.compile(r'\b(collection|fullset|full set|romset|rom set|no-?intro|redump|1g1r|'
