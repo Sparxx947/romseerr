@@ -47,6 +47,26 @@ def test_startseite_laedt_ohne_konsolenfehler(seite, konsolenfehler):
     assert not konsolenfehler, "Konsolenfehler beim Laden: " + " | ".join(konsolenfehler)
 
 
+def test_ein_treffer_ohne_plattform_wird_benannt_statt_fragezeichen(seite):
+    """Ohne Slug stand in der Karte ein blosses `?` — der Titel liess sich anfordern, ohne
+    dass jemand sah, dass er mangels Zielordner in `.unsortiert` landet. (#621)
+
+    WARUM IM BROWSER UND NICHT IM UNIT-TEST: Der Unit-Test liest die Datei und prueft, dass
+    der Schluessel darin vorkommt. Ob `plattformMarke()` ihn zur Laufzeit auch AUFLOEST —
+    mit geladener Sprachtabelle und ausgefuehrtem JavaScript — sieht nur eine echte Seite.
+    Genau dort sassen sechs Fehler in einem gruenen Build (#319-#324).
+    """
+    seite.wait_for_selector("text=Romseerr", timeout=15000)
+    ohne = seite.evaluate("plattformMarke('')")
+    assert "?" not in ohne, f"die Karte zeigt weiterhin ein Fragezeichen: {ohne}"
+    assert "unbekannt" in ohne.lower() or "unknown" in ohne.lower(), ohne
+    # Die Folge muss im Hinweis stehen, sonst ist die Kennzeichnung nur ein Etikett.
+    assert "unsortiert" in ohne.lower(), f"der Hinweis nennt den Ordner nicht: {ohne}"
+    # Gegenprobe: ein bekannter Slug wird unveraendert dargestellt.
+    mit = seite.evaluate("plattformMarke('snes')")
+    assert "unbekannt" not in mit.lower() and "unknown" not in mit.lower(), mit
+
+
 def test_jede_ansicht_der_seitenleiste_rendert(seite):
     """Jeder Menüpunkt zeigt eigenen Inhalt statt einer leeren Fläche.
 
