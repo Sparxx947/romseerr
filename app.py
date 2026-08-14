@@ -2659,6 +2659,31 @@ def dl_name(jid, title):
     safe = re.sub(r'[^A-Za-z0-9]+', '.', (title or '')).strip('.')[:80]
     return f"romseerr_{jid}__{safe}" if safe else f"romseerr_{jid}"
 
+# Der Auftragspraefix aus `dl_name`, wie er in einem Dateinamen ankommt. (#613)
+PRAEFIX_RE = re.compile(r"^romseerr_\d+__")
+
+def ohne_auftragspraefix(name):
+    """`romseerr_<jid>__Titel.xci` -> `Titel.xci`. (#613)
+
+    WOHER DER PRAEFIX KOMMT UND WARUM ER BLEIBEN MUSS: `dl_name` setzt ihn, damit
+    `find_output` den fertigen Ordner wiederfindet (#64). Das ist richtig — er gehoert
+    zur Auftragsverwaltung.
+
+    WARUM ER TROTZDEM NICHT IN DIE BIBLIOTHEK GEHOERT: Besteht ein Release aus einer
+    einzigen Datei, benennt SAB sie nach dem Auftrag, und der Import uebernahm den Namen
+    unveraendert. In der Bibliothek standen daraufhin acht Dateien wie
+    `romseerr_1786694061017__Sonic.X.Shadow.Generations.NSW.NiiNTENDO.xci` — RomM zeigt
+    den Dateinamen als Titel an.
+
+    Schwerer wiegt der Zeitstempel darin: Zwei Kopien desselben Spiels, zu verschiedenen
+    Zeiten geholt, tragen verschiedene Praefixe und sehen damit fuer die Dublettenpruefung
+    wie zwei verschiedene Titel aus.
+
+    EN: the job prefix belongs to the job machinery, not to the shelf — and because it
+    contains a timestamp, two copies of one game never look like duplicates.
+    """
+    return PRAEFIX_RE.sub("", name or "")
+
 def find_output(base, jid):
     """Fertigen Ausgabeordner zu einem Job über das `romseerr_<jid>`-Präfix finden
     (exakt oder mit Titel-Suffix). Robust gegen die Namensbereinigung von SAB/JD:
@@ -3356,14 +3381,18 @@ def import_folder(jid, folder):
                 continue
             # Plattform pro Datei: eindeutige Endung schlägt den Job-Hinweis
             slug = resolve_slug(EXT2PLAT.get(ext) or job_slug)
-            if in_library(ziel, slug):
+            # Gegen den Namen pruefen, der TATSAECHLICH in der Bibliothek landet (#613).
+            # Mit Praefix verglich diese Zeile gegen etwas, das dort nie steht — und
+            # jeder erneute Import galt als neu.
+            if in_library(ohne_auftragspraefix(ziel), slug):
                 continue  # schon vorhanden -> nicht doppeln
             # Ohne Plattform NICHT raten und schon gar keine erfinden: ab in die Ablage.
             # Sie beginnt mit einem Punkt und ist damit keine Plattform — die Datei ist
             # da, sichtbar, und taucht nirgends als System auf. (#367)
             ordner = slug or UNSORTIERT
             target = os.path.join(ROMS, ordner); os.makedirs(target, exist_ok=True)
-            dst = os.path.join(target, ziel)
+            # OHNE UNSEREN AUFTRAGSPRAEFIX (#613) — der ist Buchfuehrung, kein Titel.
+            dst = os.path.join(target, ohne_auftragspraefix(ziel))
             if os.path.exists(dst): continue
             try:
                 subprocess.run(["cp","-a",src,dst], check=True); moved += 1

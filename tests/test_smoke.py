@@ -8613,3 +8613,42 @@ def test_content_detection_stays_narrow(appmod, tmp_path):
 
     # Was es nicht gibt, wirft nicht.
     assert appmod.rom_endung_aus_inhalt(str(tmp_path / "gibtsnicht")) is None
+
+
+# --- #613: kein Auftragspraefix in der Bibliothek -----------------------------------
+
+def test_the_job_prefix_never_reaches_the_library(appmod):
+    """`romseerr_<jid>__` wird vom Zielnamen abgeschnitten. (#613)
+
+    GEMESSEN: Acht Dateien in der Bibliothek hiessen so —
+    `romseerr_1786694061017__Sonic.X.Shadow.Generations.NSW.NiiNTENDO.xci`, und eine davon
+    stammte schon vom Vortag. RomM zeigt den Dateinamen als Titel an.
+
+    Der Praefix selbst ist richtig und bleibt: `dl_name` setzt ihn, damit `find_output`
+    den fertigen Ordner wiederfindet (#64). Er gehoert nur nicht ins Regal — und weil er
+    einen ZEITSTEMPEL traegt, sehen zwei Kopien desselben Spiels aus verschiedenen
+    Downloads fuer die Dublettenpruefung wie zwei verschiedene Titel aus.
+    """
+    assert appmod.ohne_auftragspraefix(
+        "romseerr_1786694061017__Sonic.X.Shadow.Generations.NSW.NiiNTENDO.xci"
+    ) == "Sonic.X.Shadow.Generations.NSW.NiiNTENDO.xci"
+    assert appmod.ohne_auftragspraefix("romseerr_1786356431005__Fable.USA.XBOX.iso") \
+        == "Fable.USA.XBOX.iso"
+
+
+def test_only_our_own_prefix_is_removed(appmod):
+    """Nur das eigene Muster faellt weg — sonst verstuemmelt der Fix fremde Namen. (#613)
+
+    Ein Spiel darf `romseerr` heissen, ein Titel darf mit Ziffern beginnen, und ein
+    einzelner Unterstrich ist kein Praefix. Ohne diese Grenze schneidet der Fix
+    Dateinamen ab, die nie von hier kamen.
+    """
+    for unveraendert in (
+        "Sonic.X.Shadow.Generations.xci",
+        "romseerr.xci",                       # heisst nur so
+        "romseerr_ohne_zahl__Titel.xci",      # keine Auftrags-ID
+        "romseerr_123_Titel.xci",             # nur EIN Unterstrich
+        "vor_romseerr_123__Titel.xci",        # nicht am Anfang
+        "",
+    ):
+        assert appmod.ohne_auftragspraefix(unveraendert) == unveraendert, unveraendert
