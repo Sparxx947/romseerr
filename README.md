@@ -86,6 +86,19 @@ Die vollständige Regel steht in
   grenzt die Suche ein; eine reine Retro-Auswahl schaltet Usenet aus.
 - **Dedup** gegen die bestehende Bibliothek: vorhandene Titel werden markiert und ans Ende
   sortiert; ein erneuter Download wird server- und clientseitig verhindert.
+  Verglichen wird ein **normalisierter Schlüssel**, nicht der Dateiname — Endung, Klammern,
+  Region und Versionsnummern fallen weg. Dazu gehört seit #615 das **Kürzel der
+  Release-Gruppe** am Namensende (`…NSW-SUXXORS`, `….NSW.NiiNTENDO`) und der **Apostroph**
+  (`O'Clock` = `OClock`) sowie **Akzente**, die auf ihren Grundbuchstaben abgebildet werden
+  (`Pokémon` = `Pokemon`, `Fußball` = `Fussball`; #618). Ohne all das galt dasselbe Spiel als
+  zwei Spiele:
+  drei Titel lagen bitgleich doppelt in der Bibliothek, 26 GB. Die Regel greift bewusst nur
+  direkt hinter einem Plattform-Token und nur bei Kürzeln in Szene-Schreibweise, damit
+  `Bomberman 64 - Arcade Edition` nicht mit `Bomberman 64` verschmilzt.
+  Umgekehrt wird als **Endung nur abgeschnitten, was auch eine ist** (#617): `splitext()`
+  hielt alles hinter dem letzten Punkt dafür und löschte damit echten Titeltext —
+  `R.B.I. Baseball` wurde zu `R.B.I`, `Vol. 3` zu `Vol`. **1.307 Titelgruppen mit 5.401
+  Dateien** trugen dadurch denselben Schlüssel, und ein fehlender Band galt als vorhanden.
 - **Was dieser Stack nicht bedient, taucht nicht auf.** PS5- und Xbox-Series-Releases
   werden verworfen, statt einer Plattform zugeschlagen zu werden (#607). Der Grund ist
   konkret: Die Titelerkennung kannte `PS5` nicht, lieferte `None` — und dann gewinnt die
@@ -94,6 +107,13 @@ Die vollständige Regel steht in
   (Wii U fährt unter Wii mit, #452): Für PS5 gibt es hier keinen Ordner, keinen Emulator
   und keinen Importweg, ein solcher Treffer ist also **nie** richtig. Verworfene Treffer
   stehen im Protokoll — eine Suche, die still weniger liefert, wäre nicht deutbar.
+  Seit #616 gilt dasselbe für **modernen PC und Mobil** (`Windows`, `Linux`, `macOS`,
+  `Android`, `APK`, `GOG`, `Steam`): 21 von 26 Treffern für *Cyberpunk 2077* kamen ohne
+  Plattform zurück, waren anforderbar und landeten mangels Zielordner in `.unsortiert`.
+  Der **Retro-PC bleibt bedient** — `dos` (5.903 Titel, Kern `dosbox_pure`) und `scummvm`
+  haben eigene Muster, die davor greifen. Und `PC Engine` ist TurboGrafx-16: Das Muster
+  schließt `pc-fx`, `pc-8800`, `pc-9800`, `pc-booter` und `pc-jr` ausdrücklich aus, sonst
+  hätte es echte Plattformen dieser Bibliothek verworfen.
 - **Cover** über IGDB (SteamGridDB als Fallback), für Usenet-Treffer lazy nachgeladen.
 
 ### Detailseite
