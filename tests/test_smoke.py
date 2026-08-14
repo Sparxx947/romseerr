@@ -6365,6 +6365,26 @@ def test_the_requests_list_names_an_unknown_platform_instead_of_leaving_a_gap(ap
     assert i18n_hat("plat_unknown") == 5, "der Text fehlt in mindestens einer Sprache"
 
 
+def test_buttons_and_selects_have_base_styling(appmod):
+    """`input` bekam vor Jahren Grundstile, `button`, `select` und `textarea` nie — 84
+    Knoepfe und 20 Auswahlfelder fielen deshalb auf den Browser-Standard zurueck: hell und
+    eckig, falsch in ALLEN VIER dunklen Designs. Am deutlichsten in den Nachrichten, wo
+    „Senden" als graues Systemknoepfchen stand.
+
+    Grundregeln AUS DEN VARIABLEN, damit alle 104 Stellen auf einmal erfasst sind statt
+    einzeln geschmueckt. Wer eine eigene Klasse oder ein inline-`style` hat, behaelt seine
+    Farbe — der Grundstil gibt Form, Schrift und Fokusring. (#639)"""
+    css = open(os.path.join(REPO, "static/css/index.css"), encoding="utf-8").read()
+    import re
+    # Ein Selektor, der button/select/textarea OHNE Klasse trifft.
+    grund = re.search(r"^[^{}\n]*\bbutton\b[^{}\n]*\bselect\b[^{}\n]*\{", css, re.M)
+    assert grund, "es gibt keine Grundregel fuer button und select"
+    block = css[grund.start():grund.start()+700]
+    assert "var(--" in block, "die Grundregel traegt feste Farben statt der Variablen"
+    # Tastaturbedienung: ohne sichtbaren Fokus ist ein Knopf fuer Tastaturnutzer unsichtbar.
+    assert "focus-visible" in css, "kein sichtbarer Fokusring"
+
+
 def test_scrollbars_follow_the_active_design(appmod):
     """Alle vier Designs sind dunkel, die Bildlaufleisten waren Browser-Standard und damit
     hell — das einzige Element der Seite, das nie gestaltet wurde. (#634)
