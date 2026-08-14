@@ -209,6 +209,7 @@
  "test_sent": "test inviato ✓",
  "webhook_ph": "URL webhook Discord",
  "plat_unknown": "piattaforma sconosciuta",
+ "plat_unknown_hint": "Piattaforma sconosciuta: all'importazione questo titolo finisce in .unsortiert e va sistemato a mano.",
  "st_pending": "⏳ In attesa di approvazione",
  "st_queued": "Richiesto",
  "st_downloading": "Scaricamento…",

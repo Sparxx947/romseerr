@@ -110,6 +110,12 @@ Die vollständige Regel steht in
   Seit #616 gilt dasselbe für **modernen PC und Mobil** (`Windows`, `Linux`, `macOS`,
   `Android`, `APK`, `GOG`, `Steam`): 21 von 26 Treffern für *Cyberpunk 2077* kamen ohne
   Plattform zurück, waren anforderbar und landeten mangels Zielordner in `.unsortiert`.
+  Was danach **immer noch keine Plattform hat**, wird weder geraten noch verworfen, sondern
+  **benannt**: Die Karte zeigt „⚠ Plattform unbekannt" mit dem Hinweis, dass der Titel beim
+  Import in `.unsortiert` landet und von Hand einsortiert werden muss (#621). Raten wäre
+  schlechter als schweigen — an 1.217 Treffern gemessen ließen sich nur 19 eindeutig über
+  den Index auflösen, und davon mehrere **falsch**: `FINAL FANTASY VII (STEAM VERSION)`
+  bekäme `nes`, weil zufällig ein NES-Hack im Index liegt.
   Der **Retro-PC bleibt bedient** — `dos` (5.903 Titel, Kern `dosbox_pure`) und `scummvm`
   haben eigene Muster, die davor greifen. Und `PC Engine` ist TurboGrafx-16: Das Muster
   schließt `pc-fx`, `pc-8800`, `pc-9800`, `pc-booter` und `pc-jr` ausdrücklich aus, sonst

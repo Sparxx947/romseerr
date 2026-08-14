@@ -108,6 +108,12 @@ The full rule is in
   Since #616 the same applies to **modern PC and mobile** (`Windows`, `Linux`, `macOS`,
   `Android`, `APK`, `GOG`, `Steam`): 21 of 26 hits for *Cyberpunk 2077* came back with no
   platform at all, were requestable, and landed in `.unsortiert` for want of a destination.
+  What still has **no platform** after that is neither guessed nor dropped but **named**: the
+  card shows "⚠ platform unknown" together with the consequence — on import the title is
+  filed under `.unsortiert` and has to be sorted by hand (#621). Guessing would be worse than
+  saying nothing: of 1,217 hits only 19 resolve to exactly one platform via the index, and
+  several of those are wrong — `FINAL FANTASY VII (STEAM VERSION)` would get `nes` because a
+  NES hack happens to sit there.
   **Retro PC stays served** — `dos` (5,903 titles, `dosbox_pure` core) and `scummvm` have
   their own patterns, which match first. And `PC Engine` is TurboGrafx-16: the pattern
   explicitly excludes `pc-fx`, `pc-8800`, `pc-9800`, `pc-booter` and `pc-jr`, which are real
