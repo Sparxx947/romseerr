@@ -132,24 +132,31 @@ Am Bestand nachgemessen, nicht angenommen.
 
 ### Benutzung
 
+Der Plattformordner steht als **einziges** Argument da; die Wurzel ist `--wurzel` und
+steht standardmäßig auf `/roms`.
+
 ```bash
 # Eine Plattform, erst als Vorschau — es wird nichts verschoben
-retronas-organisieren --trocken /roms c64
+retronas-organisieren --trocken c64
 
 # Wirklich umbauen; jeder Schritt wird protokolliert
-retronas-organisieren /roms c64
+retronas-organisieren c64
 
 # Alles, kleinste Plattform zuerst
-retronas-organisieren --alle /roms
+retronas-organisieren --alle
+
+# NUR Beiwerk einsammeln — kein Entpacken, kein Löschen (siehe unten)
+retronas-organisieren --trocken --nur-beiwerk --alle
+retronas-organisieren --nur-beiwerk amiga
 
 # Zurück: das Protokoll Schritt für Schritt rückwärts
 retronas-organisieren --zurueck /roms/.umbau/c64-20260810-134827.jsonl
 
 # Nach einem Abbruch: derselbe Befehl setzt fort, wo er aufgehört hat
-retronas-organisieren --alle /roms
+retronas-organisieren --alle
 
 # Doch von vorn
-retronas-organisieren --alle --neu /roms
+retronas-organisieren --alle --neu
 ```
 
 **Ein abgebrochener Lauf fängt nicht von vorn an.** `<roms>/.umbau/fortschritt.json` hält
@@ -306,6 +313,47 @@ beinahe geleert worden wäre.
 
 Die Schranke `BEIWERK_HOECHSTANTEIL` bleibt dabei unberührt: Bei `amiga` wären 40 % der
 Einträge betroffen, bei `c64` 13 %.
+
+#### `--nur-beiwerk`: einsammeln, ohne den ganzen Umbau zu fahren (#318)
+
+Die berichtigte Liste allein räumt nichts auf — dafür musste bisher ein **vollständiger**
+`retronas-organisieren`-Lauf laufen. Genau daran scheiterte es:
+
+* Ein voller Lauf **entpackt Archive** (die Quelldatei wird danach gelöscht) und
+  **löscht Dubletten**. Beides steht im Protokoll, ist daraus aber **nicht**
+  wiederherstellbar — `--zurueck` sagt das selbst.
+* Auf `amiga` sind das 440.564 Dateien, also Stunden.
+
+Schritt 3c besteht dagegen ausschließlich aus `shutil.move`. `--nur-beiwerk` führt ihn
+allein aus: kein Entpacken, keine Sammlungen, kein Löschen. Ein solches Protokoll enthält
+nur `verschoben`- und `ordner_angelegt`-Zeilen und geht mit `--zurueck` **restlos** zurück
+— einschließlich des leeren `_beiwerk/`, das sonst stehen bliebe und von RomM wieder als
+ein Spiel gezählt würde.
+
+**Am Bestand gemessen** (2026-08-14, `--trocken --nur-beiwerk` über alle 74 Plattformen,
+gegengerechnet mit `find -maxdepth 1` — beide Zahlen stimmen überein):
+
+| Plattform | Beiwerk auf Ebene 1 | von Einträgen |
+|---|---:|---:|
+| `amiga` | 108.354 | 273.002 |
+| `c64` | 9.012 | 72.061 |
+| `gbc` | 2.166 | 5.548 |
+| `pico8` | 571 | 13.202 |
+| `gba` | 508 | 11.282 |
+| `genesis` | 348 | 5.980 |
+| 27 weitere | 809 | |
+| **Summe** | **121.768** | auf **33** Plattformen |
+
+Die Zahl ist größer als die 117.366 aus der Endungsmessung oben, weil dort nur `amiga` und
+`c64` betrachtet wurden. Zwei Werte darin sind keine reine Zählung, sondern die Regeln bei
+der Arbeit:
+
+* **`pico8`: 571 statt 13.200.** Die 12.629 `.p8.png` sind Spiele und stehen als
+  `BEIWERK_AUSNAHME` — eingesammelt werden nur `.txt` und `.pdf`.
+* **`g-and-w`: 0 statt 2.055.** 77 % der Einträge wären betroffen, also greift
+  `BEIWERK_HOECHSTANTEIL` und der Lauf sagt `Beiwerk NICHT eingesammelt … Einordnung
+  prüfen`. Ob die 1.184 `.png` und 478 `.jpg` dort Beiwerk oder Spielbestandteil sind, ist
+  **ungeprüft** — die Schranke hält den Fall an, statt ihn zu entscheiden.
 
 ### Endungslose Programme benennen
 
@@ -605,13 +653,18 @@ characters and are two different demos. Measured against the library, not assume
 
 ### Usage
 
+The platform folder is the **only** positional argument; the root is `--wurzel` and
+defaults to `/roms`.
+
 ```bash
-retronas-organisieren --trocken /roms c64      # preview, nothing is moved
-retronas-organisieren /roms c64                # do it, every step logged
-retronas-organisieren --alle /roms             # everything, smallest platform first
+retronas-organisieren --trocken c64            # preview, nothing is moved
+retronas-organisieren c64                      # do it, every step logged
+retronas-organisieren --alle                   # everything, smallest platform first
+retronas-organisieren --trocken --nur-beiwerk --alle   # count what step 3c would collect
+retronas-organisieren --nur-beiwerk amiga      # collect ancillary files, nothing else
 retronas-organisieren --zurueck /roms/.umbau/c64-….jsonl   # step back through the log
-retronas-organisieren --alle /roms             # after an abort: resumes where it stopped
-retronas-organisieren --alle --neu /roms       # start over regardless
+retronas-organisieren --alle                   # after an abort: resumes where it stopped
+retronas-organisieren --alle --neu             # start over regardless
 ```
 
 **An aborted run does not start from scratch.** `<roms>/.umbau/fortschritt.json` records
@@ -728,6 +781,46 @@ emptied `pico8`.
 
 `BEIWERK_HOECHSTANTEIL` is unaffected: the change touches 40 % of `amiga`'s entries and
 13 % of `c64`'s, both below the refusal threshold.
+
+#### `--nur-beiwerk`: collect without running the whole rebuild (#318)
+
+A corrected list tidies nothing by itself — until now that required a **full**
+`retronas-organisieren` pass, and that is exactly what stood in the way:
+
+* A full pass **unpacks archives** (the source file is deleted afterwards) and **deletes
+  duplicates**. Both are logged but **not** recoverable from the log — `--zurueck` says so
+  itself.
+* On `amiga` that is 440,564 files, so hours.
+
+Step 3c, by contrast, is nothing but `shutil.move`. `--nur-beiwerk` runs that step alone:
+no unpacking, no flattening, no deleting. Such a log holds only `verschoben` and
+`ordner_angelegt` entries and `--zurueck` restores the previous state **completely**,
+including the empty `_beiwerk/` folder that would otherwise stay behind and be counted as
+a game by RomM again.
+
+**Measured against the library** (2026-08-14, `--trocken --nur-beiwerk` across all 74
+platforms, cross-checked with `find -maxdepth 1` — both numbers agree):
+
+| Platform | ancillary on level 1 | of entries |
+|---|---:|---:|
+| `amiga` | 108,354 | 273,002 |
+| `c64` | 9,012 | 72,061 |
+| `gbc` | 2,166 | 5,548 |
+| `pico8` | 571 | 13,202 |
+| `gba` | 508 | 11,282 |
+| `genesis` | 348 | 5,980 |
+| 27 more | 809 | |
+| **total** | **121,768** | across **33** platforms |
+
+That is more than the 117,366 from the extension table above, which counted only `amiga`
+and `c64`. Two of the rows are the rules at work rather than a plain count:
+
+* **`pico8`: 571, not 13,200.** The 12,629 `.p8.png` files are games and are listed as a
+  `BEIWERK_AUSNAHME`; only `.txt` and `.pdf` are collected.
+* **`g-and-w`: 0, not 2,055.** 77 % of the entries would be affected, so
+  `BEIWERK_HOECHSTANTEIL` refuses and the run prints `Beiwerk NICHT eingesammelt …
+  Einordnung prüfen`. Whether those 1,184 `.png` and 478 `.jpg` files are ancillary or part
+  of the games is **unverified** — the threshold stops the case instead of deciding it.
 
 ### Naming extensionless programs
 
