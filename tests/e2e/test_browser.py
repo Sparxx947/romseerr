@@ -13,8 +13,13 @@ eines Tages doch, schlägt sie fehl mit dem Hinweis, den Marker zu entfernen. Da
 zugleich die Regel aus CONTRIBUTING erfüllt, dass jede neue Prüfung einmal rot war —
 diese drei sind es nachweislich.
 """
+import os
+import re
+
 import pytest
 
+from hilfen import REPO
+from . import bildmessung
 from .conftest import menuepunkt
 
 # Menüpunkt -> erwartetes Adress-Segment. Einstellungen führt einen Unterbereich mit,
@@ -671,3 +676,122 @@ def test_der_gefahrenknopf_hebt_sich_in_jedem_design_ab(seite):
 
     assert not gleich, ("der Gefahrenknopf sieht aus wie ein gewoehnlicher: "
                         + "; ".join(gleich))
+
+
+# Der Kasten des Textes im Knopf, relativ zum Knopf. Ein `Range` über den Inhalt liefert
+# den Inhaltsbereich der Zeile — das ist der Kasten, den die Zentrierung bewegt.
+KASTEN_IM_KNOPF = """
+() => {
+  const b = document.querySelector('#modal .x');
+  if (!b) return null;
+  const k = b.getBoundingClientRect();
+  const r = document.createRange(); r.selectNodeContents(b);
+  const t = r.getBoundingClientRect();
+  return {links: t.left - k.left, rechts: k.right - t.right,
+          oben: t.top - k.top, unten: k.bottom - t.bottom,
+          knopf: [k.width, k.height], text: [t.width, t.height]};
+}
+"""
+
+
+def test_das_x_im_schliessknopf_steht_mittig(seite):
+    """Das × sitzt in der Mitte seines Knopfes — gemessen an der Tinte. (#659)
+
+    WARUM AN DER TINTE UND NICHT AM KASTEN: Gemessen wurde am laufenden Stand ein Knopf
+    von 32x32 mit einem × von 8x7 Pixeln und den Rändern links 15, rechts 9, oben 18,
+    unten 7 — mittig wären 12 und 12,5. Also gut 3 px nach rechts und 5,5 px nach unten
+    verschoben, ein Sechstel der Knopfhöhe. Jeder Kasten für sich sah dabei plausibel aus.
+
+    URSACHE, nachgemessen statt vermutet: Nicht die Voreinstellung des Browsers, sondern
+    eine eigene Regel — `button,select,textarea{…padding:9px 14px}` weiter oben in
+    derselben Datei. `#modal .x` setzt sie nie zurück. Bei `box-sizing:border-box` bleiben
+    von 32 px Breite 4 px Inhalt übrig; ein 10,3 px breites Zeichen passt da nicht hinein
+    und wird deshalb trotz `text-align:center` links angeschlagen statt zentriert. Senk-
+    recht dasselbe: 14 px Inhaltshöhe gegen einen 24 px hohen Zeilenkasten, der unten
+    überläuft.
+
+    EN: measured on the running build, the glyph sat 3 px right and 5.5 px low in a 32 px
+    button. The cause is this project's own `button{padding:9px 14px}` rule, which
+    `#modal .x` never resets — not a browser default. With border-box that leaves 4 px of
+    content width, and an inline box wider than its line box is start-aligned, not centred.
+    """
+    seite.evaluate("openUsers()")
+    seite.wait_for_selector("#modal .x", timeout=15000)
+    seite.wait_for_timeout(400)
+
+    bild = bildmessung.png_lesen(seite.locator("#modal .x").first.screenshot())
+    masse = bildmessung.tintenraender(bild)
+    assert masse, ("im Knopf ist kein helles Zeichen zu finden — dann misst dieser Test "
+                   "nichts und bestünde inhaltsleer")
+    waag = masse["links"] - masse["rechts"]
+    senk = masse["oben"] - masse["unten"]
+    assert abs(waag) <= 2 and abs(senk) <= 2, (
+        f"das × steht nicht mittig: Ränder links {masse['links']} rechts {masse['rechts']} "
+        f"oben {masse['oben']} unten {masse['unten']} (Tinte {masse['tinte']} in "
+        f"{masse['bild']}) — Versatz {waag} waagerecht, {senk} senkrecht")
+
+
+def test_die_mitte_des_schliessknopfs_haengt_nicht_an_der_schriftart(seite):
+    """Der Textkasten sitzt mittig, egal welche Schrift ihn füllt. (#659)
+
+    WORUM ES GEHT: Der tiefere Fehler war nicht der Versatz, sondern woran er hing — an
+    der Schrift, die die Seite gerade rendert. Ein auf Zahlen getrimmtes `margin` wäre bei
+    der nächsten Schrift wieder daneben. Diese Prüfung nagelt deshalb die Eigenschaft
+    fest, nicht den Messwert: Der Kasten wird zentriert, also bleiben die Ränder gleich,
+    während sich Schriftart und Schriftgröße unter ihm ändern.
+
+    Der Vergleich läuft über den Kasten und nicht über die Tinte, weil die Tinte selbst
+    schriftabhängig ist — jede Schrift setzt das × ein wenig anders in ihre Punze. Genau
+    diesen Rest darf die Regel nicht ausgleichen wollen.
+
+    ZUR TOLERANZ VON EINEM PIXEL: Sie deckt Rundung ab, nicht Schieflage. Bei `serif 22px`
+    ist der Textkasten 25 px hoch und der Knopf 32 — das sind 3,5 px je Seite, und der
+    Browser meldet daraus 3 oben und 4 unten. Vor der Reparatur standen hier 14 gegen 7,7
+    und 9 gegen -1; eine Toleranz von 1 px lässt das weiterhin auffliegen.
+
+    EN: the real defect was that the offset depended on whichever font rendered the page,
+    so a hand-tuned margin would drift with the next font. This pins the property instead:
+    the text box stays centred while font family and size change beneath it. The 1 px
+    tolerance only absorbs rounding of an odd box height inside an even button.
+    """
+    seite.evaluate("openUsers()")
+    seite.wait_for_selector("#modal .x", timeout=15000)
+    seite.wait_for_timeout(400)
+
+    schief = []
+    for familie, groesse in [("system-ui, sans-serif", "18px"), ("serif", "22px"),
+                             ("monospace", "13px"), ("cursive", "18px")]:
+        seite.evaluate(
+            "([f,g]) => {const b=document.querySelector('#modal .x');"
+            "b.style.fontFamily=f; b.style.fontSize=g;}", [familie, groesse])
+        seite.wait_for_timeout(150)
+        m = seite.evaluate(KASTEN_IM_KNOPF)
+        assert m, "kein Schließknopf im Modal"
+        if abs(m["links"] - m["rechts"]) > 1 or abs(m["oben"] - m["unten"]) > 1:
+            schief.append(f"{familie} {groesse}: links {m['links']:.1f} rechts "
+                          f"{m['rechts']:.1f} oben {m['oben']:.1f} unten {m['unten']:.1f}")
+    assert not schief, ("der Textkasten sitzt nicht mittig im Knopf, die Zentrierung hängt "
+                        "also an der Schrift: " + "; ".join(schief))
+
+
+def test_alle_schliessknoepfe_teilen_dieselbe_regel():
+    """Sieben Modale, ein Knopf — dieselbe Klasse, damit eine Regel wirklich alle trifft.
+
+    WOZU: Die Reparatur von #659 ist eine einzige CSS-Regel. Das stimmt nur, solange jedes
+    Modal denselben Knopf schreibt. Baut jemand ein Modal mit eigenem Markup oder eigenem
+    Inline-Stil, sitzt das × dort wieder daneben, und keine der Messungen oben würde es
+    bemerken — sie sehen nur das eine geöffnete Modal.
+
+    EN: the fix is one CSS rule, which only holds while every modal emits the same button.
+    The browser checks above only ever open one modal and would miss a divergent copy.
+    """
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    knoepfe = re.findall(r"<button [^>]*onclick=\"closeModal\(\)\"[^>]*>(.*?)</button>", js)
+    assert len(knoepfe) >= 7, (f"nur {len(knoepfe)} Schließknöpfe gefunden — das Muster "
+                               "passt nicht mehr, die Prüfung liefe ins Leere")
+    fremd = [k for k in re.findall(r"<button ([^>]*)onclick=\"closeModal\(\)\"([^>]*)>", js)
+             if "class=x" not in k[0] + k[1]]
+    assert not fremd, f"Schließknopf ohne die Klasse x: {fremd}"
+    inline = [k for k in re.findall(r"<button [^>]*onclick=\"closeModal\(\)\"[^>]*>", js)
+              if "style=" in k]
+    assert not inline, f"Schließknopf mit eigenem Inline-Stil: {inline}"
