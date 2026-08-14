@@ -76,8 +76,32 @@ ARCHIV_BLEIBT = {
 ARCHIV_ENDUNGEN = {".zip", ".7z", ".rar", ".lha", ".lzh", ".tar", ".gz", ".tgz"}
 
 # Beiwerk — wird gezaehlt, aber nicht angefasst.
+#
+# Musik und Symbole gehoerten von Anfang an dazu und fehlten (#318). Am Bestand gemessen
+# (2026-08-14), Ebene 1 — also genau das, was RomM als Spiele zaehlt:
+#
+#     amiga   55.102 `.sid`   37.315 `.info`   15.938 `.mod`   von 273.002 Eintraegen
+#     c64      9.012 `.sid`                                    von  72.061 Eintraegen
+#
+# 117.366 Eintraege, mehr als die Bibliothek vor dem Umbau an Titeln hatte. Nachgesehen,
+# nicht angenommen: `.info` traegt in 200 von 200 Stichproben `E3 10 00 01` (Amiga
+# DiskObject — ein Workbench-Symbol zur Datei daneben), `.sid` 198x `PSID` + 2x `RSID`,
+# `.mod` 175x `M.K.`/`M!K!` bei Offset 1080.
+#
+# Eine einzige Datei heisst buchstaeblich `.info` und bleibt liegen: `os.path.splitext`
+# zaehlt den fuehrenden Punkt zum Namen, nicht zur Endung. Deshalb 108.354 statt 108.355
+# unter `amiga` — genannt, weil eine unerklaerte Abweichung schlimmer ist als eine erklaerte.
+#
+# Dass das keine eigene Entscheidung ist, sondern eine Angleichung: `ROM_EXT` in `app.py`
+# kennt keine der drei Endungen. Romseerrs Importer weist sie laengst ab; nur dieses
+# Werkzeug hielt sie noch fuer Spiele. `test_no_platform_holds_its_games_in_an_ancillary_format`
+# haelt die beiden Listen kuenftig gegeneinander.
+#
+# EN: icons and tracker/SID music were missing from this list. Romseerr's own importer
+# already refuses all three extensions; this aligns the tool with it.
 BEIWERK = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".txt", ".nfo", ".pdf",
-           ".html", ".htm", ".doc", ".rtf", ".diz", ".sfv", ".md5", ".dat"}
+           ".html", ".htm", ".doc", ".rtf", ".diz", ".sfv", ".md5", ".dat",
+           ".info", ".sid", ".mod"}
 
 # Ab wie vielen Dateien gilt ein Ordner als Sammlung und nicht als Multi-Disk-Spiel?
 # Ein Spiel mit mehr als 12 Disketten ist selten; eine Sammlung hat Hunderte.

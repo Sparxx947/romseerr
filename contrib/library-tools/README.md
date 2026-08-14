@@ -278,6 +278,35 @@ wäre für Romseerr unsichtbar, aber RomM zählt ihn trotzdem — dann stünde d
 **Arcade ist ausgenommen.** Dort ist das Archiv das Spiel, und MAME-Romsets erwarten ihre
 Begleitdateien an Ort und Stelle.
 
+#### Musik und Symbole zählen mit (#318)
+
+Die Liste kannte anfangs nur Bilder, Text und `.dat`. Am Bestand nachgemessen
+(2026-08-14, Ebene 1):
+
+| Endung | amiga | c64 | was es ist |
+|---|---:|---:|---|
+| `.sid` | 55.102 | 9.012 | C64-Musik (High Voltage SID Collection) |
+| `.info` | 37.315 | — | Amiga-Workbench-Symbole |
+| `.mod` | 15.938 | — | Amiga-Tracker-Musik |
+| **Summe** | **108.355** von 273.002 | **9.012** von 72.061 | |
+
+**117.366 Einträge**, die RomM als Spiele zählte — mehr, als die Bibliothek vor dem Umbau
+überhaupt an Titeln hatte. Nachgesehen statt angenommen: `.info` trägt in 200 von 200
+Stichproben `E3 10 00 01` (Amiga DiskObject — ein Symbol zur Datei daneben), `.sid` 198×
+`PSID` und 2× `RSID`, `.mod` 175× `M.K.`/`M!K!` bei Offset 1080.
+
+Nicht 117.367: **eine** Datei heißt buchstäblich `.info`, und `os.path.splitext` zählt den
+führenden Punkt zum Namen statt zur Endung. Sie bleibt liegen.
+
+Das ist **keine neue Entscheidung, sondern eine Angleichung**: `ROM_EXT` in `app.py` kennt
+keine der drei Endungen, Romseerrs Importer weist sie längst ab. Nur dieses Werkzeug hielt
+sie noch für Spiele. Ein Test hält die beiden Listen jetzt gegeneinander und schlägt an,
+sobald eine Endung zugleich Beiwerk und ROM-Format wäre — der Fall, an dem `pico8`
+beinahe geleert worden wäre.
+
+Die Schranke `BEIWERK_HOECHSTANTEIL` bleibt dabei unberührt: Bei `amiga` wären 40 % der
+Einträge betroffen, bei `c64` 13 %.
+
 ### Endungslose Programme benennen
 
 Auf der Spielebene liegen **4.843 Dateien ohne Endung** (c64 4.173, amiga 366, vic-20 303).
@@ -670,6 +699,35 @@ Romseerr, but RomM would still count it, putting a "game" back on level 1.
 
 **Arcade is exempt**: there the archive is the game, and MAME romsets expect their
 companion files in place.
+
+#### Music and icons count too (#318)
+
+The list originally knew only images, text and `.dat`. Measured against the library
+(2026-08-14, level 1):
+
+| Extension | amiga | c64 | what it is |
+|---|---:|---:|---|
+| `.sid` | 55,102 | 9,012 | C64 music (High Voltage SID Collection) |
+| `.info` | 37,315 | — | Amiga Workbench icons |
+| `.mod` | 15,938 | — | Amiga tracker music |
+| **total** | **108,355** of 273,002 | **9,012** of 72,061 | |
+
+**117,366 entries** counted as games by RomM — more than the whole library held as titles
+before the reorganisation. Read rather than assumed: 200 of 200 sampled `.info` files start
+with `E3 10 00 01` (Amiga DiskObject, an icon for the file next to it), `.sid` is 198×
+`PSID` and 2× `RSID`, `.mod` is 175× `M.K.`/`M!K!` at offset 1080.
+
+Not 117,367: **one** file is literally named `.info`, and `os.path.splitext` counts a
+leading dot as part of the name rather than the extension. It stays where it is.
+
+This is **not a new decision but an alignment**: `ROM_EXT` in `app.py` contains none of the
+three, so Romseerr's importer has always refused them — only this tool still treated them
+as games. A test now holds the two lists against each other and fails as soon as an
+extension would be ancillary and a ROM format at once, which is the mistake that nearly
+emptied `pico8`.
+
+`BEIWERK_HOECHSTANTEIL` is unaffected: the change touches 40 % of `amiga`'s entries and
+13 % of `c64`'s, both below the refusal threshold.
 
 ### Naming extensionless programs
 
