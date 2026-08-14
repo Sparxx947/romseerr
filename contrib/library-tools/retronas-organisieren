@@ -333,9 +333,31 @@ SHARE_UID, SHARE_GID = 99, 100
 
 def rechte_setzen(pfad):
     """Eigentuemer auf den Unraid-Standard ziehen. Fehler sind nicht fatal —
-    laeuft das Werkzeug einmal ohne root, ist das kein Grund abzubrechen."""
+    laeuft das Werkzeug einmal ohne root, ist das kein Grund abzubrechen.
+
+    ZWEITER VERSUCH OHNE ROOT (#593): Seit die Werkzeuge auch aus dem Romseerr-Container
+    laufen koennen, ist „ohne root" der Regelfall statt der Ausnahme — der Container ist
+    uid 1000. Den Eigentuemer auf 99 zu setzen darf dort nur root; die GRUPPE auf 100
+    (`users`) zu setzen darf jeder Prozess, der Mitglied dieser Gruppe ist. Genau das ist
+    er.
+
+    Gemessen im laufenden Container:
+        os.chown(p, 99, 100)                PermissionError: Operation not permitted
+        os.chown(p, -1, 100) + chmod 0775   geht — Eigentuemer 1000, Gruppe 100
+
+    Ohne diesen Rueckfall entstuende ein Ordner `1000:1000` mit 0755, in den `nobody`
+    nicht schreiben kann — und die Freigabe arbeitet als `nobody`. Der Umbau waere damit
+    fertig und die Bibliothek trotzdem kaputt.
+    """
     try:
         os.chown(pfad, SHARE_UID, SHARE_GID)
+        return
+    except (OSError, AttributeError):
+        pass
+    # Nicht root: wenigstens die Gruppe und ein Schreibrecht fuer sie.
+    try:
+        os.chown(pfad, -1, SHARE_GID)
+        os.chmod(pfad, 0o775 if os.path.isdir(pfad) else 0o664)
     except (OSError, AttributeError):
         pass
 

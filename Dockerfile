@@ -1,6 +1,11 @@
 FROM python:3.14-slim
+# p7zip-full fuer den Umbau aus der Oberflaeche (#593): `unar` allein reicht nicht — der
+# Wegwerf-Container hat `p7zip` bisher bei jedem Start nachinstalliert, und ohne 7z bliebe
+# ein Teil der Archive im vollen Umbau liegen, ohne dass es jemandem auffiele.
+# EN: unar alone is not enough for the rebuild; without 7z part of the archives would
+# silently stay packed.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      unar aria2 ca-certificates && \
+      unar aria2 ca-certificates p7zip-full && \
     rm -rf /var/lib/apt/lists/*
 COPY requirements.txt /app/requirements.txt
 # --no-deps: requirements.txt fuehrt die VOLLE Huelle exakt gepinnt (#380). Ohne das

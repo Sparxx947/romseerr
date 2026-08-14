@@ -300,6 +300,16 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   unterschiedliche Auskünfte — ein abgebrochener Lauf hinterlässt weder `fertig` noch
   `aktuell`, und genau deshalb sieht man nach. (Dieselben Angaben liefert
   `/api/library/organize/status`.)
+  **Starten geht von hier aus auch** — Testlauf oder echter Lauf, für die ganze Bibliothek
+  oder eine Plattform. Der Testlauf fragt nicht nach (er verändert nichts), der echte tut
+  es. Ein zweiter Lauf wird abgewiesen, **auch wenn der erste außerhalb gestartet wurde**:
+  Geprüft wird dafür die Fortschrittsdatei, nicht nur der eigene Prozess. Anhalten lässt
+  sich nur ein Lauf aus dieser Oberfläche — was der Wegwerf-Container gestartet hat, kennt
+  dieser Prozess nicht, und die Schaltfläche sagt das.
+  **Ein Neustart des Containers bricht einen laufenden Umbau ab.** Das kostet keine
+  Arbeit: Das Werkzeug ist wiederaufsetzbar, der nächste Lauf macht dort weiter. Und weil
+  die Anzeige ihren Zustand aus der Datei liest, steht danach „abgebrochen" da — nicht
+  „läuft", was eine Lüge wäre.
 - ⌨️ **Heimcomputer-Formate werden importiert.** `.prg`, `.tap`, `.crt`, `.g64`, `.z80`,
   `.tzx`, `.cdt`, `.adz`, `.a52` und weitere — 16 Formate fehlten in der Endungsliste, und
   damit konnte über Romseerr für C64, VIC-20, ZX Spectrum, CPC, Amiga und Atari 5200

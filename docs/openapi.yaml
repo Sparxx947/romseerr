@@ -483,6 +483,35 @@ paths:
         '401': *id002
         '403': *id004
       security: *id003
+  /api/library/organize/run:
+    post:
+      summary: 'Einen Bibliotheks-Umbau starten: `art` (voll|beiwerk), `trocken`, optional `plattform`.
+        Lehnt ab, wenn bereits einer läuft — auch einen, der außerhalb gestartet wurde.'
+      tags:
+      - Admin
+      responses:
+        '200':
+          description: gestartet
+        '401': *id002
+        '403': *id004
+        '400':
+          description: unzulässiger oder unbekannter Plattformname
+        '409':
+          description: es läuft bereits ein Umbau
+      security: *id003
+  /api/library/organize/stop:
+    post:
+      summary: Einen aus dieser Instanz gestarteten Umbau anhalten
+      tags:
+      - Admin
+      responses:
+        '200':
+          description: angehalten
+        '401': *id002
+        '403': *id004
+        '409':
+          description: kein Lauf aus dieser Instanz
+      security: *id003
   /api/discover:
     get:
       summary: Beliebte Titel (flach)

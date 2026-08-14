@@ -8251,6 +8251,119 @@ def test_the_organize_section_is_translated_everywhere():
         assert i18n_hat(key) == 5, f"{key} fehlt in mindestens einer Sprache"
 
 
+# --- Umbau starten (#593) -----------------------------------------------------------
+
+def test_starting_a_rebuild_needs_admin(appmod, client):
+    """Einen Umbau darf nur ein Verwalter ausloesen. (#593)"""
+    client.post("/api/logout")
+    for pfad in ("/api/library/organize/run", "/api/library/organize/stop"):
+        r = client.post(pfad, json={})
+        assert r.status_code in (401, 403), f"{pfad}: {r.status_code}"
+
+
+def test_a_platform_name_cannot_be_a_path(appmod, client):
+    """Der Plattformname wird zu Argument UND Pfad — also keine Pfade. (#593)
+
+    Er kommt aus einem Eingabefeld und wird zu einem Kommandozeilenargument. `../` waere
+    ein Weg aus der Bibliothek heraus, ein fuehrender Punkt traefe die
+    Arbeitsverzeichnisse (`.umbau`).
+
+    ZWEI SCHRANKEN, und die zweite traegt: Das Muster haelt Unfug fern, aber entschieden
+    wird gegen die Verzeichnisse, die es TATSAECHLICH gibt. Die erste Fassung pruefte ein
+    Muster und baute den Namen dann in `os.path.join(ROMS, …)` — CodeQL meldete das als
+    „uncontrolled data used in path expression", und der Einwand war berechtigt: Die
+    Reihenfolge verliess sich darauf, dass das Muster an alles gedacht hatte.
+
+    Leerzeichen sind erlaubt, weil es sie gibt: `LCD Handhelds` und
+    `VVVVVV Data file for RPi` stehen so in dieser Bibliothek. Ein Argument wie
+    `c64 --neu` scheitert trotzdem — es gibt keinen Ordner dieses Namens.
+    """
+    _als_admin(client)
+    for boese in ("../etc", "/roms/c64", ".umbau", "c64;rm -rf /", "c64 --neu", "a" * 65,
+                  "c64\nzeile", "c64\x00"):
+        r = client.post("/api/library/organize/run", json={"plattform": boese})
+        assert r.status_code == 400, f"{boese!r} wurde angenommen ({r.status_code})"
+
+
+def test_an_unknown_platform_is_refused_before_anything_starts(appmod, client):
+    """Ein Name, den es nicht gibt, wird abgewiesen statt gestartet. (#593)
+
+    Sonst liefe ein Prozess an, der nichts findet, und die Oberflaeche meldete „gestartet".
+    """
+    _als_admin(client)
+    r = client.post("/api/library/organize/run", json={"plattform": "gibtsnicht"})
+    assert r.status_code == 400
+    assert "gibtsnicht" in (r.get_json() or {}).get("msg", "")
+
+
+def test_a_second_rebuild_is_refused_while_one_runs(appmod, client, monkeypatch):
+    """Zwei Umbauten gleichzeitig stritten sich um dieselben Dateien. (#593)
+
+    Geprueft wird der Weg, der NICHT ueber den eigenen Prozess geht: Ein Lauf, den jemand
+    im Wegwerf-Container gestartet hat, taucht in keinem Datensatz dieser Instanz auf —
+    aber in der Fortschrittsdatei. Genau darum wird sie mitgeprueft.
+    """
+    _als_admin(client)
+    _fortschritt(appmod, start=time.time() - 60, gesamt_dateien=100, offen_dateien=50,
+                 plattformen_gesamt=2, erledigt=[], aktuell={"plattform": "c64"},
+                 fertig=False)
+    r = client.post("/api/library/organize/run", json={})
+    assert r.status_code == 409, f"zweiter Lauf wurde erlaubt: {r.status_code}"
+
+
+def test_stopping_without_a_run_says_so(appmod, client):
+    """Ohne laufenden Prozess ist „anhalten" kein Erfolg. (#593)"""
+    _als_admin(client)
+    r = client.post("/api/library/organize/stop")
+    assert r.status_code == 409 and (r.get_json() or {}).get("ok") is False
+
+
+def test_a_dry_run_really_runs_the_tool(appmod, client, tmp_path, monkeypatch):
+    """Der Endpunkt startet das echte Werkzeug — mit `--trocken`. (#593)
+
+    NICHT NUR DEN AUFRUF PRUEFEN: Ein Test, der `Popen` austauscht und die Argumentliste
+    vergleicht, beweist nur, dass der Code den Code aufruft, den er aufruft. Hier laeuft
+    das mitgelieferte Werkzeug wirklich, gegen eine Wegwerf-Bibliothek — und danach steht
+    fest, dass es nichts hinterlassen hat, wie es sich fuer einen Trockenlauf gehoert.
+    """
+    _als_admin(client)
+    wurzel = tmp_path / "roms"
+    (wurzel / "gb").mkdir(parents=True)
+    (wurzel / "gb" / "spiel.gb").write_bytes(b"x")
+    (wurzel / "gb" / "hinweis.txt").write_text("nur Beiwerk")
+    monkeypatch.setattr(appmod, "ROMS", str(wurzel))
+    monkeypatch.setattr(appmod, "UMBAU_DIR", str(wurzel / ".umbau"))
+
+    r = client.post("/api/library/organize/run", json={"art": "beiwerk", "trocken": True})
+    assert r.status_code == 200, r.get_data(as_text=True)
+
+    p = appmod.UMBAU_LAUF["proc"]
+    assert p is not None
+    assert p.wait(timeout=60) == 0, "\n".join(appmod.UMBAU_LAUF["ausgabe"])
+    ausgabe = "\n".join(appmod.UMBAU_LAUF["ausgabe"])
+    assert "TROCKEN" in ausgabe.upper(), ausgabe
+    # Ein Trockenlauf hinterlaesst nichts (#581) — und verschiebt nichts.
+    assert not (wurzel / ".umbau").exists(), "der Trockenlauf hat etwas angelegt"
+    assert (wurzel / "gb" / "hinweis.txt").exists(), "der Trockenlauf hat verschoben"
+
+
+def test_the_image_can_unpack_what_the_rebuild_meets():
+    """Der volle Umbau braucht 7z, nicht nur unar. (#593)
+
+    Der Wegwerf-Container installierte `p7zip` bisher bei jedem Start nach — sobald der
+    Umbau aus Romseerr heraus laufen kann, muss das Abbild es selbst mitbringen. Ohne 7z
+    bliebe ein Teil der Archive gepackt liegen, und zwar lautlos: Das Werkzeug macht mit
+    der naechsten Datei weiter.
+    """
+    dockerfile = open(os.path.join(REPO, "Dockerfile"), encoding="utf-8").read()
+    assert "p7zip" in dockerfile, "das Abbild bringt keinen 7z-Entpacker mit"
+
+
+def test_the_start_controls_are_translated_everywhere():
+    """Auch die Bedienelemente brauchen ihre Texte in allen fuenf Sprachen. (#593)"""
+    for key in ("org_start_dry", "org_start_real", "org_stop", "org_confirm",
+                "org_restart_note", "org_busy", "org_own", "org_foreign", "org_dry_note"):
+        assert i18n_hat(key) == 5, f"{key} fehlt in mindestens einer Sprache"
 def test_a_finished_run_reports_its_duration_not_its_age(appmod, client):
     """Bei einem beendeten Lauf ist „Laufzeit" die DAUER, nicht „wie lange her". (#593)
 

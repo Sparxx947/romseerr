@@ -77,7 +77,7 @@ WICHTIGE FALLSTRICKE / IMPORTANT GOTCHAS
   * Deployment: ein neues Image erfordert `docker rm`+`run` — `docker restart` lädt
     KEIN neues Image.
 """
-import os, re, json, time, threading, queue, subprocess, urllib.parse, html, secrets, smtplib, base64, sqlite3
+import os, re, sys, json, time, threading, queue, subprocess, urllib.parse, html, secrets, smtplib, base64, sqlite3
 from collections import Counter
 from datetime import datetime, timezone
 from functools import wraps
@@ -5982,14 +5982,152 @@ def api_library_organize_status():
     for art, name in UMBAU_STAENDE.items():
         s = _umbau_stand(os.path.join(UMBAU_DIR, name))
         if s: staende[art] = s
+    # AUS DIESER INSTANZ ODER VON AUSSEN? Beides kommt vor — ein Lauf kann auch im
+    # Wegwerf-Container von Hand gestartet worden sein. Nur den eigenen kann diese
+    # Oberflaeche anhalten, und genau das muss sie sagen koennen.
+    eigener = _umbau_laeuft()
+    lauf = None
+    if eigener:
+        lauf = {"art": UMBAU_LAUF["art"], "trocken": UMBAU_LAUF["trocken"],
+                "plattform": UMBAU_LAUF["plattform"],
+                "gestartet": UMBAU_LAUF["gestartet"],
+                "ausgabe": UMBAU_LAUF["ausgabe"][-12:]}
     return jsonify({
         "roms": ROMS,
         "umbau_dir": UMBAU_DIR,
         "vorhanden": os.path.isdir(UMBAU_DIR),
         "staende": staende,
-        "laeuft": any(s["zustand"] == "laeuft" for s in staende.values()),
+        "laeuft": any(s["zustand"] == "laeuft" for s in staende.values()) or eigener,
+        "eigener_lauf": lauf,
+        "werkzeug": os.path.isfile(WERKZEUG),
         "protokolle": _umbau_protokolle(),
     })
+
+def _werkzeug_pfad():
+    """Wo `retronas-organisieren` liegt — im Abbild anders als im Quell-Checkout.
+
+    Der Dockerfile kopiert `contrib/library-tools/` nach `/app/library-tools/`, im
+    Repository liegt es unter `contrib/`. Ohne beide Orte laeuft der Endpunkt im
+    Entwickler-Checkout nie an, und damit waere er auch nicht zu testen — was genau die
+    Art Luecke ist, in der sich Fehler halten.
+    """
+    hier = os.path.dirname(os.path.abspath(__file__))
+    for teil in ("library-tools", os.path.join("contrib", "library-tools")):
+        p = os.path.join(hier, teil, "retronas-organisieren")
+        if os.path.isfile(p):
+            return p
+    return os.path.join(hier, "library-tools", "retronas-organisieren")
+
+WERKZEUG = _werkzeug_pfad()
+# Ein Lauf je Instanz. Mehr waeren nicht nur unnoetig, sie stritten sich um dieselben
+# Dateien und denselben Wiederaufsetzpunkt.
+UMBAU_LAUF = {"proc": None, "art": None, "trocken": None, "plattform": None,
+              "gestartet": None, "ausgabe": []}
+UMBAU_SPERRE = threading.Lock()
+
+def _umbau_laeuft():
+    p = UMBAU_LAUF["proc"]
+    return bool(p and p.poll() is None)
+
+def _umbau_starten(art, trocken, plattform=None):
+    """Das Werkzeug als Unterprozess starten und seine Ausgabe mitschreiben.
+
+    WARUM IM EIGENEN PROZESS UND NICHT IM FADEN: Das Werkzeug ist ein eigenstaendiges
+    Programm mit eigenem `main()`; es zu importieren hiesse, seine Argumentverarbeitung
+    und sein Beenden in Romseerr hineinzuziehen.
+
+    WAS EIN NEUSTART BEDEUTET — und warum das vertretbar ist: Der Unterprozess stirbt
+    mit dem Container. Ein Deploy mitten im Umbau bricht ihn also ab. Das ist hinnehmbar,
+    WEIL das Werkzeug wiederaufsetzbar ist (#371/#372): Der naechste Lauf ueberspringt,
+    was schon durch ist. Und die Anzeige liest ihren Zustand aus der Fortschrittsdatei,
+    nicht aus diesem Datensatz hier — nach einem Neustart steht dort „abgebrochen", was
+    die Wahrheit ist, statt „laeuft", was eine Luege waere.
+    """
+    argumente = [sys.executable, "-u", WERKZEUG]
+    if trocken: argumente.append("--trocken")
+    if art == "beiwerk": argumente.append("--nur-beiwerk")
+    argumente += [plattform] if plattform else ["--alle"]
+    argumente += ["--wurzel", ROMS]
+    p = subprocess.Popen(argumente, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         text=True, bufsize=1, cwd=ROMS)
+    UMBAU_LAUF.update({"proc": p, "art": art, "trocken": bool(trocken),
+                       "plattform": plattform, "gestartet": time.time(), "ausgabe": []})
+
+    def mitlesen():
+        # Nur die letzten Zeilen halten: Ein voller Lauf schreibt Zehntausende, und der
+        # Zweck hier ist „was tut es gerade", nicht ein zweites Protokoll — das echte
+        # steht ohnehin in `.umbau/`.
+        for zeile in p.stdout:
+            UMBAU_LAUF["ausgabe"].append(zeile.rstrip())
+            del UMBAU_LAUF["ausgabe"][:-200]
+        p.wait()
+        log(f"Bibliotheks-Umbau beendet ({art}{', trocken' if trocken else ''}): "
+            f"Rueckgabewert {p.returncode}")
+    threading.Thread(target=mitlesen, daemon=True).start()
+    return p
+
+@app.route("/api/library/organize/run", methods=["POST"])
+@admin_required
+def api_library_organize_run():
+    """Einen Umbau starten. Trocken oder echt, ganze Bibliothek oder eine Plattform."""
+    d = request.get_json(silent=True) or {}
+    art = "beiwerk" if d.get("art") == "beiwerk" else "voll"
+    trocken = bool(d.get("trocken"))
+    plattform = (str(d.get("plattform") or "").strip() or None)
+    # GEGEN EINE LISTE PRUEFEN, NICHT EINEN PFAD BAUEN. Der Name kommt aus einem
+    # Eingabefeld und wird zu einem Kommandozeilenargument. Die erste Fassung pruefte ein
+    # Muster und setzte ihn DANN in `os.path.join(ROMS, …)` — CodeQL hat das zu Recht als
+    # „uncontrolled data used in path expression" gemeldet: Die Reihenfolge verlaesst sich
+    # darauf, dass das Muster an alles gedacht hat.
+    # Hier wird stattdessen mit den Verzeichnissen verglichen, die es TATSAECHLICH gibt.
+    # Damit kann kein Wert aus der Anfrage mehr in einen Pfad geraten — was nicht in der
+    # Bibliothek steht, kommt gar nicht erst durch. Das Muster bleibt als erste Schranke,
+    # damit Unfug nicht bis zum Verzeichnislesen kommt.
+    # EN: compared against the directories that actually exist instead of being joined into
+    # a path, so no request value reaches the filesystem as a path at all.
+    if plattform:
+        if not re.fullmatch(r"[A-Za-z0-9 ._-]{1,64}", plattform) or plattform.startswith("."):
+            return jsonify({"ok": False, "msg": "unzulaessiger Plattformname"}), 400
+        try:
+            with os.scandir(ROMS) as it:
+                bekannt = {e.name for e in it if e.is_dir() and not e.name.startswith(".")}
+        except OSError:
+            bekannt = set()
+        if plattform not in bekannt:
+            return jsonify({"ok": False, "msg": f"kein Ordner {plattform} in der Bibliothek"}), 400
+    if not os.path.isfile(WERKZEUG):
+        return jsonify({"ok": False, "msg": "Werkzeug nicht im Abbild"}), 500
+
+    with UMBAU_SPERRE:
+        if _umbau_laeuft():
+            return jsonify({"ok": False, "msg": "es laeuft bereits ein Umbau"}), 409
+        # ZWEITE SPERRE, und die ist die wichtigere: Ein Lauf, den ein anderer Prozess
+        # gestartet hat — etwa der Wegwerf-Container von Hand —, taucht in UMBAU_LAUF
+        # nicht auf. Die Fortschrittsdatei sieht ihn trotzdem.
+        for name in UMBAU_STAENDE.values():
+            s = _umbau_stand(os.path.join(UMBAU_DIR, name))
+            if s and s["zustand"] == "laeuft":
+                return jsonify({"ok": False,
+                                "msg": "laut Fortschrittsdatei laeuft bereits ein Umbau"}), 409
+        _umbau_starten(art, trocken, plattform)
+    log(f"Bibliotheks-Umbau gestartet: {art}"
+        f"{', trocken' if trocken else ''}{', ' + plattform if plattform else ', alle'}")
+    return jsonify({"ok": True, "art": art, "trocken": trocken, "plattform": plattform})
+
+@app.route("/api/library/organize/stop", methods=["POST"])
+@admin_required
+def api_library_organize_stop():
+    """Einen laufenden Umbau anhalten.
+
+    `terminate`, nicht `kill`: Das Werkzeug schreibt jede Aktion sofort ins Protokoll und
+    haelt den Wiederaufsetzpunkt aktuell, ein sauberes Signal genuegt also. Was bereits
+    verschoben wurde, bleibt verschoben — der Rueckweg dafuer ist das Protokoll.
+    """
+    if not _umbau_laeuft():
+        return jsonify({"ok": False, "msg": "es laeuft kein Umbau aus dieser Instanz"}), 409
+    UMBAU_LAUF["proc"].terminate()
+    log("Bibliotheks-Umbau auf Anforderung angehalten")
+    return jsonify({"ok": True})
 
 @app.route("/api/blocklist", methods=["GET"])
 @admin_required
@@ -7322,6 +7460,17 @@ OPENAPI = {
             "Zustand der Bibliotheks-Umbauten: Fortschritt, Laufzeit, Restschätzung und "
             "die Protokolle samt Rückweg. Rein lesend — startet nichts.", "Admin",
             responses={**_R_AUTH, **_R_PERM, "200": {"description": "Stände je Laufart + Protokolle"}})},
+        "/api/library/organize/run": {"post": _op(
+            "Einen Bibliotheks-Umbau starten: `art` (voll|beiwerk), `trocken`, optional "
+            "`plattform`. Lehnt ab, wenn bereits einer läuft — auch einen, der außerhalb "
+            "gestartet wurde.", "Admin",
+            responses={**_R_AUTH, **_R_PERM, "200": {"description": "gestartet"},
+                       "400": {"description": "unzulässiger oder unbekannter Plattformname"},
+                       "409": {"description": "es läuft bereits ein Umbau"}})},
+        "/api/library/organize/stop": {"post": _op(
+            "Einen aus dieser Instanz gestarteten Umbau anhalten", "Admin",
+            responses={**_R_AUTH, **_R_PERM, "200": {"description": "angehalten"},
+                       "409": {"description": "kein Lauf aus dieser Instanz"}})},
         "/api/discover": {"get": _op("Beliebte Titel (flach)", "Search")},
         "/api/discover/rows": {"get": _op("Startseiten-Reihen (beliebt je Konsole + je Genre)", "Search")},
         "/api/detail": {"get": _op("Detaildaten inkl. IGDB (Wertung, Screenshots, Ähnliches) + Dateien", "Search",
