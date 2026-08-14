@@ -891,15 +891,48 @@ def stand_laden(stand_datei):
 
     Ein FERTIGER Lauf zaehlt nicht als Wiederaufsetzpunkt: Wer nach dem Ende erneut
     startet, will neu bauen, nicht nichts tun.
+
+    UNBRAUCHBAR IST UNBRAUCHBAR, EGAL WORAN (#583): Kaputtes JSON wurde hier immer
+    verziehen, gueltiges JSON in falscher FORM dagegen riss den Lauf mit einem
+    Traceback ab — `{"erledigt": ["c64"]}` genuegte. Dieselbe Datei, dieselbe Absicht,
+    zwei verschiedene Ausgaenge. Die Form hat schon einmal gewechselt (#371/#372
+    fuehrten das Lesen ueberhaupt erst ein); bleibt dann eine Datei der alten Fassung
+    liegen, blockiert sie jeden weiteren Lauf. Und wer von Hand eine Plattform
+    ueberspringen will, schreibt am ehesten genau die Kurzform oben.
+
+    Verworfen wird laut, nicht still: Ein stumm ignorierter Wiederaufsetzpunkt sieht
+    aus wie ein Neuanfang aus freien Stuecken und kostet den ganzen Lauf.
+
+    EN: an unusable progress file is ignored the same way whatever the reason —
+    unparsable JSON or valid JSON in an unexpected shape — and says so.
     """
     try:
         with open(stand_datei, encoding="utf-8") as f:
             alt = json.load(f)
     except (OSError, ValueError):
         return set(), False
+
+    def unbrauchbar(grund):
+        print(f"  {os.path.basename(stand_datei)} wird uebergangen ({grund}). "
+              f"Der Lauf faengt von vorn an.")
+        return set(), False
+
+    if not isinstance(alt, dict):
+        return unbrauchbar(f"erwartet wurde ein Objekt, gelesen wurde {type(alt).__name__}")
     if alt.get("fertig"):
         return set(), False
-    erledigt = {e.get("plattform") for e in alt.get("erledigt") or [] if e.get("plattform")}
+    roh = alt.get("erledigt") or []
+    if not isinstance(roh, list):
+        return unbrauchbar(f"'erledigt' ist {type(roh).__name__}, erwartet wird eine Liste")
+    # Je Eintrag pruefen statt die ganze Datei zu verwerfen: Ein einzelner kaputter
+    # Eintrag darf die uebrigen 75 Plattformen nicht kosten. Weichen ALLE ab, bleibt
+    # `erledigt` leer — dann ist die Meldung faellig, sonst faengt der Lauf still
+    # von vorn an.
+    erledigt = {e["plattform"] for e in roh
+                if isinstance(e, dict) and e.get("plattform")}
+    if roh and not erledigt:
+        return unbrauchbar(f"kein Eintrag in 'erledigt' nennt eine Plattform "
+                           f"({len(roh)} gelesen)")
     return erledigt, bool(erledigt or alt.get("aktuell"))
 
 
@@ -981,11 +1014,17 @@ def alle_umbauen(wurzel, trocken, ueberspringen, neu_anfangen=False, nur_beiwerk
     # Die frueheren Eintraege MITNEHMEN. Sonst kennt ein zweiter Abbruch nur die
     # Plattformen des zweiten Laufs, und der dritte faengt wieder bei den ersten an —
     # der Fehler waere nur eine Runde weiter gewandert.
+    # Dieselbe Datei ein zweites Mal, und derselbe Wachposten (#583): `json.load(f).get`
+    # stirbt an einem JSON-Array genauso wie oben. Erreichbar ist das hier nur, wenn
+    # `stand_laden` gerade Eintraege gefunden hat — aber der Wachposten kostet nichts
+    # und die Stelle darf nicht die einzige bleiben, die es nicht kann.
     vorher = []
     if frueher:
         try:
             with open(stand_datei, encoding="utf-8") as f:
-                vorher = json.load(f).get("erledigt") or []
+                gelesen = json.load(f)
+            roh = gelesen.get("erledigt") if isinstance(gelesen, dict) else None
+            vorher = [e for e in (roh or []) if isinstance(e, dict) and e.get("plattform")]
         except (OSError, ValueError):
             vorher = []
 

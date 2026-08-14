@@ -390,6 +390,59 @@ def test_a_missing_or_broken_progress_file_starts_from_the_beginning(org, tmp_pa
     assert org.stand_laden(str(kaputt)) == (set(), False)
 
 
+# --- #583: gueltiges JSON in falscher Form ------------------------------------------
+
+@pytest.mark.parametrize("inhalt, was", [
+    ('{"erledigt": ["c64"], "fertig": false}', "Liste aus Zeichenketten"),
+    ('{"erledigt": "c64"}',                    "'erledigt' ist gar keine Liste"),
+    ('{"erledigt": [null]}',                   "Eintrag ist null"),
+    ('[{"plattform": "c64"}]',                 "die Datei selbst ist ein Array"),
+    ('"c64"',                                  "die Datei ist eine blosse Zeichenkette"),
+])
+def test_a_progress_file_with_the_wrong_shape_is_ignored_like_broken_json(
+        org, tmp_path, capsys, inhalt, was):
+    """Gueltiges JSON in unerwarteter Form beendete den Lauf mit einem Traceback. (#583)
+
+    WARUM DAS ZAEHLT: Kaputtes JSON verzieh diese Funktion seit jeher — der `try` um
+    `json.load` ist genau dafuer da. Eine Zeile weiter unten war sie schutzlos:
+    `{"erledigt": ["c64"]}` reichte fuer `AttributeError: 'str' object has no attribute
+    'get'`, und zwar bevor die erste Plattform gesehen wurde. Zwei Wege zur selben
+    unbrauchbaren Datei, zwei verschiedene Ausgaenge — das war der Fehler, nicht der
+    Absturz fuer sich.
+
+    Die Form wechselte schon einmal (#371/#372). Ein Rest der alten Fassung haette
+    danach jeden Lauf blockiert, und ein Lauf ueber diese Bibliothek ist ueber 19
+    Stunden Arbeit.
+
+    EN: valid JSON in an unexpected shape must be ignored exactly like unparsable JSON,
+    and the run must say which file it disregarded.
+    """
+    pfad = tmp_path / "fortschritt.json"
+    pfad.write_text(inhalt, encoding="utf-8")
+    assert org.stand_laden(str(pfad)) == (set(), False), was
+    # NICHT STILL. Ein uebergangener Wiederaufsetzpunkt sieht sonst aus wie ein
+    # gewollter Neuanfang — und der kostet den ganzen Lauf noch einmal.
+    ausgabe = capsys.readouterr().out
+    assert "fortschritt.json" in ausgabe and "von vorn" in ausgabe, \
+        f"{was}: die Datei wurde uebergangen, ohne es zu sagen"
+
+
+def test_one_broken_entry_does_not_cost_the_other_platforms(org, tmp_path, capsys):
+    """Ein einzelner unbrauchbarer Eintrag verwirft nicht die ganze Datei. (#583)
+
+    Die Gegenrichtung zum Test darueber: Waere die Pruefung `alles oder nichts`, kostete
+    ein halb geschriebener Eintrag — etwa nach einem Absturz mitten im Sichern — die
+    75 anderen Plattformen, und das ist derselbe verlorene Lauf durch die andere Tuer.
+    """
+    pfad = tmp_path / "fortschritt.json"
+    pfad.write_text('{"erledigt": [{"plattform": "nes"}, "kaputt", null, '
+                    '{"plattform": "gb"}], "fertig": false}', encoding="utf-8")
+    erledigt, unterbrochen = org.stand_laden(str(pfad))
+    assert erledigt == {"nes", "gb"}
+    assert unterbrochen is True
+    assert "von vorn" not in capsys.readouterr().out
+
+
 # --- #397: eine abgestuerzte Plattform gilt nicht als erledigt ----------------------
 
 def _bibliothek(tmp_path, *plattformen):

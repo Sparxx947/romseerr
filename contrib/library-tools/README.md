@@ -184,6 +184,20 @@ Zwei Feinheiten:
   **schreibgeschützt eingehängte** Bibliothek starb `--trocken --alle` sofort mit
   `PermissionError … '/roms/.umbau'`, ausgerechnet auf dem vorsichtigsten Weg. Der Lauf
   für eine einzelne Plattform (`retronas-organisieren --trocken c64`) war nie betroffen.
+- **Eine unbrauchbare Fortschrittsdatei wird übergangen, egal woran es liegt (#583).**
+  Bis dahin verzieh das Werkzeug kaputtes JSON, starb aber an gültigem JSON in falscher
+  Form: `{"erledigt": ["c64"]}` — die Kurzform, die man von Hand am ehesten schreibt —
+  genügte für einen Traceback, bevor die erste Plattform gesehen war. Beide Fälle enden
+  jetzt gleich: Datei ignorieren, von vorn anfangen, und **es laut sagen**:
+
+  ```
+  fortschritt.json wird uebergangen ('erledigt' ist str, erwartet wird eine Liste). Der Lauf faengt von vorn an.
+  ```
+
+  Ein einzelner kaputter Eintrag verwirft dagegen **nicht** die ganze Datei — sonst
+  kostete ein halb geschriebener Eintrag die übrigen 75 Plattformen. Wichtig wird das,
+  wenn sich die Form der Datei je wieder ändert (zuletzt bei #371/#372): Ein Rest der
+  alten Fassung blockierte sonst jeden weiteren Lauf.
 - **Eine abgestürzte Plattform gilt nicht als erledigt.** Der Lauf macht mit der nächsten
   weiter — ein unlesbarer Ordner darf keine 19 Stunden kosten —, aber sie bleibt in der
   Wiederaufsetzliste und wird beim nächsten Aufruf wiederholt. Die Schlussmeldung nennt
@@ -697,6 +711,22 @@ one overwrote the resume point of a crashed real run and marked it `fertig`, so 
 rebuild started from zero; and against a **read-only mounted** library `--trocken --alle`
 died immediately with `PermissionError … '/roms/.umbau'` — on the most cautious path of
 all. The single-platform run (`retronas-organisieren --trocken c64`) was never affected.
+
+**An unusable progress file is ignored whatever the reason (#583).** Unparsable JSON had
+always been forgiven; valid JSON in an unexpected shape killed the run with a traceback —
+`{"erledigt": ["c64"]}`, the short form anyone hand-editing the file would write, was
+enough, and it died before the first platform was seen. Both cases now end the same way:
+ignore the file, start from the top, and **say so** rather than looking like a deliberate
+fresh start:
+
+```
+fortschritt.json wird uebergangen ('erledigt' ist str, erwartet wird eine Liste). Der Lauf faengt von vorn an.
+```
+
+A single broken *entry* does **not** discard the whole file — otherwise one half-written
+entry would cost the other 75 platforms. This matters whenever the file's shape changes
+again (last time at #371/#372): a leftover from the previous version would otherwise block
+every subsequent run.
 
 **A platform that crashed does not count as done.** The run carries on with the next one —
 an unreadable folder must not cost 19 hours — but it stays on the resume list and is
