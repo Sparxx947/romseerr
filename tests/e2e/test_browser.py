@@ -47,6 +47,39 @@ def test_startseite_laedt_ohne_konsolenfehler(seite, konsolenfehler):
     assert not konsolenfehler, "Konsolenfehler beim Laden: " + " | ".join(konsolenfehler)
 
 
+def test_der_bestaetigungsdialog_ist_bedienbar_und_bricht_sicher_ab(seite, servermod, anfrage_vorhanden):
+    """Solange hier `confirm()` stand, war dieser Pfad UEBERHAUPT NICHT pruefbar: Ein nativer
+    Dialog friert die Seite fuer den Testtreiber ein. Genau deshalb hatten mehrere
+    zerstoerende Wege gar keine Abdeckung. (#641)
+
+    Geprueft wird, was der native Dialog richtig machte und was leicht verloren geht:
+    Der Fokus liegt beim ABBRECHEN, nicht bei der zerstoerenden Wahl — sonst loescht die
+    Eingabetaste. Und Escape bricht ab, ohne dass etwas passiert.
+    """
+    # Der Loeschknopf erscheint nur bei done/error/denied — die Fixture legt `pending` an.
+    # Ohne diesen Schritt uebersprang sich der Test selbst, und ein uebersprungener Test
+    # sagt nichts (dieselbe Falle, die `anfrage_vorhanden` ueberhaupt noetig machte).
+    servermod.set_state(anfrage_vorhanden["id"], state="done", msg="Testlauf")
+    seite.get_by_text("Anfragen", exact=False).first.click()
+    seite.wait_for_timeout(900)
+    knopf = seite.locator("#jobs button").filter(has_text="🗑").first
+    assert knopf.count() > 0, "keine loeschbare Anfrage — die Vorbereitung greift nicht"
+    knopf.click()
+    dlg = seite.locator("dialog#frage")
+    dlg.wait_for(state="visible", timeout=4000)
+    # Der Fokus darf NICHT auf der zerstoerenden Wahl liegen. Geprueft wird die KLASSE,
+    # nicht der Text: Bei zwei Wahlen heisst die zerstoerende schlicht „OK", und ein Test
+    # auf das Wort „loeschen" ginge daran vorbei — genau so blieb er bei der Gegenprobe
+    # gruen, obwohl der Fokus auf dem falschen Knopf lag.
+    fokus = seite.evaluate("document.activeElement.className || ''")
+    assert "gefahr" not in fokus, f"Fokus steht auf der zerstoerenden Wahl (class={fokus!r})"
+    assert seite.evaluate("document.activeElement.closest('dialog#frage')!==null"), \
+        "der Fokus liegt gar nicht im Dialog"
+    seite.keyboard.press("Escape")
+    seite.wait_for_timeout(500)
+    assert not dlg.is_visible(), "Escape schliesst den Dialog nicht"
+
+
 def test_die_aurora_buehne_erscheint_nur_beim_entdecken(seite):
     """Die Buehne stand ausserhalb von `#discview` und wurde deshalb von `zeige()` nie
     ausgeblendet — in Anfragen, Problemen, Abdeckung und Einstellungen stand eine halbe

@@ -6365,6 +6365,29 @@ def test_the_requests_list_names_an_unknown_platform_instead_of_leaving_a_gap(ap
     assert i18n_hat("plat_unknown") == 5, "der Text fehlt in mindestens einer Sprache"
 
 
+def test_no_native_confirm_dialogs_remain(appmod):
+    """`confirm()` wird vom BROWSER gezeichnet und ist mit keiner Regel erreichbar — es sah
+    auf allen vier Designs fremd aus. Schwerer wiegt: Ein nativer Dialog friert die Seite
+    fuer die Browsertests ein, weshalb mehrere der zerstoerenden Pfade (Auftrag loeschen,
+    Umbau starten, Einstellungen ersetzen) gar keine Abdeckung hatten.
+
+    Ersetzt durch ein `<dialog>` mit `showModal()`: Fokusfalle, Escape und die oberste
+    Ebene bringt der Browser mit, gestaltbar ist es trotzdem. (#641)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    import re
+    # `confirm(` nur als Aufruf, nicht als Teil eines Namens wie `bestaetigen`.
+    # Kommentarzeilen ausnehmen — dieser Test soll Aufrufe finden, nicht Erklaerungen.
+    # `window.confirm` bleibt als Rueckfall fuer Browser ohne <dialog> erlaubt, deshalb
+    # schliesst der Blick zurueck auch den Punkt aus.
+    treffer = [z.strip()[:70] for z in js.splitlines()
+               if not z.strip().startswith(("//", "*", "/*"))
+               and re.search(r"(?<![\w.])confirm\s*\(", z)]
+    assert not treffer, "noch native confirm(): " + " | ".join(treffer[:3])
+    assert "showModal(" in js, "es gibt keinen eigenen Dialog"
+    css = open(os.path.join(REPO, "static/css/index.css"), encoding="utf-8").read()
+    assert "dialog" in css, "der Dialog ist nicht gestaltet"
+
+
 def test_buttons_and_selects_have_base_styling(appmod):
     """`input` bekam vor Jahren Grundstile, `button`, `select` und `textarea` nie — 84
     Knoepfe und 20 Auswahlfelder fielen deshalb auf den Browser-Standard zurueck: hell und
