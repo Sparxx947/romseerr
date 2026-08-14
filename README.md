@@ -3,7 +3,7 @@
 [![CI](https://github.com/Sparxx947/romseerr/actions/workflows/ci.yml/badge.svg)](https://github.com/Sparxx947/romseerr/actions/workflows/ci.yml)
 [![Security](https://github.com/Sparxx947/romseerr/actions/workflows/security.yml/badge.svg)](https://github.com/Sparxx947/romseerr/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Beta](https://img.shields.io/badge/status-beta-orange.svg)](#projektstatus)
+[![Stabil](https://img.shields.io/badge/status-stabil-brightgreen.svg)](#projektstatus)
 
 *English version: **[README.en.md](README.en.md)** · Wiki: **[Home](../../wiki)***
 
@@ -1072,9 +1072,16 @@ harmlosen Aktualisierungen blockierte.
 
 ## Projektstatus
 
-**Beta.** Der Kern ist vollständig und getestet: Suche/Discover, Anfrage-Workflow, der
-**Archive.org**- und **Usenet**-Downloadweg (end-to-end verifiziert, inkl. Import, SAB-Titel und
-Auto-Cleanup), Benutzer/Rechte/Quotas, Wunschliste, Nachrichten, Probleme, Designs, i18n, PWA und API.
+**Stabil, seit 1.4.0.** Der Kern ist vollständig und getestet: Suche/Discover,
+Anfrage-Workflow, der **Archive.org**- und **Usenet**-Downloadweg (end-to-end verifiziert,
+inkl. Import, SAB-Titel und Auto-Cleanup), Benutzer/Rechte/Quotas, Wunschliste, Nachrichten,
+Probleme, Designs, i18n, PWA und API.
+
+Die Fassungen davor waren **ausnahmslos Vorabversionen**. Das hatte eine Folge, die man der
+Versionsnummer nicht ansieht: Ohne ein stabiles Release antwortet
+`GET /releases/latest` mit **404**, und die Update-Prüfung der Anwendung brauchte dafür
+einen eigenen Rückfallweg über die Release-Liste (#572). Mit 1.4.0 zeigt `latest` wieder
+auf etwas — der Rückfallweg bleibt, wird aber nicht mehr gebraucht.
 
 **Bekannte Einschränkung:** Der **Filehoster-Weg** (JDownloader) ist **experimentell** — der
 Code existiert, aber es ist noch keine Quelle verdrahtet, die `source=filehoster`-Treffer liefert
