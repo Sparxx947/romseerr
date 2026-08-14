@@ -8264,13 +8264,23 @@ def test_starting_a_rebuild_needs_admin(appmod, client):
 def test_a_platform_name_cannot_be_a_path(appmod, client):
     """Der Plattformname wird zu Argument UND Pfad — also keine Pfade. (#593)
 
-    Er kommt aus einem Eingabefeld und landet ungeprueft in einem Kommandozeilenaufruf
-    und in `os.path.join(ROMS, …)`. `../` waere ein Weg aus der Bibliothek heraus, ein
-    fuehrender Punkt traefe die Arbeitsverzeichnisse (`.umbau`), und ein leerer Name
-    machte aus einem gezielten Lauf unbemerkt einen ueber alles.
+    Er kommt aus einem Eingabefeld und wird zu einem Kommandozeilenargument. `../` waere
+    ein Weg aus der Bibliothek heraus, ein fuehrender Punkt traefe die
+    Arbeitsverzeichnisse (`.umbau`).
+
+    ZWEI SCHRANKEN, und die zweite traegt: Das Muster haelt Unfug fern, aber entschieden
+    wird gegen die Verzeichnisse, die es TATSAECHLICH gibt. Die erste Fassung pruefte ein
+    Muster und baute den Namen dann in `os.path.join(ROMS, …)` — CodeQL meldete das als
+    „uncontrolled data used in path expression", und der Einwand war berechtigt: Die
+    Reihenfolge verliess sich darauf, dass das Muster an alles gedacht hatte.
+
+    Leerzeichen sind erlaubt, weil es sie gibt: `LCD Handhelds` und
+    `VVVVVV Data file for RPi` stehen so in dieser Bibliothek. Ein Argument wie
+    `c64 --neu` scheitert trotzdem — es gibt keinen Ordner dieses Namens.
     """
     _als_admin(client)
-    for boese in ("../etc", "/roms/c64", ".umbau", "c64;rm -rf /", "c64 --neu", "a" * 65):
+    for boese in ("../etc", "/roms/c64", ".umbau", "c64;rm -rf /", "c64 --neu", "a" * 65,
+                  "c64\nzeile", "c64\x00"):
         r = client.post("/api/library/organize/run", json={"plattform": boese})
         assert r.status_code == 400, f"{boese!r} wurde angenommen ({r.status_code})"
 

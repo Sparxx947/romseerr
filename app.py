@@ -6074,12 +6074,26 @@ def api_library_organize_run():
     art = "beiwerk" if d.get("art") == "beiwerk" else "voll"
     trocken = bool(d.get("trocken"))
     plattform = (str(d.get("plattform") or "").strip() or None)
-    # Der Plattformname wird zu einem Argument und zu einem Pfad — deshalb kein Pfad und
-    # nichts Exotisches. Ein Verzeichnis muss es ausserdem geben.
+    # GEGEN EINE LISTE PRUEFEN, NICHT EINEN PFAD BAUEN. Der Name kommt aus einem
+    # Eingabefeld und wird zu einem Kommandozeilenargument. Die erste Fassung pruefte ein
+    # Muster und setzte ihn DANN in `os.path.join(ROMS, …)` — CodeQL hat das zu Recht als
+    # „uncontrolled data used in path expression" gemeldet: Die Reihenfolge verlaesst sich
+    # darauf, dass das Muster an alles gedacht hat.
+    # Hier wird stattdessen mit den Verzeichnissen verglichen, die es TATSAECHLICH gibt.
+    # Damit kann kein Wert aus der Anfrage mehr in einen Pfad geraten — was nicht in der
+    # Bibliothek steht, kommt gar nicht erst durch. Das Muster bleibt als erste Schranke,
+    # damit Unfug nicht bis zum Verzeichnislesen kommt.
+    # EN: compared against the directories that actually exist instead of being joined into
+    # a path, so no request value reaches the filesystem as a path at all.
     if plattform:
-        if not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", plattform) or plattform.startswith("."):
+        if not re.fullmatch(r"[A-Za-z0-9 ._-]{1,64}", plattform) or plattform.startswith("."):
             return jsonify({"ok": False, "msg": "unzulaessiger Plattformname"}), 400
-        if not os.path.isdir(os.path.join(ROMS, plattform)):
+        try:
+            with os.scandir(ROMS) as it:
+                bekannt = {e.name for e in it if e.is_dir() and not e.name.startswith(".")}
+        except OSError:
+            bekannt = set()
+        if plattform not in bekannt:
             return jsonify({"ok": False, "msg": f"kein Ordner {plattform} in der Bibliothek"}), 400
     if not os.path.isfile(WERKZEUG):
         return jsonify({"ok": False, "msg": "Werkzeug nicht im Abbild"}), 500
