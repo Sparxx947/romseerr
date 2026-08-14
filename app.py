@@ -5985,13 +5985,23 @@ def api_library_organize_status():
     # AUS DIESER INSTANZ ODER VON AUSSEN? Beides kommt vor — ein Lauf kann auch im
     # Wegwerf-Container von Hand gestartet worden sein. Nur den eigenen kann diese
     # Oberflaeche anhalten, und genau das muss sie sagen koennen.
+    #
+    # DER LETZTE LAUF BLEIBT STEHEN, bis ein neuer beginnt. Die erste Fassung liess ihn
+    # verschwinden, sobald der Prozess endete — also genau in dem Augenblick, in dem sein
+    # ERGEBNIS da war: Das Werkzeug gibt seine Zusammenfassung am Ende aus, nicht
+    # unterwegs. Am echten System nachgemessen: waehrend des Laufs 0 Zeilen, danach kein
+    # Lauf mehr. Ein Testlauf hinterliess damit nichts als eine leere Anzeige — und
+    # ausgerechnet dafuer ist er da.
     eigener = _umbau_laeuft()
     lauf = None
-    if eigener:
+    if UMBAU_LAUF["proc"] is not None:
+        p = UMBAU_LAUF["proc"]
         lauf = {"art": UMBAU_LAUF["art"], "trocken": UMBAU_LAUF["trocken"],
                 "plattform": UMBAU_LAUF["plattform"],
                 "gestartet": UMBAU_LAUF["gestartet"],
-                "ausgabe": UMBAU_LAUF["ausgabe"][-12:]}
+                "laeuft": eigener,
+                "code": None if eigener else p.returncode,
+                "ausgabe": UMBAU_LAUF["ausgabe"][-40:]}
     return jsonify({
         "roms": ROMS,
         "umbau_dir": UMBAU_DIR,

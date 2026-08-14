@@ -1869,15 +1869,24 @@ async function loadOrganize(){
  // Last ohne Auskunft; ausserhalb des Bereichs wird der Zeitgeber abgeraeumt.
  // Anhalten geht NUR fuer einen Lauf aus dieser Instanz — einen, den der
  // Wegwerf-Container gestartet hat, kennt dieser Prozess nicht.
+ // Anhalten geht nur, solange der eigene Lauf WIRKLICH laeuft — der Datensatz bleibt
+ // nach dem Ende stehen, damit sein Ergebnis lesbar ist.
+ let e=d.eigener_lauf, aktiv=!!(e&&e.laeuft);
  let stop=document.getElementById('orgstop');
- if(stop)stop.disabled=!d.eigener_lauf;
+ if(stop)stop.disabled=!aktiv;
  let out=document.getElementById('orgout');
  if(out){
-  let z=(d.eigener_lauf&&d.eigener_lauf.ausgabe)||[];
+  let z=(e&&e.ausgabe)||[];
   out.style.display=z.length?'block':'none';
   out.textContent=z.join('\n');}
  let m=document.getElementById('orgmsg');
- if(m&&!m.dataset.halten)m.textContent=d.laeuft?(d.eigener_lauf?t('org_own'):t('org_foreign')):'';
+ if(m&&!m.dataset.halten){
+  // Was zuletzt lief, gehoert benannt — sonst steht eine Ausgabe ohne Zusammenhang da.
+  let was=e?((e.trocken?t('org_start_dry'):t('org_start_real'))
+             +' · '+(e.plattform||t('org_all'))):'';
+  m.textContent = aktiv ? (was+' — '+t('org_own'))
+    : (d.laeuft ? t('org_foreign')
+      : (e ? was+' — '+(e.code===0?t('org_finished'):t('org_failed')) : ''));}
  clearTimeout(ORG_TIMER);
  if(d.laeuft&&document.getElementById('orgstand'))ORG_TIMER=setTimeout(loadOrganize,5000);}
 async function orgStart(trocken){
