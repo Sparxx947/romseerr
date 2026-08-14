@@ -1994,7 +1994,13 @@ def refresh_catalogs(force=False):
             try:
                 with DB_LOCK, closing(db_conn()) as c, c:
                     c.execute("DELETE FROM fh_items WHERE url=?", (url,))
-            except Exception: pass
+            except Exception as e:
+                # NICHT STILL (#589): Der Eintrag ist oben schon aus `meta` gefallen, die
+                # Quelle also aus der Verwaltung verschwunden. Bleiben ihre Zeilen in
+                # `fh_items` liegen, tauchen sie weiter in Suchergebnissen auf — ohne
+                # dass es noch eine Quelle gaebe, der man das ansehen koennte.
+                log(f"Katalogquelle {url} entfernt, aber ihre Eintraege blieben stehen: "
+                    f"{err_kind(e)} — sie erscheinen weiter in der Suche.")
     kv_put("catalog_meta", meta)
     return meta
 
@@ -2630,11 +2636,14 @@ def find_output(base, jid):
     (sonst wäre es ein längerer jid), damit keine Verwechslung entsteht."""
     pref = f"romseerr_{jid}"
     try:
-        for e in os.scandir(base):
-            if not e.is_dir() or not e.name.startswith(pref): continue
-            rest = e.name[len(pref):]
-            if rest == "" or not rest[0].isdigit():
-                return e.path
+        # `with`, sonst bleibt der Deskriptor offen (#589) — hier besonders, weil die
+        # Funktion mitten in der Schleife per `return` verlassen wird.
+        with os.scandir(base) as eintraege:
+            for e in eintraege:
+                if not e.is_dir() or not e.name.startswith(pref): continue
+                rest = e.name[len(pref):]
+                if rest == "" or not rest[0].isdigit():
+                    return e.path
     except (FileNotFoundError, NotADirectoryError): pass
     return None
 
@@ -3062,7 +3071,8 @@ def ist_titel_ordner(pfad):
     if spielordner_slug(pfad):
         return True
     try:
-        eintraege = [e for e in os.scandir(pfad) if e.is_file()]
+        with os.scandir(pfad) as it:          # `with`, sonst bleibt der Deskriptor offen (#589)
+            eintraege = [e for e in it if e.is_file()]
     except OSError:
         return False
     listen = [e for e in eintraege
@@ -4279,7 +4289,11 @@ def worker_collect():
                                 continue
                 else:
                     p = find_output(jd_out_dir(), jid)
-                    if p and any(os.scandir(p)): cand = p
+                    # `with`, sonst bleibt der Deskriptor offen (#589) — `any()` bricht
+                    # beim ersten Eintrag ab und laesst den Iterator halb gelesen liegen.
+                    if p:
+                        with os.scandir(p) as it:
+                            if any(it): cand = p
                 if cand and folder_stable(cand):
                     einsortieren(jid, job, cand)
         except Exception as e:
@@ -4314,10 +4328,16 @@ def einsortieren(jid, job, cand):
 def folder_stable(path, wait=6):
     """True, wenn sich die Gesamtgröße des Ordners über `wait` Sekunden nicht ändert
     (= Download vermutlich abgeschlossen), damit nicht mitten im Schreiben importiert wird."""
+    def groesse():
+        # `with`, sonst bleibt der Deskriptor offen (#589). In einem Generatorausdruck
+        # wiegt das schwerer als sonst: Der Iterator wird erst beim Aufraeumen
+        # geschlossen, und diese Funktion laeuft je Auftrag mehrfach.
+        with os.scandir(path) as it:
+            return sum(f.stat().st_size for f in it if f.is_file())
     try:
-        a = sum(f.stat().st_size for f in os.scandir(path) if f.is_file())
+        a = groesse()
         time.sleep(wait)
-        b = sum(f.stat().st_size for f in os.scandir(path) if f.is_file())
+        b = groesse()
         return a==b
     except Exception: return False
 
@@ -7508,7 +7528,8 @@ def leftover_dirs():
     for basis in (SAB_DONE, jd_out_dir()):
         if not basis or not os.path.isdir(basis): continue
         try:
-            eintraege = list(os.scandir(basis))
+            with os.scandir(basis) as it:     # `with`, sonst bleibt der Deskriptor offen (#589)
+                eintraege = list(it)
         except OSError:
             continue
         for e in eintraege:

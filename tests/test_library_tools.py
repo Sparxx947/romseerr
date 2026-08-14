@@ -544,10 +544,17 @@ def _trockenlauf(org, monkeypatch, wurzel, stirbt_bei=None):
     """`alle_umbauen --trocken` mit einem `umbauen`, das nur buchfuehrt.
 
     `stirbt_bei` bricht den Lauf an dieser Plattform ab — so, wie ein Strg-C es taete.
+
+    GIBT DIE GESEHENEN PLATTFORMEN ZURUECK (#589): Ohne das kann ein Test nur pruefen,
+    dass nichts geflogen ist — und „nicht abgestuerzt" ist derselbe Ausgang wie „gar
+    nichts getan". Wer den Rueckgabewert nicht braucht, ignoriert ihn.
     """
+    gesehen = []
+
     def umbauen(_wurzel, plattform, _trocken, _prot, _nur_beiwerk=False):
         if plattform == stirbt_bei:
             raise _Abbruch("Nutzer bricht den Trockenlauf ab")
+        gesehen.append(plattform)
         return 0
 
     monkeypatch.setattr(org, "umbauen", umbauen)
@@ -555,6 +562,7 @@ def _trockenlauf(org, monkeypatch, wurzel, stirbt_bei=None):
         org.alle_umbauen(wurzel, True, set())
     except _Abbruch:
         pass
+    return gesehen
 
 
 def test_a_dry_run_leaves_no_resume_point(org, tmp_path, monkeypatch):
@@ -645,13 +653,20 @@ def test_a_dry_run_works_on_a_read_only_library(org, tmp_path, monkeypatch):
     GEMESSEN: `PermissionError: [Errno 13] Permission denied: '/roms/.umbau'`, noch bevor
     eine einzige Plattform betrachtet wurde. Ausgerechnet der sicherste Weg, das Werkzeug
     auszuprobieren — trocken und nur lesbar eingehaengt — war der einzige, der nicht ging.
+
+    GEPRUEFT WIRD, DASS ER ARBEITET, nicht nur dass er nicht stirbt (#589): Ohne die
+    Zusicherung unten bliebe dieser Test auch dann gruen, wenn das Werkzeug bei einer
+    nicht beschreibbaren Bibliothek stillschweigend sofort zurueckkaeme — also genau
+    dann, wenn die Faehigkeit, um die es hier geht, wieder weg waere.
     """
     wurzel = _bibliothek(tmp_path, "gb", "c64")
     os.chmod(wurzel, 0o555)
     try:
-        _trockenlauf(org, monkeypatch, wurzel)
+        gesehen = _trockenlauf(org, monkeypatch, wurzel)
     finally:
         os.chmod(wurzel, 0o755)
+    assert sorted(gesehen) == ["c64", "gb"], \
+        f"der Lauf ist zwar nicht gestorben, hat aber nicht gearbeitet: {gesehen}"
 
 
 # --- #397: Kollisionsnamen gehen nicht aus -------------------------------------------
