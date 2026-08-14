@@ -47,6 +47,27 @@ def test_startseite_laedt_ohne_konsolenfehler(seite, konsolenfehler):
     assert not konsolenfehler, "Konsolenfehler beim Laden: " + " | ".join(konsolenfehler)
 
 
+def test_die_aurora_buehne_erscheint_nur_beim_entdecken(seite):
+    """Die Buehne stand ausserhalb von `#discview` und wurde deshalb von `zeige()` nie
+    ausgeblendet — in Anfragen, Problemen, Abdeckung und Einstellungen stand eine halbe
+    Bildschirmhoehe „Finde ein Spiel" ueber Inhalten, die mit Suchen nichts zu tun haben.
+
+    WARUM DER FRUEHERE TEST DAS NICHT FAND: Er prueft, DASS das Design greift, und ich habe
+    beim Bauen nur die Entdecken-Ansicht gerendert. Ein Design ist nicht ein Bildschirm —
+    dieser Test geht deshalb ALLE Ansichten durch. (#636)"""
+    seite.evaluate("document.documentElement.dataset.design='aurora'")
+    seite.wait_for_timeout(400)
+    b = seite.locator("#buehne")
+    assert b.is_visible(), "die Buehne fehlt schon beim Entdecken"
+    for name in ("Anfragen", "Probleme", "Abdeckung", "Bibliothek", "Nachrichten"):
+        menuepunkt(seite, name).click()
+        seite.wait_for_timeout(350)
+        assert not b.is_visible(), f"die Buehne steht noch in der Ansicht {name}"
+    menuepunkt(seite, "Entdecken").click()
+    seite.wait_for_timeout(350)
+    assert b.is_visible(), "zurueck beim Entdecken fehlt die Buehne"
+
+
 def test_ein_treffer_ohne_plattform_wird_benannt_statt_fragezeichen(seite):
     """Ohne Slug stand in der Karte ein blosses `?` — der Titel liess sich anfordern, ohne
     dass jemand sah, dass er mangels Zielordner in `.unsortiert` landet. (#621)

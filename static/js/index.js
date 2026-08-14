@@ -217,6 +217,10 @@ function navGeh(v){show(v);return false;}
 function show(v){zeige(v);routeSetzen(v,null,false,v==='set'?SETSEC:'',v==='set'?SETSUB:'');}
 function zeige(v){cur=v;
  document.getElementById('discview').style.display=v=='s'?'':'none';
+ // Die Buehne steht AUSSERHALB von `#discview` — sie wird mit `order` ueber die Suchleiste
+ // gezogen und muesste dafuer sonst ins Markup wandern. Also hier mitschalten, sonst bleibt
+ // sie in jeder Ansicht stehen (#636). Zweite Bedingung: nur solange nichts gesucht ist.
+ zeigeBuehne(v=='s' && !(document.getElementById('q')||{}).value);
  document.getElementById('jobs').style.display=v=='j'?'block':'none';
  document.getElementById('settings').style.display=v=='set'?'block':'none';
  document.getElementById('issues').style.display=v=='issues'?'block':'none';
