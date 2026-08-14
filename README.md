@@ -1,4 +1,4 @@
-# 🎮 Romseerr
+# <img src="static/logo.svg" width="30" alt="" align="top"> Romseerr
 
 [![CI](https://github.com/Sparxx947/romseerr/actions/workflows/ci.yml/badge.svg)](https://github.com/Sparxx947/romseerr/actions/workflows/ci.yml)
 [![Security](https://github.com/Sparxx947/romseerr/actions/workflows/security.yml/badge.svg)](https://github.com/Sparxx947/romseerr/actions/workflows/security.yml)

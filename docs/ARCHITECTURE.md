@@ -902,6 +902,41 @@ right lever for the click question and the wrong one for the message question �
 Datei unter `static/` oder `templates/` bearbeiten, App neu starten (der Hash und damit die
 URL ändern sich automatisch). Kein Build, kein Bündler.
 
+### Die Marke
+Ein Modul mit ausgestanztem **R**, in drei Fassungen unter `static/`:
+
+| Datei | Wofür | Besonderheit |
+|---|---|---|
+| `logo.svg` | Oberfläche, ab ~24 px | volles Zeichen mit drei Kontakten |
+| `icon.svg` | Lesezeichen, Reiter | gröbere Balken, keine Kontakte |
+| `icon-maskable.svg` | installierte App | Fläche mit Sicherheitsabstand |
+
+In den Seiten steht sie **einmal** als `<g id="rs-marke">` in `templates/index.html`, alles
+Weitere referenziert sie mit `<use href="#rs-marke">` — auch die Fußzeile und die
+Über-Seite, die `index.js` baut. `login.html` und `reset.html` sind eigene Dokumente und
+tragen sie direkt.
+
+Zwei Regeln, beide aus Fehlern der Vorgängerfassung (#650):
+
+- **Keine Schrift, kein Emoji, nur Pfade.** Vorher war das Icon ein 🎮 als `<text>` — das
+  Ergebnis hing daran, welche Emoji-Schrift der Anzeigende hat, und im Favicon wird gar
+  keine geladen. `test_the_brand_never_depends_on_a_font_or_an_emoji` verbietet die
+  Rückkehr für **jede** SVG-Datei unter `static/`, nicht nur für die drei genannten.
+- **`maskable` ist ein eigenes Bild, kein zweites Wort.** Android und iOS schneiden die
+  Kachel rund; ein randloses Zeichen verliert dabei seine Ecke. Das Manifest trug
+  `purpose: "any maskable"` für ein Icon ganz ohne Sicherheitsabstand.
+
+In Benachrichtigungen an Discord bleibt das 🎮 stehen: dort ist es Schmuck in einer
+Textnachricht, kein Zeichen, das für sich stehen muss.
+
+*EN: the mark is a cartridge with the letter R cut out, in three files — full for the
+interface, simplified for favicons, and a maskable tile with a safe area. It is defined
+once as `<g id="rs-marke">` and referenced with `<use>`, including from the footer and
+about page built in JS. Two rules, both learned the hard way: paths only, never a font or
+an emoji (a favicon loads no emoji font), and `maskable` needs its own image with clearance
+rather than a second word in `purpose`. The 🎮 stays in Discord notifications, where it is
+decoration in a message rather than a mark standing on its own.*
+
 ### Designs
 Vier Stück, umschaltbar in den Einstellungen und in `DESIGNS` (`static/js/index.js`)
 aufgezählt: `seerr`, `glass`, `clean` und `aurora`. Gewählt wird über `data-design` am

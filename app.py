@@ -6095,7 +6095,7 @@ def api_version():
 
 # ---------- Auth-Routen ----------
 PUBLIC = {"/login","/api/login","/api/setup","/api/auth/status","/health","/reset","/api/forgot","/api/reset",
-          "/manifest.webmanifest","/sw.js","/icon.svg","/api/openapi.json","/api/docs","/api/version"}
+          "/manifest.webmanifest","/sw.js","/icon.svg","/icon-maskable.svg","/api/openapi.json","/api/docs","/api/version"}
 @app.before_request
 def _guard():
     """Zentrale Auth-Schleuse VOR jeder Anfrage:
@@ -6768,7 +6768,11 @@ def api_jobs_clear_finished():
 # ---------- PWA + Web-Push ----------
 MANIFEST = {"name":"Romseerr","short_name":"Romseerr","start_url":"/","scope":"/",
     "display":"standalone","background_color":"#0b0d10","theme_color":"#0b0d10",
-    "icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}
+    # `any` und `maskable` sind ZWEI Bilder, keine zwei Woerter: eine maskierbare Kachel
+    # braucht Rand, den ein randloses Zeichen nicht hat. Vorher trug ein Icon ohne jeden
+    # Sicherheitsabstand beide Zwecke — auf Android wurde ihm die Ecke abgeschnitten. (#650)
+    "icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"},
+             {"src":"/icon-maskable.svg","sizes":"any","type":"image/svg+xml","purpose":"maskable"}]}
 
 @app.route("/manifest.webmanifest")
 def pwa_manifest(): return Response(json.dumps(MANIFEST), mimetype="application/manifest+json")
@@ -6776,6 +6780,13 @@ def pwa_manifest(): return Response(json.dumps(MANIFEST), mimetype="application/
 @app.route("/icon.svg")
 def pwa_icon():
     a = _ASSETS.get("icon.svg")
+    return Response(a["body"] if a else b"", mimetype="image/svg+xml")
+
+@app.route("/icon-maskable.svg")
+def pwa_icon_maskable():
+    """Die Kachel fuer den Startbildschirm. Eigene Route wie `/icon.svg`, denn das
+    Manifest verweist auf feste Pfade und kennt die gehashten Asset-URLs nicht. (#650)"""
+    a = _ASSETS.get("icon-maskable.svg")
     return Response(a["body"] if a else b"", mimetype="image/svg+xml")
 
 @app.route("/sw.js")
@@ -7771,6 +7782,7 @@ OPENAPI = {
         "/manifest.webmanifest": {"get": _op("PWA-Manifest", "System", _PUB)},
         "/sw.js": {"get": _op("Service-Worker", "System", _PUB)},
         "/icon.svg": {"get": _op("App-Icon", "System", _PUB)},
+        "/icon-maskable.svg": {"get": _op("App-Icon fuer den Startbildschirm", "System", _PUB)},
         "/assets/{h}/{rel}": {"get": _op("Statische Datei unter inhaltsgehashter URL (immutable)", "System", _PUB,
             params=[_pp("h", "Inhaltshash"), _pp("rel", "Pfad unter static/")],
             responses={"200": {"description": "Datei"}, "404": {"description": "unbekannt oder falscher Hash"}})},

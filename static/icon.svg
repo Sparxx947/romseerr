@@ -1,1 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="36" fill="#5b8cff"/><text x="96" y="132" font-size="104" text-anchor="middle" font-family="sans-serif">🎮</text></svg>
+<!-- Romseerr — Kleinfassung fuer Lesezeichen und Reiter (#650).
+     Kraeftigere Balken als die volle Marke, keine Kontaktpunkte: was bei 16 px ohnehin
+     verschwindet, nimmt dort nur Kontrast weg. Reine Pfade — eine Schrift oder ein Emoji
+     wird im Favicon nicht geladen und war genau der Fehler der Vorgaengerfassung. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Romseerr">
+ <linearGradient id="rs" x1="0" y1="0" x2="1" y2="1">
+  <stop offset="0" stop-color="#ff6a3d"/><stop offset="1" stop-color="#7c5cff"/>
+ </linearGradient>
+ <path fill="url(#rs)" fill-rule="evenodd"
+   d="M14 4h28l10 10v34H10V8a4 4 0 0 1 4-4z
+      M21 12v30h7.5v-9h4L38 42h8.5l-6.4-11A7.6 7.6 0 0 0 37 12z
+      M28.5 18.5h7.6a3.3 3.3 0 0 1 0 6.6h-7.6z"/>
+ <path fill="url(#rs)" d="M19 46h24v10a4 4 0 0 1-4 4H23a4 4 0 0 1-4-4z"/>
+</svg>

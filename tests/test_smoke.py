@@ -9190,3 +9190,85 @@ def test_only_our_own_prefix_is_removed(appmod):
         "",
     ):
         assert appmod.ohne_auftragspraefix(unveraendert) == unveraendert, unveraendert
+
+
+# --- #650: die Marke ---------------------------------------------------------------
+
+def test_the_brand_never_depends_on_a_font_or_an_emoji(appmod):
+    """Ein Zeichen, das eine Schrift braucht, ist kein Logo. (#650)
+
+    Die Vorgängerfassung setzte 🎮 als `<text>` in ein SVG. Das Ergebnis hängt daran,
+    welche Emoji-Schrift der Anzeigende zufällig hat — im Favicon wird gar keine geladen.
+    Geprüft wird deshalb nicht, dass die neue Datei existiert, sondern dass die alte
+    Abhängigkeit nirgends zurückkehrt: kein Textelement, keine Schriftangabe, kein Emoji
+    in irgendeiner Bilddatei.
+    """
+    icons = sorted(f for f in os.listdir(os.path.join(REPO, "static")) if f.endswith(".svg"))
+    assert icons, "keine SVG-Dateien unter static/"
+    for fn in icons:
+        s = open(os.path.join(REPO, "static", fn), encoding="utf-8").read()
+        assert "<text" not in s, f"{fn}: enthält ein Textelement"
+        assert "font-family" not in s, f"{fn}: hängt an einer Schrift"
+        assert not re.search(r"[\U0001F300-\U0001FAFF☀-➿]", s), f"{fn}: enthält ein Emoji"
+        assert "<path" in s, f"{fn}: enthält keine gezeichneten Pfade"
+        import xml.dom.minidom
+        xml.dom.minidom.parseString(s)          # muss wohlgeformtes XML sein
+
+
+def test_the_brand_is_the_same_everywhere(appmod):
+    """Kopfzeile, Anmeldung, Passwort-Zurücksetzen, Fußzeile und Über-Seite. (#650)
+
+    Fünf Stellen trugen dasselbe Emoji; eine davon zu vergessen fällt niemandem auf, bis
+    zwei Marken nebeneinanderstehen. Der Vorleser-Fall zählt mit: das Zeichen steht neben
+    dem Namen und darf nicht mitgelesen werden.
+    """
+    fehlt = []
+    for datei, muster in (("templates/index.html", 'href="#rs-marke"'),
+                          ("templates/login.html", 'class=marke'),
+                          ("templates/reset.html", 'class=marke'),
+                          ("static/js/index.js", 'href="#rs-marke"')):
+        s = open(os.path.join(REPO, datei), encoding="utf-8").read()
+        if muster not in s:
+            fehlt.append(datei)
+        assert "🎮" not in s, f"{datei}: das Emoji steht noch da"
+    assert not fehlt, f"ohne Marke: {fehlt}"
+
+    # index.js braucht sie zweimal: Fußzeile UND Über-Seite
+    js = _js()
+    assert js.count('href="#rs-marke"') >= 2, \
+        "im JS steht die Marke nur an einer Stelle — Fußzeile oder Über-Seite fehlt"
+    # und sie muss definiert sein, sonst zeigt jedes `use` ins Leere
+    tpl = open(os.path.join(REPO, "templates/index.html"), encoding="utf-8").read()
+    assert 'id="rs-marke"' in tpl, "die Marke wird benutzt, aber nirgends definiert"
+    # Am ZEICHEN muss es hängen, nicht irgendwo in der Datei — sonst prüft der Test bloß,
+    # dass das Wort vorkommt. Jedes eingebundene Markenzeichen wird einzeln angesehen.
+    for datei in ("templates/index.html", "templates/login.html", "templates/reset.html",
+                  "static/js/index.js"):
+        quelle = open(os.path.join(REPO, datei), encoding="utf-8").read()
+        marken = re.findall(r"<svg[^>]*\bclass=[\"']?marke[\"']?[^>]*>", quelle)
+        assert marken, f"{datei}: kein Markenzeichen gefunden"
+        for treffer in marken:
+            assert "aria-hidden" in treffer, \
+                f"{datei}: der Vorleser liest das Zeichen neben dem Namen mit — {treffer}"
+
+
+def test_the_installed_app_gets_an_icon_with_room_around_it(appmod, client):
+    """`maskable` ist ein eigenes Bild, kein zweites Wort. (#650)
+
+    Android und iOS schneiden die Kachel rund. Vorher trug ein randloses Zeichen
+    `purpose: "any maskable"` — die Zusage stimmte, das Bild nicht.
+    """
+    m = appmod.MANIFEST
+    zwecke = {i["purpose"]: i["src"] for i in m["icons"]}
+    assert "maskable" in zwecke, f"kein maskierbares Icon im Manifest: {m['icons']}"
+    assert zwecke["maskable"] != zwecke.get("any"), \
+        "dasselbe Bild für beide Zwecke — dann hat es entweder Rand zu viel oder zu wenig"
+
+    r = client.get(zwecke["maskable"])
+    assert r.status_code == 200, f"{zwecke['maskable']} wird nicht ausgeliefert"
+    assert r.mimetype == "image/svg+xml"
+    s = r.get_data(as_text=True)
+    assert "<rect" in s and "scale(" in s, \
+        "die Kachel hat weder Fläche noch verkleinertes Zeichen — dann fehlt der Rand"
+    r = client.get(zwecke["any"])
+    assert r.status_code == 200 and "<path" in r.get_data(as_text=True)
