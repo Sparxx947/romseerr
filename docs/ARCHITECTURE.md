@@ -902,6 +902,30 @@ right lever for the click question and the wrong one for the message question �
 Datei unter `static/` oder `templates/` bearbeiten, App neu starten (der Hash und damit die
 URL ändern sich automatisch). Kein Build, kein Bündler.
 
+### Designs
+Vier Stück, umschaltbar in den Einstellungen und in `DESIGNS` (`static/js/index.js`)
+aufgezählt: `seerr`, `glass`, `clean` und `aurora`. Gewählt wird über `data-design` am
+`<html>`-Element; jedes Design definiert dieselben Variablen (`--bg`, `--card`, `--acc`,
+`--gefahr`, …) neu, die Regeln selbst greifen ausschließlich über diese Variablen.
+
+Zwei Dinge, an denen das regelmäßig scheitert:
+
+- **Ein Design ist kein Bildschirm.** Wer nur die Entdecken-Ansicht ansieht, übersieht, was
+  in Anfragen, Problemen, Abdeckung und Einstellungen passiert — genau so blieb die
+  Aurora-Bühne in allen Ansichten stehen (#636).
+- **Die Kaskade entscheidet, nicht die Absicht.** `#setcontent button` und
+  `#modal .row button` färben mit einer ID, und eine ID schlägt jede Klasse. Eine neue
+  Knopfklasse muss diese Bereiche mitnennen, sonst bleibt sie folgenlos, während Variable,
+  Regel und Markup allesamt richtig aussehen (#647). Statische Tests merken das nicht;
+  geprüft wird im Browsertest über die **berechnete** Farbe, für jedes Design.
+
+*EN: four themes — `seerr`, `glass`, `clean`, `aurora` — selected through `data-design` on
+the root element, each redefining the same variables. Two recurring traps: a theme is not a
+single screen (check every view, cf. #636), and the cascade decides rather than the
+intention — `#setcontent button` and `#modal .row button` paint by ID, which outranks any
+class, so a new button class has to name those contexts or it silently does nothing (#647).
+Static checks cannot see this; the browser test reads the computed colour per theme.*
+
 ### Eine neue Route hinzufügen
 1. Funktion mit `@app.route(...)` + passendem `*_required`-Decorator schreiben.
 2. Falls öffentlich: Pfad in die `PUBLIC`-Menge aufnehmen.
