@@ -1854,12 +1854,14 @@ async function loadOrganize(){
  let d={};try{d=await(await fetch('/api/library/organize/status')).json();}catch(e){d={};}
  let el=document.getElementById('orgstand');if(!el)return;   // Bereich verlassen
  let arten=Object.keys(d.staende||{});
- el.innerHTML = arten.length ? arten.map(a=>orgStand(a,d.staende[a])).join('')
-   : `<div class=meta>${d.vorhanden?t('org_none'):t('org_nodir')}</div>`;
+ el.innerHTML = (arten.length ? arten.map(a=>orgStand(a,d.staende[a])).join('')
+   : `<div class=meta>${d.vorhanden?t('org_none'):t('org_nodir')}</div>`)
+   // Der Hinweis gehoert dorthin, wo die Zahl steht, die er einordnet — also nur,
+   // solange ueberhaupt eine Restzeit angezeigt wird.
+   + (d.laeuft?`<div class=meta style="margin-bottom:8px">${t('org_est_hint')}</div>`:'');
  let l=document.getElementById('orglogs');
  if(l)l.innerHTML=(d.protokolle&&d.protokolle.length)
-   ? `<div class=meta style="margin-bottom:6px">${t('org_est_hint')}</div>`
-     + d.protokolle.map(e=>`<div style="margin:4px 0">
+   ? d.protokolle.map(e=>`<div style="margin:4px 0">
         <code>${e.name}</code>
         <div class=meta>${t('org_undo')}: <code>${e.zurueck}</code></div></div>`).join('')
    : t('org_nologs');
