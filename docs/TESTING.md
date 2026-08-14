@@ -44,6 +44,15 @@ ist, eine Ansicht ohne Routen-Eintrag und Assets ohne Komprimierung.
 **Playwright** fährt einen echten Browser. Tastatur, Adresszeile, Konsolenfehler,
 Fenstergrößen.
 
+**`tests/e2e/bildmessung.py`** liest die Pixel eines Element-Screenshots — ein kleiner
+PNG-Dekoder auf `zlib`, ohne Pillow und ohne numpy. Gebraucht wird er dort, wo Kästen
+nicht genügen: `getBoundingClientRect()` beschreibt Kästen, nicht das, was man sieht. In
+#659 saß das × eines Knopfes 3 px zu weit rechts und 5,5 px zu tief, während jeder
+gemessene Kasten für sich plausibel aussah — der Zeilenkasten war schlicht höher als der
+Inhaltsbereich, der ihn hielt. `tintenraender()` gibt die Ränder um die hellen Pixel
+zurück und `None`, wenn nichts über der Schwelle liegt; ein Aufrufer, der das für
+„mittig" nähme, bestünde inhaltsleer.
+
 **axe-core** prüft Kontrast, fehlende Namen, ARIA und Dokumentstruktur. Es hat **keine
 Regel** für ein `div` mit Klick-Behandler ohne Rolle — nachgeprüft in der Regelliste,
 entgegen mehrerer verbreiteter Anleitungen. Ein reiner axe-Lauf hätte die
@@ -127,6 +136,14 @@ entry, and uncompressed assets.
 ### What each tool can and cannot do
 
 **Playwright** drives a real browser: keyboard, address bar, console errors, viewports.
+
+**`tests/e2e/bildmessung.py`** reads the pixels of an element screenshot — a small
+`zlib`-based PNG decoder, no Pillow and no numpy. It is for the cases where boxes are not
+enough: `getBoundingClientRect()` describes boxes, not what you see. In #659 a button's ×
+sat 3 px right and 5.5 px low while every measured box looked plausible on its own — the
+line box was simply taller than the content box holding it. `tintenraender()` returns the
+margins around the bright pixels, and `None` when nothing clears the threshold; a caller
+treating that as "centred" would pass vacuously.
 
 **axe-core** covers contrast, missing names, ARIA and document structure. It has **no
 rule** for a `div` carrying a click handler without a role — verified against the rule
