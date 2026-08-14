@@ -499,9 +499,54 @@ def test_api_version_public(client, appmod):
 
 def test_api_version_semver_compare(appmod):
     """Der Versionsvergleich für den Update-Hinweis ordnet numerisch, nicht lexikalisch."""
-    assert appmod._semver("v1.10.0") > appmod._semver("1.9.9")
-    assert appmod._semver("1.0.0-beta.1") == appmod._semver("1.0.0")   # Suffix ignoriert
-    assert appmod._semver("krumm") == (0, 0, 0)
+    sv = appmod._semver
+    assert sv("v1.10.0") > sv("1.9.9")
+    assert sv("krumm") < sv("0.0.1")          # unlesbar ist das Kleinste, nie ein Update
+    assert sv("1.2.3") == sv("v1.2.3")        # führendes v ist Schmuck
+    assert sv("1.2.3+abc") == sv("1.2.3")     # Build-Metadaten zählen laut SemVer nicht mit
+
+
+def test_semver_ordnet_vorabversionen(appmod):
+    """Der Vorabteil entscheidet mit — sonst ist die ganze Beta-Reihe eine einzige Version.
+
+    Seit #572 sind alle Releases dieses Projekts Vorabversionen, der Hinweis vergleicht also
+    fast immer Beta gegen Beta. Genau diese drei Zeilen konnte er nicht (#574). Die Regeln
+    stehen in SemVer 2.0.0 §11 und werden hier der Reihe nach durchgerechnet.
+
+    EN: pre-releases decide, otherwise the whole beta series collapses into one version.
+    """
+    sv = appmod._semver
+    # 1. Dieselbe Version, höherer Vorabteil -> Update. Numerisch, nicht als Zeichenkette:
+    #    beta.10 steht ÜBER beta.9, obwohl "10" < "9" buchstabiert.
+    assert sv("1.3.0-beta.2") > sv("1.3.0-beta.1")
+    assert sv("1.3.0-beta.10") > sv("1.3.0-beta.9")
+    # 2. Der Sprung, auf den es am meisten ankommt: stabil schlägt die eigene Beta.
+    assert sv("1.3.0") > sv("1.3.0-beta.1")
+    #    ... und rückwärts gilt es nicht — eine Beta ist kein Update zur fertigen Fassung.
+    assert not sv("1.3.0-beta.1") > sv("1.3.0")
+    # 3. Der Zahlenteil bleibt vorrangig: eine ältere Beta einer neueren Version gewinnt.
+    assert sv("1.4.0-beta.1") > sv("1.3.0")
+    # 4. Rangfolge innerhalb der Vorabteile: alpha < beta < rc, Zahl vor Wort,
+    #    und mehr Bezeichner schlagen weniger bei gleichem Anfang.
+    assert sv("1.0.0-alpha") < sv("1.0.0-beta") < sv("1.0.0-rc.1") < sv("1.0.0")
+    assert sv("1.0.0-1") < sv("1.0.0-alpha")          # rein numerisch rangiert unter Wort
+    assert sv("1.0.0-alpha") < sv("1.0.0-alpha.1")    # längerer Vorabteil steht höher
+    # 5. Gleichheit bleibt Gleichheit — sonst meldete jede Instanz sich selbst als veraltet.
+    assert not sv("1.3.0-beta.1") > sv("1.3.0-beta.1")
+
+
+def test_update_hinweis_zwischen_zwei_betas(appmod, client, monkeypatch):
+    """Der Weg durch /api/version?check=1, nicht nur die Vergleichsfunktion. (#574)
+
+    EN: exercises the whole /api/version?check=1 path, not just the compare helper.
+    """
+    monkeypatch.setattr(appmod, "VERSION", "1.3.0-beta.1")
+    for veroeffentlicht, erwartet in (("1.3.0-beta.2", True), ("1.3.0", True),
+                                      ("1.3.0-beta.1", False), ("1.2.0", False)):
+        monkeypatch.setattr(appmod, "latest_release", lambda v=veroeffentlicht: v)
+        d = client.get("/api/version?check=1").get_json()
+        assert d["latest"] == veroeffentlicht
+        assert d["update_available"] is erwartet, f"{veroeffentlicht} gegen 1.3.0-beta.1"
 
 
 def test_metrics_requires_auth(client):
@@ -2980,6 +3025,41 @@ def test_the_footer_shows_the_version_only_to_signed_in_visitors():
     assert "main{padding-bottom:" in css, "ohne Ausgleich verdeckt die Fußzeile den Inhalt"
 
 
+def test_the_update_notice_links_to_the_version_it_names():
+    """Der Linktext nennt eine Version — dann muss der Link auch dorthin führen. (#577)
+
+    `/releases/latest` verhält sich wie der gleichnamige API-Endpunkt aus #572: Es
+    überspringt Vorabversionen. Nachgemessen an fremden Repos, nicht angenommen —
+    `kubernetes/kubernetes` leitet auf `v1.36.3` um, obwohl `v1.37.0-rc.0` neuer ist, und
+    ein Repo ohne infrage kommenden Release landet auf der Übersicht `/releases`. Da alle
+    Releases dieses Projekts Vorabversionen sind (bzw. es werden, #572), zeigte der Link
+    also überall hin, nur nicht auf die im Text genannte Fassung.
+
+    Die Fußzeile macht es zwei Funktionen weiter oben schon richtig; hier dasselbe Muster.
+
+    EN: the web URL /releases/latest skips pre-releases exactly like the API endpoint, so
+    the link went somewhere other than the version its own text names.
+    """
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    fn = js[js.index("async function secAbout(c){"):]
+    fn = fn[:fn.index("\nasync function ", 1)]
+    # Ohne die Kommentarzeilen — die Begründung darf die Adresse nennen, der Code nicht.
+    code = "\n".join(z for z in fn.splitlines() if not z.lstrip().startswith("//"))
+    assert "/releases/latest" not in code, \
+        "der Hinweis zeigt weiterhin auf /releases/latest, das Vorabversionen überspringt"
+    assert "releases/tag/v${encodeURIComponent(ver.latest)}" in fn, \
+        "der Link führt nicht auf den Release, den sein eigener Text nennt"
+    # Ohne `ver.latest` gibt es kein Ziel — dann die Übersicht statt einer 404-Adresse
+    # `/releases/tag/v`. Der Server liefert `update_available` zwar nur mit `latest`
+    # zusammen, aber der Rückfall kostet nichts und hält die Stelle für sich allein wahr.
+    assert "`${repo}/releases`" in fn, "ohne latest fehlt der Rückfall auf die Übersicht"
+    # Der Fuß setzt rel, dieser Block nicht — dieselbe Sorte Link, dieselbe Regel.
+    zeilen = [z for z in fn.splitlines() if "target=_blank" in z]
+    assert zeilen, "keine externen Links im Über-Abschnitt gefunden — Test prüft nichts"
+    for z in zeilen:
+        assert "rel=" in z, f"externer Link ohne rel: {z.strip()[:90]}"
+
+
 def test_escape_closes_the_menu_first_and_the_dialog_second():
     """Ein Handler für Escape, nicht zwei, die um dieselbe Taste konkurrieren. Und mit
     offenem Menü über dem Fenster schließt der erste Druck das Menü, der zweite das
@@ -4346,6 +4426,157 @@ def test_latest_tag_cannot_land_on_a_prerelease(appmod):
         "die Bedingung darf nicht am Auslöser hängen — bei einem Handlauf war sie wahr"
     assert "contains(" in zeile and "'-'" in zeile, \
         "SemVer kennzeichnet Vorabversionen mit '-'; daran muss die Bedingung hängen"
+
+
+# ---- Abbild und GitHub-Release duerfen nicht verschieden ueber „latest" denken (#572)
+#
+# GEMESSEN am 2026-08-13 ueber alle vier Releases: v1.0.0-beta.1 und v1.1.0-beta.1 standen
+# auf `prerelease=true`, v1.2.0-beta.1 und v1.3.0-beta.1 auf `false`. `GET /releases/latest`
+# lieferte also eine Beta, waehrend das Register derselben Fassung das Tag `latest`
+# verweigerte. Zwei Regeln fuer dieselbe Frage, mit gegenteiliger Antwort.
+#
+# Die im Issue vermutete Ursache — die Umstellung der Action von `@v4` auf einen festen
+# SHA — ist WIDERLEGT: v1.1.0-beta.1 entstand bereits unter dem festen SHA
+# (`git show v1.1.0-beta.1:.github/workflows/release-please.yml`) und kam trotzdem als
+# Vorabversion heraus. Aus dem Bot kann die Markierung ohnehin nie gekommen sein — der
+# gebuendelte Code setzt sie nur, wenn die Konfiguration sie verlangt, und dort stand sie
+# in keiner Fassung. Sie wurde von aussen gesetzt; wann genau, gibt die API nicht her.
+#
+# EN: the image and the GitHub release answered the same question differently. The pin was
+# ruled out by measurement; the flag never came from the bot, because it was never
+# configured.
+
+def _vorabregel_der_konfiguration():
+    """Wie release-please die Vorabmarkierung entscheidet — aus der Konfiguration gelesen.
+
+    Der gebuendelte Code der GEPINNTEN Action (dist/index.js bei 5c625bf) lautet:
+
+        prerelease: config.prerelease && (!!version.preRelease || version.major === 0)
+
+    `"prerelease": true` markiert also NICHT pauschal alles, sondern genau die Versionen
+    mit einem SemVer-Vorabteil — plus die gesamte 0.x-Reihe.
+    """
+    cfg = json.load(open(os.path.join(REPO, "release-please-config.json"), encoding="utf-8"))
+    paket = cfg.get("packages", {}).get(".", {})
+    verlangt = paket.get("prerelease", cfg.get("prerelease", False))
+    return lambda version: bool(verlangt) and ("-" in version or version.startswith("0."))
+
+
+def test_beta_releases_are_marked_as_prereleases_by_configuration(appmod):
+    """Die Vorabmarkierung kommt aus der Konfiguration, nicht aus einer Handbewegung. (#572)
+
+    Von den vier bestehenden Releases trugen zwei die Markierung und zwei nicht — bei
+    identischem Workflow und identischer Action. Was niemand konfiguriert hat, kann auch
+    niemand richtig halten.
+    """
+    cfg = json.load(open(os.path.join(REPO, "release-please-config.json"), encoding="utf-8"))
+    paket = cfg.get("packages", {}).get(".", {})
+    assert paket.get("prerelease", cfg.get("prerelease")) is True, \
+        ("release-please-config.json muss `prerelease: true` tragen — sonst entscheidet "
+         "niemand, ob eine Beta als Vorabversion erscheint / nothing decides it")
+
+
+def test_the_image_and_the_github_release_cannot_disagree_about_latest(appmod):
+    """Ein Abbild ohne `latest` und ein Release, das sich `latest` nennt, ist ein
+    Widerspruch — und bisher fiel er niemandem auf. (#572)
+
+    Der Test rechnet BEIDE Regeln auf denselben Versionen durch: die des Abbilds aus
+    `release-image.yml`, die des Releases aus `release-please-config.json`. Laufen sie
+    auseinander, schlaegt er an — egal, welche der beiden Seiten jemand aendert.
+    """
+    zeile = next((z for z in open(os.path.join(REPO, ".github/workflows/release-image.yml"),
+                                  encoding="utf-8").read().split("\n") if "value=latest" in z), "")
+    assert "contains(" in zeile and "'-'" in zeile, \
+        "die Abbild-Regel haengt nicht mehr am '-' — dann stimmt der Vergleich unten nicht"
+    abbild_latest = lambda version: "-" not in version   # noqa: E731  release-image.yml
+    vorab = _vorabregel_der_konfiguration()
+
+    for version in ("1.3.0-beta.1", "1.4.0", "2.0.0-rc.1", "2.0.0", "10.0.0-beta.7"):
+        assert abbild_latest(version) == (not vorab(version)), (
+            f"Abbild und Release widersprechen sich bei {version}: "
+            f"latest={abbild_latest(version)}, prerelease={vorab(version)}")
+
+    # DIE EINE STELLE, AN DER SICH DIE REGELN UNTERSCHEIDEN: release-please markiert die
+    # ganze 0.x-Reihe als Vorabversion, das Abbild gaebe `0.5.0` das Tag `latest`. Hier
+    # unerreichbar, weil das Projekt bei 1.x steht — aber nicht unerwaehnt.
+    # EN: the two rules genuinely differ for 0.x; unreachable here, so it is asserted away.
+    assert vorab("0.5.0") and abbild_latest("0.5.0"), "0.x ist der bekannte Unterschied"
+    haupt = int(open(os.path.join(REPO, "version.txt"), encoding="utf-8").read().split(".")[0])
+    assert haupt >= 1, "bei 0.x waere der Unterschied oben real und muesste aufgeloest werden"
+
+
+def test_the_update_check_survives_a_repo_without_a_stable_release(appmod, monkeypatch):
+    """Markiert man die Betas als Vorabversion, antwortet `/releases/latest` mit 404 —
+    und der Update-Hinweis bliebe fuer immer leer, ohne dass irgendwo etwas scheitert. (#572)
+
+    `latest_release()` schluckt alles ausser HTTP 200 absichtlich still ("ein
+    Versionshinweis darf nie eine Seite kaputt machen"). Genau diese Stille macht den
+    Fehler unsichtbar. Deshalb ist 404 hier KEIN Fehler, sondern die Auskunft „es gibt noch
+    keine stabile Fassung" — und darauf folgt die Liste.
+    """
+    class Antwort:
+        def __init__(self, code, daten): self.status_code, self._d = code, daten
+        def json(self): return self._d
+
+    gefragt = []
+
+    def fake_get(url, **kw):
+        gefragt.append(url)
+        if url.endswith("/releases/latest"):
+            return Antwort(404, {"message": "Not Found"})
+        return Antwort(200, [{"tag_name": "v1.3.0-beta.1", "prerelease": True}])
+
+    monkeypatch.setattr(appmod.requests, "get", fake_get)
+    monkeypatch.setattr(appmod, "_UPDATE", {"ts": 0, "latest": None})
+    assert appmod.latest_release() == "1.3.0-beta.1", \
+        "ohne stabilen Release muss die Liste einspringen, sonst bleibt der Hinweis leer"
+    assert any("per_page=1" in u for u in gefragt), \
+        "der Rueckfall muss die Liste fragen — sie kennt auch Vorabversionen"
+
+
+def test_the_update_check_asks_the_list_only_when_it_has_to(appmod, monkeypatch):
+    """Gibt es eine stabile Fassung, bleibt es bei EINER Anfrage — und die Vorabversionen
+    bleiben aussen vor. (#572)
+
+    Sonst kippte die Behebung ins Gegenteil: Wer eine stabile Fassung faehrt, bekaeme die
+    naechste Beta als Update angeboten.
+    """
+    class Antwort:
+        def __init__(self, code, daten): self.status_code, self._d = code, daten
+        def json(self): return self._d
+
+    gefragt = []
+
+    def fake_get(url, **kw):
+        gefragt.append(url)
+        return Antwort(200, {"tag_name": "v2.0.0", "prerelease": False})
+
+    monkeypatch.setattr(appmod.requests, "get", fake_get)
+    monkeypatch.setattr(appmod, "_UPDATE", {"ts": 0, "latest": None})
+    assert appmod.latest_release() == "2.0.0"
+    assert len(gefragt) == 1 and not any("per_page" in u for u in gefragt), \
+        "bei vorhandener stabiler Fassung darf die Liste gar nicht erst gefragt werden"
+
+
+def test_a_broken_update_endpoint_stays_silent_and_asks_once(appmod, monkeypatch):
+    """Gegenprobe: 500 ist keine Auskunft ueber Vorabversionen, sondern ein Ausfall.
+
+    Darauf darf der Rueckfall NICHT anspringen — sonst verdoppelt jeder Ausfall die Last
+    auf ein Register, das ohnehin gerade nicht antwortet.
+    """
+    class Antwort:
+        def __init__(self, code): self.status_code = code
+        def json(self): return {}
+
+    gefragt = []
+
+    def fake_get(url, **kw):
+        gefragt.append(url); return Antwort(500)
+
+    monkeypatch.setattr(appmod.requests, "get", fake_get)
+    monkeypatch.setattr(appmod, "_UPDATE", {"ts": 0, "latest": None})
+    assert appmod.latest_release() is None, "ein Ausfall darf keine Version erfinden"
+    assert len(gefragt) == 1, "500 ist kein Grund, ein zweites Mal zu fragen"
 
 
 def test_play_cores_flags_a_core_the_player_does_not_ship(appmod, client, monkeypatch):
