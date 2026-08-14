@@ -4,6 +4,37 @@ Alle nennenswerten Änderungen an diesem Projekt. Format nach
 [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung nach [SemVer](https://semver.org/lang/de/).
 
+## [1.4.0](https://github.com/Sparxx947/romseerr/compare/v1.3.0-beta.1...v1.4.0) (2026-08-14)
+
+
+### Neu / Features
+
+* **library-tools:** --nur-beiwerk sammelt ein, ohne den ganzen Umbau zu fahren ([#318](https://github.com/Sparxx947/romseerr/issues/318)) ([#580](https://github.com/Sparxx947/romseerr/issues/580)) ([f5d764d](https://github.com/Sparxx947/romseerr/commit/f5d764df22ad0d2cb2fd440c737e0fa9bdb12e40))
+* **ui:** show what the library rebuild is doing, in the settings ([#593](https://github.com/Sparxx947/romseerr/issues/593)) ([#594](https://github.com/Sparxx947/romseerr/issues/594)) ([75a4b17](https://github.com/Sparxx947/romseerr/commit/75a4b1739bd6211a2828a13e39345c55e66df65e))
+* **ui:** start and stop library rebuilds from the settings ([#593](https://github.com/Sparxx947/romseerr/issues/593)) ([#596](https://github.com/Sparxx947/romseerr/issues/596)) ([4065af6](https://github.com/Sparxx947/romseerr/commit/4065af602cdbefd91709b6c1afa4dfc96e3832c1))
+
+
+### Behoben / Fixes
+
+* **app:** der Update-Hinweis unterscheidet jetzt zwei Betas derselben Version ([#574](https://github.com/Sparxx947/romseerr/issues/574)) ([#576](https://github.com/Sparxx947/romseerr/issues/576)) ([c07c63d](https://github.com/Sparxx947/romseerr/commit/c07c63dc40d42dcbb7bdc95d7133a9bbc2119648))
+* **app:** drop two calls deprecated on the Python the image actually runs ([#588](https://github.com/Sparxx947/romseerr/issues/588)) ([#591](https://github.com/Sparxx947/romseerr/issues/591)) ([36769e2](https://github.com/Sparxx947/romseerr/commit/36769e2a8358d634a5c0def72f6ae7d1a2c8241e))
+* **app:** report a session key that cannot be saved instead of minting a new one ([#587](https://github.com/Sparxx947/romseerr/issues/587)) ([#590](https://github.com/Sparxx947/romseerr/issues/590)) ([da66f61](https://github.com/Sparxx947/romseerr/commit/da66f6139b8141847f626abacd60cd5f0baa3441))
+* **ci:** bring main's stray dependency bump back into dev ([#563](https://github.com/Sparxx947/romseerr/issues/563)) ([e782534](https://github.com/Sparxx947/romseerr/commit/e782534f45af1421e7f3231599c4efabfb1966b7))
+* **ci:** bring main's stray dependency bump back into dev ([#563](https://github.com/Sparxx947/romseerr/issues/563)) ([b21eaf3](https://github.com/Sparxx947/romseerr/commit/b21eaf3178a68de2d26ceeaa9f4c5dbcc6247c19))
+* **ci:** mark beta releases as pre-releases, and keep the update check working ([#572](https://github.com/Sparxx947/romseerr/issues/572)) ([#573](https://github.com/Sparxx947/romseerr/issues/573)) ([d2db0fb](https://github.com/Sparxx947/romseerr/commit/d2db0fb134ac10b3b1b96101b53319c0499ebabd))
+* **library-tools:** a progress file with the wrong shape no longer kills the run ([#583](https://github.com/Sparxx947/romseerr/issues/583)) ([#584](https://github.com/Sparxx947/romseerr/issues/584)) ([28407d5](https://github.com/Sparxx947/romseerr/commit/28407d5c5fb9c00e43a4f70ef22324d3473b9dbc))
+* **library-tools:** ein Trockenlauf hinterlaesst keinen Wiederaufsetzpunkt ([#581](https://github.com/Sparxx947/romseerr/issues/581)) ([#582](https://github.com/Sparxx947/romseerr/issues/582)) ([2603126](https://github.com/Sparxx947/romseerr/commit/2603126ea169b621027bf029c9dfcdcd38f4fb43))
+* **library-tools:** Musik und Symbole zaehlen nicht als Spiele ([#318](https://github.com/Sparxx947/romseerr/issues/318)) ([#579](https://github.com/Sparxx947/romseerr/issues/579)) ([432f917](https://github.com/Sparxx947/romseerr/commit/432f917c7c48c26741e2906e268c80c5e10a9077))
+* **library-tools:** recognise extensionless ancillary files by signature ([#318](https://github.com/Sparxx947/romseerr/issues/318)) ([#598](https://github.com/Sparxx947/romseerr/issues/598)) ([b6017dd](https://github.com/Sparxx947/romseerr/commit/b6017ddaaf90a723e9e576dc38da9301f89851f9))
+* **ui:** a finished rebuild shows how long it took, not how long ago it started ([#593](https://github.com/Sparxx947/romseerr/issues/593)) ([#595](https://github.com/Sparxx947/romseerr/issues/595)) ([21dd371](https://github.com/Sparxx947/romseerr/commit/21dd37187c5bffc78fc4146d2f925f747d58ceb0))
+* **ui:** der Update-Hinweis verlinkt die Version, die er nennt ([#577](https://github.com/Sparxx947/romseerr/issues/577)) ([#578](https://github.com/Sparxx947/romseerr/issues/578)) ([3f5c2b7](https://github.com/Sparxx947/romseerr/commit/3f5c2b7cb43cfed397e527115e5615f9e00d1d79))
+* **ui:** keep a finished run visible, because that is when its result exists ([#593](https://github.com/Sparxx947/romseerr/issues/593)) ([#597](https://github.com/Sparxx947/romseerr/issues/597)) ([f39a15b](https://github.com/Sparxx947/romseerr/commit/f39a15b4289a2b6ee3a6e3b3fe44639b9f8cc098))
+
+
+### Sonstiges / Chores
+
+* **release:** publish 1.4.0 as the first stable release ([#600](https://github.com/Sparxx947/romseerr/issues/600)) ([#601](https://github.com/Sparxx947/romseerr/issues/601)) ([62cdec8](https://github.com/Sparxx947/romseerr/commit/62cdec882ceab88af12bae2291910927a9d3a95c))
+
 ## [1.3.0-beta.1](https://github.com/Sparxx947/romseerr/compare/v1.2.0-beta.1...v1.3.0-beta.1) (2026-08-13)
 
 
