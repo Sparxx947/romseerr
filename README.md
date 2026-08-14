@@ -300,6 +300,14 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   sagt der Bereich das und nennt den erwarteten Pfad. Ohne diese Ansicht wäre der Ordner
   genau die Blackbox, gegen die er gebaut wurde: Dateien verschwinden oder eben nicht, und
   niemand kann sehen, warum. (Dieselben Angaben liefert `/api/import/status`.)
+- 🏷️ **Der interne Auftragsname bleibt draußen (#613).** Besteht ein Release aus einer
+  einzigen Datei, benennt SAB sie nach dem Auftrag — und der hieß
+  `romseerr_<jid>__<Titel>`. Der Präfix landete damit im Dateinamen der Bibliothek, und
+  RomM zeigt Dateinamen als Titel an; elf Dateien trugen ihn, eine davon seit dem Vortag.
+  Schwerer wiegt der **Zeitstempel** darin: Zwei Kopien desselben Spiels aus verschiedenen
+  Downloads sahen für die Dublettenprüfung wie zwei verschiedene Titel aus. Der Präfix
+  bleibt, wo er hingehört — `find_output` findet den fertigen Ordner darüber (#64) —, aber
+  nicht mehr im Regal.
 - 🔎 **Eine ROM mit falscher Endung wird an ihrer Kennung erkannt (#611).** Ein Release
   nannte seine 6,2-GB-NSP `….hdf` — sonst ein Amiga-Festplattenabbild, und `hdf` steht
   nicht in der Endungsliste. Die Datei begann mit `PFS0`, war also eine tadellose

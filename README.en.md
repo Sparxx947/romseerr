@@ -286,6 +286,13 @@ that is the normal case and complete as it stands, not a fallback.
   and names the expected path. Without this view the folder would be exactly the black box
   it was built against: files vanish or they don't, and nobody can see why. (The same data
   is at `/api/import/status`.)
+- 🏷️ **The internal job name stays out of the library (#613).** When a release is a
+  single file, SAB names it after the job — which was `romseerr_<jid>__<title>`. The prefix
+  then travelled into the library filename, and RomM shows filenames as titles; eleven
+  files carried it, one since the previous day. The **timestamp** inside it is the worse
+  half: two copies of the same game from different downloads looked like two different
+  titles to the dedup check. The prefix stays where it belongs — `find_output` locates the
+  finished folder by it (#64) — but no longer on the shelf.
 - 🔎 **A ROM with the wrong extension is recognised by its magic (#611).** A release
   named its 6.2 GB NSP `….hdf` — normally an Amiga hard-disk image, and `hdf` is not in the
   extension list. The file started with `PFS0`, so it was a perfectly good Switch title;
