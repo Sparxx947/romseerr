@@ -273,6 +273,13 @@ that is the normal case and complete as it stands, not a fallback.
   carries nothing. The folder name may decide where the extension cannot.
   Moving is copy, verify, then delete: drop folder and library are different filesystems,
   and nothing is deleted that did not arrive.
+  **What SAB already has is not fetched twice (#609).** A restart declares running jobs
+  dead — SAB keeps downloading them, and a retry then handed the same NZB over again.
+  Measured after a deploy during 13 downloads: 19 queue entries for 13 jobs, four titles
+  twice, 115.6 GB outstanding instead of 66. Worse than the duplicated load was the
+  consequence: SAB appends `.1` on a name clash, so two folders share one prefix — the
+  import could have taken 180 KB instead of 853 MB and reported success. SAB is asked
+  first now.
   All of it is visible and triggerable under **Settings → Drop folder**: what will be
   filed, what stays put and **why**, plus a button that does not wait for the timer. The
   list itself moves nothing — it is the dry run. With no folder mounted the panel says so

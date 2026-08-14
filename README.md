@@ -287,6 +287,13 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   Verschoben wird über **Kopieren, Prüfen, dann Löschen**: Einwurfordner und Bibliothek
   liegen auf verschiedenen Dateisystemen, und nichts wird gelöscht, was nicht angekommen
   ist.
+  **Was SAB schon lädt, wird nicht zweimal geholt (#609).** Ein Neustart erklärt laufende
+  Aufträge für tot — SAB lädt sie aber weiter, und ein Neuversuch übergab dasselbe NZB
+  danach ein zweites Mal. Gemessen nach einem Deploy während 13 Downloads: 19
+  Warteschlangeneinträge für 13 Aufträge, vier Titel doppelt, 115,6 GB offen statt 66.
+  Schlimmer als die doppelte Last war die Folge: SAB hängt bei Namensgleichheit ein `.1`
+  an, womit zwei Ordner denselben Präfix tragen — der Import hätte 180 KB statt 853 MB
+  nehmen können und Erfolg gemeldet. Vor der Übergabe wird jetzt gefragt.
   Zu sehen und auszulösen ist das alles unter **Einstellungen → Einwurf**: was einsortiert
   wird, was liegen bleibt und **weshalb**, dazu ein Knopf, der nicht auf den Takt wartet.
   Die Liste verschiebt selbst nichts — sie ist der Trockenlauf. Ist kein Ordner eingehängt,

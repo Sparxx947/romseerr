@@ -8509,3 +8509,56 @@ def test_a_ps5_hit_is_dropped_instead_of_being_called_switch(appmod, monkeypatch
     assert out[0]["platform"] == "switch"
     # Und es wird gesagt: Eine Suche, die still weniger liefert, ist schwer zu deuten.
     assert any("verworfen" in z for z in zeilen), zeilen
+
+
+# --- #609: nicht zweimal an SAB uebergeben ------------------------------------------
+
+def test_sab_hat_auftrag_erkennt_den_laufenden_download(appmod, monkeypatch):
+    """Was SAB schon laedt, wird erkannt — an der echten Funktion. (#609)
+
+    GEMESSEN nach einem Deploy waehrend 13 laufender Downloads: Romseerr erklaerte die
+    Auftraege fuer tot (#336), SAB lud sie aber weiter. Ein `retry` stellte dieselben NZBs
+    erneut ein — 19 Warteschlangeneintraege fuer 13 Auftraege, vier Titel doppelt,
+    115,6 GB offen statt 66.
+
+    SCHLIMMER ALS DIE DOPPELTE LAST: SAB haengt bei Namensgleichheit ein `.1` an. Dann
+    tragen ZWEI Ordner denselben Praefix `romseerr_<jid>`, und `find_output` nimmt den,
+    den `os.scandir` zuerst liefert. Im gemessenen Fall waeren das 180 KB statt 853 MB
+    gewesen — und der Auftrag haette Erfolg gemeldet.
+
+    EN: exercises the real helper, not a re-implementation of its logic.
+    """
+    jid = "1786694066019"
+    monkeypatch.setattr(appmod, "sab_queue", lambda: {
+        f"romseerr_{jid}__Wonder.Boy.Returns.Remix.eShop.NSW.VENOM": "42",
+        "romseerr_1111111111111__Anderes": "7"})
+    treffer = appmod.sab_hat_auftrag(jid)
+    assert treffer and treffer.startswith(f"romseerr_{jid}"), treffer
+
+    # Auch die von SAB umbenannte Fassung zaehlt — sie IST der doppelte Eintrag.
+    monkeypatch.setattr(appmod, "sab_queue", lambda: {
+        f"romseerr_{jid}__Wonder.Boy.Returns.Remix.eShop.NSW.VENOM.1": "0"})
+    assert appmod.sab_hat_auftrag(jid)
+
+
+def test_sab_hat_auftrag_verwechselt_keine_fremden(appmod, monkeypatch):
+    """Ohne Eintrag in SAB wird sehr wohl uebergeben. (#609)
+
+    Die Gegenrichtung, ohne die sich der Schutz auch durch „nie mehr uebergeben"
+    erfuellen liesse — derselbe Ausfall in Gruen. Und ein FREMDER Auftrag darf nicht als
+    der eigene durchgehen, sonst laedt der Titel nie.
+    """
+    monkeypatch.setattr(appmod, "sab_queue", lambda: {
+        "romseerr_1111111111111__Anderes": "10",
+        "irgendwas_ohne_praefix": "50"})
+    assert appmod.sab_hat_auftrag("9999999999999") is None
+
+    # EINE KUERZERE ID DARF NICHT AUF EINE LAENGERE PASSEN. `startswith` allein liesse
+    # `romseerr_111111111111` auf `romseerr_1111111111111__Anderes` zutreffen — dann
+    # gaelte ein FREMDER Auftrag als der eigene, und dieser Titel wuerde nie geladen,
+    # weil Romseerr ihn fuer schon laufend haelt. Dieselbe Falle wie in `find_output`.
+    assert appmod.sab_hat_auftrag("111111111111") is None, \
+        "eine kuerzere Auftrags-ID hat auf eine laengere gepasst"
+
+    monkeypatch.setattr(appmod, "sab_queue", lambda: {})
+    assert appmod.sab_hat_auftrag("1786694066019") is None

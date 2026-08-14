@@ -2740,6 +2740,37 @@ def sab_queue():
         pass
     return out
 
+def sab_hat_auftrag(jid):
+    """Laeuft dieser Auftrag schon in SAB? -> Name des Eintrags oder None. (#609)
+
+    Ein Neustart erklaert laufende Auftraege fuer tot (#336) — SAB laedt sie aber weiter.
+    Ohne diese Frage uebergibt ein `retry` dasselbe NZB ein zweites Mal.
+
+    GEMESSEN nach einem Deploy waehrend 13 Downloads: 19 Warteschlangeneintraege fuer 13
+    Auftraege, vier Titel doppelt, 115,6 GB offen statt 66. Und schlimmer als die doppelte
+    Last: SAB haengt bei Namensgleichheit ein `.1` an, womit ZWEI Ordner denselben Praefix
+    `romseerr_<jid>` tragen. `find_output` nimmt den, den `os.scandir` zuerst liefert — im
+    gemessenen Fall waeren das 180 KB statt 853 MB gewesen, und der Auftrag haette Erfolg
+    gemeldet.
+
+    EN: does SAB already have this job? Without asking, a retry after a restart hands the
+    same NZB over twice and the import may then pick the empty folder.
+    """
+    marke = f"romseerr_{jid}"
+    for name in sab_queue():
+        if not name.startswith(marke):
+            continue
+        # DIESELBE VORSICHT WIE IN `find_output`: Praefixgleichheit allein genuegt NICHT.
+        # `romseerr_111` passt sonst auf `romseerr_1119__…`, und ein fremder Auftrag
+        # gaelte als der eigene — der Titel wuerde dann nie geladen, weil Romseerr ihn
+        # faelschlich fuer schon laufend haelt. Das Zeichen direkt hinter der Auftrags-ID
+        # darf deshalb keine Ziffer sein; `dl_name` setzt dort `__`.
+        rest = name[len(marke):]
+        if rest and rest[0].isdigit():
+            continue
+        return name
+    return None
+
 def jd_watch_dir(): return cfg("jd_watch") or JD_WATCH
 
 def jd_out_from_base(base):
@@ -2942,6 +2973,32 @@ def worker_download():
             Q.task_done(); continue
         try:
             if job["source"]=="usenet":
+                # HAT SAB DEN AUFTRAG SCHON? (#609) Ein Neustart erklaert laufende
+                # Auftraege fuer tot (#336) — SAB laedt sie aber weiter. Ein `retry`
+                # uebergab dasselbe NZB danach ein zweites Mal, und niemand fragte nach.
+                #
+                # Gemessen nach einem Deploy waehrend 13 Downloads: 19 Warteschlangen-
+                # eintraege fuer 13 Auftraege, vier Titel doppelt, 115,6 GB offen statt
+                # 66. Schlimmer als die doppelte Last ist die Folge davon: SAB haengt bei
+                # Namensgleichheit ein `.1` an, und dann gibt es ZWEI Ordner mit demselben
+                # Praefix `romseerr_<jid>`. `find_output` nimmt den ersten, den
+                # `os.scandir` liefert — im gemessenen Fall waeren das 180 KB statt
+                # 853 MB gewesen, und der Auftrag haette Erfolg gemeldet.
+                #
+                # EN: a restart declares running jobs dead while SAB keeps downloading;
+                # retry then queued the same NZB again. Ask SAB first and adopt what is
+                # already there.
+                schon = sab_hat_auftrag(jid)
+                if schon:
+                    set_state(jid, state="downloading",
+                              msg="läuft bereits in SAB / already in SAB")
+                    log(f"Auftrag {jid}: SAB laedt bereits ({schon[:60]}) — "
+                        f"nicht erneut uebergeben")
+                    # KEIN `Q.task_done()` hier: Wir stehen im `try`, und dessen `finally`
+                    # ruft es ohnehin — auch beim `continue`. Zweimal waere ein
+                    # `ValueError: task_done() called too many times`, und der traefe den
+                    # Arbeitsfaden, nicht diesen Auftrag.
+                    continue
                 set_state(jid, state="downloading", msg="an SAB übergeben")
                 sab_add(job["ref"], dl_name(jid, job.get("title","")))
                 # Ordnername in SAB-complete = romseerr_<jid>__<titel> (Präfix romseerr_<jid>)
