@@ -3277,7 +3277,11 @@ def test_the_card_shows_state_by_symbol_not_by_colour_alone():
 def test_the_card_names_the_platform_instead_of_printing_the_slug():
     """Die Karte druckte den internen Slug (`ngc`, `psvita`) statt des Anzeigenamens, den
     es längst gibt. Die Namen kommen aus derselben Quelle wie die Filterleiste, damit
-    nicht zwei Bestände auseinanderlaufen. `?` bleibt ein echter Fall. (#211)"""
+    nicht zwei Bestände auseinanderlaufen. (#211)
+
+    Der frühere `?`-Rückfall ist seit #621 weg: Ohne Slug wird jetzt gesagt, was der Fall
+    ist und was daraus folgt (`.unsortiert`), statt ein Fragezeichen zu drucken. Geprüft
+    wird hier weiterhin nur, dass der ANZEIGENAME die Grundlage ist."""
     js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
     assert "let SLUGNAME={}" in js
     lp = js[js.index("async function loadPlatforms(){"):]
@@ -3287,8 +3291,11 @@ def test_the_card_names_the_platform_instead_of_printing_the_slug():
     karte = karte[:karte.index("\nlet RAONLY", 1)]
     assert "plattformMarke(it.platform_slug)" in karte, "der Slug wird weiterhin ungefiltert gedruckt"
     marke = js[js.index("function plattformMarke("):]
-    marke = marke[:marke.index("\n\n", 1)] if "\n\n" in marke[:400] else marke[:400]
-    assert "SLUGNAME[slug]||slug||'?'" in marke, "der Anzeigename fehlt als Grundlage"
+    # Bis zum Funktionsende schneiden, nicht nach einer festen Zeichenzahl: Die fruehere
+    # 400er-Grenze fiel um, sobald die Funktion einen Kommentar bekam, und der Test las
+    # dann nur den Anfang. (#621)
+    marke = marke[:marke.index("return sicher;}") + len("return sicher;}")]
+    assert "SLUGNAME[slug]||slug" in marke, "der Anzeigename fehlt als Grundlage"
 
 
 def test_the_footer_shows_the_version_only_to_signed_in_visitors():
@@ -6356,6 +6363,33 @@ def test_the_requests_list_names_an_unknown_platform_instead_of_leaving_a_gap(ap
         "die Anfragenzeile gibt die Plattform ungeprueft aus — ohne Wert bleibt eine Luecke"
     assert "plat_unknown" in js, "es gibt keinen Text fuer die unbekannte Plattform"
     assert i18n_hat("plat_unknown") == 5, "der Text fehlt in mindestens einer Sprache"
+
+
+def test_a_search_hit_without_a_platform_says_so_instead_of_a_question_mark(appmod):
+    """Die Anfragenzeile sagt „Plattform unbekannt" (#367) — die TREFFERKARTE nicht. Dort
+    stand ein blosses `?`, und der Titel liess sich anfordern, ohne dass jemand sah, dass er
+    mangels Zielordner in `.unsortiert` landet.
+
+    NICHT geraten und NICHT verworfen: An 1.217 echten Treffern gemessen haben 300 keine
+    Plattform, darunter echte Titel (`Pokemon Ultra Moon (USA)`, `Kirby Air Ride (USA)`).
+    Ein Abgleich gegen den Index loeste davon nur 19 eindeutig auf, mehrere davon FALSCH —
+    `FINAL FANTASY VII (STEAM VERSION)` bekaeme `nes`, weil zufaellig ein NES-Hack im Index
+    liegt. Eine falsche Plattform sortiert schlechter als gar keine. (#621)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    assert "it.platform_slug||'?'" not in js, \
+        "die Trefferkarte zeigt ein blosses Fragezeichen statt zu sagen, was los ist"
+    assert "plat_unknown_hint" in js, "die Folge (.unsortiert) wird nirgends genannt"
+    # Die Trefferkachel geht ueber plattformMarke() — pruefen, dass DORT der Hinweis steht
+    # und nicht nur irgendwo in der Datei. Ohne diesen Ausschnitt blieb der Test gruen,
+    # als die Funktion versuchsweise auf das Fragezeichen zurueckgesetzt wurde.
+    fn = js[js.index("function plattformMarke("):]
+    fn = fn[:fn.index("return sicher;}") + len("return sicher;}")]
+    assert "plat_unknown_hint" in fn, "die Trefferkachel selbst sagt weiterhin nichts"
+    assert "'?'" not in fn, "in der Trefferkachel steht weiterhin ein Fragezeichen"
+    assert i18n_hat("plat_unknown_hint") == 5, "der Hinweis fehlt in mindestens einer Sprache"
+    for tab in sprachtabellen().values():
+        assert "unsortiert" in tab.get("plat_unknown_hint", "").lower(), \
+            "der Hinweis nennt den Ordner nicht, in dem der Titel tatsaechlich landet"
 
 
 def test_an_import_without_a_platform_names_the_folder_it_landed_in(appmod, tmp_path, monkeypatch):
