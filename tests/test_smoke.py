@@ -6365,6 +6365,28 @@ def test_the_requests_list_names_an_unknown_platform_instead_of_leaving_a_gap(ap
     assert i18n_hat("plat_unknown") == 5, "der Text fehlt in mindestens einer Sprache"
 
 
+def test_a_recommendation_row_is_labelled_the_same_in_both_places(appmod):
+    """Die Entdecken-Reihen tragen ihren Namen an ZWEI Stellen: als Ueberschrift und als
+    Kaestchen im Anpassen-Dialog. Die Ueberschrift stellte `Weil du angefragt hast:` voran,
+    das Kaestchen nicht — im Dialog stand deshalb ein blosser Spieltitel zwischen lauter
+    Konsolen und Genres (`Resident Evil 2` an erster Stelle, von Jens gemeldet).
+
+    Bei Konsolen faellt das nicht auf, `SNES` liest sich allein. Bei einem Spieltitel schon:
+    Nichts sagt, warum er dort steht oder dass das Haekchen eine EMPFEHLUNG abschaltet.
+
+    Geprueft wird nicht der Text, sondern dass beide Stellen DIESELBE Funktion benutzen —
+    zwei Kopien, die heute zufaellig uebereinstimmen, laufen wieder auseinander. (#632)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    assert "function reihenName(" in js, "es gibt keine gemeinsame Beschriftung"
+    stelle = js[js.index("function toggleDiscCust") if "function toggleDiscCust" in js else 0:]
+    block = js[js.index("let cust=document.createElement"):js.index("g.appendChild(cust)")]
+    assert "reihenName(" in block, "das Kaestchen beschriftet sich weiterhin selbst"
+    assert "createTextNode(r.console)" not in block, \
+        "das Kaestchen zeigt den rohen Namen ohne Zusammenhang"
+    kopf = js[js.index("sec.className='drow'"):js.index("let strip=sec.querySelector")]
+    assert "reihenName(" in kopf, "die Ueberschrift baut ihren Namen weiterhin selbst"
+
+
 def test_the_aurora_theme_is_offered_everywhere_a_theme_can_be_picked(appmod):
     """Ein Design ist erst vorhanden, wenn es an ALLEN drei Stellen ankommt: in der Liste
     `DESIGNS`, als CSS-Block, und als uebersetzter Name. Faellt eine davon aus, erscheint

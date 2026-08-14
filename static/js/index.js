@@ -812,6 +812,15 @@ async function wlApply(){let prev=window._wlprev||[];let out=[];
  document.getElementById('wlmsg').textContent=t('wl_imp_done').replace('{a}',d.added||0).replace('{s}',d.skipped||0);
  loadJobs();}
 // --- Discover / Startseite: beliebte Spiele je Konsole ---
+// Der Name einer Entdecken-Reihe. Er steht an ZWEI Stellen: als Ueberschrift und als
+// Kaestchen im Anpassen-Dialog. Solange beide ihn selbst zusammensetzten, liefen sie
+// auseinander: Die Ueberschrift stellte `Weil du angefragt hast:` voran, das Kaestchen
+// nicht — im Dialog stand dadurch ein blosser Spieltitel zwischen lauter Konsolen
+// (`Resident Evil 2` an erster Stelle). Eine Funktion, damit das nicht wiederkommt. (#632)
+function reihenName(r){
+  let pre = r.reco ? t('because_you')+' ' : (r.slug ? t('popular_on')+' ' : '');
+  return pre + (r.console || '');
+}
 async function loadDiscover(){let hint=document.getElementById('hint');hint.style.display='';hint.textContent=t('loading_home');
  zeigeBuehne(true);
  let g=document.getElementById('grid');
@@ -836,11 +845,13 @@ async function loadDiscover(){let hint=document.getElementById('hint');hint.styl
  rows.forEach(r=>{let lbl=document.createElement('label');lbl.style.cssText='font-size:12px;color:#8b929e;display:inline-flex;gap:5px;align-items:center;margin:0 12px 6px 0';
   let cb=document.createElement('input');cb.type='checkbox';cb.checked=!hid.has(r.key);
   cb.onchange=()=>{let h=new Set(JSON.parse(localStorage.getItem('dischide')||'[]'));cb.checked?h.delete(r.key):h.add(r.key);localStorage.setItem('dischide',JSON.stringify([...h]));loadDiscover();};
-  lbl.appendChild(cb);lbl.appendChild(document.createTextNode(r.console));cust.appendChild(lbl);});
+  lbl.appendChild(cb);lbl.appendChild(document.createTextNode(reihenName(r)));cust.appendChild(lbl);});
  g.appendChild(cust);
  rows.filter(r=>!hid.has(r.key)).forEach(r=>{let sec=document.createElement('div');sec.className='drow';
-  let pre=r.reco?t('because_you')+' ':(r.slug?t('popular_on')+' ':'');
-  sec.innerHTML=`<div class=rowh>${pre}<b>${(r.console||'').replace(/</g,'&lt;')}</b> <span>· ${t('click_search')}</span></div><div class=strip></div>`;
+  // Fett bleibt nur der Name, das Praefix davor steht normal — beide kommen aber aus
+  // derselben Funktion wie das Kaestchen, sonst driften sie wieder.
+  let ganz=reihenName(r), roh=(r.console||''), pre=ganz.slice(0,ganz.length-roh.length);
+  sec.innerHTML=`<div class=rowh>${pre.replace(/</g,'&lt;')}<b>${roh.replace(/</g,'&lt;')}</b> <span>· ${t('click_search')}</span></div><div class=strip></div>`;
   let strip=sec.querySelector('.strip');
   r.games.forEach(it=>{let c=document.createElement('div');c.className='pcard';
    // Fremde Bewertung auf der Karte (#210): mit Quelle beschriftet, sonst liest man sie
