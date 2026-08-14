@@ -79,7 +79,7 @@ WICHTIGE FALLSTRICKE / IMPORTANT GOTCHAS
 """
 import os, re, json, time, threading, queue, subprocess, urllib.parse, html, secrets, smtplib, base64, sqlite3
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 from contextlib import closing
 from email.message import EmailMessage
@@ -1604,7 +1604,12 @@ def igdb_rich(title):
     rating = g.get("aggregated_rating") or g.get("rating")
     year = ""
     if g.get("first_release_date"):
-        try: year = datetime.utcfromtimestamp(g["first_release_date"]).year
+        # ZEITZONENBEWUSST, nicht `utcfromtimestamp` (#588): Das Abbild faehrt
+        # `python:3.14-slim`, dort ist der alte Aufruf abgekuendigt. Faellt er weg,
+        # schlaegt das hier NICHT durch — der `except` darunter faengt den AttributeError,
+        # und dann fehlt in jeder Detailansicht stillschweigend das Erscheinungsjahr.
+        # Ein Absturz waere leichter zu finden gewesen.
+        try: year = datetime.fromtimestamp(g["first_release_date"], tz=timezone.utc).year
         except Exception: pass
     dev = ""
     for ic in g.get("involved_companies", []) or []:
@@ -1694,8 +1699,13 @@ def recommend_for_user(user, limit=20):
 def clean_query(t):
     # Verrauschte Release-/Usenet-Titel auf den Spielnamen kürzen (für IGDB-Cover-Suche)
     t = re.sub(r'[\._]+', ' ', (t or "")[:MAX_NAME])          # gedeckelt: siehe _tags
+    # `maxsplit=` BENANNT (#588): positional ist auf Python 3.14 abgekuendigt, und das
+    # Abbild faehrt genau das. Anders als beim Jahr in `igdb_rich` steht hier kein
+    # `except` darum — faellt die Form weg, ist es ein TypeError mitten in der
+    # Cover-Suche.
     t = re.split(r'\b(update|dlc|proper|repack|multi\d*|nsw|xci|nsp|wbfs|rvz|ps[1-5]|psp|psvita|'
-                 r'wiiu?|xbox\w*|switch|eur|usa|jpn|europe|japan|v\d+(\.\d+)*)\b', t, 1, flags=re.I)[0]
+                 r'wiiu?|xbox\w*|switch|eur|usa|jpn|europe|japan|v\d+(\.\d+)*)\b',
+                 t, maxsplit=1, flags=re.I)[0]
     t = re.sub(r'\([^)]*\)|\[[^\]]*\]', ' ', t)
     t = re.sub(r'-\s*\w+$', '', t)          # -GROUP am Ende
     return re.sub(r'\s+', ' ', t).strip()
