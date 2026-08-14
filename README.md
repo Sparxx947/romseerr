@@ -788,6 +788,38 @@ Standard-`GITHUB_TOKEN` anlegt, löst keine weiteren Workflows aus, und genau de
 v1.1.0-beta.1 ohne Abbild. `latest` bekommt nur eine Version ohne `-` im Namen, also nie
 eine Vorabversion.
 
+**Dieselbe Regel gilt für das GitHub-Release.** Ein Release, dessen Version ein `-` trägt,
+wird als **Vorabversion** veröffentlicht — `"prerelease": true` in
+`release-please-config.json` sorgt dafür, ohne dass jemand daran denken muss. Beide
+Bedingungen hängen am selben `-`, und ein Test rechnet sie gegeneinander durch: Ein Abbild
+ohne `latest` neben einem Release, das sich `latest` nennt, ist ein Widerspruch. Genau der
+stand bis dahin da — zwei der vier Releases waren als stabil veröffentlicht, während das
+Register denselben Bauten das Tag `latest` verweigerte.
+
+Das hat eine Folge, die leicht zu übersehen ist: Sind **alle** Releases Vorabversionen,
+antwortet `GET /releases/latest` mit **404**. Der Update-Hinweis fragt deshalb bei genau
+diesem 404 ein zweites Mal — bei `/releases?per_page=1`, das auch Vorabversionen kennt.
+Jeder andere Fehler bleibt ein Fehler und führt zu keiner zweiten Anfrage.
+
+**Und der Vergleich zählt den Vorabteil mit.** Solange jedes Release eine Beta ist, steht
+auf beiden Seiten des Vergleichs eine — `1.3.0-beta.1` gegen `1.3.0-beta.2`. Wer nur
+`1.3.0` gegen `1.3.0` rechnet, sieht dort nie ein Update, und auch die erste stabile
+`1.3.0` bliebe einer laufenden `1.3.0-beta.1` verborgen. Der Vergleich folgt deshalb der
+Rangfolge aus SemVer 2.0.0 §11: Zahlenteil zuerst, eine Version **ohne** Vorabteil über
+derselben **mit**, und innerhalb des Vorabteils Bezeichner für Bezeichner mit Zahlen als
+Zahlen — `beta.10` steht über `beta.9`, obwohl es sich buchstabiert davor einsortieren
+würde.
+
+**Der Hinweis verlinkt die Version, die er nennt.** Die Web-Adresse
+`<repo>/releases/latest` überspringt Vorabversionen genauso wie der gleichnamige
+API-Endpunkt — an fremden Repos nachgemessen: `kubernetes/kubernetes` leitet auf `v1.36.3`
+um, obwohl `v1.37.0-rc.0` neuer ist, und ein Repo ohne infrage kommenden Release landet auf
+der Übersicht `/releases`, nicht auf einer 404. In einem Projekt, dessen Releases
+ausnahmslos Betas sind, führte der Klick also überall hin, nur nicht auf die Fassung, die
+der Linktext ausdrücklich nennt. Er zeigt deshalb auf `<repo>/releases/tag/v<version>` —
+dasselbe Muster, das die Fußzeile für die laufende Version schon benutzt — und fällt nur
+dann auf die Übersicht zurück, wenn gar keine Version bekannt ist.
+
 **Eine andere Version fahren** heißt für einen ziehenden Container: die Marke am Abbild
 ändern, mehr nicht.
 

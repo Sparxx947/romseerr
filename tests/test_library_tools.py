@@ -409,7 +409,7 @@ def _lauf(org, monkeypatch, wurzel, scheitert_an=()):
     """
     import json
 
-    def umbauen(_wurzel, plattform, _trocken, _prot):
+    def umbauen(_wurzel, plattform, _trocken, _prot, _nur_beiwerk=False):
         if plattform in scheitert_an:
             raise RuntimeError(f"kein freier Name fuer VERSION.NFO ({plattform})")
         return 0
@@ -474,6 +474,131 @@ def test_the_closing_summary_names_the_failures(org, tmp_path, monkeypatch, caps
     assert "ALLE" not in kopf, f"die Schlussmeldung meldet vollen Erfolg: {kopf!r}"
     assert "c64" in kopf and "amiga" in kopf, \
         f"die Schlussmeldung verschweigt, welche Plattformen scheiterten: {kopf!r}"
+
+
+# --- #581: `--trocken --alle` fasst die Bibliothek nicht an ---------------------------
+
+class _Abbruch(BaseException):
+    """Ein Strg-C, das den Testlauf nicht mitreisst.
+
+    Es muss von `BaseException` erben, nicht von `Exception`: `alle_umbauen` faengt je
+    Plattform `Exception` ab und macht weiter — ein gewoehnlicher Fehler beendet den Lauf
+    also gar nicht. Ein echtes `KeyboardInterrupt` taete es, beendet aber auch pytest.
+    """
+
+
+def _trockenlauf(org, monkeypatch, wurzel, stirbt_bei=None):
+    """`alle_umbauen --trocken` mit einem `umbauen`, das nur buchfuehrt.
+
+    `stirbt_bei` bricht den Lauf an dieser Plattform ab — so, wie ein Strg-C es taete.
+    """
+    def umbauen(_wurzel, plattform, _trocken, _prot, _nur_beiwerk=False):
+        if plattform == stirbt_bei:
+            raise _Abbruch("Nutzer bricht den Trockenlauf ab")
+        return 0
+
+    monkeypatch.setattr(org, "umbauen", umbauen)
+    try:
+        org.alle_umbauen(wurzel, True, set())
+    except _Abbruch:
+        pass
+
+
+def test_a_dry_run_leaves_no_resume_point(org, tmp_path, monkeypatch):
+    """`--trocken --alle` legt keine Fortschrittsdatei an. (#581)
+
+    NACHGEMESSEN: Auf einer unberuehrten Bibliothek liess ein Trockenlauf
+    `.umbau/fortschritt.json` mit `fertig: true` und allen drei Plattformen unter
+    `erledigt` zurueck. `Protokoll` beachtet `trocken` seit jeher, `sichern()` nicht.
+    """
+    wurzel = _bibliothek(tmp_path, "gb", "c64", "nes")
+    _trockenlauf(org, monkeypatch, wurzel)
+
+    assert not os.path.exists(os.path.join(wurzel, ".umbau")), \
+        "der Trockenlauf hat in die Bibliothek geschrieben"
+
+
+def test_an_aborted_dry_run_does_not_make_a_real_run_skip_platforms(org, tmp_path,
+                                                                    monkeypatch):
+    """Nach einem abgebrochenen Trockenlauf baut der echte Lauf ALLES. (#581)
+
+    WARUM DAS ZAEHLT: Gemessen wurden drei Plattformen; der Trockenlauf brach an der
+    dritten ab, und der folgende echte Lauf meldete `Fortsetzung: 2 Plattformen … werden
+    uebersprungen` und baute nur `snes` um. Zwei Plattformen galten als erledigt, ohne je
+    angefasst worden zu sein — genau der Fehler, den #397 eine Ebene tiefer behoben hat.
+    """
+    wurzel = _bibliothek(tmp_path, "gb", "c64", "nes")
+    _trockenlauf(org, monkeypatch, wurzel, stirbt_bei="nes")
+
+    echt = []
+
+    def umbauen(_wurzel, plattform, _trocken, _prot, _nur_beiwerk=False):
+        echt.append(plattform)
+        return 0
+
+    monkeypatch.setattr(org, "umbauen", umbauen)
+    org.alle_umbauen(wurzel, False, set())
+    assert set(echt) == {"gb", "c64", "nes"}, \
+        f"der echte Lauf uebersprang Plattformen wegen eines Trockenlaufs: {echt}"
+
+
+def test_a_dry_run_does_not_destroy_a_real_resume_point(org, tmp_path, monkeypatch):
+    """Ein Trockenlauf laesst den Wiederaufsetzpunkt eines echten Laufs stehen. (#581)
+
+    DER SCHLIMMERE FALL, gemessen: Ein echter Lauf stuerzt bei der zweiten Plattform ab
+    und hinterlaesst `erledigt: [c64], fertig: false`. Schaut danach jemand mit
+    `--trocken --alle` nach, steht dort `erledigt: [c64, gba, snes], fertig: true` — der
+    Trockenlauf hat den Wiederaufsetzpunkt ueberschrieben UND als fertig abgehakt. Auf
+    der echten Bibliothek kostet das den Lauf von vorn: ueber 19 Stunden.
+    """
+    wurzel = _bibliothek(tmp_path, "gb", "c64", "nes")
+    _lauf(org, monkeypatch, wurzel, scheitert_an={"c64", "nes"})
+    stand_datei = os.path.join(wurzel, ".umbau", "fortschritt.json")
+    with open(stand_datei, encoding="utf-8") as f:
+        vorher = f.read()
+
+    _trockenlauf(org, monkeypatch, wurzel)
+
+    with open(stand_datei, encoding="utf-8") as f:
+        assert f.read() == vorher, \
+            "der Trockenlauf hat den Wiederaufsetzpunkt des echten Laufs veraendert"
+    assert org.stand_laden(stand_datei) == ({"gb"}, True), \
+        "der Wiederaufsetzpunkt ist nach dem Trockenlauf nicht mehr brauchbar"
+
+
+def test_a_dry_run_still_honours_an_existing_resume_point(org, tmp_path, monkeypatch,
+                                                          capsys):
+    """Gegenprobe: Gelesen wird der Stand weiterhin. (#581)
+
+    Der Trockenlauf ist eine Vorschau auf den echten Lauf — und der setzt fort. Eine
+    Vorschau, die mehr Arbeit zeigt als tatsaechlich anfiele, waere genauso falsch wie
+    eine, die zu wenig zeigt.
+    """
+    wurzel = _bibliothek(tmp_path, "gb", "c64", "nes")
+    _lauf(org, monkeypatch, wurzel, scheitert_an={"c64"})
+    capsys.readouterr()
+
+    _trockenlauf(org, monkeypatch, wurzel)
+    ausgabe = capsys.readouterr().out
+    assert "Fortsetzung" in ausgabe and "2 Plattformen" in ausgabe, \
+        f"der Trockenlauf ignoriert den Wiederaufsetzpunkt: {ausgabe!r}"
+
+
+@pytest.mark.skipif(os.geteuid() == 0,
+                    reason="als root greifen die Schreibrechte des Verzeichnisses nicht")
+def test_a_dry_run_works_on_a_read_only_library(org, tmp_path, monkeypatch):
+    """`--trocken --alle` laeuft gegen eine schreibgeschuetzt eingehaengte Bibliothek. (#581)
+
+    GEMESSEN: `PermissionError: [Errno 13] Permission denied: '/roms/.umbau'`, noch bevor
+    eine einzige Plattform betrachtet wurde. Ausgerechnet der sicherste Weg, das Werkzeug
+    auszuprobieren — trocken und nur lesbar eingehaengt — war der einzige, der nicht ging.
+    """
+    wurzel = _bibliothek(tmp_path, "gb", "c64")
+    os.chmod(wurzel, 0o555)
+    try:
+        _trockenlauf(org, monkeypatch, wurzel)
+    finally:
+        os.chmod(wurzel, 0o755)
 
 
 # --- #397: Kollisionsnamen gehen nicht aus -------------------------------------------
@@ -657,6 +782,87 @@ def test_a_platform_whose_games_are_png_is_not_emptied(org, tmp_path):
         f"PICO-8-Karten wurden verschoben: {verblieben}"
 
 
+def test_amiga_icons_and_tracker_music_are_ancillary(org, tmp_path):
+    """`.info`, `.sid` und `.mod` sind kein Spielformat — sie gehoeren nicht auf Ebene 1. (#318)
+
+    AM ECHTEN BESTAND GEMESSEN (2026-08-14), Ebene 1 unter `<roms>`:
+
+        amiga    55.102 `.sid`   37.315 `.info`   15.938 `.mod`   von 273.002 Eintraegen
+        c64       9.012 `.sid`                                    von  72.061 Eintraegen
+
+    Zusammen **117.366 Eintraege**, die RomM als Spiele zaehlt — mehr, als die Bibliothek
+    vor dem Umbau ueberhaupt an Titeln hatte. Es ist Musik und Dekoration:
+
+        `.info`   200 von 200 beginnen mit `E3 10 00 01` — Amiga DiskObject, ein
+                  Workbench-Symbol. Es beschreibt die Datei daneben, es IST sie nicht.
+        `.sid`    198 `PSID` + 2 `RSID` von 200 — C64-Musik (High Voltage SID Collection).
+        `.mod`    175 von 200 tragen `M.K.`/`M!K!` bei 1080 — ProTracker. Der Rest sind
+                  aeltere 15-Instrumente-Fassungen, die per Bauart kein Kennzeichen haben.
+
+    DIE PROBE, DIE DIE ENTSCHEIDUNG TRAEGT: `ROM_EXT` in `app.py` kennt keine der drei.
+    Romseerrs Importer haelt sie also laengst fuer Nicht-ROMs — das Werkzeug zieht hier
+    nach, es entscheidet nichts Neues.
+
+    EN: Workbench icons and tracker/SID music are ancillary, not games. Romseerr's own
+    importer already refuses all three; this only aligns the library tool with it.
+    """
+    for endung in (".info", ".sid", ".mod"):
+        assert endung in org.BEIWERK, f"{endung} zaehlt noch als Spiel"
+
+    # Und durch den ganzen Umbau, nicht nur gegen die Liste: Das Verhaeltnis bleibt unter
+    # der Schranke aus `BEIWERK_HOECHSTANTEIL` — am Bestand sind es 40 % (amiga), hier 8
+    # von 20 Eintraegen.
+    basis = tmp_path / "amiga"
+    basis.mkdir()
+    for i in range(12):
+        (basis / f"Spiel {i}.adf").write_bytes(os.urandom(64))
+    for n in ("Spiel 0.adf.info", "Disk.info", "Commando.sid", "Ocean Loader.sid",
+              "axel_f.mod", "enigma.mod", "cover.jpg", "liesmich.txt"):
+        (basis / n).write_bytes(os.urandom(32))
+
+    class StummesProtokoll:
+        def schreiben(self, *a, **k): pass
+    org.umbauen(str(tmp_path), "amiga", False, StummesProtokoll())
+
+    spiele = sorted(p.name for p in basis.iterdir() if p.name != "_beiwerk")
+    assert len(spiele) == 12 and all(x.endswith(".adf") for x in spiele), \
+        f"Ebene 1 stimmt nicht: {spiele}"
+    gesammelt = sorted(p.name for p in (basis / "_beiwerk").iterdir())
+    assert gesammelt == ["Commando.sid", "Disk.info", "Ocean Loader.sid",
+                         "Spiel 0.adf.info", "axel_f.mod", "cover.jpg",
+                         "enigma.mod", "liesmich.txt"], gesammelt
+
+
+def test_no_platform_holds_its_games_in_an_ancillary_format(org):
+    """Keine der Beiwerk-Endungen darf zugleich als ROM gelten. (#318)
+
+    Der Beinahe-Schaden von `pico8` war genau dieser Widerspruch: `.png` stand als Beiwerk
+    UND war das Spielformat. Er wurde damals von Hand als Ausnahme nachgetragen. Diese
+    Pruefung faengt den naechsten Fall automatisch — sie liest `ROM_EXT` aus `app.py` und
+    verlangt, dass sich die beiden Listen nicht ueberschneiden, ausser wo eine
+    `BEIWERK_AUSNAHME` den Widerspruch ausdruecklich benennt.
+
+    EN: an extension may not be ancillary and a ROM format at the same time, unless a
+    per-platform exception says so out loud.
+    """
+    import ast
+    with open(os.path.join(WURZEL, "app.py"), encoding="utf-8") as f:
+        quelle = f.read()
+    rom_ext = None
+    for knoten in ast.walk(ast.parse(quelle)):
+        if (isinstance(knoten, ast.Assign)
+                and any(getattr(z, "id", "") == "ROM_EXT" for z in knoten.targets)):
+            rom_ext = {"." + x for x in ast.literal_eval(knoten.value)}
+            break
+    assert rom_ext, "ROM_EXT nicht in app.py gefunden"
+
+    benannt = set().union(*org.BEIWERK_AUSNAHME.values()) if org.BEIWERK_AUSNAHME else set()
+    widerspruch = (org.BEIWERK & rom_ext) - benannt
+    assert not widerspruch, (
+        f"{sorted(widerspruch)} gilt als Beiwerk UND als ROM — entweder aus BEIWERK "
+        f"nehmen oder als BEIWERK_AUSNAHME der betroffenen Plattform benennen")
+
+
 def test_collection_is_refused_when_it_would_take_most_of_the_platform(org, tmp_path):
     """Waeren mehr als die Haelfte betroffen, wird NICHT eingesammelt. (#399)
 
@@ -677,6 +883,140 @@ def test_collection_is_refused_when_it_would_take_most_of_the_platform(org, tmp_
     assert not (basis / "_beiwerk").exists(), \
         "bei ueberwiegendem Beiwerk darf nicht eingesammelt werden"
     assert len(list(basis.iterdir())) == 9, "es darf nichts verschoben worden sein"
+
+
+# --- #318: `--nur-beiwerk` — der eine Schritt, der ohne Rest zurueckgeht --------------
+#
+# WOZU ES DEN SCHALTER GIBT: Am Bestand liegen (2026-08-14 gemessen, `find -maxdepth 1`
+# ueber alle 74 Plattformen) **121.768 Beiwerk-Dateien auf Ebene 1** verteilt auf 33
+# Plattformen, die RomM allesamt als Spiele zaehlt — 108.354 davon unter `amiga`, 9.012
+# unter `c64`, 2.166 unter `gbc`, der Rest kleinteilig.
+#
+# Sie einzusammeln verlangte bisher einen VOLLEN `retronas-organisieren`-Lauf. Der
+# entpackt aber auch Archive und LOESCHT Dubletten, und dieser Teil steht zwar im
+# Protokoll, ist daraus aber nicht wiederherstellbar. Auf `amiga` (440.000 Dateien) ist er
+# ausserdem ein Langlauf ueber Stunden. Schritt 3c allein besteht aus `shutil.move` — und
+# damit faellt der ganze Grund weg, aus dem der Umbau bisher nicht lief.
+
+
+def _stumm():
+    class StummesProtokoll:
+        def schreiben(self, *a, **k): pass
+    return StummesProtokoll()
+
+
+def test_only_the_ancillary_step_runs_when_only_it_is_asked_for(org, tmp_path):
+    """`--nur-beiwerk` fasst NUR Ebene-1-Beiwerk an. (#318)
+
+    Die drei Schritte, die es NICHT tut, sind genau die, die sich nicht zuruecknehmen
+    lassen oder Stunden kosten: entpacken (die Quelldatei wird danach geloescht),
+    Sammlungen aufloesen, Dubletten entfernen. Der Test legt von jeder Sorte eine Probe
+    aus und verlangt, dass sie unberuehrt bleibt.
+
+    EN: the ancillary-only run must not unpack, not flatten collections and not delete
+    duplicates — those are the irreversible parts.
+    """
+    basis = tmp_path / "c64"
+    basis.mkdir()
+    for i in range(12):
+        (basis / f"Spiel {i}.d64").write_bytes(os.urandom(64))
+    (basis / "liesmich.txt").write_bytes(os.urandom(16))
+    (basis / "cover.jpg").write_bytes(os.urandom(16))
+    # Ein Archiv, eine Sammlung und zwei bitgleiche Dateien — die drei Schritte, die
+    # ausbleiben muessen.
+    import zipfile
+    with zipfile.ZipFile(basis / "sammlung.zip", "w") as zf:
+        zf.writestr("drin.d64", "x" * 32)
+    sammlung = basis / "OneLoad64"
+    sammlung.mkdir()
+    for i in range(30):
+        (sammlung / f"Titel {i}.d64").write_bytes(os.urandom(32))
+    gleich = os.urandom(128)
+    (basis / "Dublette A.d64").write_bytes(gleich)
+    (basis / "Dublette B.d64").write_bytes(gleich)
+
+    org.umbauen(str(tmp_path), "c64", False, _stumm(), True)
+
+    assert (basis / "sammlung.zip").is_file(), "das Archiv wurde entpackt"
+    assert (basis / "OneLoad64").is_dir() and len(list(sammlung.iterdir())) == 30, \
+        "die Sammlung wurde aufgeloest"
+    assert (basis / "Dublette A.d64").is_file() and (basis / "Dublette B.d64").is_file(), \
+        "eine Dublette wurde geloescht — genau das darf hier nicht passieren"
+    gesammelt = sorted(p.name for p in (basis / "_beiwerk").iterdir())
+    assert gesammelt == ["cover.jpg", "liesmich.txt"], gesammelt
+
+
+def test_an_ancillary_only_run_goes_back_without_a_trace(org, tmp_path):
+    """`--zurueck` stellt nach `--nur-beiwerk` den Ausgangsstand VOLLSTAENDIG her. (#318)
+
+    Das ist die Begruendung des Schalters, deshalb wird sie geprueft und nicht behauptet.
+    Mitgeprueft: der angelegte `_beiwerk`-Ordner verschwindet wieder. Bliebe er leer
+    stehen, zaehlte RomM ihn als ein Spiel — der Rueckweg waere auf jeder angefassten
+    Plattform um genau einen Eintrag daneben.
+    """
+    basis = tmp_path / "c64"
+    basis.mkdir()
+    for i in range(12):
+        (basis / f"Spiel {i}.d64").write_bytes(os.urandom(64))
+    for n in ("VERSION.NFO", "readme.txt", "cover.jpg"):
+        (basis / n).write_bytes(os.urandom(32))
+    vorher = sorted(p.name for p in basis.iterdir())
+
+    pfad = org.protokoll_pfad(str(tmp_path), "c64", True)
+    prot = org.Protokoll(pfad, False)
+    try:
+        org.umbauen(str(tmp_path), "c64", False, prot, True)
+    finally:
+        prot.zu()
+    assert (basis / "_beiwerk").is_dir(), "es wurde gar nicht eingesammelt"
+
+    org.zurueck(pfad)
+    assert sorted(p.name for p in basis.iterdir()) == vorher, \
+        "der Ausgangsstand ist nicht wiederhergestellt"
+    assert not (basis / "_beiwerk").exists(), "der leere Sammelordner blieb stehen"
+
+    # Und im Protokoll steht ausschliesslich Ruecknehmbares.
+    with open(pfad, **org.PROTOKOLL_KODIERUNG) as f:
+        arten = {json.loads(z)["art"] for z in f if z.strip()}
+    assert arten <= {"verschoben", "ordner_angelegt"}, \
+        f"ein --nur-beiwerk-Lauf hat mehr getan als verschoben: {sorted(arten)}"
+
+
+def test_an_ancillary_only_run_is_not_a_finished_rebuild(org, tmp_path, monkeypatch):
+    """Ein `--nur-beiwerk --alle` darf einen spaeteren vollen Lauf NICHT verkuerzen. (#318)
+
+    Beide Laufarten schreiben ihren Fortschritt; teilten sie sich eine Datei, gaelte eine
+    nur aufgeraeumte Plattform als vollstaendig umgebaut. Der naechste `--alle`-Lauf
+    uebersprAENGE sie — ohne je ein Archiv entpackt zu haben, und ohne es zu sagen. Das
+    ist derselbe Fehler wie #397, nur eine Ebene hoeher.
+    """
+    wurzel = _bibliothek(tmp_path, "gb", "c64", "amiga")
+
+    def umbauen(_wurzel, _plattform, _trocken, _prot, _nur_beiwerk=False):
+        return 0
+    monkeypatch.setattr(org, "umbauen", umbauen)
+
+    org.alle_umbauen(wurzel, False, set(), False, True)
+    umbau = os.path.join(wurzel, ".umbau")
+    assert os.path.exists(os.path.join(umbau, "fortschritt-beiwerk.json")), \
+        "der Beiwerk-Lauf hat seinen Fortschritt nirgends abgelegt"
+    assert not os.path.exists(os.path.join(umbau, "fortschritt.json")), \
+        "er hat den Wiederaufsetzpunkt des VOLLEN Laufs beschrieben"
+
+    erledigt, _ = org.stand_laden(os.path.join(umbau, "fortschritt.json"))
+    assert erledigt == set(), "ein voller Lauf wuerde jetzt Plattformen ueberspringen"
+
+
+def test_the_log_of_an_ancillary_only_run_says_so_in_its_name(org):
+    """Am Dateinamen erkennbar, welcher Art der Lauf war. (#318)
+
+    In `.umbau/` liegen Dutzende Protokolle. Nur die aus `--nur-beiwerk` gehen restlos
+    zurueck; wer `--zurueck` aufruft, soll das vorher sehen und nicht erst hinterher.
+    """
+    voll = org.protokoll_pfad("/roms", "amiga", False)
+    nur = org.protokoll_pfad("/roms", "amiga", True)
+    assert "-beiwerk-" in os.path.basename(nur)
+    assert "-beiwerk-" not in os.path.basename(voll)
 
 
 # --- #366: Zusammenhang statt Endung --------------------------------------------------

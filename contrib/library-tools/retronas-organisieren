@@ -44,6 +44,13 @@ geschrieben.
     retronas-organisieren --trocken vic-20      # nur berichten, nichts anfassen
     retronas-organisieren vic-20                # umbauen
     retronas-organisieren --zurueck /roms/.umbau/vic-20-<zeit>.jsonl
+
+`--nur-beiwerk` fuehrt allein Schritt 3c aus: Beiwerk von Ebene 1 nach `_beiwerk/`. Kein
+Entpacken, keine Sammlungen, KEIN Loeschen von Dubletten — der Lauf besteht nur aus
+Verschiebungen und ist deshalb als einziger restlos zuruecknehmbar.
+
+    retronas-organisieren --trocken --nur-beiwerk --alle    # zaehlen, was betroffen waere
+    retronas-organisieren --nur-beiwerk amiga               # nur diese Plattform raeumen
 """
 import argparse
 import hashlib
@@ -76,8 +83,32 @@ ARCHIV_BLEIBT = {
 ARCHIV_ENDUNGEN = {".zip", ".7z", ".rar", ".lha", ".lzh", ".tar", ".gz", ".tgz"}
 
 # Beiwerk — wird gezaehlt, aber nicht angefasst.
+#
+# Musik und Symbole gehoerten von Anfang an dazu und fehlten (#318). Am Bestand gemessen
+# (2026-08-14), Ebene 1 — also genau das, was RomM als Spiele zaehlt:
+#
+#     amiga   55.102 `.sid`   37.315 `.info`   15.938 `.mod`   von 273.002 Eintraegen
+#     c64      9.012 `.sid`                                    von  72.061 Eintraegen
+#
+# 117.366 Eintraege, mehr als die Bibliothek vor dem Umbau an Titeln hatte. Nachgesehen,
+# nicht angenommen: `.info` traegt in 200 von 200 Stichproben `E3 10 00 01` (Amiga
+# DiskObject — ein Workbench-Symbol zur Datei daneben), `.sid` 198x `PSID` + 2x `RSID`,
+# `.mod` 175x `M.K.`/`M!K!` bei Offset 1080.
+#
+# Eine einzige Datei heisst buchstaeblich `.info` und bleibt liegen: `os.path.splitext`
+# zaehlt den fuehrenden Punkt zum Namen, nicht zur Endung. Deshalb 108.354 statt 108.355
+# unter `amiga` — genannt, weil eine unerklaerte Abweichung schlimmer ist als eine erklaerte.
+#
+# Dass das keine eigene Entscheidung ist, sondern eine Angleichung: `ROM_EXT` in `app.py`
+# kennt keine der drei Endungen. Romseerrs Importer weist sie laengst ab; nur dieses
+# Werkzeug hielt sie noch fuer Spiele. `test_no_platform_holds_its_games_in_an_ancillary_format`
+# haelt die beiden Listen kuenftig gegeneinander.
+#
+# EN: icons and tracker/SID music were missing from this list. Romseerr's own importer
+# already refuses all three extensions; this aligns the tool with it.
 BEIWERK = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".txt", ".nfo", ".pdf",
-           ".html", ".htm", ".doc", ".rtf", ".diz", ".sfv", ".md5", ".dat"}
+           ".html", ".htm", ".doc", ".rtf", ".diz", ".sfv", ".md5", ".dat",
+           ".info", ".sid", ".mod"}
 
 # Ab wie vielen Dateien gilt ein Ordner als Sammlung und nicht als Multi-Disk-Spiel?
 # Ein Spiel mit mehr als 12 Disketten ist selten; eine Sammlung hat Hunderte.
@@ -479,7 +510,63 @@ def entpacken(archiv, ziel):
     return False
 
 
-def umbauen(wurzel, plattform, trocken, protokoll):
+def beiwerk_einsammeln(basis, plattform, arcade, trocken, protokoll, z):
+    """Schritt 3c: Beiwerk von Ebene 1 in `_beiwerk/` raeumen.
+
+    WARUM (#399): Ebene 1 ist die SPIELEBENE — RomM zaehlt dort jeden Eintrag als genau
+    ein Spiel. Unter `c64` standen dadurch 10.018 `.nfo`, 1.871 `.svg` und weiteres
+    Beiwerk als „Spiele": 10.726 von 57.615 Eintraegen, fast jeder fuenfte.
+
+    Jens' Entscheidung (Weg 2): in einen eigenen Unterordner statt loeschen oder liegen
+    lassen. Ein Ordner mehr auf Ebene 1 statt zehntausend Dateien, und nichts geht
+    verloren — wer die Textdatei zu einem Spiel sucht, findet sie weiterhin.
+
+    Der Name beginnt mit einem UNTERSTRICH, nicht mit einem Punkt: Ein versteckter
+    Ordner waere fuer Romseerr unsichtbar (#321), aber RomM zaehlt ihn trotzdem — und
+    sichtbar zu sein ist hier richtig, es ist kein Werkzeugverzeichnis.
+
+    Eigene Funktion seit #318, damit `--nur-beiwerk` genau diesen Schritt allein
+    ausfuehren kann — er ist der einzige, der ohne Rest zurueckzunehmen ist.
+
+    Level 1 is the game level; ancillary files were counted as games there. They move
+    into one folder rather than being deleted or left in place.
+    """
+    if arcade:
+        return
+    beiwerk_ziel = os.path.join(basis, BEIWERK_ORDNER)
+    ausnahme = BEIWERK_AUSNAHME.get(plattform, set())
+    oben = [f for f in sorted(os.listdir(basis)) if f != BEIWERK_ORDNER]
+    kandidaten = [f for f in oben
+                  if os.path.isfile(os.path.join(basis, f))
+                  and ist_beiwerk(f)
+                  and os.path.splitext(f)[1].lower() not in ausnahme]
+    # Wenn die Haelfte oder mehr „Beiwerk" waere, ist die Einordnung falsch, nicht der
+    # Bestand. Lieber nichts tun und es sagen.
+    if oben and len(kandidaten) / len(oben) > BEIWERK_HOECHSTANTEIL:
+        print(f"    Beiwerk NICHT eingesammelt: {len(kandidaten)} von {len(oben)} "
+              f"Eintraegen waeren betroffen — Einordnung pruefen")
+        kandidaten = []
+    for f in kandidaten:
+        q = os.path.join(basis, f)
+        if trocken:
+            z["beiwerk_gesammelt"] += 1
+            continue
+        if not os.path.isdir(beiwerk_ziel):
+            os.makedirs(beiwerk_ziel, exist_ok=True)
+            rechte_setzen(beiwerk_ziel)
+            # DEN ORDNER MITPROTOKOLLIEREN (#318): Ohne diese Zeile laesst `--zurueck`
+            # ein leeres `_beiwerk/` stehen — und RomM zaehlt es als ein Spiel. Der
+            # Rueckweg waere dann fast, aber eben nicht ganz vollstaendig, und zwar auf
+            # jeder angefassten Plattform einzeln.
+            protokoll.schreiben("ordner_angelegt", pfad=beiwerk_ziel)
+        ziel = freier_name(beiwerk_ziel, f)
+        shutil.move(q, ziel)
+        rechte_setzen(ziel)
+        protokoll.schreiben("verschoben", von=q, nach=ziel)
+        z["beiwerk_gesammelt"] += 1
+
+
+def umbauen(wurzel, plattform, trocken, protokoll, nur_beiwerk=False):
     basis = os.path.join(wurzel, plattform)
     if not os.path.isdir(basis):
         print(f"  {plattform}: gibt es nicht", file=sys.stderr)
@@ -490,6 +577,27 @@ def umbauen(wurzel, plattform, trocken, protokoll):
          "kein_archiv": 0,
          "beiwerk_gesammelt": 0}
     arcade = plattform in ARCHIV_BLEIBT
+
+    # ---- NUR Schritt 3c ----------------------------------------------------
+    # WOZU (#318): Der Umbau als Ganzes entpackt Archive und LOESCHT Dubletten. Beides ist
+    # aus dem Protokoll nicht zurueckzuholen — `zurueck` sagt das selbst. Auf `amiga` ist
+    # ein voller Lauf ausserdem ein Langlauf ueber 440.000 Dateien.
+    #
+    # Einzusammeln ist aber genau EIN Schritt, und der besteht ausschliesslich aus
+    # `shutil.move`. Ein solcher Lauf schreibt nur `verschoben`- und
+    # `ordner_angelegt`-Zeilen, und `--zurueck` stellt daraus den Ausgangsstand
+    # vollstaendig wieder her. Deshalb ist er einzeln aufrufbar.
+    #
+    # EN: the full rebuild unpacks archives and deletes duplicates, neither of which the
+    # log can undo. Collecting ancillary files is moves only, so it is fully reversible
+    # and can be run on its own.
+    if nur_beiwerk:
+        beiwerk_einsammeln(basis, plattform, arcade, trocken, protokoll, z)
+        art = "TROCKEN" if trocken else "AUSGEFUEHRT"
+        print(f"\n  === {plattform} (NUR BEIWERK, {art}) ===")
+        print(f"    Beiwerk eingesammelt  : {z['beiwerk_gesammelt']}  "
+              f"(-> {BEIWERK_ORDNER}/)")
+        return 0
 
     # ---- Schritt 1: Archive entpacken -------------------------------------
     # Zuerst, damit ihr Inhalt danach wie jede andere Datei einsortiert wird.
@@ -699,46 +807,7 @@ def umbauen(wurzel, plattform, trocken, protokoll):
             else:
                 gesehen[s] = p
 
-    # ---- Schritt 3c: Beiwerk von Ebene 1 einsammeln ------------------------
-    # WARUM (#399): Ebene 1 ist die SPIELEBENE — RomM zaehlt dort jeden Eintrag als genau
-    # ein Spiel. Unter `c64` standen dadurch 10.018 `.nfo`, 1.871 `.svg` und weiteres
-    # Beiwerk als „Spiele": 10.726 von 57.615 Eintraegen, fast jeder fuenfte.
-    #
-    # Jens' Entscheidung (Weg 2): in einen eigenen Unterordner statt loeschen oder liegen
-    # lassen. Ein Ordner mehr auf Ebene 1 statt zehntausend Dateien, und nichts geht
-    # verloren — wer die Textdatei zu einem Spiel sucht, findet sie weiterhin.
-    #
-    # Der Name beginnt mit einem UNTERSTRICH, nicht mit einem Punkt: Ein versteckter
-    # Ordner waere fuer Romseerr unsichtbar (#321), aber RomM zaehlt ihn trotzdem — und
-    # sichtbar zu sein ist hier richtig, es ist kein Werkzeugverzeichnis.
-    #
-    # Level 1 is the game level; ancillary files were counted as games there. They move
-    # into one folder rather than being deleted or left in place.
-    if not arcade:
-        beiwerk_ziel = os.path.join(basis, BEIWERK_ORDNER)
-        ausnahme = BEIWERK_AUSNAHME.get(plattform, set())
-        oben = [f for f in sorted(os.listdir(basis)) if f != BEIWERK_ORDNER]
-        kandidaten = [f for f in oben
-                      if os.path.isfile(os.path.join(basis, f))
-                      and ist_beiwerk(f)
-                      and os.path.splitext(f)[1].lower() not in ausnahme]
-        # Wenn die Haelfte oder mehr „Beiwerk" waere, ist die Einordnung falsch, nicht der
-        # Bestand. Lieber nichts tun und es sagen.
-        if oben and len(kandidaten) / len(oben) > BEIWERK_HOECHSTANTEIL:
-            print(f"    Beiwerk NICHT eingesammelt: {len(kandidaten)} von {len(oben)} "
-                  f"Eintraegen waeren betroffen — Einordnung pruefen")
-            kandidaten = []
-        for f in kandidaten:
-            q = os.path.join(basis, f)
-            if trocken:
-                z["beiwerk_gesammelt"] += 1
-                continue
-            os.makedirs(beiwerk_ziel, exist_ok=True)
-            ziel = freier_name(beiwerk_ziel, f)
-            shutil.move(q, ziel)
-            rechte_setzen(ziel)
-            protokoll.schreiben("verschoben", von=q, nach=ziel)
-            z["beiwerk_gesammelt"] += 1
+    beiwerk_einsammeln(basis, plattform, arcade, trocken, protokoll, z)
 
     art = "TROCKEN" if trocken else "AUSGEFUEHRT"
     print(f"\n  === {plattform} ({art}) ===")
@@ -774,7 +843,7 @@ def zurueck(protokoll_pfad):
     # die Namen unlesbar, um derentwillen es angepasst wurde.
     with open(protokoll_pfad, **PROTOKOLL_KODIERUNG) as f:
         zeilen = [json.loads(z) for z in f if z.strip()]
-    n = {"verschoben": 0, "entpackt": 0, "uebersprungen": 0}
+    n = {"verschoben": 0, "entpackt": 0, "ordner": 0, "uebersprungen": 0}
     for e in reversed(zeilen):
         art = e["art"]
         try:
@@ -785,12 +854,20 @@ def zurueck(protokoll_pfad):
             elif art == "entpackt":
                 shutil.rmtree(e["ziel"], ignore_errors=True)
                 n["entpackt"] += 1        # das Archiv selbst ist weg
+            elif art == "ordner_angelegt":
+                # RUECKWAERTS heisst: die Zeile kommt NACH allen Verschiebungen dran, der
+                # Ordner ist dann leer. `rmdir` statt `rmtree` ist Absicht — liegt doch
+                # noch etwas darin, gehoert es jemand anderem, und dann bleibt der Ordner
+                # stehen statt fremden Inhalt mitzunehmen.
+                os.rmdir(e["pfad"])
+                n["ordner"] += 1
             else:
                 n["uebersprungen"] += 1
         except Exception:
             n["uebersprungen"] += 1
     print(f"  zurueckgelegt: {n['verschoben']}, entpackte Ordner entfernt: "
-          f"{n['entpackt']}, uebersprungen: {n['uebersprungen']}")
+          f"{n['entpackt']}, leere Sammelordner entfernt: {n['ordner']}, "
+          f"uebersprungen: {n['uebersprungen']}")
     print("  HINWEIS: entpackte Archive sind nicht wiederhergestellt — der "
           "Inhalt wurde entfernt, die Quelldatei war bereits geloescht.")
     return 0
@@ -826,7 +903,32 @@ def stand_laden(stand_datei):
     return erledigt, bool(erledigt or alt.get("aktuell"))
 
 
-def alle_umbauen(wurzel, trocken, ueberspringen, neu_anfangen=False):
+def protokoll_pfad(wurzel, plattform, nur_beiwerk=False):
+    """Der Name sagt, welcher Art der Lauf war — `--zurueck` bekommt ihn genannt.
+
+    Ein Protokoll aus `--nur-beiwerk` enthaelt ausschliesslich Verschiebungen und laesst
+    sich restlos zuruecknehmen; eines aus einem vollen Lauf nicht. Wer zwischen zwanzig
+    Dateien in `.umbau/` steht, soll das am Namen sehen und nicht am Inhalt.
+    """
+    marke = "-beiwerk" if nur_beiwerk else ""
+    return os.path.join(wurzel, ".umbau",
+                        f"{plattform}{marke}-{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
+
+
+def ebene1_zaehlen(pfad):
+    """Nur die erste Ebene — die Arbeitsmenge von `--nur-beiwerk`.
+
+    `dateien_zaehlen` laeuft durch den ganzen Baum. Fuer einen Lauf, der ausschliesslich
+    Ebene 1 anfasst, kostet das mehr als die Arbeit selbst: unter `amiga` sind es 440.000
+    Dateien statt 273.002 Eintraegen, und die Zahl dient nur der Reihenfolge.
+    """
+    try:
+        return len(os.listdir(pfad))
+    except OSError:
+        return 0
+
+
+def alle_umbauen(wurzel, trocken, ueberspringen, neu_anfangen=False, nur_beiwerk=False):
     """Jede Plattform mit Inhalt, KLEINSTE ZUERST.
 
     Die Reihenfolge ist Absicht: die kleinen sind in Minuten durch, und wenn die
@@ -836,8 +938,19 @@ def alle_umbauen(wurzel, trocken, ueberspringen, neu_anfangen=False):
     Der Fortschritt steht in `<wurzel>/.umbau/fortschritt.json` — er ueberlebt das
     Ende der SSH-Sitzung und ist die Grundlage fuer die Restzeitschaetzung.
     """
-    stand_datei = os.path.join(wurzel, ".umbau", "fortschritt.json")
-    os.makedirs(os.path.dirname(stand_datei), exist_ok=True)
+    # EIGENE FORTSCHRITTSDATEI FUER `--nur-beiwerk` (#318). Beide Laufarten teilen sich
+    # sonst `fortschritt.json`, und dann gilt eine Plattform, die nur eingesammelt wurde,
+    # als vollstaendig umgebaut: Ein spaeterer `--alle`-Lauf ueberspraenge sie, ohne je
+    # ein Archiv entpackt zu haben. Der Wiederaufsetzpunkt darf nur Laeufe derselben Art
+    # vergleichen.
+    stand_datei = os.path.join(wurzel, ".umbau",
+                               "fortschritt-beiwerk.json" if nur_beiwerk
+                               else "fortschritt.json")
+    # NUR fuer einen echten Lauf anlegen (#581). Sonst stirbt `--trocken --alle` gegen
+    # eine schreibgeschuetzt eingehaengte Bibliothek hier, bevor es die erste Plattform
+    # gesehen hat — ausgerechnet der vorsichtigste Weg, das Werkzeug auszuprobieren.
+    if not trocken:
+        os.makedirs(os.path.dirname(stand_datei), exist_ok=True)
 
     frueher, unterbrochen = (set(), False) if neu_anfangen else stand_laden(stand_datei)
     if unterbrochen:
@@ -854,7 +967,7 @@ def alle_umbauen(wurzel, trocken, ueberspringen, neu_anfangen=False):
             continue
         if e in ueberspringen or e in frueher:
             continue
-        n = dateien_zaehlen(p)
+        n = ebene1_zaehlen(p) if nur_beiwerk else dateien_zaehlen(p)
         if n:
             kandidaten.append((n, e))
     kandidaten.sort()
@@ -882,6 +995,19 @@ def alle_umbauen(wurzel, trocken, ueberspringen, neu_anfangen=False):
              "aktuell": None, "fertig": False, "offen_dateien": gesamt}
 
     def sichern():
+        # EIN TROCKENLAUF HINTERLAESST NICHTS (#581). `Protokoll` beachtet `trocken` seit
+        # jeher, diese Datei tat es nicht — und sie ist seit #372 der Wiederaufsetzpunkt.
+        # Gemessen wurden zwei Schaeden: Ein ABGEBROCHENER Trockenlauf liess den spaeteren
+        # echten Lauf Plattformen ueberspringen, die nie angefasst wurden. Ein
+        # DURCHGELAUFENER ueberschrieb den Wiederaufsetzpunkt eines abgestuerzten echten
+        # Laufs und hakte ihn als `fertig` ab — danach faengt der Umbau bei Null an, ueber
+        # 19 Stunden.
+        #
+        # GELESEN wird der Stand weiterhin (`stand_laden` oben): Der Trockenlauf ist die
+        # Vorschau auf den echten Lauf, und der setzt fort. Eine Vorschau, die mehr Arbeit
+        # zeigt als anfiele, waere genauso falsch wie eine, die zu wenig zeigt.
+        if trocken:
+            return
         with open(stand_datei, "w", encoding="utf-8") as f:
             json.dump(stand, f, ensure_ascii=False, indent=1)
         rechte_setzen(stand_datei)
@@ -893,12 +1019,11 @@ def alle_umbauen(wurzel, trocken, ueberspringen, neu_anfangen=False):
         stand["aktuell"] = {"plattform": e, "dateien": n, "seit": time.time()}
         sichern()
         t0 = time.time()
-        pfad = os.path.join(wurzel, ".umbau",
-                            f"{e}-{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
+        pfad = protokoll_pfad(wurzel, e, nur_beiwerk)
         prot = Protokoll(pfad, trocken)
         fehler = None
         try:
-            rc = umbauen(wurzel, e, trocken, prot)
+            rc = umbauen(wurzel, e, trocken, prot, nur_beiwerk)
             if rc:
                 fehler = f"Rueckgabewert {rc}"
         except Exception as ex:                    # eine Plattform darf den Lauf
@@ -956,6 +1081,10 @@ def main():
                    help="Komma-Liste bereits erledigter Plattformen")
     p.add_argument("--wurzel", default="/roms")
     p.add_argument("--trocken", action="store_true", help="nur berichten")
+    p.add_argument("--nur-beiwerk", action="store_true", dest="nur_beiwerk",
+                   help="NUR Beiwerk von Ebene 1 einsammeln — nicht entpacken, keine "
+                        "Sammlungen aufloesen, keine Dubletten loeschen (restlos "
+                        "ueber --zurueck ruecknehmbar)")
     p.add_argument("--zurueck", metavar="PROTOKOLL", help="Umbau rueckgaengig machen")
     a = p.parse_args()
 
@@ -963,15 +1092,14 @@ def main():
         return zurueck(a.zurueck)
     if a.alle:
         ueber = {x.strip() for x in a.ausser.split(",") if x.strip()}
-        return alle_umbauen(a.wurzel, a.trocken, ueber, a.neu)
+        return alle_umbauen(a.wurzel, a.trocken, ueber, a.neu, a.nur_beiwerk)
     if not a.plattform:
         p.error("Plattform fehlt")
 
-    pfad = os.path.join(a.wurzel, ".umbau",
-                        f"{a.plattform}-{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
+    pfad = protokoll_pfad(a.wurzel, a.plattform, a.nur_beiwerk)
     prot = Protokoll(pfad, a.trocken)
     try:
-        rc = umbauen(a.wurzel, a.plattform, a.trocken, prot)
+        rc = umbauen(a.wurzel, a.plattform, a.trocken, prot, a.nur_beiwerk)
     finally:
         prot.zu()
     if not a.trocken:
