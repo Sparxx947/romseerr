@@ -85,6 +85,14 @@ The full rule is in
   search; a retro-only selection disables Usenet.
 - **Dedup** against the existing library: owned titles are flagged and sorted last; re-downloading
   is blocked both server- and client-side.
+- **What this stack does not serve does not show up.** PS5 and Xbox Series releases are
+  dropped rather than assigned to some platform (#607). The reason is concrete: the title
+  detection did not know `PS5`, returned `None`, and then the indexer's category wins —
+  three of the four "Switch" hits for *Resident Evil 4* were PS5, the largest **62 GB**.
+  This is explicitly different from a category that is merely too coarse (Wii U rides along
+  under Wii, #452): there is no folder, no emulator and no import path for PS5 here, so
+  such a hit is **never** right. Dropped hits are logged — a search that quietly returns
+  less would be impossible to read.
 - **Covers** via IGDB (SteamGridDB fallback), lazily loaded for Usenet hits.
 
 ### Detail page
