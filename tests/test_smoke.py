@@ -4402,6 +4402,65 @@ def test_key_material_is_not_world_readable(appmod, tmp_path, monkeypatch):
     assert zeilen == []
 
 
+def test_a_session_key_that_cannot_be_saved_is_reported(appmod, tmp_path, monkeypatch):
+    """Ein nicht speicherbarer Sitzungsschluessel wird gemeldet, nicht verschwiegen. (#587)
+
+    WARUM DAS ZAEHLT: `secret.key` signiert die Flask-Session. Laesst sich das
+    Konfigverzeichnis nicht beschreiben, erzeugte diese Funktion bei JEDEM Start einen
+    neuen Schluessel — alle Anmeldungen weg, bei jedem Neustart erneut, und dazu keine
+    Zeile im Protokoll. Von aussen ist das von einem Sitzungsfehler nicht zu
+    unterscheiden.
+
+    GEMESSEN vor der Aenderung, gegen dasselbe Modul mit `CONFIG_DIR` auf 0555: erster
+    Aufruf `4ec83dea2b57…`, zweiter `5f2d0d365646…`, keine Datei, keine Ausgabe.
+
+    EN: a session key that cannot be persisted must be reported — otherwise every restart
+    mints a new one and logs everybody out, with nothing in the log to explain it.
+    """
+    zeilen = []
+    monkeypatch.setattr(appmod, "log", lambda m: zeilen.append(m))
+    monkeypatch.setattr(appmod, "SECRET_FILE", str(tmp_path / "nicht-da" / "secret.key"))
+    appmod._SECRET_CACHE.clear()
+
+    a = appmod.app_secret()
+    assert any("NICHT gespeichert" in z for z in zeilen), \
+        f"das Scheitern gehoert ins Protokoll, gemeldet wurde: {zeilen}"
+    # Der Betreiber muss die FOLGE lesen koennen, nicht nur die Ausnahme: Der Dateifehler
+    # allein sagt nicht, dass daran die Anmeldungen haengen.
+    assert any("Neustart" in z for z in zeilen), \
+        f"die Meldung nennt die Ursache, aber nicht die Wirkung: {zeilen}"
+
+    # UND: derselbe Prozess bleibt bei sich. Ein zweiter Aufrufer bekam vorher einen
+    # anderen Schluessel und entwertete damit die Sitzungen des ersten.
+    b = appmod.app_secret()
+    assert a == b, "im selben Prozess muss der Schluessel stabil bleiben"
+
+
+def test_a_newly_created_session_key_is_logged(appmod, tmp_path, monkeypatch):
+    """Auch der Gutfall steht im Protokoll. (#587)
+
+    Beim ersten Start ist ein neuer Schluessel normal. Taucht die Zeile spaeter erneut
+    auf, ist `secret.key` verschwunden — und dann will man wissen, wann. Ohne Eintrag
+    liesse sich das im Nachhinein nicht mehr feststellen.
+    """
+    zeilen = []
+    monkeypatch.setattr(appmod, "log", lambda m: zeilen.append(m))
+    ziel = tmp_path / "secret.key"
+    monkeypatch.setattr(appmod, "SECRET_FILE", str(ziel))
+    appmod._SECRET_CACHE.clear()
+
+    s = appmod.app_secret()
+    assert ziel.read_text().strip() == s
+    assert oct(ziel.stat().st_mode & 0o777) == "0o600"
+    assert any("erzeugt und gespeichert" in z for z in zeilen), \
+        f"die Neuerzeugung gehoert ins Protokoll, gemeldet wurde: {zeilen}"
+
+    # Gegenprobe: Ist die Datei da, wird sie GELESEN — nicht neu erzeugt und nicht gemeldet.
+    zeilen.clear()
+    assert appmod.app_secret() == s
+    assert zeilen == [], f"das blosse Lesen darf nichts melden: {zeilen}"
+
+
 def test_unused_key_is_tightened_at_startup(appmod, tmp_path, monkeypatch):
     """Auch ein Schlüssel, den niemand liest, wird eng gemacht. (#256)
 
