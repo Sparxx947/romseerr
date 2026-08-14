@@ -476,6 +476,131 @@ def test_the_closing_summary_names_the_failures(org, tmp_path, monkeypatch, caps
         f"die Schlussmeldung verschweigt, welche Plattformen scheiterten: {kopf!r}"
 
 
+# --- #581: `--trocken --alle` fasst die Bibliothek nicht an ---------------------------
+
+class _Abbruch(BaseException):
+    """Ein Strg-C, das den Testlauf nicht mitreisst.
+
+    Es muss von `BaseException` erben, nicht von `Exception`: `alle_umbauen` faengt je
+    Plattform `Exception` ab und macht weiter — ein gewoehnlicher Fehler beendet den Lauf
+    also gar nicht. Ein echtes `KeyboardInterrupt` taete es, beendet aber auch pytest.
+    """
+
+
+def _trockenlauf(org, monkeypatch, wurzel, stirbt_bei=None):
+    """`alle_umbauen --trocken` mit einem `umbauen`, das nur buchfuehrt.
+
+    `stirbt_bei` bricht den Lauf an dieser Plattform ab — so, wie ein Strg-C es taete.
+    """
+    def umbauen(_wurzel, plattform, _trocken, _prot, _nur_beiwerk=False):
+        if plattform == stirbt_bei:
+            raise _Abbruch("Nutzer bricht den Trockenlauf ab")
+        return 0
+
+    monkeypatch.setattr(org, "umbauen", umbauen)
+    try:
+        org.alle_umbauen(wurzel, True, set())
+    except _Abbruch:
+        pass
+
+
+def test_a_dry_run_leaves_no_resume_point(org, tmp_path, monkeypatch):
+    """`--trocken --alle` legt keine Fortschrittsdatei an. (#581)
+
+    NACHGEMESSEN: Auf einer unberuehrten Bibliothek liess ein Trockenlauf
+    `.umbau/fortschritt.json` mit `fertig: true` und allen drei Plattformen unter
+    `erledigt` zurueck. `Protokoll` beachtet `trocken` seit jeher, `sichern()` nicht.
+    """
+    wurzel = _bibliothek(tmp_path, "gb", "c64", "nes")
+    _trockenlauf(org, monkeypatch, wurzel)
+
+    assert not os.path.exists(os.path.join(wurzel, ".umbau")), \
+        "der Trockenlauf hat in die Bibliothek geschrieben"
+
+
+def test_an_aborted_dry_run_does_not_make_a_real_run_skip_platforms(org, tmp_path,
+                                                                    monkeypatch):
+    """Nach einem abgebrochenen Trockenlauf baut der echte Lauf ALLES. (#581)
+
+    WARUM DAS ZAEHLT: Gemessen wurden drei Plattformen; der Trockenlauf brach an der
+    dritten ab, und der folgende echte Lauf meldete `Fortsetzung: 2 Plattformen … werden
+    uebersprungen` und baute nur `snes` um. Zwei Plattformen galten als erledigt, ohne je
+    angefasst worden zu sein — genau der Fehler, den #397 eine Ebene tiefer behoben hat.
+    """
+    wurzel = _bibliothek(tmp_path, "gb", "c64", "nes")
+    _trockenlauf(org, monkeypatch, wurzel, stirbt_bei="nes")
+
+    echt = []
+
+    def umbauen(_wurzel, plattform, _trocken, _prot, _nur_beiwerk=False):
+        echt.append(plattform)
+        return 0
+
+    monkeypatch.setattr(org, "umbauen", umbauen)
+    org.alle_umbauen(wurzel, False, set())
+    assert set(echt) == {"gb", "c64", "nes"}, \
+        f"der echte Lauf uebersprang Plattformen wegen eines Trockenlaufs: {echt}"
+
+
+def test_a_dry_run_does_not_destroy_a_real_resume_point(org, tmp_path, monkeypatch):
+    """Ein Trockenlauf laesst den Wiederaufsetzpunkt eines echten Laufs stehen. (#581)
+
+    DER SCHLIMMERE FALL, gemessen: Ein echter Lauf stuerzt bei der zweiten Plattform ab
+    und hinterlaesst `erledigt: [c64], fertig: false`. Schaut danach jemand mit
+    `--trocken --alle` nach, steht dort `erledigt: [c64, gba, snes], fertig: true` — der
+    Trockenlauf hat den Wiederaufsetzpunkt ueberschrieben UND als fertig abgehakt. Auf
+    der echten Bibliothek kostet das den Lauf von vorn: ueber 19 Stunden.
+    """
+    wurzel = _bibliothek(tmp_path, "gb", "c64", "nes")
+    _lauf(org, monkeypatch, wurzel, scheitert_an={"c64", "nes"})
+    stand_datei = os.path.join(wurzel, ".umbau", "fortschritt.json")
+    with open(stand_datei, encoding="utf-8") as f:
+        vorher = f.read()
+
+    _trockenlauf(org, monkeypatch, wurzel)
+
+    with open(stand_datei, encoding="utf-8") as f:
+        assert f.read() == vorher, \
+            "der Trockenlauf hat den Wiederaufsetzpunkt des echten Laufs veraendert"
+    assert org.stand_laden(stand_datei) == ({"gb"}, True), \
+        "der Wiederaufsetzpunkt ist nach dem Trockenlauf nicht mehr brauchbar"
+
+
+def test_a_dry_run_still_honours_an_existing_resume_point(org, tmp_path, monkeypatch,
+                                                          capsys):
+    """Gegenprobe: Gelesen wird der Stand weiterhin. (#581)
+
+    Der Trockenlauf ist eine Vorschau auf den echten Lauf — und der setzt fort. Eine
+    Vorschau, die mehr Arbeit zeigt als tatsaechlich anfiele, waere genauso falsch wie
+    eine, die zu wenig zeigt.
+    """
+    wurzel = _bibliothek(tmp_path, "gb", "c64", "nes")
+    _lauf(org, monkeypatch, wurzel, scheitert_an={"c64"})
+    capsys.readouterr()
+
+    _trockenlauf(org, monkeypatch, wurzel)
+    ausgabe = capsys.readouterr().out
+    assert "Fortsetzung" in ausgabe and "2 Plattformen" in ausgabe, \
+        f"der Trockenlauf ignoriert den Wiederaufsetzpunkt: {ausgabe!r}"
+
+
+@pytest.mark.skipif(os.geteuid() == 0,
+                    reason="als root greifen die Schreibrechte des Verzeichnisses nicht")
+def test_a_dry_run_works_on_a_read_only_library(org, tmp_path, monkeypatch):
+    """`--trocken --alle` laeuft gegen eine schreibgeschuetzt eingehaengte Bibliothek. (#581)
+
+    GEMESSEN: `PermissionError: [Errno 13] Permission denied: '/roms/.umbau'`, noch bevor
+    eine einzige Plattform betrachtet wurde. Ausgerechnet der sicherste Weg, das Werkzeug
+    auszuprobieren — trocken und nur lesbar eingehaengt — war der einzige, der nicht ging.
+    """
+    wurzel = _bibliothek(tmp_path, "gb", "c64")
+    os.chmod(wurzel, 0o555)
+    try:
+        _trockenlauf(org, monkeypatch, wurzel)
+    finally:
+        os.chmod(wurzel, 0o755)
+
+
 # --- #397: Kollisionsnamen gehen nicht aus -------------------------------------------
 
 def test_more_than_ten_thousand_identical_names_still_get_a_place(org, monkeypatch):
