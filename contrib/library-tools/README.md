@@ -339,6 +339,47 @@ beinahe geleert worden wäre.
 Die Schranke `BEIWERK_HOECHSTANTEIL` bleibt dabei unberührt: Bei `amiga` wären 40 % der
 Einträge betroffen, bei `c64` 13 %.
 
+#### Beiwerk **ohne Endung** — an der Signatur, nicht am Namen (#318 Punkt 4)
+
+Auf der Spielebene liegen Dateien ganz ohne Endung, und die Endungsliste sieht sie nicht:
+**53.807 unter `amiga`**, 3.292 unter `c64`, 986 unter `neogeoaes`. Erkannt wird deshalb
+zusätzlich am **Inhalt** — aber nur, was eine eigene Kennung trägt:
+
+* `FORM····ILBM` — IFF-Bild
+* `FORM····8SVX` — IFF-Klang
+* reiner Text: kein Nullbyte, **mindestens ein Zeilenumbruch**, höchstens 30 % außerhalb
+  von ASCII
+
+Alles andere bleibt liegen. Ein `data`-Block ist unentschieden, und unentschieden heißt
+hier: nicht anfassen.
+
+**Warum nicht `file`/libmagic, was naheläge:** Es rät auf diesen Daten. In 150 endungslosen
+`c64`-Dateien meldete es unter anderem ein *WonderSwan ROM image*, einen *OpenPGP Secret
+Key* und *DIY-Thermocam raw data* — Kollisionen von Magic-Bytes auf 6502-Code. Und ein
+Schnitt „Text gegen Binär" trennt hier gar nichts: Auf `c64` und `neogeoaes` sind über 94 %
+der Probe schlicht `data`, dort liegen Spiele und Nicht-Spiele im selben Topf.
+
+**Warum der Zeilenumbruch entscheidend ist — am Bestand gemessen:** Die erste Fassung fing
+unter `c64` 65 Dateien, darunter `ELITE-CRAM-4100` und `BOULDERDASH16-CRAM-9000`, jeweils
+exakt 1024 Byte. `CRAM` ist das **Farb-RAM** (`$D800`–`$DBFF`) zu den Vollspeicher-Abzügen
+— es gehört zum Spiel, ohne es fehlen die Farben. Farbwerte liegen zufällig im druckbaren
+Bereich, eine dieser Dateien bestand nur aus Leerzeichen. Was ihnen fehlt, ist eine Zeile:
+Ein Speicherabzug hat keine.
+
+Wirkung, trocken über den echten Bestand gemessen:
+
+| Plattform | eingesammelt | von endungslosen |
+|---|---:|---:|
+| `amiga` | 12.041 | 53.807 |
+| `c64` | 26 | 3.292 |
+| `vic-20` | 1 | 65 |
+| `neogeoaes` | 0 | 986 |
+| `pico8` | 0 | — |
+
+Die 26 unter `c64` sind `README`, `LICENSE`, `COPYING`, `NEWS`, `TODO` und Reste eines
+entpackten Java-Pakets. Die Vollspeicher-Abzüge und die ROM-Satz-Bestandteile bleiben
+unberührt, und genau das ist die Absicht.
+
 #### `--nur-beiwerk`: einsammeln, ohne den ganzen Umbau zu fahren (#318)
 
 Die berichtigte Liste allein räumt nichts auf — dafür musste bisher ein **vollständiger**
@@ -832,6 +873,45 @@ emptied `pico8`.
 
 `BEIWERK_HOECHSTANTEIL` is unaffected: the change touches 40 % of `amiga`'s entries and
 13 % of `c64`'s, both below the refusal threshold.
+
+#### Ancillary files **without an extension** — by signature, not by name (#318 point 4)
+
+Files with no extension sit on the game level and the extension list cannot see them:
+**53,807 under `amiga`**, 3,292 under `c64`, 986 under `neogeoaes`. They are recognised by
+**content** instead — but only what carries a signature of its own:
+
+* `FORM····ILBM` — IFF image
+* `FORM····8SVX` — IFF sound
+* plain text: no null byte, **at least one newline**, at most 30 % outside ASCII
+
+Everything else stays. A `data` block is undecided, and undecided means: do not touch.
+
+**Why not `file`/libmagic, the obvious choice:** it guesses on this data. Across 150
+extensionless `c64` files it reported, among others, a *WonderSwan ROM image*, an *OpenPGP
+Secret Key* and *DIY-Thermocam raw data* — magic-byte collisions on 6502 code. And a
+text-versus-binary split separates nothing here: on `c64` and `neogeoaes` over 94 % of the
+sample is plain `data`, where games and non-games sit together.
+
+**Why the newline is the decisive condition — measured against the library:** the first
+version caught 65 files under `c64`, including `ELITE-CRAM-4100` and
+`BOULDERDASH16-CRAM-9000`, each exactly 1024 bytes. `CRAM` is the **colour RAM**
+(`$D800`–`$DBFF`) belonging to the whole-memory freezes — part of the game; without it the
+colours are gone. Colour values happen to fall in the printable range, and one of those
+files consisted of nothing but spaces. What they lack is a line: a memory dump has none.
+
+Effect, measured dry against the real library:
+
+| platform | collected | of extensionless |
+|---|---:|---:|
+| `amiga` | 12,041 | 53,807 |
+| `c64` | 26 | 3,292 |
+| `vic-20` | 1 | 65 |
+| `neogeoaes` | 0 | 986 |
+| `pico8` | 0 | — |
+
+The 26 under `c64` are `README`, `LICENSE`, `COPYING`, `NEWS`, `TODO` and leftovers of an
+unpacked Java package. The whole-memory freezes and the ROM set members are untouched,
+which is the whole point.
 
 #### `--nur-beiwerk`: collect without running the whole rebuild (#318)
 

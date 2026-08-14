@@ -12,6 +12,7 @@ The tools move tens of thousands of files, and almost all of that is filesystem 
 can only be measured against a real library. The one place where a mistake does silent
 damage is the classification, so that is what is tested here.
 """
+import collections
 import importlib.util
 import json
 import os
@@ -1930,3 +1931,146 @@ def test_a_reference_with_a_path_is_still_rewritten(abb, tmp_path):
     ok, grund = abb.liste_umschreiben(str(p), {"Alt.bin": "Neu.bin"})
     assert ok, grund
     assert 'FILE "tracks/Neu.bin" BINARY' in p.read_text(encoding="utf-8")
+
+
+# --- #318 Punkt 4: Beiwerk ohne Endung, an der Signatur ----------------------------
+
+def test_extensionless_ancillary_is_recognised_by_signature(org, tmp_path):
+    """Nur was eine eigene Kennung traegt, gilt als Beiwerk. (#318)
+
+    WARUM NICHT MEHR: `file`/libmagic raet auf diesen Daten. In 150 endungslosen
+    `c64`-Dateien meldete es ein „WonderSwan ROM image", einen „OpenPGP Secret Key" und
+    „DIY-Thermocam raw data" — Kollisionen von Magic-Bytes auf 6502-Code. Und ein
+    Text/Binaer-Schnitt trennt nichts: Auf `c64` und `neogeoaes` sind ueber 94 % der
+    Probe schlicht `data`, dort liegen Spiele und Nicht-Spiele im selben Topf.
+    """
+    ilbm = tmp_path / "vorschau"
+    ilbm.write_bytes(b"FORM" + b"\x00\x00\x10\x00" + b"ILBM" + b"BMHD" + b"\x00" * 32)
+    svx = tmp_path / "titelmusik"
+    svx.write_bytes(b"FORM" + b"\x00\x00\x08\x00" + b"8SVX" + b"VHDR" + b"\x00" * 32)
+    text = tmp_path / "liesmich"
+    text.write_text("Anleitung\nZeile zwei\tmit Tabulator\n", encoding="utf-8")
+    umlaut = tmp_path / "notiz"
+    umlaut.write_bytes("Grüße aus Änderungen\n".encode("latin-1"))
+
+    for p in (ilbm, svx, text, umlaut):
+        assert org.ist_beiwerk_ohne_endung(str(p)) is True, p.name
+
+
+def test_a_game_without_an_extension_is_left_alone(org, tmp_path):
+    """Spiele ohne Endung bleiben liegen — gemessen an dem, was wirklich dort liegt. (#318)
+
+    `c64`: 64.514 Byte grosse Vollspeicher-Abzuege, beginnend mit `00 04` (Ladeadresse
+    $0400), dahinter 6502-Code — 2.207 der 3.292 sind groesser als 16 KB.
+    `neogeoaes`: `crom0`, `m1rom`, `prom` — Bestandteile von ROM-Saetzen, bis 64 MB.
+    `amiga`: AmigaOS-Programme beginnen mit dem Hunk-Kopf `00 00 03 F3`.
+    Keines davon darf diese Regel beruehren.
+    """
+    freeze = tmp_path / "GREATGURIANOS-0400"
+    freeze.write_bytes(b"\x00\x04" + b"\x78\xa9\x20\x85\x01" + b"\xea" * 200)
+    crom = tmp_path / "crom0 (97)"
+    crom.write_bytes(bytes(range(256)) * 4)
+    hunk = tmp_path / "SpielProgramm"
+    hunk.write_bytes(b"\x00\x00\x03\xf3" + b"\x00" * 100)
+
+    for p in (freeze, crom, hunk):
+        assert org.ist_beiwerk_ohne_endung(str(p)) is False, p.name
+
+
+def test_a_file_with_an_extension_never_takes_this_path(org, tmp_path):
+    """Die Signaturpruefung gilt NUR fuer Dateien ohne Endung. (#318)
+
+    Sonst geriete sie mit der Ausnahmeliste aneinander: `pico8`-Karten sind `.png` und
+    damit Spiele — eine zweite, inhaltsbasierte Meinung darueber waere genau der
+    Beinahe-Schaden aus #399 noch einmal.
+    """
+    p = tmp_path / "10002.p8.png"
+    p.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    assert org.ist_beiwerk_ohne_endung(str(p)) is False
+    t = tmp_path / "anleitung.txt"
+    t.write_text("Text", encoding="utf-8")
+    assert org.ist_beiwerk_ohne_endung(str(t)) is False, \
+        "mit Endung entscheidet die Endungsliste, nicht der Inhalt"
+
+
+def test_an_unreadable_or_empty_file_is_not_swept_up(org, tmp_path):
+    """Was sich nicht lesen laesst, bleibt liegen. (#318)
+
+    Eine leere Datei besteht die Textprobe sonst mit „alle null Bytes sind druckbar" —
+    und eine Datei, die gerade geschrieben wird, waere damit Beiwerk.
+    """
+    leer = tmp_path / "nochleer"
+    leer.write_bytes(b"")
+    assert org.ist_beiwerk_ohne_endung(str(leer)) is False
+    assert org.ist_beiwerk_ohne_endung(str(tmp_path / "gibtsnicht")) is False
+
+
+def test_the_sweep_takes_extensionless_ancillary_along(org, tmp_path):
+    """Der Einsammel-Schritt nimmt Beiwerk ohne Endung mit — und nur das. (#318)
+
+    Die Pruefung an der Funktion allein genuegt nicht: Sie sagt nichts darueber, ob der
+    Schritt sie auch benutzt. Hier laeuft `beiwerk_einsammeln` und wird an dem gemessen,
+    was danach WO liegt.
+    """
+    basis = tmp_path / "amiga"
+    basis.mkdir()
+    (basis / "vorschau").write_bytes(b"FORM\x00\x00\x10\x00ILBM" + b"\x00" * 32)
+    (basis / "liesmich").write_text("Anleitung\n", encoding="utf-8")
+    (basis / "titel.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (basis / "SpielProgramm").write_bytes(b"\x00\x00\x03\xf3" + b"\x00" * 100)
+    (basis / "spiel.adf").write_bytes(b"x" * 64)
+    (basis / "zweitspiel.adf").write_bytes(b"y" * 64)
+    (basis / "drittspiel.adf").write_bytes(b"z" * 64)
+
+    class _P:
+        def schreiben(self, *a, **k): pass
+    z = collections.Counter()
+    org.beiwerk_einsammeln(str(basis), "amiga", False, False, _P(), z)
+
+    beiwerk = {p.name for p in (basis / org.BEIWERK_ORDNER).iterdir()}
+    geblieben = {p.name for p in basis.iterdir() if p.is_file()}
+    assert beiwerk == {"vorschau", "liesmich", "titel.png"}, beiwerk
+    assert "SpielProgramm" in geblieben, "ein AmigaOS-Programm ist kein Beiwerk"
+    assert "spiel.adf" in geblieben
+
+
+def test_a_c64_colour_ram_block_is_not_text(org, tmp_path):
+    """Farb-RAM-Bloecke sind Spielbestandteil, kein Beiwerk. (#318)
+
+    AM BESTAND GEMESSEN, nicht ausgedacht: Die erste Fassung dieser Regel fing unter
+    `c64` 65 Dateien, darunter `ELITE-CRAM-4100`, `BOULDERDASH16-CRAM-9000` und
+    `FASTBREAK-CRAM-06A3` — jeweils exakt 1024 Byte. `CRAM` ist das Farb-RAM
+    ($D800-$DBFF) zu den Vollspeicher-Abzuegen; ohne es fehlen dem Spiel die Farben.
+
+    Sie bestehen jede naive Textpruefung, weil Farbwerte im druckbaren Bereich liegen —
+    einer bestand nur aus Leerzeichen. Was sie NICHT haben, ist ein Zeilenumbruch: Ein
+    Speicherabzug hat keine Zeilen. Genau daran scheitern sie jetzt.
+    """
+    for inhalt in (b" " * 1024,                       # FASTBREAK-CRAM-06A3
+                   b"'" * 1024,                       # ELITE-CRAM-4100
+                   b"a" * 1024,                       # BOULDERDASH16-CRAM-9000
+                   bytes([0xAE, 0xA1, 0xAB]) * 341):  # BARBARIAN…-CRAM
+        p = tmp_path / "SPIEL-CRAM-4100"
+        p.write_bytes(inhalt)
+        assert org.ist_beiwerk_ohne_endung(str(p)) is False, inhalt[:8]
+
+    # Gegenprobe: Ein echtes Textdokument hat Zeilen und bleibt erkannt.
+    t = tmp_path / "COPYING"
+    t.write_text("GNU GENERAL PUBLIC LICENSE\nVersion 3\n", encoding="utf-8")
+    assert org.ist_beiwerk_ohne_endung(str(t)) is True
+
+
+def test_mostly_high_bytes_are_not_text_even_with_a_newline(org, tmp_path):
+    """Ein Zeilenumbruch allein macht aus einer Bytefolge keinen Text. (#318)
+
+    Sonst genuegte ein zufaelliges `0x0A` in einem Speicherabzug. Latin-1-Umlaute
+    bleiben erlaubt — bis 10 %, was fuer deutschen Text reichlich ist.
+    """
+    p = tmp_path / "abzug"
+    p.write_bytes(bytes([0xC1]) * 500 + b"\n" + bytes([0xC1]) * 500)
+    assert org.ist_beiwerk_ohne_endung(str(p)) is False
+
+    d = tmp_path / "notiz"
+    d.write_bytes("Groesse, Aenderung, Uebung: alles dabei.\nZweite Zeile mit Umlauten: ae oe ue.\n"
+                  .encode("latin-1"))
+    assert org.ist_beiwerk_ohne_endung(str(d)) is True
