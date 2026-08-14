@@ -37,11 +37,27 @@ def seite(page, eingerichtet, zugangsdaten):
     page.click("#btn")
     page.wait_for_url("**/#/**", timeout=15000)
     page.wait_for_timeout(800)
+    # DER DIALOG DARF ZWISCHEN ZAEHLEN UND KLICKEN VERSCHWINDEN (#603). Genau das ist
+    # passiert: Zwischen `count()` und `click()` schliesst sich die Tour von selbst — eine
+    # auslaufende Animation reicht —, und der Klick wartet dann die vollen 30 s auf ein
+    # Element, das es nicht mehr gibt. Ausgangspunkt war ein Fehlschlag auf `dev`, waehrend
+    # DERSELBE Commit zwei Minuten vorher auf dem Release-Zweig gruen war und beim
+    # Wiederholen erneut gruen wurde: dasselbe Ergebnis dreimal verschieden.
+    #
+    # Ein verschwundener Knopf kann hier nur eines bedeuten — der Dialog ist zu, also ist
+    # das Ziel erreicht. Kurze Frist statt der voreingestellten 30 s, und ein Fehlschlag
+    # beendet die Schleife, statt den Lauf zu kosten.
+    #
+    # EN: the tour may close itself between count() and click(); a vanished button can only
+    # mean the dialog is gone, which is what this loop wanted anyway.
     for _ in range(6):
         knopf = page.get_by_role("button", name="Überspringen")
         if knopf.count() == 0:
             break
-        knopf.first.click()
+        try:
+            knopf.first.click(timeout=5000)
+        except Exception:
+            break
         page.wait_for_timeout(300)
     return page
 
