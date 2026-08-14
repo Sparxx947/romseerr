@@ -284,6 +284,14 @@ that is the normal case and complete as it stands, not a fallback.
   running and **aborted** are three distinct answers — an aborted run leaves neither
   `fertig` nor `aktuell`, which is precisely why someone comes looking. (The same data is
   at `/api/library/organize/status`.)
+  **Runs can be started from here too** — dry or real, whole library or a single platform.
+  The dry run does not ask (it changes nothing); the real one does. A second run is
+  refused **even when the first was started elsewhere**: the progress file is consulted,
+  not just this process. Only a run started from this interface can be stopped — what the
+  throwaway container started is unknown to this process, and the button says so.
+  **Restarting the container aborts a running rebuild.** No work is lost: the tool resumes,
+  and because the view reads its state from the file, it then says "aborted" rather than
+  "running", which would be a lie.
 - ⌨️ **Home-computer formats import now.** `.prg`, `.tap`, `.crt`, `.g64`, `.z80`,
   `.tzx`, `.cdt`, `.adz`, `.a52` and more — 16 formats were missing from the extension
   list, so **nothing could arrive** through Romseerr for C64, VIC-20, ZX Spectrum, CPC,
