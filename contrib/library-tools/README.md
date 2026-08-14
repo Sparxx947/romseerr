@@ -173,6 +173,17 @@ Zwei Feinheiten:
   doppelte Arbeit.
 - **Ein abgeschlossener Lauf ist kein Wiederaufsetzpunkt.** Wer nach dem Ende erneut
   startet, will neu bauen, nicht nichts tun.
+- **Ein Trockenlauf hinterlässt keinen Wiederaufsetzpunkt (#581).** `--trocken --alle`
+  liest den Fortschritt, schreibt ihn aber nicht — es ist eine Vorschau auf den echten
+  Lauf, und der setzt fort; **gelesen** wird der Stand deshalb weiterhin, damit die
+  Vorschau nicht mehr Arbeit zeigt, als anfiele. Bis #581 schrieb `sichern()` unabhängig
+  von `--trocken`, und das kostete auf drei Wegen: Ein **abgebrochener** Trockenlauf ließ
+  den späteren echten Lauf Plattformen überspringen, die nie angefasst worden waren; ein
+  **durchgelaufener** überschrieb den Wiederaufsetzpunkt eines abgestürzten echten Laufs
+  und hakte ihn als `fertig` ab — womit der Umbau bei Null anfing; und gegen eine
+  **schreibgeschützt eingehängte** Bibliothek starb `--trocken --alle` sofort mit
+  `PermissionError … '/roms/.umbau'`, ausgerechnet auf dem vorsichtigsten Weg. Der Lauf
+  für eine einzelne Plattform (`retronas-organisieren --trocken c64`) war nie betroffen.
 - **Eine abgestürzte Plattform gilt nicht als erledigt.** Der Lauf macht mit der nächsten
   weiter — ein unlesbarer Ordner darf keine 19 Stunden kosten —, aber sie bleibt in der
   Wiederaufsetzliste und wird beim nächsten Aufruf wiederholt. Die Schlussmeldung nennt
@@ -676,6 +687,16 @@ Two details: the platform that was **running** when the abort happened is redone
 resuming inside one would need per-entry state while a pass is largely repeatable; and a
 **finished** run is not a resume point, since starting again after the end means rebuild,
 not do nothing.
+
+**A dry run leaves no resume point (#581).** `--trocken --alle` reads the progress file
+but never writes it — it is a preview of the real run, and the real run resumes, so the
+state is still *read* to keep the preview from showing more work than would happen. Until
+#581 `sichern()` wrote regardless of `--trocken`, which cost three ways: an **aborted**
+dry run made a later real run skip platforms that had never been touched; a **completed**
+one overwrote the resume point of a crashed real run and marked it `fertig`, so the
+rebuild started from zero; and against a **read-only mounted** library `--trocken --alle`
+died immediately with `PermissionError … '/roms/.umbau'` — on the most cautious path of
+all. The single-platform run (`retronas-organisieren --trocken c64`) was never affected.
 
 **A platform that crashed does not count as done.** The run carries on with the next one —
 an unreadable folder must not cost 19 hours — but it stays on the resume list and is

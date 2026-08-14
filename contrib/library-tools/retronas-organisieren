@@ -946,7 +946,11 @@ def alle_umbauen(wurzel, trocken, ueberspringen, neu_anfangen=False, nur_beiwerk
     stand_datei = os.path.join(wurzel, ".umbau",
                                "fortschritt-beiwerk.json" if nur_beiwerk
                                else "fortschritt.json")
-    os.makedirs(os.path.dirname(stand_datei), exist_ok=True)
+    # NUR fuer einen echten Lauf anlegen (#581). Sonst stirbt `--trocken --alle` gegen
+    # eine schreibgeschuetzt eingehaengte Bibliothek hier, bevor es die erste Plattform
+    # gesehen hat — ausgerechnet der vorsichtigste Weg, das Werkzeug auszuprobieren.
+    if not trocken:
+        os.makedirs(os.path.dirname(stand_datei), exist_ok=True)
 
     frueher, unterbrochen = (set(), False) if neu_anfangen else stand_laden(stand_datei)
     if unterbrochen:
@@ -991,6 +995,19 @@ def alle_umbauen(wurzel, trocken, ueberspringen, neu_anfangen=False, nur_beiwerk
              "aktuell": None, "fertig": False, "offen_dateien": gesamt}
 
     def sichern():
+        # EIN TROCKENLAUF HINTERLAESST NICHTS (#581). `Protokoll` beachtet `trocken` seit
+        # jeher, diese Datei tat es nicht — und sie ist seit #372 der Wiederaufsetzpunkt.
+        # Gemessen wurden zwei Schaeden: Ein ABGEBROCHENER Trockenlauf liess den spaeteren
+        # echten Lauf Plattformen ueberspringen, die nie angefasst wurden. Ein
+        # DURCHGELAUFENER ueberschrieb den Wiederaufsetzpunkt eines abgestuerzten echten
+        # Laufs und hakte ihn als `fertig` ab — danach faengt der Umbau bei Null an, ueber
+        # 19 Stunden.
+        #
+        # GELESEN wird der Stand weiterhin (`stand_laden` oben): Der Trockenlauf ist die
+        # Vorschau auf den echten Lauf, und der setzt fort. Eine Vorschau, die mehr Arbeit
+        # zeigt als anfiele, waere genauso falsch wie eine, die zu wenig zeigt.
+        if trocken:
+            return
         with open(stand_datei, "w", encoding="utf-8") as f:
             json.dump(stand, f, ensure_ascii=False, indent=1)
         rechte_setzen(stand_datei)
