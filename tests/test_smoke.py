@@ -9272,3 +9272,30 @@ def test_the_installed_app_gets_an_icon_with_room_around_it(appmod, client):
         "die Kachel hat weder Fläche noch verkleinertes Zeichen — dann fehlt der Rand"
     r = client.get(zwecke["any"])
     assert r.status_code == 200 and "<path" in r.get_data(as_text=True)
+
+
+def test_every_page_that_shows_the_mark_also_sizes_it(appmod):
+    """Ein SVG ohne Größenangabe nimmt seine eigene — und die ist riesig. (#650)
+
+    Die Regel `.marke` stand zunächst nur in `index.css`. Anmelde- und Zurücksetzen-Seite
+    binden eigene Stylesheets ein, dort fehlte sie, und das Zeichen erschien in voller
+    Kastenbreite. Es sah zufällig gut aus, weil die Karte gerade passte — und genau
+    deshalb wäre es fast durchgegangen.
+    """
+    fehlt = []
+    for tpl in ("index.html", "login.html", "reset.html"):
+        quelle = open(os.path.join(REPO, "templates", tpl), encoding="utf-8").read()
+        if "class=marke" not in quelle and 'class="marke"' not in quelle:
+            continue
+        blaetter = re.findall(r"__ASSET:(css/[^_]+)__", quelle)
+        assert blaetter, f"{tpl} zeigt die Marke, bindet aber kein Stylesheet ein"
+        bemasst = False
+        for blatt in blaetter:
+            css = open(os.path.join(REPO, "static", blatt), encoding="utf-8").read()
+            for regel in re.findall(r"[^}]*\.marke\b[^{]*\{([^}]*)\}", css):
+                if "width" in regel:
+                    bemasst = True
+        if not bemasst:
+            fehlt.append(f"{tpl} -> {blaetter}")
+    assert not fehlt, ("die Marke wird gezeigt, aber nirgends bemaßt — sie erscheint dann "
+                       f"in ihrer Standardgröße: {fehlt}")
