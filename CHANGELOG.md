@@ -4,6 +4,13 @@ Alle nennenswerten Änderungen an diesem Projekt. Format nach
 [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung nach [SemVer](https://semver.org/lang/de/).
 
+## [1.4.2](https://github.com/Sparxx947/romseerr/compare/v1.4.1...v1.4.2) (2026-08-14)
+
+
+### Behoben / Fixes
+
+* **dedup:** make the comparison key identify the same game again ([#619](https://github.com/Sparxx947/romseerr/issues/619)) ([44a537f](https://github.com/Sparxx947/romseerr/commit/44a537fdd73d4b2ed735a7a8b5dc1ed9ac21b04a)), closes [#616](https://github.com/Sparxx947/romseerr/issues/616)
+
 ## [1.4.1](https://github.com/Sparxx947/romseerr/compare/v1.4.0...v1.4.1) (2026-08-14)
 
 
