@@ -286,6 +286,14 @@ that is the normal case and complete as it stands, not a fallback.
   and names the expected path. Without this view the folder would be exactly the black box
   it was built against: files vanish or they don't, and nobody can see why. (The same data
   is at `/api/import/status`.)
+- 🔎 **A ROM with the wrong extension is recognised by its magic (#611).** A release
+  named its 6.2 GB NSP `….hdf` — normally an Amiga hard-disk image, and `hdf` is not in the
+  extension list. The file started with `PFS0`, so it was a perfectly good Switch title;
+  the import walked past it and reported "no ROM files" after fetching, unpacking and
+  verifying 6.2 GB. When the name gives nothing, the file itself is consulted — **narrowly**:
+  unknown extensions only, 64 MB minimum, and two unambiguous signatures (`PFS0` at 0,
+  `HEAD` at `0x100`, behind the RSA signature). Explicitly not guesswork like libmagic
+  (#607), but one exact magic number at a fixed offset.
 - 🗂️ **Organise library — see what the rebuild is doing.** Under **Settings → Organise
   library** (admins only): progress in percent, elapsed time, an estimate of what is left,
   the platform currently being worked on, and the logs with their `--zurueck` command.
