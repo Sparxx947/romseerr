@@ -582,7 +582,8 @@ static/icon.svg   App-Icon (PWA)
    (`queued` bei Auto-Freigabe, sonst `pending`).
 3. `worker_download` startet den Download (SAB/aria2/JDownloader).
 4. `worker_collect` erkennt den fertigen Ordner → `import_folder` entpackt, dedupliziert und
-   sortiert nach `ROMS/<slug>/` ein, baut den Index neu und **benachrichtigt** (Job → `done`).
+   sortiert nach `ROMS/<slug>/` ein, liest **die betroffenen Plattformen** neu ein (#655) und
+   **benachrichtigt** (Job → `done`).
    Erkennt der Import **nichts**, gibt er `False` zurück, der Job geht auf `error` und der
    Download **bleibt liegen** (#240).
 
@@ -661,6 +662,65 @@ Two routes rather than one because `spielordner_slug` returns a platform, which 
 set does not reveal — the index already knows the platform and only asks "one title or
 many?". Depth stays at two levels: three costs 3.3x for 7.6% more files, and normalising
 deeper trees is the library rebuild's job.*
+
+### Der Import darf nicht die ganze Bibliothek neu lesen (#655)
+
+Ein Import von **zwei Dateien dauerte 6,5 Minuten**, und fast nichts davon war der Import.
+Am echten Bestand nachgemessen (599 Plattformen, 293.068 Titel, 660.671 Dateien in 15.366
+Ordnern, Unraid/shfs):
+
+| Abschnitt von `build_index()` | Zeit |
+|---|---|
+| Wanderung über `/roms` | **254,2 s** |
+| `save_index_to_db` (293.068 Zeilen ersetzen) | 6,5 s |
+| `refresh_coverage_counts` | 0,0 s |
+| **gesamt** | **260,7 s** |
+
+Das lief **je Import**, unabhängig davon, ob eine Datei ankam oder tausend — und auch dann,
+wenn *keine* ankam. Der teuerste Fall im Issue war genau der: eine 1-MB-Datei, die sich als
+Dublette herausstellte. Solange der Lauf läuft, steht der Job auf `importing`, der einzige
+`worker_download`-Faden ist belegt, und alles dahinter wartet.
+
+**`index_aktualisieren(slugs)` liest nur die betroffenen Plattformen** — und liest sie
+*vollständig* neu:
+
+| | addiert nur | Plattform neu gelesen | voller Lauf |
+|---|---|---|---|
+| neue Datei | ✓ | ✓ | ✓ |
+| gelöschte Datei in derselben Plattform | ✗ | ✓ | ✓ |
+| Umbenennung in derselben Plattform | ✗ | ✓ | ✓ |
+| Änderung in einer **anderen** Plattform | ✗ | ✗ | ✓ |
+
+**Warum je Plattform und nicht je Datei:** Ein Zusatz „diese Datei kommt hinzu" wäre noch
+schneller, könnte aber nur *addieren*. Ein Plattformordner wird hier ganz neu gelesen und
+sein Anteil am Index **ersetzt**; für die genannten Plattformen ist das Ergebnis Zeichen für
+Zeichen dasselbe wie nach einem vollen Neubau — RAM-Index, DB-Zeilen und die Zähler in
+`meta`. Das ist die Bedingung aus dem Issue, und sie steht als Test da
+(`test_index_aktualisieren_ergibt_dasselbe_wie_ein_voller_neubau`, mit Löschung und
+Umbenennung, nicht nur mit einer neuen Datei).
+
+Übrig bleibt genau die letzte Zeile der Tabelle — und dafür läuft `periodic_index`
+unverändert **alle 600 s über alles**. Der volle Lauf verschwindet nicht, er wird nur nicht
+mehr an einen Import gehängt, der ihn nicht braucht.
+
+**Gefiltert wird am Slug, nicht am Ordnernamen.** `dc` und `dreamcast` sind dieselbe
+Plattform (#454), und ein Import landet je nach Bestand im einen oder im anderen Ordner.
+Die Ordnerliste wird deshalb wie beim vollen Lauf durchgegangen und `folder_slug()`
+entscheidet — dieselbe Regel, nur mit einem Filter dahinter.
+
+**`LIB["ts"]` bleibt bei einem Teillauf stehen.** Der Wert beantwortet „wann wurde die
+Bibliothek zuletzt *vollständig* gelesen", und ein Teillauf beantwortet das nicht. Ihn
+mitzuziehen hieße, eine Aussage über 598 Plattformen zu machen, die dieser Lauf nie
+angesehen hat.
+
+*EN: importing two files took 6.5 minutes, and almost none of that was the import.
+Measured on the real library: `build_index()` costs 260.7 s, 254.2 s of it walking 660,671
+files — and it ran after every import, even one that added nothing.
+`index_aktualisieren(slugs)` re-reads only the affected platforms, but re-reads them in
+full and REPLACES their share of the index, so deletions and renames inside them are
+covered exactly as by a full rebuild. Only other platforms lag, and the periodic full run
+every 600 s still covers those. Filtering is by slug, not folder name, because `dc` and
+`dreamcast` are one platform. `LIB["ts"]` deliberately keeps meaning "last FULL run".*
 
 ### Zwei Wanderungen über denselben Baum laufen auseinander (#477)
 
