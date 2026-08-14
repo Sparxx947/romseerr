@@ -2175,6 +2175,43 @@ def test_dependabot_opens_its_pull_requests_where_work_happens():
         f"wo nicht entwickelt wird: {falsch}")
 
 
+def test_ci_tests_the_python_the_image_runs():
+    """Die CI muss auf DER Python-Fassung pruefen, die das Abbild faehrt. (#588)
+
+    WIE DAS AUFFIEL: Das `Dockerfile` stand auf `python:3.14-slim`, jeder Workflow auf
+    `python-version: "3.12"` — und die READMEs nannten in vier Zeilen ebenfalls 3.12.
+    Getestet wurde also eine andere Fassung als die, die laeuft.
+
+    DAS IST NICHT KOSMETIK, es hat einen Befund verdeckt: Positionales `maxsplit` in
+    `re.split` ist seit 3.13 abgekuendigt und `datetime.utcfromtimestamp` seit 3.12. Auf
+    der 3.12 der CI kam dazu keine Warnung an, waehrend beide im Container schon eine
+    ausloesten. Der Unterschied faellt genau bei dem auf, wofuer eine neue Fassung
+    gefaehrlich ist.
+
+    Geprueft wird jeder Workflow, nicht nur `ci.yml`: Eine einzelne zurueckgebliebene
+    Zeile reicht, damit ein Auftrag wieder auf der falschen Fassung laeuft.
+
+    EN: CI must test the Python the image actually runs. The two had drifted (3.12 vs
+    3.14), which is what kept #588 from surfacing.
+    """
+    import re
+    dockerfile = open(os.path.join(REPO, "Dockerfile"), encoding="utf-8").read()
+    m = re.search(r"^FROM\s+python:(\d+\.\d+)", dockerfile, re.M)
+    assert m, "im Dockerfile steht kein `FROM python:<version>`"
+    abbild = m.group(1)
+
+    wf = os.path.join(REPO, ".github", "workflows")
+    abweichend = []
+    for datei in sorted(os.listdir(wf)):
+        if not datei.endswith((".yml", ".yaml")):
+            continue
+        for zeile, text in enumerate(open(os.path.join(wf, datei), encoding="utf-8"), 1):
+            t = re.search(r'python-version:\s*["\']?(\d+\.\d+)', text)
+            if t and t.group(1) != abbild:
+                abweichend.append(f"{datei}:{zeile} -> {t.group(1)}")
+    assert not abweichend, (
+        f"das Abbild faehrt Python {abbild}, diese Auftraege pruefen eine andere Fassung: "
+        f"{abweichend}")
 def test_every_scandir_closes_itself():
     """`os.scandir` gehoert in ein `with` — jedes einzelne. (#589)
 
@@ -5290,6 +5327,65 @@ def test_similar_games_are_filtered_to_supported_platforms(appmod, monkeypatch):
 
     titel = [g["title"] for g in appmod.igdb_similar_games("Fable")]
     assert titel == ["Chrono Trigger"], f"unerwartet: {titel}"
+
+
+def test_the_detail_page_reports_the_release_year(appmod, monkeypatch):
+    """`igdb_rich` rechnet den Zeitstempel in ein Jahr um — zeitzonenbewusst. (#588)
+
+    WARUM DIESER TEST UEBERHAUPT ENTSTAND: `igdb_rich` war von KEINEM Test beruehrt
+    (`grep -c igdb_rich tests/*.py` -> 0), und ausgerechnet dort stand ein auf Python 3.14
+    abgekuendigter Aufruf — das Abbild faehrt `python:3.14-slim`. Faellt
+    `utcfromtimestamp` weg, gibt es keinen Absturz: Der `except Exception: pass` in der
+    Funktion faengt den AttributeError, und in jeder Detailansicht fehlt danach
+    stillschweigend das Jahr. Genau dagegen prueft diese Zeile.
+
+    964828800 = 2000-07-29 UTC — bewusst ein Datum, das in westlichen Zeitzonen noch im
+    Vortag laege, damit eine naive Umrechnung nicht zufaellig richtig herauskommt.
+
+    EN: exercises `igdb_rich`, which no test touched, and pins the year conversion.
+    """
+    monkeypatch.setattr(appmod, "igdb_query", lambda *a, **k: [{
+        "name": "Perfect Dark", "first_release_date": 964828800,
+        "aggregated_rating": 92.4,
+        "genres": [{"name": "Shooter"}],
+        "involved_companies": [{"developer": True, "company": {"name": "Rare"}}],
+    }])
+    appmod.IGDB["cache"].clear()
+
+    d = appmod.igdb_rich("Perfect Dark")
+    assert d["year"] == 2000, f"Jahr fehlt oder ist falsch: {d['year']!r}"
+    assert d["name"] == "Perfect Dark"
+    assert d["rating"] == 92          # gerundet
+    assert d["developer"] == "Rare"   # nur der mit developer=True
+    assert d["genres"] == ["Shooter"]
+
+
+def test_a_missing_release_date_is_not_an_error(appmod, monkeypatch):
+    """Ohne Datum bleibt das Jahr leer — und der Rest der Detailseite steht trotzdem. (#588)
+
+    Die Gegenrichtung: Der Fix darf aus einem fehlenden Feld keine Ausnahme machen. IGDB
+    laesst `first_release_date` bei unveroeffentlichten Titeln weg.
+    """
+    monkeypatch.setattr(appmod, "igdb_query", lambda *a, **k: [{"name": "Ohne Datum"}])
+    appmod.IGDB["cache"].clear()
+    d = appmod.igdb_rich("Ohne Datum")
+    assert d["year"] == "" and d["name"] == "Ohne Datum"
+
+
+def test_clean_query_still_cuts_at_the_first_tag(appmod):
+    """`clean_query` trennt beim ERSTEN Schlagwort. (#588)
+
+    Der Aufruf trug `maxsplit` positional; das ist auf Python 3.14 abgekuendigt und
+    faellt anders als in `igdb_rich` ohne `except` auf die Nase — ein TypeError mitten in
+    der Cover-Suche. Beim Umschreiben auf `maxsplit=1` darf sich das Verhalten nicht
+    verschieben, deshalb steht die Grenze hier fest.
+    """
+    assert appmod.clean_query("Super.Mario.World.USA.v1.2-GROUP") == "Super Mario World"
+    # Nur EINMAL trennen: Was nach dem ersten Schlagwort kommt, faellt weg — auch wenn
+    # dort weitere stehen. Mit `maxsplit=0` bliebe der Rest erhalten.
+    assert appmod.clean_query("Zelda USA Europe Japan") == "Zelda"
+    # Ohne Schlagwort bleibt der Titel unangetastet.
+    assert appmod.clean_query("Chrono Trigger") == "Chrono Trigger"
 
 
 # --- Auftraege nach einem Neustart (#336) ------------------------------------------

@@ -71,7 +71,7 @@ Die vollständige Regel steht in
 - 🎨 **Drei wählbare Designs** (Seerr / Glas / Klar) und **fünf Sprachen** (DE/EN/FR/ES/IT).
 - 🔔 **Benachrichtigungen** über Discord, Telegram, E-Mail, Gotify, ntfy, Pushover und **Web-Push (PWA)**.
 - 🔑 **REST-API** mit API-Key und vollständiger **OpenAPI-3.1**-Doku (`/api/docs`).
-- 🧩 **Ein einziges `app.py`** (Python 3.12 / Flask), **SQLite**-Persistenz, kein Build-Schritt,
+- 🧩 **Ein einziges `app.py`** (Python 3.14 / Flask), **SQLite**-Persistenz, kein Build-Schritt,
   **non-root**-Container mit Healthcheck, Multi-Arch-Image (amd64 + arm64).
 
 ---
@@ -432,7 +432,7 @@ Architektur, Datenfluss und Komponenten sind ausführlich in
 | **JDownloader** | Filehoster-Downloads (experimentell) | 5800 |
 | **RomM** (+ MariaDB) | Bibliothek / Browser-Player | 8998 |
 
-Technik: **Python 3.12 · Flask · SQLite · aria2 · unar**. Kein Build-Schritt — das komplette
+Technik: **Python 3.14 · Flask · SQLite · aria2 · unar**. Kein Build-Schritt — das komplette
 Frontend liegt als String in `app.py` und wird ohne Bundler ausgeliefert.
 
 ---
