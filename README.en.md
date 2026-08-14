@@ -271,6 +271,19 @@ that is the normal case and complete as it stands, not a fallback.
   and names the expected path. Without this view the folder would be exactly the black box
   it was built against: files vanish or they don't, and nobody can see why. (The same data
   is at `/api/import/status`.)
+- 🗂️ **Organise library — see what the rebuild is doing.** Under **Settings → Organise
+  library** (admins only): progress in percent, elapsed time, an estimate of what is left,
+  the platform currently being worked on, and the logs with their `--zurueck` command.
+  **This view starts nothing** — it reads.
+  Two decisions behind it that the display does not show: the percentage is computed over
+  **files**, not platforms (`amiga` alone is over 270,000 entries against `gbc`'s 5,548 — a
+  per-platform figure would sit still for hours and then jump), and the state comes from
+  `<roms>/.umbau/` rather than from a job record: Romseerr clears in-flight jobs on start
+  (#336), so a restart during a rebuild would declare the record dead while the rebuild
+  keeps running. The file is written by the running tool and knows better. Finished,
+  running and **aborted** are three distinct answers — an aborted run leaves neither
+  `fertig` nor `aktuell`, which is precisely why someone comes looking. (The same data is
+  at `/api/library/organize/status`.)
 - ⌨️ **Home-computer formats import now.** `.prg`, `.tap`, `.crt`, `.g64`, `.z80`,
   `.tzx`, `.cdt`, `.adz`, `.a52` and more — 16 formats were missing from the extension
   list, so **nothing could arrive** through Romseerr for C64, VIC-20, ZX Spectrum, CPC,

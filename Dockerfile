@@ -17,6 +17,13 @@ COPY version.txt /app/version.txt
 # Frontend: Vorlagen + statische Dateien (seit #73 nicht mehr in app.py eingebettet).
 COPY templates/ /app/templates/
 COPY static/ /app/static/
+# BIBLIOTHEKSWERKZEUGE MITLIEFERN (#593). Sie lagen bisher nur im Repository, also musste
+# jede Aenderung von Hand an zwei Orte kopiert werden — und genau das ging schief: Am
+# 2026-08-14 war die Kopie auf dem Server drei PRs alt und kannte `--nur-beiwerk` gar
+# nicht. Im Abbild sagt `/api/version` jetzt mit, welcher Stand dort liegt.
+# EN: the library tools used to live only in the repo, so every change had to be copied to
+# two places by hand; the server copy was three PRs behind and lacked a whole flag.
+COPY contrib/library-tools/ /app/library-tools/
 WORKDIR /app
 
 # Build-Herkunft: vom CI per --build-arg gesetzt, im Quell-Checkout leer (dann meldet

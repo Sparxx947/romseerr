@@ -471,6 +471,18 @@ paths:
         schema:
           type: string
         description: Textfilter
+  /api/library/organize/status:
+    get:
+      summary: 'Zustand der Bibliotheks-Umbauten: Fortschritt, Laufzeit, Restschätzung und die Protokolle
+        samt Rückweg. Rein lesend — startet nichts.'
+      tags:
+      - Admin
+      responses:
+        '200':
+          description: Stände je Laufart + Protokolle
+        '401': *id002
+        '403': *id004
+      security: *id003
   /api/discover:
     get:
       summary: Beliebte Titel (flach)

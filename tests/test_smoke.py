@@ -8104,3 +8104,148 @@ def test_the_romm_scan_asks_only_for_the_folders_that_changed(appmod, monkeypatc
     assert name == "scan"
     assert auftrag["platform_fs_slugs"] == ["dc", "snes"], auftrag
     assert auftrag["platforms"] == [], "beide Auswahlen gleichzeitig zu fuellen ist mehrdeutig"
+
+
+# --- Bibliothek organisieren: Zustand lesen (#593) ----------------------------------
+
+def _als_admin(client):
+    """Anmeldung wie in `test_setup_and_login` — der Bereich ist Admins vorbehalten."""
+    if client.get("/api/auth/status").get_json()["setup"]:
+        client.post("/api/setup", json={"username": "admin", "password": "pw123456",
+                                        "display_name": "Admin"})
+    client.post("/api/login", json={"username": "admin", "password": "pw123456"})
+
+
+def _fortschritt(appmod, **felder):
+    os.makedirs(appmod.UMBAU_DIR, exist_ok=True)
+    pfad = os.path.join(appmod.UMBAU_DIR, "fortschritt.json")
+    with open(pfad, "w", encoding="utf-8") as f:
+        json.dump(felder, f)
+    return pfad
+
+
+def test_organize_status_needs_admin(appmod, client):
+    """Der Umbau der Bibliothek geht nur Verwalter etwas an. (#593)
+
+    Ein Lauf verschiebt sechsstellige Dateimengen; die Anzeige dazu nennt ausserdem Pfade
+    des Wirtssystems. Beides gehoert nicht auf den Bildschirm eines gewoehnlichen Nutzers.
+    """
+    client.post("/api/logout")
+    r = client.get("/api/library/organize/status")
+    assert r.status_code in (401, 403), f"unangemeldet erreichbar: {r.status_code}"
+
+
+def test_organize_status_computes_percent_and_duration(appmod, client, monkeypatch):
+    """Prozent, Laufzeit und Restschaetzung kommen aus der Fortschrittsdatei. (#593)
+
+    AUF DATEIEN GERECHNET, NICHT AUF PLATTFORMEN: `amiga` allein sind ueber 270.000
+    Eintraege, `gbc` 5.548. Eine Prozentzahl aus „Plattformen erledigt" stuende
+    stundenlang still und spraenge dann — bei 3 von 4 Plattformen und 108.000 offenen
+    Dateien waere sie bei 75 %, tatsaechlich ist erst ein Viertel der Arbeit getan.
+    """
+    _als_admin(client)
+    _fortschritt(appmod, start=time.time() - 600, gesamt_dateien=1000, offen_dateien=750,
+                 plattformen_gesamt=4, erledigt=[{"plattform": "gb", "dateien": 250}],
+                 aktuell={"plattform": "c64", "dateien": 500}, fertig=False)
+
+    d = client.get("/api/library/organize/status").get_json()
+    s = d["staende"]["voll"]
+    assert s["zustand"] == "laeuft"
+    assert s["prozent"] == 25.0, f"250 von 1000 sind 25 %, gemeldet: {s['prozent']}"
+    assert 590 <= s["laeuft_seit"] <= 630
+    # 250 Dateien in 600 s -> die restlichen 750 dauern rund dreimal so lange.
+    assert 1700 <= s["rest_geschaetzt"] <= 1900, s["rest_geschaetzt"]
+    assert s["aktuell"] == "c64"
+    assert d["laeuft"] is True
+
+
+def test_organize_status_tells_finished_from_aborted(appmod, client):
+    """Fertig, laufend und abgebrochen sind drei verschiedene Auskuenfte. (#593)
+
+    Ein abgebrochener Lauf hinterlaesst weder `fertig` noch `aktuell` — und genau deshalb
+    sieht jemand hier nach. Wuerde er als „laeuft" gelten, wartete man auf einen Prozess,
+    den es nicht mehr gibt.
+    """
+    _als_admin(client)
+
+    _fortschritt(appmod, start=time.time() - 60, gesamt_dateien=10, offen_dateien=0,
+                 plattformen_gesamt=1, erledigt=[{"plattform": "gb", "dateien": 10}],
+                 aktuell=None, fertig=True)
+    s = client.get("/api/library/organize/status").get_json()["staende"]["voll"]
+    assert s["zustand"] == "fertig" and s["prozent"] == 100.0
+
+    _fortschritt(appmod, start=time.time() - 60, gesamt_dateien=10, offen_dateien=7,
+                 plattformen_gesamt=2, erledigt=[{"plattform": "gb", "dateien": 3}],
+                 aktuell=None, fertig=False)
+    d = client.get("/api/library/organize/status").get_json()
+    assert d["staende"]["voll"]["zustand"] == "abgebrochen"
+    assert d["laeuft"] is False, "ein abgebrochener Lauf darf nicht als laufend gelten"
+
+
+def test_organize_status_survives_an_unusable_progress_file(appmod, client):
+    """Eine unbrauchbare Fortschrittsdatei darf die Anzeige nicht mitreissen. (#593)
+
+    Dieselbe Lage wie #583, nur an der anderen Seite: Das Werkzeug uebergeht eine solche
+    Datei — die Oberflaeche muss es auch, statt mit 500 zu antworten. Sonst waere
+    ausgerechnet der Bildschirm kaputt, auf dem man nachsehen will, was los ist.
+    """
+    _als_admin(client)
+    os.makedirs(appmod.UMBAU_DIR, exist_ok=True)
+    for inhalt in ('{kein json', '[]', '"nur ein text"', '{"erledigt": ["c64"]}'):
+        with open(os.path.join(appmod.UMBAU_DIR, "fortschritt.json"), "w",
+                  encoding="utf-8") as f:
+            f.write(inhalt)
+        r = client.get("/api/library/organize/status")
+        assert r.status_code == 200, f"{inhalt!r} -> HTTP {r.status_code}"
+
+
+def test_organize_status_names_the_undo_command(appmod, client):
+    """Jedes Protokoll wird mit seinem Rueckweg genannt. (#593)
+
+    „Es gibt einen Rueckweg" und „hier ist er" sind zwei verschiedene Dinge. Nach einem
+    Lauf ueber sechsstellige Dateimengen will niemand den Dateinamen aus einer
+    Verzeichnisliste heraussuchen.
+    """
+    _als_admin(client)
+    os.makedirs(appmod.UMBAU_DIR, exist_ok=True)
+    name = "c64-beiwerk-20260814-120000.jsonl"
+    with open(os.path.join(appmod.UMBAU_DIR, name), "w", encoding="utf-8") as f:
+        f.write('{"art":"verschoben","von":"/roms/c64/a.sid","nach":"/roms/c64/_beiwerk/a.sid"}\n')
+    p = client.get("/api/library/organize/status").get_json()["protokolle"]
+    assert any(e["name"] == name for e in p), p
+    eintrag = [e for e in p if e["name"] == name][0]
+    assert eintrag["zurueck"].endswith(name)
+    assert "--zurueck" in eintrag["zurueck"]
+
+
+def test_the_image_ships_the_library_tools():
+    """Die Bibliothekswerkzeuge gehoeren ins Abbild. (#593)
+
+    WARUM: Sie lagen nur im Repository. `romseerr-deploy` rollt damit den Container aus,
+    die Werkzeuge aber nicht — sie mussten von Hand an zwei Orte kopiert werden, und
+    genau das ging schief: Am 2026-08-14 war die Kopie auf dem Server drei PRs alt und
+    kannte `--nur-beiwerk` ueberhaupt nicht. Ein Lauf damit haette mit der falschen
+    Fassung gearbeitet, ohne dass es jemandem aufgefallen waere.
+
+    EN: the tools must ship inside the image, otherwise a deploy updates the container but
+    not them — measured: the server copy was three PRs behind and missing a whole flag.
+    """
+    dockerfile = open(os.path.join(REPO, "Dockerfile"), encoding="utf-8").read()
+    assert "contrib/library-tools/" in dockerfile, \
+        "Dockerfile kopiert die Bibliothekswerkzeuge nicht ins Abbild"
+    # Und sie muessen auch wirklich da sein — ein COPY auf ein leeres Verzeichnis
+    # scheitert erst beim Bau, nicht hier.
+    wz = os.path.join(REPO, "contrib", "library-tools")
+    assert os.path.isdir(wz), f"{wz} fehlt"
+    assert os.path.isfile(os.path.join(wz, "retronas-organisieren"))
+
+
+def test_the_organize_section_is_translated_everywhere():
+    """Der Bereich braucht seine Texte in allen fuenf Sprachen. (#593)
+
+    Ohne Uebersetzung faellt `t()` auf den Schluesselnamen zurueck, und dann steht
+    `org_remaining` auf dem Bildschirm.
+    """
+    for key in ("sec_organize", "org_hint", "org_running", "org_finished", "org_aborted",
+                "org_elapsed", "org_remaining", "org_logs", "org_undo", "org_none"):
+        assert i18n_hat(key) == 5, f"{key} fehlt in mindestens einer Sprache"

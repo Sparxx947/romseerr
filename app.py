@@ -5880,6 +5880,107 @@ def api_mail_test():
     ok = send_mail(to, "Romseerr — Test", "SMTP-Test erfolgreich / SMTP test successful.")
     return jsonify({"ok": ok, "msg": "" if ok else "Versand fehlgeschlagen (Log prüfen)"})
 
+# ---------- Bibliothek organisieren (#593) ----------
+# Die Werkzeuge unter `library-tools/` bauen die Bibliothek um. Sie schreiben ihren Stand
+# nach `<roms>/.umbau/` — und ZWEI Dateien, nicht eine: `fortschritt.json` fuer den vollen
+# Umbau und `fortschritt-beiwerk.json` fuer `--nur-beiwerk`. Beide getrennt zu halten war
+# Absicht (#318): Sonst gaelte eine Plattform, die nur eingesammelt wurde, als vollstaendig
+# umgebaut, und ein spaeterer Lauf wuerde sie ueberspringen.
+UMBAU_DIR = os.path.join(ROMS, ".umbau")
+UMBAU_STAENDE = {"voll": "fortschritt.json", "beiwerk": "fortschritt-beiwerk.json"}
+
+def _umbau_stand(datei):
+    """Eine Fortschrittsdatei -> Fortschritt in Prozent, Laufzeit, Restschaetzung.
+
+    RECHNET AUF DATEIEN, NICHT AUF PLATTFORMEN: `amiga` allein sind ueber 270.000
+    Eintraege, `gbc` sind 5.548 — eine Prozentzahl aus „Plattformen erledigt" stuende
+    stundenlang auf demselben Wert und spraenge dann. `gesamt_dateien` und
+    `offen_dateien` stehen ohnehin in der Datei.
+
+    KEIN ZUSTAND AUS EINEM AUFTRAGSDATENSATZ: Romseerr raeumt beim Start laufende
+    Auftraege ab (#336). Ein Neustart mitten im Umbau wuerde einen Auftragseintrag als tot
+    markieren, waehrend der Umbau weiterlaeuft — die Datei weiss es besser, denn sie wird
+    vom laufenden Werkzeug geschrieben.
+
+    EN: derives percent/elapsed/remaining from the progress file rather than from a job
+    record, because a restart clears job records while the rebuild keeps going.
+    """
+    try:
+        with open(datei, encoding="utf-8") as f:
+            d = json.load(f)
+        if not isinstance(d, dict):
+            return None
+    except (OSError, ValueError):
+        return None
+
+    gesamt = d.get("gesamt_dateien") or 0
+    offen = d.get("offen_dateien")
+    fertig = bool(d.get("fertig"))
+    erledigt = [e for e in (d.get("erledigt") or []) if isinstance(e, dict)]
+    getan = (gesamt - offen) if (gesamt and isinstance(offen, (int, float))) else None
+    prozent = round(100 * getan / gesamt, 1) if (gesamt and getan is not None) else None
+    if fertig:
+        prozent = 100.0
+
+    start = d.get("start")
+    laeuft_seit = max(0, int(time.time() - start)) if isinstance(start, (int, float)) else None
+    # Restschaetzung nur, wenn schon etwas geschafft ist — sonst waere sie eine Division
+    # durch null mit dem Anschein einer Auskunft.
+    rest = None
+    if laeuft_seit and getan and gesamt and not fertig and getan < gesamt:
+        rest = int(laeuft_seit / getan * (gesamt - getan))
+
+    # `aktuell` steht nur waehrend eines Laufs in der Datei. Ein sauber beendeter Lauf
+    # setzt `fertig`; fehlt beides, ist der Lauf abgebrochen — und genau das ist die
+    # Auskunft, wegen der jemand hier nachsieht.
+    aktuell = d.get("aktuell") if isinstance(d.get("aktuell"), dict) else None
+    zustand = "fertig" if fertig else ("laeuft" if aktuell else "abgebrochen")
+    return {"zustand": zustand, "prozent": prozent, "laeuft_seit": laeuft_seit,
+            "rest_geschaetzt": rest, "dateien_gesamt": gesamt, "dateien_offen": offen,
+            "plattformen_gesamt": d.get("plattformen_gesamt"),
+            "plattformen_erledigt": len(erledigt),
+            "aktuell": (aktuell or {}).get("plattform"),
+            "fehlgeschlagen": [e.get("plattform") for e in (d.get("fehlgeschlagen") or [])
+                               if isinstance(e, dict) and e.get("plattform")],
+            "geaendert": os.path.getmtime(datei)}
+
+def _umbau_protokolle(grenze=12):
+    """Die juengsten Aktionsprotokolle — jedes ist ein Rueckweg.
+
+    Der Name traegt Plattform und Zeitpunkt, der Inhalt eine JSON-Zeile je Aktion. Genau
+    diese Datei nimmt `--zurueck` entgegen; sie hier zu nennen ist der Unterschied
+    zwischen „es gibt einen Rueckweg" und „hier ist er".
+    """
+    try:
+        with os.scandir(UMBAU_DIR) as it:
+            dateien = [e for e in it if e.is_file() and e.name.endswith(".jsonl")]
+    except OSError:
+        return []
+    dateien.sort(key=lambda e: e.stat().st_mtime, reverse=True)
+    out = []
+    for e in dateien[:grenze]:
+        st = e.stat()
+        out.append({"name": e.name, "groesse": st.st_size, "zeit": st.st_mtime,
+                    "zurueck": f"retronas-organisieren --zurueck /roms/.umbau/{e.name}"})
+    return out
+
+@app.route("/api/library/organize/status")
+@admin_required
+def api_library_organize_status():
+    """Zustand der Bibliotheks-Umbauten. Rein lesend — hier wird nichts gestartet."""
+    staende = {}
+    for art, name in UMBAU_STAENDE.items():
+        s = _umbau_stand(os.path.join(UMBAU_DIR, name))
+        if s: staende[art] = s
+    return jsonify({
+        "roms": ROMS,
+        "umbau_dir": UMBAU_DIR,
+        "vorhanden": os.path.isdir(UMBAU_DIR),
+        "staende": staende,
+        "laeuft": any(s["zustand"] == "laeuft" for s in staende.values()),
+        "protokolle": _umbau_protokolle(),
+    })
+
 @app.route("/api/blocklist", methods=["GET"])
 @admin_required
 def api_blocklist_get():
@@ -7207,6 +7308,10 @@ OPENAPI = {
             "Vorhandene Titel einer Plattform (paginiert, filterbar)", "Search",
             params=[_pp("slug", "Plattform-Slug"), _qp("offset", "Versatz"),
                     _qp("limit", "max. 500"), _qp("q", "Textfilter")])},
+        "/api/library/organize/status": {"get": _op(
+            "Zustand der Bibliotheks-Umbauten: Fortschritt, Laufzeit, Restschätzung und "
+            "die Protokolle samt Rückweg. Rein lesend — startet nichts.", "Admin",
+            responses={**_R_AUTH, **_R_PERM, "200": {"description": "Stände je Laufart + Protokolle"}})},
         "/api/discover": {"get": _op("Beliebte Titel (flach)", "Search")},
         "/api/discover/rows": {"get": _op("Startseiten-Reihen (beliebt je Konsole + je Genre)", "Search")},
         "/api/detail": {"get": _op("Detaildaten inkl. IGDB (Wertung, Screenshots, Ähnliches) + Dateien", "Search",
