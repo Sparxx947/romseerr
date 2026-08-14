@@ -285,6 +285,21 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   sagt der Bereich das und nennt den erwarteten Pfad. Ohne diese Ansicht wäre der Ordner
   genau die Blackbox, gegen die er gebaut wurde: Dateien verschwinden oder eben nicht, und
   niemand kann sehen, warum. (Dieselben Angaben liefert `/api/import/status`.)
+- 🗂️ **Bibliothek organisieren — sehen, was der Umbau gerade tut.** Unter
+  **Einstellungen → Bibliothek organisieren** (nur für Verwalter) stehen Fortschritt in
+  Prozent, Laufzeit, geschätzte Restzeit und die gerade bearbeitete Plattform, dazu die
+  Protokolle mit dem jeweiligen `--zurueck`-Befehl. **Diese Ansicht startet nichts** — sie
+  liest.
+  Zwei Entscheidungen dahinter, die man der Anzeige nicht ansieht: Der Prozentsatz rechnet
+  auf **Dateien**, nicht auf Plattformen (`amiga` allein sind über 270.000 Einträge, `gbc`
+  5.548 — eine Plattform-Quote stünde stundenlang still und spränge dann), und der Zustand
+  kommt aus `<roms>/.umbau/`, **nicht aus einem Auftragsdatensatz**: Romseerr räumt beim
+  Start laufende Aufträge ab (#336), ein Neustart mitten im Umbau würde den Eintrag also
+  für tot erklären, während der Umbau weiterläuft. Die Datei schreibt das laufende
+  Werkzeug, sie weiß es besser. Fertig, laufend und **abgebrochen** sind drei
+  unterschiedliche Auskünfte — ein abgebrochener Lauf hinterlässt weder `fertig` noch
+  `aktuell`, und genau deshalb sieht man nach. (Dieselben Angaben liefert
+  `/api/library/organize/status`.)
 - ⌨️ **Heimcomputer-Formate werden importiert.** `.prg`, `.tap`, `.crt`, `.g64`, `.z80`,
   `.tzx`, `.cdt`, `.adz`, `.a52` und weitere — 16 Formate fehlten in der Endungsliste, und
   damit konnte über Romseerr für C64, VIC-20, ZX Spectrum, CPC, Amiga und Atari 5200
