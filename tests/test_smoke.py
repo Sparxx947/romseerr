@@ -8411,3 +8411,44 @@ def test_an_aborted_run_gets_no_remaining_estimate(appmod, client):
     assert s["rest_geschaetzt"] is None
     # Auch hier die Dauer bis zum Abbruch, nicht bis jetzt.
     assert 150 <= s["laeuft_seit"] <= 250, s["laeuft_seit"]
+
+
+def test_the_result_of_a_finished_run_stays_readable(appmod, client, tmp_path, monkeypatch):
+    """Nach dem Ende eines Laufs bleibt sein Ergebnis stehen. (#593)
+
+    AM ECHTEN SYSTEM AUFGEFALLEN: Die erste Fassung liess `eigener_lauf` verschwinden,
+    sobald der Prozess endete — also genau dann, wenn das ERGEBNIS da war. Das Werkzeug
+    gibt seine Zusammenfassung am Ende aus, nicht unterwegs; gemessen waren es waehrend
+    des Laufs 0 Zeilen und danach kein Lauf mehr. Ein Testlauf hinterliess damit eine
+    leere Anzeige, und ausgerechnet dafuer ist er da.
+
+    Geprueft wird deshalb NACH dem Ende: Ausgabe vorhanden, `laeuft` falsch,
+    Rueckgabewert da — und der Anhalten-Knopf haengt an `laeuft`, nicht am blossen
+    Vorhandensein des Datensatzes.
+
+    EN: the last run must remain visible after it ends, because the tool prints its
+    summary at the end — otherwise a dry run leaves nothing behind.
+    """
+    _als_admin(client)
+    wurzel = tmp_path / "roms"
+    (wurzel / "gb").mkdir(parents=True)
+    (wurzel / "gb" / "spiel.gb").write_bytes(b"x")
+    (wurzel / "gb" / "liesmich.txt").write_text("Beiwerk")
+    monkeypatch.setattr(appmod, "ROMS", str(wurzel))
+    monkeypatch.setattr(appmod, "UMBAU_DIR", str(wurzel / ".umbau"))
+
+    assert client.post("/api/library/organize/run",
+                       json={"trocken": True, "plattform": "gb"}).status_code == 200
+    assert appmod.UMBAU_LAUF["proc"].wait(timeout=60) == 0
+    # Der mitlesende Faden braucht einen Augenblick fuer die letzten Zeilen.
+    for _ in range(50):
+        if appmod.UMBAU_LAUF["ausgabe"]:
+            break
+        time.sleep(0.1)
+
+    e = client.get("/api/library/organize/status").get_json()["eigener_lauf"]
+    assert e is not None, "der beendete Lauf ist samt Ergebnis verschwunden"
+    assert e["laeuft"] is False and e["code"] == 0
+    assert e["plattform"] == "gb" and e["trocken"] is True
+    assert e["ausgabe"], "die Ausgabe des Laufs fehlt — genau sie ist das Ergebnis"
+    assert any("gb" in z for z in e["ausgabe"]), e["ausgabe"]
