@@ -5922,19 +5922,29 @@ def _umbau_stand(datei):
     if fertig:
         prozent = 100.0
 
-    start = d.get("start")
-    laeuft_seit = max(0, int(time.time() - start)) if isinstance(start, (int, float)) else None
-    # Restschaetzung nur, wenn schon etwas geschafft ist — sonst waere sie eine Division
-    # durch null mit dem Anschein einer Auskunft.
-    rest = None
-    if laeuft_seit and getan and gesamt and not fertig and getan < gesamt:
-        rest = int(laeuft_seit / getan * (gesamt - getan))
-
     # `aktuell` steht nur waehrend eines Laufs in der Datei. Ein sauber beendeter Lauf
     # setzt `fertig`; fehlt beides, ist der Lauf abgebrochen — und genau das ist die
     # Auskunft, wegen der jemand hier nachsieht.
     aktuell = d.get("aktuell") if isinstance(d.get("aktuell"), dict) else None
     zustand = "fertig" if fertig else ("laeuft" if aktuell else "abgebrochen")
+
+    start = d.get("start")
+    geaendert = os.path.getmtime(datei)
+    # DAUER, NICHT „WIE LANGE HER" (#593). Fuer einen laufenden Lauf ist beides dasselbe,
+    # fuer einen beendeten nicht: Der volle Umbau vom 12.08. stand nach der ersten Fassung
+    # mit 152.901 s (42 h) da — gelaufen war er rund 12. Aufgefallen erst an der echten
+    # Anlage, weil die Tests `start` relativ zu `time.time()` schreiben und dort beide
+    # Lesarten zusammenfallen.
+    # Als Ende eines beendeten Laufs dient der letzte Schreibzugriff auf die Datei;
+    # genauer geht es nicht, denn das Werkzeug notiert keinen Endzeitpunkt.
+    ende = time.time() if zustand == "laeuft" else geaendert
+    laeuft_seit = max(0, int(ende - start)) if isinstance(start, (int, float)) else None
+    # Restschaetzung nur, wenn schon etwas geschafft ist — sonst waere sie eine Division
+    # durch null mit dem Anschein einer Auskunft. Und nur fuer einen LAUFENDEN Lauf:
+    # Bei einem abgebrochenen waere sie eine Vorhersage ueber etwas, das niemand mehr tut.
+    rest = None
+    if zustand == "laeuft" and laeuft_seit and getan and gesamt and getan < gesamt:
+        rest = int(laeuft_seit / getan * (gesamt - getan))
     return {"zustand": zustand, "prozent": prozent, "laeuft_seit": laeuft_seit,
             "rest_geschaetzt": rest, "dateien_gesamt": gesamt, "dateien_offen": offen,
             "plattformen_gesamt": d.get("plattformen_gesamt"),
@@ -5942,7 +5952,7 @@ def _umbau_stand(datei):
             "aktuell": (aktuell or {}).get("plattform"),
             "fehlgeschlagen": [e.get("plattform") for e in (d.get("fehlgeschlagen") or [])
                                if isinstance(e, dict) and e.get("plattform")],
-            "geaendert": os.path.getmtime(datei)}
+            "geaendert": geaendert}
 
 def _umbau_protokolle(grenze=12):
     """Die juengsten Aktionsprotokolle — jedes ist ein Rueckweg.

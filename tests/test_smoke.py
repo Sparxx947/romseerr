@@ -8354,3 +8354,50 @@ def test_the_start_controls_are_translated_everywhere():
     for key in ("org_start_dry", "org_start_real", "org_stop", "org_confirm",
                 "org_restart_note", "org_busy", "org_own", "org_foreign", "org_dry_note"):
         assert i18n_hat(key) == 5, f"{key} fehlt in mindestens einer Sprache"
+def test_a_finished_run_reports_its_duration_not_its_age(appmod, client):
+    """Bei einem beendeten Lauf ist „Laufzeit" die DAUER, nicht „wie lange her". (#593)
+
+    AN DER ECHTEN ANLAGE AUFGEFALLEN, nicht hier: Der volle Umbau vom 12.08. stand mit
+    152.901 s (42 h) in der Anzeige — gelaufen war er rund 12. Die erste Fassung rechnete
+    `time.time() - start`, und das ist bei einem abgeschlossenen Lauf das Alter des
+    Starts.
+
+    WARUM DIE VORHANDENEN TESTS ES NICHT ZEIGTEN: Sie setzen `start` relativ zu `jetzt`
+    und lesen kurz darauf — dort fallen Dauer und Alter zusammen. Dieser Test trennt sie,
+    indem er die Datei kuenstlich altern laesst: Start vor 10.000 s, letzte Aenderung vor
+    9.000 s, also 1.000 s Laufzeit.
+
+    EN: for a finished run the figure must be its duration, not the age of its start.
+    """
+    _als_admin(client)
+    jetzt = time.time()
+    pfad = _fortschritt(appmod, start=jetzt - 10000, gesamt_dateien=100, offen_dateien=0,
+                        plattformen_gesamt=1, erledigt=[{"plattform": "gb", "dateien": 100}],
+                        aktuell=None, fertig=True)
+    os.utime(pfad, (jetzt - 9000, jetzt - 9000))
+
+    s = client.get("/api/library/organize/status").get_json()["staende"]["voll"]
+    assert s["zustand"] == "fertig"
+    assert 950 <= s["laeuft_seit"] <= 1050, \
+        f"erwartet ~1000 s Laufzeit, gemeldet: {s['laeuft_seit']} s (das waere das Alter)"
+    assert s["rest_geschaetzt"] is None, "ein fertiger Lauf hat keine Restzeit"
+
+
+def test_an_aborted_run_gets_no_remaining_estimate(appmod, client):
+    """Fuer einen abgebrochenen Lauf gibt es keine Restschaetzung. (#593)
+
+    Sie waere eine Vorhersage ueber Arbeit, die gerade niemand tut — und stuende neben
+    dem Wort „abgebrochen", was sich gegenseitig widerspricht.
+    """
+    _als_admin(client)
+    jetzt = time.time()
+    pfad = _fortschritt(appmod, start=jetzt - 500, gesamt_dateien=100, offen_dateien=60,
+                        plattformen_gesamt=3, erledigt=[{"plattform": "gb", "dateien": 40}],
+                        aktuell=None, fertig=False)
+    os.utime(pfad, (jetzt - 300, jetzt - 300))
+
+    s = client.get("/api/library/organize/status").get_json()["staende"]["voll"]
+    assert s["zustand"] == "abgebrochen"
+    assert s["rest_geschaetzt"] is None
+    # Auch hier die Dauer bis zum Abbruch, nicht bis jetzt.
+    assert 150 <= s["laeuft_seit"] <= 250, s["laeuft_seit"]
