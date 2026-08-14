@@ -70,7 +70,7 @@ The full rule is in
 - 🎨 **Three selectable designs** (Seerr / Glass / Clean) and **five languages** (DE/EN/FR/ES/IT).
 - 🔔 **Notifications** via Discord, Telegram, email, Gotify, ntfy, Pushover and **web push (PWA)**.
 - 🔑 **REST API** with an API key and a full **OpenAPI 3.1** doc (`/api/docs`).
-- 🧩 **A single `app.py`** (Python 3.12 / Flask), **SQLite** persistence, no build step,
+- 🧩 **A single `app.py`** (Python 3.14 / Flask), **SQLite** persistence, no build step,
   **non-root** container with healthcheck, multi-arch image (amd64 + arm64).
 
 ---
@@ -426,7 +426,7 @@ data flow and components are described in detail in **[docs/ARCHITECTURE.md](doc
 | **JDownloader** | filehoster downloads (experimental) | 5800 |
 | **RomM** (+ MariaDB) | library / browser player | 8998 |
 
-Tech: **Python 3.12 · Flask · SQLite · aria2 · unar**. No build step — the entire front-end lives
+Tech: **Python 3.14 · Flask · SQLite · aria2 · unar**. No build step — the entire front-end lives
 as a string inside `app.py` and is served without a bundler.
 
 ---

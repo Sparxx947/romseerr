@@ -58,6 +58,5 @@ markupsafe==3.0.3
 multidict==6.7.1
 propcache==0.5.2
 pycparser==3.0
-typing-extensions==4.16.0
 urllib3==2.7.0
 yarl==1.24.5
