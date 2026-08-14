@@ -4,6 +4,13 @@ Alle nennenswerten Änderungen an diesem Projekt. Format nach
 [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung nach [SemVer](https://semver.org/lang/de/).
 
+## [1.4.3](https://github.com/Sparxx947/romseerr/compare/v1.4.2...v1.4.3) (2026-08-14)
+
+
+### Behoben / Fixes
+
+* **ui:** say when a hit has no platform instead of printing a question mark ([#622](https://github.com/Sparxx947/romseerr/issues/622)) ([44a2c17](https://github.com/Sparxx947/romseerr/commit/44a2c17b2bd76f784ab3fb6974a6f73b6a5dca2b)), closes [#621](https://github.com/Sparxx947/romseerr/issues/621)
+
 ## [1.4.2](https://github.com/Sparxx947/romseerr/compare/v1.4.1...v1.4.2) (2026-08-14)
 
 
