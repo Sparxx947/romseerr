@@ -126,6 +126,13 @@ hat; `POST /api/leftovers/remove` entfernt einen (`{"jid": "…"}`) oder alle
 `romseerr_`-Präfix trägt — ein Pfad aus dem Request wird nie verwendet. Ordner laufender
 Aufträge erscheinen gar nicht erst.
 
+Die Antwort ist `{"ok": bool, "removed": int, "bytes": int, "errors": [str]}`. **`removed: 0`
+allein heißt nicht „nichts zu tun"** — jeder Fehlschlag steht mit Ordnername und Ursache in
+`errors`, und `ok` ist dann `false`. Häufigster Fall ist `keine Schreibrechte im
+Sammelordner`: legt der Download-Client seine Ordner unter einer anderen Kennung und ohne
+Gruppen-Schreibrecht an, darf Romseerr sie zwar sehen, aber nicht leeren. Der Volltext der
+Fehlermeldung geht ins Log, nicht in die Antwort — er nennt Pfade.
+
 `POST /api/jobs/{jid}/reimport` liest einen liegengebliebenen Download **erneut ein**,
 ohne ihn neu zu holen (nur im Zustand `error`, nur solange die Dateien da sind). Nicht zu
 verwechseln mit `POST /api/jobs/{jid}/retry`, das den kompletten Download wiederholt.
@@ -236,7 +243,13 @@ they are part of the contract and will not be renamed silently.
 `POST /api/leftovers/remove` clears one (`{"jid": "…"}`) or all (`{"all": true}`).
 Only paths resolving inside a collect directory and carrying the `romseerr_` prefix are
 ever deleted — a path from the request is never used, and folders owned by a running job
-are not listed at all. `POST /api/jobs/{jid}/reimport` re-reads a kept download without
+are not listed at all. The reply is
+`{"ok": bool, "removed": int, "bytes": int, "errors": [str]}`; **`removed: 0` on its own
+does not mean "nothing to do"** — every failure appears in `errors` with folder name and
+cause, and `ok` is `false`. The usual cause is `no write permission in the collect folder`:
+when the download client creates its folders under a different account without group write
+access, Romseerr can list them but not empty them. The full error text goes to the log, not
+into the reply — it contains paths. `POST /api/jobs/{jid}/reimport` re-reads a kept download without
 fetching it again (state `error` only) — unlike `/retry`, which downloads the whole
 release a second time. `DELETE /api/jobs/{jid}` removes a finished request (active ones are
 refused with 400); `{"files": true}` deletes a kept download along with it, otherwise the

@@ -68,6 +68,7 @@
   --side:#100d16;--topbar:#100d16;--border:#241f2e;--hover:#1b1724;--input:#100d16;
   --radius:14px;--shadow:0 10px 26px rgba(0,0,0,.45);--blur:0px;
   --navon:#d63a19;--navtxt:#fff;
+  --gefahr:#b3204a;--gefahr-b:#d0345f;--gefahr-h:#e8547c;--bad:#ff8a80;
 }
 /* Navigation nach oben. Derselbe Griff, den die Mobil-Abfrage weiter unten schon macht —
    die Technik ist in dieser Datei erprobt, nur ohne Bildschirmbreite als Bedingung. */
@@ -239,6 +240,15 @@ button,select,textarea{
 button{cursor:pointer;transition:border-color .15s,background .15s}
 button:hover:not([disabled]){border-color:var(--acc)}
 button[disabled]{opacity:.5;cursor:not-allowed}
+/* Loeschen und Ueberschreiben tragen Farbe — bisher als Inline-Style je Knopf, was jedes
+   Design ueberstimmte. Als Klasse laesst sie sich pro Design setzen. Weiss auf #7a2b2b
+   erreicht 9,5:1, auf Auroras #b3204a 6,5:1. (#645) */
+button.gefahr{background:var(--gefahr,#7a2b2b);border-color:var(--gefahr-b,#933838);color:#fff}
+button.gefahr:hover:not([disabled]){border-color:var(--gefahr-h,#c05252)}
+/* Warum ein Fehlschlag nicht durchging, steht unter der Liste — dort, wo geklickt wurde. */
+.lofail{margin-top:10px;padding:8px 10px;border:1px solid var(--gefahr-b,#933838);
+  border-radius:10px;color:var(--bad,#f85149);font-size:13px;line-height:1.5}
+.lofail ul{margin:4px 0 0;padding-left:18px}
 textarea{cursor:text;min-height:64px;resize:vertical}
 button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{
   outline:2px solid var(--acc);outline-offset:2px;

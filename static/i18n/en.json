@@ -298,6 +298,7 @@
  "lo_none": "nothing left behind",
  "lo_remove": "Remove",
  "lo_removeall": "Remove all",
+ "lo_failed": "Not removed:",
  "lo_days": "Retention (days, 0 = off)",
  "lo_confirm": "Delete this download permanently?",
  "lo_confirmall": "Delete ALL leftover downloads permanently?",

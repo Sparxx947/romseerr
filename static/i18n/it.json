@@ -298,6 +298,7 @@
  "lo_none": "niente in sospeso",
  "lo_remove": "Rimuovi",
  "lo_removeall": "Rimuovi tutto",
+ "lo_failed": "Non rimosso:",
  "lo_days": "Termine (giorni, 0 = off)",
  "lo_confirm": "Eliminare definitivamente questo download?",
  "lo_confirmall": "Eliminare definitivamente TUTTI i download rimasti?",
