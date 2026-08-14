@@ -896,6 +896,18 @@ protokolliert.
 
 - **Session-Cookie** signiert, `HttpOnly`, `SameSite=Strict`; `Secure` via `ROMSEERR_HTTPS=1`.
   Der Signierschlüssel wird persistent unter `config/secret.key` gehalten.
+  **Lässt er sich nicht speichern, sagt Romseerr es (#587):**
+
+  ```
+  Sitzungsschluessel konnte NICHT gespeichert werden (/config/secret.key): PermissionError:
+  … — bis das behoben ist, meldet jeder Neustart alle Benutzer ab.
+  ```
+
+  Vorher verschwand dieser Fall lautlos, und die Folge war von einem Sitzungsfehler nicht
+  zu unterscheiden: Bei jedem Start entstand ein anderer Schlüssel, also waren alle
+  Anmeldungen weg — ohne eine Zeile, die auf die Rechte des Konfigverzeichnisses zeigte.
+  Auch die **Neuerzeugung im Gutfall** wird protokolliert; beim ersten Start ist sie
+  normal, später bedeutet sie, dass die Datei abhandengekommen ist.
 - **Login-Rate-Limit** (Fehlversuche je IP+Nutzer im Zeitfenster → HTTP 429).
 - **API-Key** wird in konstanter Zeit verglichen.
 - **Schlüsselmaterial** (`secret.key`, `vapid.json`) liegt mit `0600`, auch im Altbestand.

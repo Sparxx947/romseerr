@@ -858,6 +858,17 @@ time. The result appears in the startup warnings; the addresses themselves are *
 
 - **Session cookie** signed, `HttpOnly`, `SameSite=Strict`; `Secure` via `ROMSEERR_HTTPS=1`.
   The signing key is kept persistently at `config/secret.key`.
+  **If it cannot be saved, Romseerr says so (#587):**
+
+  ```
+  Sitzungsschluessel konnte NICHT gespeichert werden (/config/secret.key): PermissionError:
+  … — bis das behoben ist, meldet jeder Neustart alle Benutzer ab.
+  ```
+
+  This used to vanish silently, and the consequence was indistinguishable from a session
+  bug: every start minted a different key, so every login was void — with nothing pointing
+  at the permissions of the config directory. Creating the key **successfully** is logged
+  too; on a first start that is normal, later it means the file has gone missing.
 - **Login rate limit** (failed attempts per IP+user within a window → HTTP 429).
 - **API key** compared in constant time.
 - **Key material** (`secret.key`, `vapid.json`) is kept at `0600`, existing files included.

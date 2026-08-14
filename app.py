@@ -4482,17 +4482,54 @@ def check_reset(tok):
     """Reset-Token -> Benutzername, falls gültig und nicht abgelaufen; sonst None."""
     d = RESET_TOKENS.get(tok)
     return d["user"] if d and d["exp"] > time.time() else None
+_SECRET_CACHE = []
+
 def app_secret():
-    """Signaturschlüssel für die Flask-Session (secret.key). Beim ersten Mal erzeugt & gespeichert."""
+    """Signaturschlüssel für die Flask-Session (secret.key). Beim ersten Mal erzeugt & gespeichert.
+
+    EIN NICHT GESPEICHERTER SCHLUESSEL DARF NICHT SCHWEIGEN (#587): Vorher verschwand das
+    Scheitern von `schreibe_geheim` in einem `except Exception: pass`. Laesst sich das
+    Konfigverzeichnis nicht beschreiben, entsteht dann bei JEDEM Start ein anderer
+    Schluessel — und weil er die Flask-Session signiert, sind damit bei jedem Neustart alle
+    Anmeldungen ungueltig. Von aussen sieht das nach einem Sitzungsfehler aus, nicht nach
+    einem Rechteproblem, und in `romseerr.log` stand dazu nichts.
+
+    Dass `log()` hier trotzdem ankommt, ist kein Zufall: Es schreibt ZUERST auf stdout und
+    nur den Dateianteil bedingt — im selben Fehlerfall waere das Protokoll ja auch nicht
+    schreibbar. Die Meldung steht damit im Container-Protokoll.
+
+    Dieselbe Lage behandelt `ensure_vapid()` seit jeher richtig (Meldung auf beiden Wegen,
+    Wert im Prozess stabil ueber `VAPID_CACHE`), und `storage_state()` gibt es genau
+    deshalb (#216). Diese Funktion war die einzige der Art ohne beides.
+
+    EN: a session key that cannot be persisted is no longer discarded in silence — every
+    restart would otherwise mint a new one and log everybody out, with nothing in the log.
+    """
     try:
         wert = open(SECRET_FILE).read().strip()
         geheim_absichern(SECRET_FILE)
         return wert
     except Exception:
-        s = secrets.token_hex(32)
-        try: schreibe_geheim(SECRET_FILE, s)
-        except Exception: pass
-        return s
+        pass
+    # IM PROZESS STABIL BLEIBEN, wie `VAPID_CACHE` es tut. Heute ruft nur
+    # `app.secret_key = app_secret()` einmal auf; ein zweiter Aufrufer bekaeme sonst einen
+    # anderen Schluessel und entwertete die Sitzungen des ersten.
+    if _SECRET_CACHE:
+        return _SECRET_CACHE[0]
+    s = secrets.token_hex(32)
+    try:
+        schreibe_geheim(SECRET_FILE, s)
+        # AUCH DER GUTFALL WIRD GEMELDET. Beim ersten Start ist ein neuer Schluessel
+        # normal; taucht die Zeile spaeter wieder auf, ist die Datei verschwunden — und
+        # genau dann will man wissen, wann.
+        log(f"Neuer Sitzungsschluessel erzeugt und gespeichert: "
+            f"{os.path.basename(SECRET_FILE)}")
+    except Exception as e:
+        log(f"Sitzungsschluessel konnte NICHT gespeichert werden ({SECRET_FILE}): "
+            f"{e.__class__.__name__}: {e} — bis das behoben ist, meldet jeder Neustart "
+            f"alle Benutzer ab.")
+    _SECRET_CACHE.append(s)
+    return s
 # Decorators zum Schutz von Routen. Alle akzeptieren auch den API-Key (g.api_auth, s. _guard).
 def login_required(f):
     """Route nur für angemeldete Nutzer (oder gültigen API-Key). API -> 401, sonst Redirect /login."""
