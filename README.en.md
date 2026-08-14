@@ -860,6 +860,11 @@ time. The result appears in the startup warnings; the addresses themselves are *
   The signing key is kept persistently at `config/secret.key`.
 - **Login rate limit** (failed attempts per IP+user within a window → HTTP 429).
 - **API key** compared in constant time.
+- **Key material** (`secret.key`, `vapid.json`) is kept at `0600`, existing files included.
+  **That protects the file, not the place:** if the config directory itself is open — with a
+  bind mount from an Unraid share, `0777` is the normal case — anyone who can write there
+  can delete and replace the file. The file's mode alone is therefore **no** evidence that
+  the key is protected; the directory has to be right as well. (#589)
 - **No secrets in the repo** — `.gitignore` excludes `.env`, `config/` and `*.db*`; CI runs
   **Gitleaks**, **Trivy**, **Bandit** and **CodeQL**.
   Two details that otherwise go wrong quietly: on `push` and `pull_request` Gitleaks sees

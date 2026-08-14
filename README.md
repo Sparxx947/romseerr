@@ -898,6 +898,12 @@ protokolliert.
   Der Signierschlüssel wird persistent unter `config/secret.key` gehalten.
 - **Login-Rate-Limit** (Fehlversuche je IP+Nutzer im Zeitfenster → HTTP 429).
 - **API-Key** wird in konstanter Zeit verglichen.
+- **Schlüsselmaterial** (`secret.key`, `vapid.json`) liegt mit `0600`, auch im Altbestand.
+  **Das schützt nur die Datei, nicht den Ort:** Steht das Konfigverzeichnis selbst offen —
+  bei einem Bind-Mount aus einer Unraid-Freigabe ist `0777` der Normalfall —, kann jeder,
+  der dort schreiben darf, die Datei löschen und ersetzen. Die Rechte der Datei allein sind
+  also **kein** Beleg dafür, dass der Schlüssel geschützt ist; dafür muss das Verzeichnis
+  stimmen. (#589)
 - **Keine Secrets im Repo** — `.gitignore` schließt `.env`, `config/` und `*.db*` aus;
   CI prüft mit **Gitleaks**, **Trivy**, **Bandit** und **CodeQL**.
   Zwei Feinheiten, die sonst still danebengehen: Bei `push` und `pull_request` sieht

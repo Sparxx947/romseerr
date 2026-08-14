@@ -2175,6 +2175,38 @@ def test_dependabot_opens_its_pull_requests_where_work_happens():
         f"wo nicht entwickelt wird: {falsch}")
 
 
+def test_every_scandir_closes_itself():
+    """`os.scandir` gehoert in ein `with` — jedes einzelne. (#589)
+
+    Der Iterator haelt einen Verzeichnis-Deskriptor. Ohne `with` gibt CPython ihn erst
+    beim Aufraeumen frei, und in einem Generatorausdruck kann das beliebig spaet sein.
+    Eine Stelle im Quelltext trug den Hinweis schon als Kommentar, sechs andere folgten
+    ihm nicht — gemessen ueber `pytest -W always::ResourceWarning`: sechs
+    `unclosed scandir iterator` aus `app.py`, danach null.
+
+    IM BETRIEB WAR NICHTS KAPUTT: Der laufende Container hielt 4 Deskriptoren bei einer
+    Grenze von 40960. Das ist kein Grund, sie offen zu lassen, aber der ehrliche Rahmen —
+    dies ist eine Pruefung gegen Rueckfall, nicht gegen ein gemessenes Leck.
+
+    STATISCH und nicht ueber Warnungen, weil eine ResourceWarning erst beim Aufraeumen
+    faellt: Ein Test darauf waere je nach Zeitpunkt gruen oder rot.
+
+    EN: every `os.scandir` must be used as a context manager; checked statically because a
+    ResourceWarning only fires at collection time and would make the test flaky.
+    """
+    quelle = open(os.path.join(REPO, "app.py"), encoding="utf-8").read().splitlines()
+    offen = []
+    for i, zeile in enumerate(quelle, 1):
+        if "os.scandir(" not in zeile or zeile.lstrip().startswith("#"):
+            continue
+        if re.search(r"\bwith\s+os\.scandir\(", zeile):
+            continue
+        offen.append(f"{i}: {zeile.strip()[:70]}")
+    assert not offen, (
+        "os.scandir ohne `with` — der Verzeichnis-Deskriptor bleibt bis zum Aufraeumen "
+        "offen:\n  " + "\n  ".join(offen))
+
+
 def test_every_dependabot_entry_groups_its_updates():
     """Ohne `groups` oeffnet Dependabot einen PR je Abhaengigkeit — hier besonders teuer. (#585)
 
