@@ -795,3 +795,129 @@ def test_alle_schliessknoepfe_teilen_dieselbe_regel():
     inline = [k for k in re.findall(r"<button [^>]*onclick=\"closeModal\(\)\"[^>]*>", js)
               if "style=" in k]
     assert not inline, f"Schließknopf mit eigenem Inline-Stil: {inline}"
+
+
+# Die Naht zwischen Kopfleiste und dem, was darunter liegt. Gemessen werden die Zeile
+# ZWEI Pixel über und die Zeile EIN Pixel unter dem Rahmen — der Rahmen selbst
+# (`#side{border-bottom:1px}`) ist eine gewollte Trennlinie und wäre in jeder
+# Sprungmessung ein Ausreißer, der nichts über den Verlauf aussagt.
+NAHT_JS = """
+() => {
+  const s = document.getElementById('side');
+  const b = document.getElementById('buehne');
+  return {unten: s.getBoundingClientRect().bottom, dpr: devicePixelRatio,
+          buehne: !!(b && !b.hidden)};
+}
+"""
+
+
+def naht_messen(seite):
+    """Der Farbsprung über die Unterkante der Kopfleiste, in Manhattan-Einheiten."""
+    lage = seite.evaluate(NAHT_JS)
+    bild = bildmessung.png_lesen(seite.screenshot())
+    y0 = int(round(lage["unten"] * lage["dpr"]))
+    sprung = bildmessung.zeilensprung(bild, y0 - 2, y0 + 1)
+    sprung["buehne"] = lage["buehne"]
+    sprung["spanne"] = bildmessung.zeilenspanne(bild, y0 - 2)
+    return sprung
+
+
+def test_der_aurora_schleier_bricht_nicht_an_der_kopfleiste_ab(seite):
+    """Der Verlauf läuft über die Unterkante der Kopfleiste hinweg — auch dort, wo
+    keine Bühne darunter liegt. (#657)
+
+    GEMESSEN AM STAND VORHER, 1280x900, Gerätepixel je Spalte über die volle Breite:
+
+    | Ansicht | größter Sprung | Median |
+    |---|---|---|
+    | Entdecken, mit Bühne | 84 | 43 |
+    | Anfragen, ohne Bühne | 76 | 36 |
+
+    Unter der Kopfleiste stand in Anfragen der nackte Hintergrund rgb(11,9,16), während
+    die Leiste darüber bis rgb(51,20,23) glühte. Zwei getrennte Schleier, jeder von
+    seinem eigenen `overflow:hidden` beschnitten — `#side::before` und `#buehne::before`.
+
+    WARUM DIE ANSICHT OHNE BÜHNE MITGEPRÜFT WIRD: Sie ist der schlechtere Fall und auf
+    einem Bildschirmauszug der Entdecken-Seite gar nicht zu sehen. Ein Test, der nur
+    Entdecken misst, ließe die Hälfte des Fehlers stehen.
+
+    WARUM DIE SPANNE MITGEPRÜFT WIRD: Eine Naht ist auch dann sprungfrei, wenn der
+    Schleier ganz fehlt. Ohne diese Gegenprobe bestünde ein gelöschter Verlauf.
+
+    EN: the glow must carry across the header's bottom edge, including in views without
+    the stage — the worse case, and one a screenshot of the discover page never shows.
+    The span check keeps a deleted glow from passing vacuously.
+    """
+    seite.set_viewport_size({"width": 1280, "height": 900})
+    # Die Konfigurationswarnung schöbe sich als eigener Kasten zwischen Leiste und Bühne
+    # und würde statt der Naht ihren eigenen Rand messen. Auf der Wegwerf-Instanz steht
+    # sie immer, auf einer eingerichteten nie.
+    seite.evaluate("""document.documentElement.dataset.design='aurora';
+                      document.getElementById('cfgwarn').style.display='none'""")
+    seite.wait_for_timeout(1200)
+
+    mit = naht_messen(seite)
+    assert mit["buehne"], "die Bühne fehlt beim Entdecken — dann misst der Test nicht, was er soll"
+    menuepunkt(seite, "Anfragen").click()
+    seite.wait_for_timeout(800)
+    ohne = naht_messen(seite)
+    assert not ohne["buehne"], "die Bühne steht noch in den Anfragen — falsche Ansicht gemessen"
+
+    for name, m in (("Entdecken (mit Bühne)", mit), ("Anfragen (ohne Bühne)", ohne)):
+        assert m["spanne"] >= 40, (
+            f"{name}: über der Naht ist gar kein Verlauf mehr zu sehen (Spanne "
+            f"{m['spanne']}) — die Sprungmessung darunter wäre inhaltsleer")
+        assert m["max"] <= 14, (
+            f"{name}: der Schleier bricht an der Kopfleiste ab — größter Sprung "
+            f"{m['max']} bei x={m['bei_x']}, Median {m['median']}")
+
+
+def test_der_schleier_erzeugt_keinen_waagerechten_bildlauf(seite):
+    """Die Schicht ragt über das Fenster hinaus — sichtbar werden darf davon nichts. (#657)
+
+    WARUM DAS EINE EIGENE PRÜFUNG IST: Der Überstand ist kein Schmuck. `aurora-wandern`
+    verschiebt den Verlauf um bis zu 3 % der Breite; ohne Rand lag am rechten Fensterrand
+    je nach Phase ein bis zu 26 px breiter Streifen blank. Der Preis dafür war beim ersten
+    Versuch waagerechter Bildlauf: gemessen 97 px, auf JEDER Seite.
+
+    Zwei Regeln halten das zusammen — `position:relative` auf `body`, damit der Kasten
+    überhaupt beschneiden kann, und `overflow-x` auch auf `html`, weil `body` seinen Wert
+    sonst ans Ansichtsfenster weiterreicht. Jede allein reicht nicht (gemessen: 97 bzw.
+    101 px). Fällt eine davon weg, sagt genau diese Prüfung es.
+
+    Die klebende Suchleiste wird mitgeprüft, weil sie der Grund ist, warum dort `clip`
+    steht und nicht `hidden`: Mit `hidden` wird `body` zum Rollbereich, und `#topbar` klebt
+    dann an ihm statt am Fenster — gemessen top -263,5 statt 0.
+
+    EN: the overflowing glow layer must not become a horizontal scrollbar, and the fix for
+    that must not be `overflow:hidden`, which turns body into a scroll container and stops
+    the sticky search bar from sticking.
+    """
+    seite.evaluate("document.documentElement.dataset.design='aurora'")
+    # Eine Suche, damit die Seite ueberhaupt laenger wird als das Fenster — ohne Inhalt
+    # gaebe es nichts zu rollen, und die Haelfte dieser Pruefung liefe ins Leere.
+    seite.fill("#q", "mario")
+    seite.press("#q", "Enter")
+    seite.wait_for_timeout(1500)
+    for breite, hoehe in ((390, 844), (1280, 900)):
+        seite.set_viewport_size({"width": breite, "height": hoehe})
+        seite.wait_for_timeout(600)
+        mass = seite.evaluate("""() => {
+          window.scrollTo(500, 0); const x = window.scrollX; window.scrollTo(0, 0);
+          window.scrollTo(0, 400); const y = window.scrollY;
+          const t = document.getElementById('topbar').getBoundingClientRect().top;
+          window.scrollTo(0, 0);
+          return {x, y, top: t, sw: document.documentElement.scrollWidth,
+                  iw: innerWidth, sh: document.documentElement.scrollHeight};
+        }""")
+        assert mass["x"] == 0 and mass["sw"] <= mass["iw"], (
+            f"bei {breite} px Breite laesst sich die Seite waagerecht schieben: "
+            f"scrollX {mass['x']}, scrollWidth {mass['sw']} bei {mass['iw']} px Fenster")
+        assert mass["sh"] > hoehe + 400, (
+            f"die Seite ist bei {breite} px gar nicht laenger als das Fenster "
+            f"({mass['sh']} bei {hoehe}) — dann sagt die Bildlaufpruefung nichts")
+        assert mass["y"] > 0, "senkrechter Bildlauf geht nicht mehr"
+        assert mass["top"] == 0, (
+            f"die Suchleiste klebt bei {breite} px nicht mehr am Fenster "
+            f"(top {mass['top']}) — `overflow:hidden` statt `clip` macht `body` "
+            "zum Rollbereich")
