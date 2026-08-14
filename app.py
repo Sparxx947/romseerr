@@ -77,7 +77,7 @@ WICHTIGE FALLSTRICKE / IMPORTANT GOTCHAS
   * Deployment: ein neues Image erfordert `docker rm`+`run` — `docker restart` lädt
     KEIN neues Image.
 """
-import os, re, sys, json, time, threading, queue, subprocess, urllib.parse, html, secrets, smtplib, base64, sqlite3
+import os, re, sys, json, time, threading, queue, subprocess, urllib.parse, html, secrets, smtplib, base64, sqlite3, unicodedata
 from collections import Counter
 from datetime import datetime, timezone
 from functools import wraps
@@ -571,15 +571,160 @@ REGION_RE = re.compile(r'\b(usa|eur|europe|japan|jpn|world|korea|kor|rev\s*\d+|p
 # Narrow on purpose: norm() is the dedup key, so a looser rule would silently merge
 # distinct games. Four letters plus five digits is a format, not a word.
 DISC_ID_RE = re.compile(r'\b[a-z]{4}\d{5}\b')
+
+# Der Apostroph wurde bisher wie jedes andere Sonderzeichen durch ein LEERZEICHEN
+# ersetzt. Damit wurde aus `O'Clock` -> `o clock`, waehrend ein Release, das ihn gar
+# nicht erst schreibt (`OClock`), `oclock` ergab: zwei Schluessel fuer dasselbe Spiel.
+# Betrifft jeden Genitiv — `Dragon's Lair`, `Bobby's World`, `Archer Maclean's 3D Pool`.
+# An 315.706 Namen der echten Bibliothek gemessen: 160 Titelgruppen finden dadurch
+# zusammen, und in 159 davon unterscheiden sich die Namen ausschliesslich in der
+# Schreibweise. Deshalb ENTFERNEN statt ersetzen. (#615)
+# EN: the apostrophe became a space, so `O'Clock` and `OClock` were different keys.
+APOSTROPH_RE = re.compile(r"[’'`ʼ]")
+
+# Derselbe Griff traf akzentuierte Buchstaben: `é` wurde zum LEERZEICHEN, also ergab
+# `Pokémon` -> `pok mon` und `Pokemon` -> `pokemon`. Zwei Schluessel fuer denselben Titel,
+# und zwar fuer einen der meistgefragten. An 315.706 Namen gemessen: 56 Titelgruppen fallen
+# allein am Akzent auseinander. (#618)
+#
+# NFD zerlegt `é` in `e` + kombinierendes Akzentzeichen; letzteres traegt die Kategorie `Mn`
+# und faellt weg. Das deckt alles ab, was im Bestand vorkommt — bis auf die folgenden, die
+# GAR KEINE Zerlegung haben und deshalb einzeln stehen muessen.
+#
+# `ü` wird zu `u`, nicht zu `ue`: Die Paare im Bestand heissen `Zurück`/`Zuruck`, nicht
+# `Zurück`/`Zurueck`. Grundbuchstabe ist die Regel, die zu den Daten passt.
+#
+# CJK, Hangul und IPA-Zeichen werden BEWUSST NICHT gefaltet (35 Vorkommen). Sie haben keinen
+# sinnvollen ASCII-Grundbuchstaben; eine erfundene Zuordnung wuerde Kollisionen schaffen
+# statt welche aufzuloesen. Fuer sie bleibt alles wie bisher.
+# EN: fold accents to their base letter; the table covers what NFD cannot decompose.
+SONDERBUCHSTABEN = str.maketrans({
+    'ß': 'ss', 'ø': 'o', 'æ': 'ae', 'œ': 'oe', 'ð': 'd', 'đ': 'd', 'ł': 'l', 'þ': 'th',
+})
+
+
+def _grundbuchstaben(s):
+    """Akzente auf den Grundbuchstaben abbilden. Erwartet kleingeschriebenen Text."""
+    # 228 von 315.706 Namen der Bibliothek enthalten ueberhaupt Nicht-ASCII. Ohne diese
+    # Abkuerzung liefe `normalize` fuer alle uebrigen umsonst und kostete beim Index-Aufbau
+    # rund eine halbe Sekunde; mit ihr bleibt der Aufschlag im Messrauschen.
+    if s.isascii():
+        return s
+    s = s.translate(SONDERBUCHSTABEN)
+    return ''.join(c for c in unicodedata.normalize('NFD', s)
+                   if unicodedata.category(c) != 'Mn')
+
+# Szene-Releases haengen ihr Gruppenkuerzel hinter das Plattform-Token:
+# `Sonic.X.Shadow.Generations.NSW.NiiNTENDO`, `Crime OClock NSW-SUXXORS`. REGION_RE warf
+# `NSW` weg und liess `NiiNTENDO` stehen — damit war dasselbe Spiel von zwei Gruppen zwei
+# verschiedene Schluessel, `in_library()` schwieg, und der Titel wurde ein zweites Mal
+# geholt. Am Bestand gemessen: drei Spiele doppelt, 26 GB. (#615)
+#
+# BEWUSST SO ENG WIE DISC_ID_RE, und aus demselben Grund: Eine zu weite Regel laesst zwei
+# Spiele still zusammenfallen. Drei Bedingungen, jede einzeln an der Bibliothek gepruefte
+# Antwort auf einen konkreten Fehlgriff:
+#
+#   * NUR direkt hinter einem Plattform-Token am Namensende. Ein blosses „letztes Wort weg"
+#     frisst Titelbestandteile.
+#   * Mindestens vier Zeichen, keine roemische Ziffer, und im ORIGINAL mindestens zwei
+#     Grossbuchstaben. Szene-Kuerzel schreiben sich SUXXORS, NiiNTENDO, LiGHTFORCE, ZER0;
+#     `Edition` oder `Deluxe` tut das nie. Ohne diese Pruefung verschmolzen
+#     `Aviator Arcade II` mit `Aviator` und `Commando Arcade SE` mit `COMMANDO`.
+#   * `arcade` und `mame` stehen NICHT in der Liste, obwohl REGION_RE sie kennt: sie kommen
+#     in echten Titeln vor. Mit den drei Bedingungen oben bleiben davon genau zwei Faelle
+#     im Bestand uebrig, beide durchgehend gross geschrieben — `TERMINATOR_2_ARCADE_GAME`
+#     haette `GAME` verloren, `Sears Super Video Arcade BIOS` sein `BIOS`. Der Ausschluss
+#     ist also klein, aber nicht leer; die ALL-CAPS-Regel unten faengt dieselbe Falle
+#     allgemein, auch fuer Token, die hier bleiben muessen.
+#
+# Wirkung an 315.706 echten Namen: fuenf Schluessel aendern sich, genau EINE zusaetzliche
+# Titelgruppe findet zusammen — `IL-2 Sturmovik - Birds of Prey` mit seinem PSP-ZER0-Release.
+# Null Fehlverschmelzungen.
+# EN: strips a trailing scene group tag; deliberately narrow, see the three conditions above.
+GRUPPE_PLAT = (r'(?:nsw|nsp|xci|switch|psx|ps1|ps2|ps3|psp|wii|gamecube|ngc|snes|n64|'
+               r'gba|gbc|megadrive|genesis)')
+GRUPPE_RE = re.compile(r'\b' + GRUPPE_PLAT + r'\s+([a-z0-9]{4,15})\s*$')
+ROEMISCH = frozenset("i ii iii iv v vi vii viii ix x xi xii xiii xiv xv".split())
+GROSS_RE = re.compile(r'[A-Z]')
+
+
+def _schluessel_leer(s):
+    """Bliebe nach den restlichen Schritten nichts uebrig?"""
+    return not re.sub(r'[^a-z0-9]+', '', DISC_ID_RE.sub(' ', REGION_RE.sub(' ', s)))
+
+
+def _ohne_gruppenkuerzel(s, roh):
+    """Szene-Kuerzel am Ende entfernen — oder unveraendert lassen. Siehe GRUPPE_RE."""
+    m = GRUPPE_RE.search(s)
+    if not m:
+        return s
+    tok = m.group(1)
+    if tok in ROEMISCH:
+        return s
+    # Ist der GANZE Name gross geschrieben, sagt die Grossschreibung des letzten Wortes
+    # nichts mehr aus — dann besteht jedes Wort die Pruefung. `TERMINATOR_2_ARCADE_GAME`
+    # haette so sein `GAME` verloren und waere mit `Terminator 2` verschmolzen.
+    # EN: in an all-caps name the caps test carries no signal, so don't apply the rule.
+    if roh.upper() == roh:
+        return s
+    # Grossschreibung im ORIGINAL pruefen, nicht im bereits kleingeschriebenen String.
+    om = re.search(r'(?i)(?<![a-z0-9])' + re.escape(tok) + r'(?![a-z0-9])', roh)
+    # Steht im Original ein BINDESTRICH direkt vor dem Kuerzel und endet der Name damit,
+    # ist es nach Szene-Konvention immer die Gruppe — auch klein geschrieben. Das faengt
+    # `NSW-nogrp`, `PS3-Caravan`, `Wii-Caravan` und `XCI-Ziperto`, die sonst haengen
+    # blieben. Gemessen kostet es genau einen Fehlgriff in 315.706 Namen:
+    # `camera-switch-symbolic`, eine Icon-Datei im c64-Ordner, also kein Titel.
+    mit_strich = re.search(r'(?i)-' + re.escape(tok) + r'$', roh.strip())
+    if not om or (len(GROSS_RE.findall(om.group(0))) < 2 and not mit_strich):
+        return s
+    gekuerzt = s[:m.start(1)] + s[m.end(1):]
+    # `GBA-AENP` besteht nur aus Plattform-Token und Kuerzel. Ein leerer Schluessel
+    # wuerde alles mit allem verschmelzen — dann lieber das Kuerzel behalten.
+    return s if _schluessel_leer(gekuerzt) else gekuerzt
+
+
+# `os.path.splitext()` haelt ALLES hinter dem letzten Punkt fuer eine Endung. In einem
+# Titel mit Punkt loescht das echten Text:
+#
+#     splitext("R.B.I. Baseball (U) [!]")  ->  ('R.B.I', '. Baseball (U) [!]')
+#     splitext("Sailor ... Vol. 3")        ->  ('Sailor ... Vol', '. 3')
+#
+# An 315.706 Namen gemessen: 10.551 verlieren so echten Text, und **1.307 Titelgruppen mit
+# 5.401 Dateien** fallen dadurch auf einen gemeinsamen Schluessel — 60 verschiedene
+# `R.B.I.`-Hacks unter einem, fuenf `Lipstick`-Baende unter einem. Das ist die Umkehrung
+# von #615: dort war der Schluessel zu eng und holte doppelt, hier ist er zu weit und haelt
+# einen fehlenden Band fuer vorhanden. (#617)
+#
+# ZWEI BEDINGUNGEN, weil eine allein nicht reicht:
+#   * `ROM_EXT`/`ARCH_EXT` decken die bekannten Formate ab — aber nicht alles. `.p8`
+#     (PICO-8) steht in keiner der beiden Listen und kommt 12.536-mal vor; bliebe es im
+#     Schluessel, faende keine dieser Dateien mehr ihren Katalogeintrag.
+#   * Deshalb zusaetzlich die Form: bis zu fuenf Zeichen, nur a-z0-9, und beginnt mit einem
+#     BUCHSTABEN. Genau das trennt `.p8` von `.0f`, `.1`, `.55` und `.91` — Versionsnummern
+#     sehen sonst wie Endungen aus. Ein Rest mit Leerzeichen oder Klammer ist ohnehin Text.
+# EN: only strip something that actually looks like an extension; a dot inside a title is not one.
+ENDUNG_RE = re.compile(r'^[a-z][a-z0-9]{0,4}$')
+
+
+def _ohne_endung(name):
+    stamm, ext = os.path.splitext(name)
+    e = ext[1:].lower()
+    return stamm if (e in ROM_EXT or e in ARCH_EXT or ENDUNG_RE.match(e)) else name
+
+
 def norm(name):
     """Datei-/Titelname -> normalisierter Vergleichsschlüssel (Endung, Klammern, Region,
     Versionsnummern und Sonderzeichen entfernt, lowercase). Grundlage der Dedup."""
-    s = os.path.splitext(str(name)[:MAX_NAME])[0].lower()      # gedeckelt: siehe _tags
+    roh = _ohne_endung(str(name)[:MAX_NAME])                   # gedeckelt: siehe _tags
+    s = roh.lower()
     s = re.sub(r'[\._\-+]+', ' ', s)                          # Trenner ZUERST zu Space
     s = re.sub(r'\([^)]*\)|\[[^\]]*\]|\{[^}]*\}', ' ', s)     # (USA), [!], {...}
     s = re.sub(r'\bv?\d+(\.\d+)+\b', ' ', s)                   # v1.2.3
+    s = _ohne_gruppenkuerzel(s, roh)                           # …NSW-SUXXORS (#615)
     s = REGION_RE.sub(' ', s)                                  # Region/Plattform-Tokens
     s = DISC_ID_RE.sub(' ', s)                                 # BLES00562, BLUS30232 …
+    s = APOSTROPH_RE.sub('', s)                                # O'Clock == OClock (#615)
+    s = _grundbuchstaben(s)                                    # Pokémon == Pokemon (#618)
     s = re.sub(r'[^a-z0-9]+', ' ', s)
     return re.sub(r'\s+', ' ', s).strip()
 

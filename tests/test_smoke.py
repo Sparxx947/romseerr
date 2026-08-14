@@ -1674,6 +1674,165 @@ def test_dedup_key_does_not_get_looser(appmod):
     assert appmod.norm("Brutal Legend BLES00562") == "brutal legend"
 
 
+def test_scene_group_tag_does_not_defeat_dedup(appmod):
+    """Die Szene haengt ihr Kuerzel hinter das Plattform-Token: `Title.NSW-SUXXORS`.
+    `norm()` warf `NSW` weg und behielt `SUXXORS` — damit war dasselbe Spiel von zwei
+    Gruppen zwei verschiedene Schluessel, `in_library()` schwieg und der Titel wurde ein
+    zweites Mal geholt. Am Bestand gemessen: drei Spiele doppelt, 26 GB. (#615)"""
+    paare = [
+        ("Sonic X Shadow Generations.xci", "Sonic.X.Shadow.Generations.NSW.NiiNTENDO.xci"),
+        ("Dreamworks All-Star Kart Racing.xci",
+         "Dreamworks.All.Star.Kart.Racing.NSW.LiGHTFORCE.xci"),
+        ("Captain Toad Treasure Tracker.xci", "Captain.Toad.Treasure.Tracker.NSW.VENOM.xci"),
+        ("IL-2 Sturmovik - Birds of Prey (Europe)", "IL_2_Sturmovik_Birds_of_Prey_EUR_PSP-ZER0"),
+        # Klein geschriebenes Kuerzel: hier entscheidet der Bindestrich, nicht die
+        # Grossschreibung. Aus dem echten Suchergebnis.
+        ("Donkey Kong Country Returns HD", "Donkey.Kong.Country.Returns.HD.NSW-nogrp"),
+        ("Dragon Quest X Mezameshi 5 tsu no Shuzoku Online",
+         "Dragon Quest X Mezameshi 5 tsu no Shuzoku Online JPN Wii-Caravan"),
+    ]
+    for bibliothek, release in paare:
+        assert appmod.norm(bibliothek) == appmod.norm(release), (bibliothek, release,
+                                                                 appmod.norm(release))
+
+
+def test_apostrophe_does_not_split_the_dedup_key(appmod):
+    """`[^a-z0-9]+` ersetzte den Apostroph durch ein LEERZEICHEN, also wurde aus
+    `O'Clock` -> `o clock`, waehrend ein Release `OClock` -> `oclock` ergab. Zwei
+    Schluessel fuer dasselbe Spiel. Betrifft jeden Titel mit Genitiv-s. (#615)"""
+    assert appmod.norm("Crime O'Clock [0100E4A0194DE000][US].nsp") == appmod.norm("Crime OClock")
+    assert appmod.norm("Dragon's Lair (J)") == appmod.norm("Dragons Lair")
+    assert appmod.norm("Bobby's World (USA) (Proto)") == appmod.norm("Bobbys World (US)")
+    # auch der typografische Apostroph, den Windows-Umbenenner einsetzen
+    assert appmod.norm("Cap\u2019n Crunch") == appmod.norm("Capn Crunch")
+
+
+def test_a_dot_in_the_title_is_not_a_file_extension(appmod):
+    """`os.path.splitext()` haelt ALLES hinter dem letzten Punkt fuer eine Endung. Damit
+    verlor `R.B.I. Baseball` sein `Baseball` und `Vol. 3` seine Bandnummer. An 315.706
+    Namen gemessen: 10.551 Namen verloren echten Text, und **1.307 Titelgruppen mit 5.401
+    Dateien** fielen dadurch auf einen gemeinsamen Schluessel — 60 verschiedene
+    `R.B.I.`-Hacks unter einem, fuenf `Lipstick`-Baende unter einem. Das ist die Umkehrung
+    von #615: dort war der Schluessel zu eng und holte doppelt, hier ist er zu weit und
+    haelt einen fehlenden Band fuer vorhanden. (#617)"""
+    assert "baseball" in appmod.norm("R.B.I. Baseball (U) [!]")
+    assert appmod.norm("Lipstick #.1 - Lolita Hen (Japan) (Unl)") != \
+           appmod.norm("Lipstick #.2 - Joshi Gakusei Hen (Japan) (Unl)")
+    assert appmod.norm("Sailor Fuku Bishoujo Zukan Vol. 1 (Japan) (Unl)") != \
+           appmod.norm("Sailor Fuku Bishoujo Zukan Vol. 3 (Japan) (Unl)")
+    assert appmod.norm("Metroid Challenger V0.40 (Metroid Hack)") != \
+           appmod.norm("Metroid Challenger V0.75 (Metroid Hack)")
+    # `.0f` sieht wie eine Endung aus und ist eine Versionsnummer.
+    assert appmod.norm("Dragoon X Omega V2.0 by Sliver X") != \
+           appmod.norm("Dragoon X Omega V2.0f Gold by Sliver X")
+    assert "wii" in appmod.norm("Super Smash Bros. Wii U") or \
+           appmod.norm("Super Smash Bros. Wii U") != appmod.norm("Super Smash Bros")
+    # Namen, die WIRKLICH auf .<Ziffer> enden — hier entscheidet sich, ob eine
+    # Versionsnummer als Endung durchgeht. Beide aus dem echten Bestand (amiga).
+    assert appmod.norm("NCOMM3.05") != appmod.norm("NCOMM3")
+    assert appmod.norm("NotVeryFestiveFodder_v1.0") != appmod.norm("NotVeryFestiveFodder_v1.1")
+
+
+def test_real_extensions_are_still_stripped(appmod):
+    """Die Gegenprobe: Endungen MUESSEN weg, sonst findet kein Dateiname seinen
+    Katalogeintrag. `.p8` steht nicht in `ROM_EXT` und kommt trotzdem 12.536-mal vor —
+    deshalb reicht die Liste allein nicht. (#617)"""
+    assert appmod.norm("Chrono Trigger (USA).sfc") == appmod.norm("Chrono_Trigger.smc")
+    assert appmod.norm("Celeste.p8") == appmod.norm("Celeste")
+    assert appmod.norm("Zelda!!!.sfc") == "zelda"
+    # `.32x` beginnt mit einer ZIFFER — die Formregel allein wuerde es nicht erkennen,
+    # nur `ROM_EXT`. Deshalb braucht es beide Bedingungen.
+    for datei, katalog in [("Turrican.d64", "Turrican"), ("Sonic.chd", "Sonic"),
+                           ("Doom.wad", "Doom"), ("Hades.nsp", "Hades"),
+                           ("Kolibri.32x", "Kolibri"), ("Spiel.7z", "Spiel")]:
+        assert appmod.norm(datei) == appmod.norm(katalog), datei
+
+
+def test_accented_letters_fold_to_their_base_letter(appmod):
+    """Derselbe Griff, der den Apostroph zerlegte, machte auch aus `é` ein LEERZEICHEN:
+    `Pokémon` -> `pok mon`, waehrend `Pokemon` -> `pokemon` ergab. Zwei Schluessel fuer das
+    meistgefragte Spiel der Bibliothek. An 315.706 Namen gemessen: 56 Titelgruppen fallen
+    allein am Akzent auseinander. (#618)"""
+    paare = [("Pokémon Green", "Pokemon Green"),
+             ("Pokémon Pinball Ruby-Sapphire", "Pokemon Pinball - Ruby & Sapphire"),
+             ("Whale's Voyage 2 - Die Übermacht", "Whale's Voyage 2 - Die Ubermacht"),
+             ("Harald_Hårdtand_-_Kampen_om_de_Rene_Taender", "Harald Hardtand - Kampen om de Rene Taender"),
+             ("La_Quête_de_l'Oiseau_du_Temps", "La_Quete_de_l'Oiseau_du_Temps"),
+             # ohne NFD-Zerlegung, brauchen die eigene Tabelle
+             ("Straße", "Strasse"),
+             ("Smørrebrød", "Smorrebrod"),
+             ("Æon Flux", "Aeon Flux")]
+    for a, b in paare:
+        assert appmod.norm(a) == appmod.norm(b), (a, b, appmod.norm(a), appmod.norm(b))
+
+
+def test_non_latin_titles_keep_their_key(appmod):
+    """BEWUSST NICHT gefaltet: CJK und Hangul haben keinen ASCII-Grundbuchstaben. Eine
+    erfundene Zuordnung wuerde Kollisionen SCHAFFEN statt welche aufzuloesen — deshalb
+    behalten sie das heutige Verhalten. (#618)"""
+    assert appmod.norm("世嘉 Mega Drive") == appmod.norm("世嘉 Mega Drive")
+    # zwei verschiedene CJK-Titel duerfen nicht auf denselben Schluessel fallen
+    assert appmod.norm("世嘉 Alpha") != appmod.norm("世嘉 Beta")
+
+
+def test_group_rule_never_empties_the_key(appmod):
+    """`GBA-AENP` besteht NUR aus Plattform-Token und Kuerzel. Greift die Regel dort,
+    bleibt der leere String — und ein leerer Schluessel wuerde alles mit allem
+    verschmelzen. Lieber das Kuerzel behalten als den Titel verlieren. (#615)"""
+    assert appmod.norm("GBA-AENP") != ""
+    assert appmod.norm("PSP-ZER0") != ""
+
+
+def test_group_rule_leaves_real_title_words_alone(appmod):
+    """Die Gegenprobe zur Erweiterung, und der Grund fuer ihre enge Fassung. `Arcade`
+    steht in echten Spieltiteln (`Bomberman 64 - Arcade Edition`), roemische Ziffern und
+    Kuerzel wie `SE` bestehen jede Grossschreibungspruefung. Eine Regel, die `Deluxe`
+    hinter `Wii` frisst, laesst zwei Spiele still zusammenfallen. (#615)
+
+    NICHT hier geprueft: `Super Smash Bros. Wii U` faellt schon heute mit
+    `Super Smash Bros` zusammen — daran ist `splitext()` schuld, nicht diese Regel.
+    Getrennt aufgenommen als #617."""
+    paare = [("Mario Kart Wii Deluxe", "Mario Kart Wii"),
+             # `Edition` traegt einen Grossbuchstaben, ein Szene-Kuerzel mindestens zwei.
+             ("Mario Party Switch Edition", "Mario Party"),
+             ("Bomberman 64 - Arcade Edition (J)", "Bomberman 64 (USA)"),
+             ("Aviator Arcade II", "Aviator"),
+             ("Commando Arcade SE", "Commando"),
+             ("Punch King - Arcade Boxing (USA)", "Punch King (E) (M3)"),
+             # Aus dem echten Bestand: in einem durchgehend gross geschriebenen Namen
+             # besteht JEDES Wort die Grossschreibungspruefung, auch `GAME` und `BIOS`.
+             ("TERMINATOR_2_ARCADE_GAME", "Terminator 2"),
+             ("Sears Super Video Arcade BIOS (1978) (Sears) [!]", "Sears Super Video Arcade"),
+             # KONSTRUIERT, kein Bestandsfall: sichert die ALL-CAPS-Regel eigenstaendig ab.
+             # Ohne sie faellt `GAME` hier weg, weil `wii` ein Plattform-Token ist und in
+             # einem durchgehend grossen Namen jedes Wort die Grossschreibungspruefung
+             # besteht. Im heutigen Bestand greift stattdessen schon der `arcade`-Ausschluss
+             # — deshalb waere die Regel ohne diesen Fall nicht pruefbar.
+             ("METROID_PRIME_WII_GAME", "Metroid Prime")]
+    for a, b in paare:
+        assert appmod.norm(a) != appmod.norm(b), (a, b, appmod.norm(a))
+
+
+def test_library_guard_catches_the_same_game_under_a_scene_name(appmod):
+    """Der Beweis am echten Pfad statt an `norm()` allein: `in_library()` ist die Sperre,
+    die `/api/download` vor dem zweiten Holen abfragt. Sie schwieg, weil der Schluessel des
+    Releases das Gruppenkuerzel trug — deshalb lagen `Sonic X Shadow Generations` und
+    `Sonic.X.Shadow.Generations.NSW.NiiNTENDO` als bitgleiche Kopien nebeneinander. (#615)"""
+    bestand = {"Sonic X Shadow Generations.xci",
+               "Captain Toad Treasure Tracker.xci",
+               "Crime O'Clock [0100E4A0194DE000][v65536][US](nsw2u.com).nsp"}
+    alt = _mit_index(appmod, {"switch": {appmod.norm(n) for n in bestand}})
+    try:
+        for release in ("Sonic.X.Shadow.Generations.NSW.NiiNTENDO.xci",
+                        "Captain.Toad.Treasure.Tracker.NSW.VENOM.xci",
+                        "Crime OClock NSW-SUXXORS"):
+            assert appmod.in_library(release, "switch") is True, release
+        # Gegenprobe: ein anderes Spiel derselben Gruppe darf NICHT als vorhanden gelten.
+        assert appmod.in_library("Metroid Dread NSW-VENOM", "switch") is False
+    finally:
+        _index_zurueck(appmod, alt)
+
+
 def test_platform_comes_from_the_library_not_from_the_search_hit(appmod, tmp_path, monkeypatch):
     """Ein Suchtreffer kann `Mixed` heissen — ein realer Ordner mit gemischtem Inhalt,
     keine Plattform — waehrend die passende Datei in `ps2/` liegt. Vorher gab

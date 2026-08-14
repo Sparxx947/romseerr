@@ -85,6 +85,18 @@ The full rule is in
   search; a retro-only selection disables Usenet.
 - **Dedup** against the existing library: owned titles are flagged and sorted last; re-downloading
   is blocked both server- and client-side.
+  The comparison uses a **normalised key**, not the filename — extension, brackets, region and
+  version numbers are stripped. Since #615 that includes the trailing **scene group tag**
+  (`…NSW-SUXXORS`, `….NSW.NiiNTENDO`) and the **apostrophe** (`O'Clock` = `OClock`). Without
+  those — and **accents**, which are folded to their base letter (`Pokémon` = `Pokemon`,
+  `Fußball` = `Fussball`; #618) — the same game counted as two: three titles sat in the library as
+  byte-identical duplicates, 26 GB. The rule deliberately fires only directly after a platform
+  token and only for tags written the way scene groups write them, so that
+  `Bomberman 64 - Arcade Edition` does not merge into `Bomberman 64`.
+  Conversely, **only an actual extension is stripped** (#617): `splitext()` treated everything
+  after the last dot as one and deleted real title text — `R.B.I. Baseball` became `R.B.I`,
+  `Vol. 3` became `Vol`. **1,307 title groups covering 5,401 files** shared a key that way, so
+  a missing volume counted as present.
 - **What this stack does not serve does not show up.** PS5 and Xbox Series releases are
   dropped rather than assigned to some platform (#607). The reason is concrete: the title
   detection did not know `PS5`, returned `None`, and then the indexer's category wins —

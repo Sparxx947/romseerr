@@ -86,6 +86,19 @@ Die vollständige Regel steht in
   grenzt die Suche ein; eine reine Retro-Auswahl schaltet Usenet aus.
 - **Dedup** gegen die bestehende Bibliothek: vorhandene Titel werden markiert und ans Ende
   sortiert; ein erneuter Download wird server- und clientseitig verhindert.
+  Verglichen wird ein **normalisierter Schlüssel**, nicht der Dateiname — Endung, Klammern,
+  Region und Versionsnummern fallen weg. Dazu gehört seit #615 das **Kürzel der
+  Release-Gruppe** am Namensende (`…NSW-SUXXORS`, `….NSW.NiiNTENDO`) und der **Apostroph**
+  (`O'Clock` = `OClock`) sowie **Akzente**, die auf ihren Grundbuchstaben abgebildet werden
+  (`Pokémon` = `Pokemon`, `Fußball` = `Fussball`; #618). Ohne all das galt dasselbe Spiel als
+  zwei Spiele:
+  drei Titel lagen bitgleich doppelt in der Bibliothek, 26 GB. Die Regel greift bewusst nur
+  direkt hinter einem Plattform-Token und nur bei Kürzeln in Szene-Schreibweise, damit
+  `Bomberman 64 - Arcade Edition` nicht mit `Bomberman 64` verschmilzt.
+  Umgekehrt wird als **Endung nur abgeschnitten, was auch eine ist** (#617): `splitext()`
+  hielt alles hinter dem letzten Punkt dafür und löschte damit echten Titeltext —
+  `R.B.I. Baseball` wurde zu `R.B.I`, `Vol. 3` zu `Vol`. **1.307 Titelgruppen mit 5.401
+  Dateien** trugen dadurch denselben Schlüssel, und ein fehlender Band galt als vorhanden.
 - **Was dieser Stack nicht bedient, taucht nicht auf.** PS5- und Xbox-Series-Releases
   werden verworfen, statt einer Plattform zugeschlagen zu werden (#607). Der Grund ist
   konkret: Die Titelerkennung kannte `PS5` nicht, lieferte `None` — und dann gewinnt die
