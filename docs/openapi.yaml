@@ -125,6 +125,15 @@ paths:
         '200':
           description: OK
       security: *id001
+  /icon-maskable.svg:
+    get:
+      summary: App-Icon fuer den Startbildschirm
+      tags:
+      - System
+      responses:
+        '200':
+          description: OK
+      security: *id001
   /assets/{h}/{rel}:
     get:
       summary: Statische Datei unter inhaltsgehashter URL (immutable)

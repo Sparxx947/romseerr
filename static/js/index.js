@@ -1275,7 +1275,7 @@ async function loadLists(){
 const REPO_URL='https://github.com/Sparxx947/romseerr';
 async function zeichneFuss(){
  let f=document.getElementById('fuss');if(!f)return;
- let teile=[`<span>🎮 Romseerr</span>`,`<a href="${REPO_URL}" target=_blank rel="noopener noreferrer">GitHub</a>`];
+ let teile=[`<span class=fussmarke><svg class=marke viewBox="0 0 64 64" aria-hidden=true focusable=false><use href="#rs-marke"/></svg>Romseerr</span>`,`<a href="${REPO_URL}" target=_blank rel="noopener noreferrer">GitHub</a>`];
  if(window.ROLE){
   let ver={};try{ver=await(await fetch('/api/version')).json();}catch(e){}
   let v=ver.version||window.VERSION||'';
@@ -2053,7 +2053,7 @@ async function secAbout(c){
  let updUrl=ver.latest?`${repo}/releases/tag/v${encodeURIComponent(ver.latest)}`:`${repo}/releases`;
  let upd=ver.update_available?` <a href="${updUrl}" target=_blank rel="noopener noreferrer" style="color:#5b8cff">${t('upd_avail')} ${ver.latest}</a>`
         :(ver.latest?` <span style="color:#3fb950">${t('upd_current')}</span>`:'');
- c.innerHTML=`<h3>🎮 Romseerr — ${t('sec_about')}</h3>
+ c.innerHTML=`<h3><svg class=marke viewBox="0 0 64 64" aria-hidden=true focusable=false><use href="#rs-marke"/></svg>Romseerr — ${t('sec_about')}</h3>
   <p class=meta style="margin:2px 0 12px">${t('about_txt')}</p>
   <div class=frow><span style="min-width:150px">${t('version')}</span><span class=meta>${ver.version||window.VERSION||'—'}${upd}</span></div>
   ${build?`<div class=frow><span style="min-width:150px">${t('about_build')}</span><span class=meta>${build}</span></div>`:''}
