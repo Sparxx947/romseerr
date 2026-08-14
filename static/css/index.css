@@ -138,6 +138,7 @@
    Variablen kommt. Keine neue Palette — nur Radien und die vorhandenen Werte.
    Der aktive Filter traegt WEISSE Schrift und deshalb `--navon` (4,69:1), nicht `--acc`
    (3,31:1) — dieselbe Rechnung wie in #629 und #330. */
+[data-design=aurora] button,[data-design=aurora] select,[data-design=aurora] textarea{border-radius:12px}
 [data-design=aurora] .fbtn,[data-design=aurora] .jf{border-radius:999px;padding:7px 15px}
 [data-design=aurora] .fbtn.on,[data-design=aurora] .jf.on{
   background:var(--navon);border-color:var(--navon);color:var(--navtxt);
@@ -200,6 +201,30 @@ main{padding-bottom:52px}
 #fuss .warn{color:#d29922}
 #topbar{position:sticky;top:0;background:var(--topbar);padding:14px 18px;display:flex;gap:12px;align-items:center;border-bottom:1px solid var(--border);z-index:5}
 input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid var(--border);background:var(--input);color:var(--txt);font-size:15px}
+/* ---- Grundstile fuer Bedienelemente (#639) ----
+   `input` bekam diese Behandlung vor Jahren, `button`, `select` und `textarea` nie: 84
+   Knoepfe und 20 Auswahlfelder trugen gar keine Klasse und fielen damit auf den
+   Browser-Standard zurueck — hell und eckig, falsch in ALLEN VIER dunklen Designs. Am
+   deutlichsten in den Nachrichten, wo „Senden" als graues Systemknoepfchen stand.
+
+   BEWUSST NUR EINE GRUNDSCHICHT: Wer eine eigene Klasse hat (`.fbtn`, `.knopf`,
+   `button.job`), gewinnt ueber die Spezifitaet; wer eine Farbe inline setzt, gewinnt
+   ohnehin. Diese Regel gibt Form, Schrift und Fokusring — keine neue Palette. So sind
+   alle 104 Stellen auf einmal erfasst, statt jede einzeln zu schmuecken.
+
+   DER FOKUSRING IST KEIN SCHMUCK: Ohne ihn ist fuer Tastaturnutzer nicht erkennbar, wo
+   sie stehen. Mehrere dieser Knoepfe hatten gar keinen. */
+button,select,textarea{
+  font:inherit;color:var(--txt);background:var(--card);
+  border:1px solid var(--border);border-radius:10px;padding:9px 14px;
+}
+button{cursor:pointer;transition:border-color .15s,background .15s}
+button:hover:not([disabled]){border-color:var(--acc)}
+button[disabled]{opacity:.5;cursor:not-allowed}
+textarea{cursor:text;min-height:64px;resize:vertical}
+button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{
+  outline:2px solid var(--acc);outline-offset:2px;
+}
 .fbtn{background:var(--card);border:1px solid var(--border);color:var(--txt);font-size:13px;cursor:pointer;padding:10px 12px;border-radius:10px;white-space:nowrap}
 /* Kopfleiste rechts: Sprache und Person (#206). Beides lag unten in der Seitenleiste —
    also genau in der Ecke, in der es niemand sucht, und mit drei Dauerzeilen für Dinge,
