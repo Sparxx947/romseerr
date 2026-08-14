@@ -500,6 +500,24 @@ KW = [
  (r"commodore\s*64|\bc64\b", "c64"),
  (r"\bdos\b|ms-?dos", "dos"),
  (r"arcade|\bmame\b", "arcade"),
+ # Moderner PC und Mobil — GANZ ZULETZT, weil jedes Konsolenmuster darueber Vorrang haben
+ # muss: `Sonic Heroes [GC, PS2, Xbox, PC]` ist ein GameCube-Abzug, kein PC-Titel. Diese
+ # Treffer kamen bisher mit LEERER Plattform zurueck, waren also anforderbar und landeten
+ # mangels Zielordner in `.unsortiert` — gemessen 21 von 26 Treffern fuer Cyberpunk 2077.
+ #
+ # DER LOOKAHEAD IST DER GANZE PUNKT: `PC Engine` ist TurboGrafx-16, und `pc-fx`,
+ # `pc-8800-series`, `pc-9800-series`, `pc-booter`, `pc-jr` sind eigene Ordner dieser
+ # Bibliothek. Ein schlichtes `\bpc\b` haette sie alle verworfen — derselbe stille Fehler,
+ # vor dem der Kommentar ueber DISC_ID_RE warnt.
+ #
+ # NICHT aufgenommen: `repack`, `codex`, `plaza`, `skidrow`. Sie sehen nach PC aus, stehen
+ # aber auch auf Konsolenabzuegen (`Kirbys Return to Dream Land USA REPACK Wii-ViMTO`), und
+ # `Animal Crossing Plaza` ist ein Wii-U-Titel. An 1.217 echten Treffern gemessen kosteten
+ # sie 14 Fehlgriffe, die uebrigen Marker keinen einzigen.
+ # EN: modern PC/mobile, deliberately last; the lookahead protects the PC-* retro platforms.
+ (r"\bpc\b(?![\s._-]*(?:engine|fx|booter|jr|88|98|8801|9800|6001|50x))"
+  r"|\bwindows\b|\bwin(?:9[58]|xp)\b|\blinux\b|\bmac(?:os)?\b"
+  r"|\bandroid\b|\bios\b|\bapk\b|\bipa\b|\bgog\b|\bsteam\b", "pc"),
 ]
 
 # WAS DIESER STACK NICHT BEDIENT (#607). Kein Ordner, kein Emulator, kein Importweg —
@@ -511,7 +529,10 @@ KW = [
 #
 # EN: platforms this stack does not serve at all; such a hit is never right here, whatever
 # category it arrives under — a different case from #452, where a category is merely coarse.
-NICHT_BEDIENT = {"ps5", "xboxseries"}
+NICHT_BEDIENT = {"ps5", "xboxseries", "pc"}
+#                                    ^^^^ moderner PC und Mobil (#616). Der Retro-PC ist
+# davon NICHT betroffen: `dos`, `scummvm`, `win3x`, `win9x` haben eigene Ordner, und `dos`
+# hat mit `dosbox_pure` sogar einen Kern. Verworfen wird, was hier nie laufen kann.
 
 def guess_platform(text):
     t = (text or "").lower()

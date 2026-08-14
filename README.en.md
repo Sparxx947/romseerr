@@ -105,6 +105,13 @@ The full rule is in
   under Wii, #452): there is no folder, no emulator and no import path for PS5 here, so
   such a hit is **never** right. Dropped hits are logged — a search that quietly returns
   less would be impossible to read.
+  Since #616 the same applies to **modern PC and mobile** (`Windows`, `Linux`, `macOS`,
+  `Android`, `APK`, `GOG`, `Steam`): 21 of 26 hits for *Cyberpunk 2077* came back with no
+  platform at all, were requestable, and landed in `.unsortiert` for want of a destination.
+  **Retro PC stays served** — `dos` (5,903 titles, `dosbox_pure` core) and `scummvm` have
+  their own patterns, which match first. And `PC Engine` is TurboGrafx-16: the pattern
+  explicitly excludes `pc-fx`, `pc-8800`, `pc-9800`, `pc-booter` and `pc-jr`, which are real
+  platforms in this library.
 - **Covers** via IGDB (SteamGridDB fallback), lazily loaded for Usenet hits.
 
 ### Detail page

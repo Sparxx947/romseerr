@@ -1707,6 +1707,31 @@ def test_apostrophe_does_not_split_the_dedup_key(appmod):
     assert appmod.norm("Cap\u2019n Crunch") == appmod.norm("Capn Crunch")
 
 
+def test_pc_releases_are_dropped_like_other_unserved_platforms(appmod):
+    """Moderne PC- und Mobil-Releases kamen mit LEERER Plattform zurueck — weder erkannt
+    noch verworfen. Sie waren anforderbar und landeten mangels Zielordner in
+    `.unsortiert`. Gemessen: 21 von 26 Treffern fuer *Cyberpunk 2077*. (#616)"""
+    for t in ["Cyberpunk 2077 (GOG)", "Hollow Knight - Windows", "Final Fantasy VII - Android",
+              "Dragon Quest Builders Apk", "DOOM II for Mac", "Hollow Knight - Linux",
+              "FINAL FANTASY VII (STEAM VERSION)", "Stardew Valley (PC)"]:
+        assert appmod.guess_platform(t) == "pc", t
+        assert appmod.guess_platform(t) in appmod.NICHT_BEDIENT, t
+
+
+def test_pc_pattern_does_not_swallow_the_pc_retro_platforms(appmod):
+    """Die Falle: `PC Engine` IST TurboGrafx-16, und `pc-fx`, `pc-8800-series`,
+    `pc-9800-series`, `pc-booter`, `pc-jr` sind eigene Ordner dieser Bibliothek. Ein
+    schlichtes `\bpc\b` haette sie alle verworfen — der stille Fehler, vor dem schon
+    `DISC_ID_RE` warnt. (#616)"""
+    assert appmod.guess_platform("PC Engine Bonk") == "turbografx16"
+    assert appmod.guess_platform("Bonk's Adventure (PCE)") == "turbografx16"
+    for t in ["Donkey Kong 3 (NEC PC-8801)", "PC-FX Battle Heat", "PC Booter Collection",
+              "Sharp X1 / PC-98 Rusty", "PC-jr King's Quest"]:
+        assert appmod.guess_platform(t) != "pc", t
+    # DOS bleibt eine bediente Plattform mit eigenem Ordner und Kern.
+    assert appmod.guess_platform("Commander Keen (MS-DOS)") == "dos"
+
+
 def test_a_dot_in_the_title_is_not_a_file_extension(appmod):
     """`os.path.splitext()` haelt ALLES hinter dem letzten Punkt fuer eine Endung. Damit
     verlor `R.B.I. Baseball` sein `Baseball` und `Vol. 3` seine Bandnummer. An 315.706

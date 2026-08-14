@@ -107,6 +107,13 @@ Die vollständige Regel steht in
   (Wii U fährt unter Wii mit, #452): Für PS5 gibt es hier keinen Ordner, keinen Emulator
   und keinen Importweg, ein solcher Treffer ist also **nie** richtig. Verworfene Treffer
   stehen im Protokoll — eine Suche, die still weniger liefert, wäre nicht deutbar.
+  Seit #616 gilt dasselbe für **modernen PC und Mobil** (`Windows`, `Linux`, `macOS`,
+  `Android`, `APK`, `GOG`, `Steam`): 21 von 26 Treffern für *Cyberpunk 2077* kamen ohne
+  Plattform zurück, waren anforderbar und landeten mangels Zielordner in `.unsortiert`.
+  Der **Retro-PC bleibt bedient** — `dos` (5.903 Titel, Kern `dosbox_pure`) und `scummvm`
+  haben eigene Muster, die davor greifen. Und `PC Engine` ist TurboGrafx-16: Das Muster
+  schließt `pc-fx`, `pc-8800`, `pc-9800`, `pc-booter` und `pc-jr` ausdrücklich aus, sonst
+  hätte es echte Plattformen dieser Bibliothek verworfen.
 - **Cover** über IGDB (SteamGridDB als Fallback), für Usenet-Treffer lazy nachgeladen.
 
 ### Detailseite
