@@ -6365,6 +6365,28 @@ def test_the_requests_list_names_an_unknown_platform_instead_of_leaving_a_gap(ap
     assert i18n_hat("plat_unknown") == 5, "der Text fehlt in mindestens einer Sprache"
 
 
+def test_scrollbars_follow_the_active_design(appmod):
+    """Alle vier Designs sind dunkel, die Bildlaufleisten waren Browser-Standard und damit
+    hell — das einzige Element der Seite, das nie gestaltet wurde. (#634)
+
+    AUS DEN VARIABLEN, nicht je Design: So folgt die Leiste automatisch dem aktiven Design,
+    statt vier Definitionen zu brauchen, von denen die fuenfte vergessen wird.
+
+    NICHT AUF NULL DUENNEN und nicht nur beim Ueberfahren zeigen: Auf einer Seite mit langen
+    Cover-Reihen ist die Leiste der einzige Hinweis, dass rechts noch etwas kommt."""
+    css = open(os.path.join(REPO, "static/css/index.css"), encoding="utf-8").read()
+    assert "::-webkit-scrollbar" in css, "Chromium/WebKit bleiben beim hellen Standard"
+    assert "scrollbar-color" in css, "Firefox bleibt beim hellen Standard"
+    # Die Farben muessen aus den Variablen kommen, sonst haengt das an einem Design.
+    block = css[css.index("::-webkit-scrollbar"):]
+    block = block[:2000]
+    assert "var(--" in block, "die Leiste traegt feste Farben statt der Design-Variablen"
+    # Greifbar bleiben: unter 10px ist mit der Maus kaum zu treffen.
+    import re
+    breiten = [int(x) for x in re.findall(r"::-webkit-scrollbar\s*\{[^}]*width:\s*(\d+)px", css)]
+    assert breiten and min(breiten) >= 10, f"Bildlaufleiste zu schmal zum Greifen: {breiten}"
+
+
 def test_a_recommendation_row_is_labelled_the_same_in_both_places(appmod):
     """Die Entdecken-Reihen tragen ihren Namen an ZWEI Stellen: als Ueberschrift und als
     Kaestchen im Anpassen-Dialog. Die Ueberschrift stellte `Weil du angefragt hast:` voran,

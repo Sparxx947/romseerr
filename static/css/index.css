@@ -10,6 +10,29 @@
     because it serves as a text colour elsewhere, where darkening would hurt. */
  --navon:#7350f0;--navtxt:#fff}
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--txt);transition:background .25s}
+/* ---- Bildlaufleisten (#634) ----
+   Alle vier Designs sind dunkel; der Browser-Standard ist hell und war damit das einzige
+   Element der Seite, das nie gestaltet wurde.
+
+   AUS DEN VARIABLEN, NICHT JE DESIGN: So folgt die Leiste dem aktiven Design von selbst —
+   Aurora bekommt einen orangeroten Greifer, Seerr einen violetten, und ein fuenftes Design
+   braucht keine eigene Regel. Vier Kopien waeren vier Stellen, an denen die naechste
+   vergessen wird.
+
+   BEWUSST NICHT DUENN UND NICHT NUR BEIM UEBERFAHREN: Auf einer Seite mit langen
+   Cover-Reihen ist die Leiste der einzige Hinweis, dass rechts noch etwas kommt. Unter
+   10 px ist sie mit der Maus kaum zu treffen — schmal ist nicht das Ziel, passend schon.
+   EN: derived from the design variables so every theme is covered; deliberately not thin
+   and not hover-only, because the bar is the only cue that a cover row continues. */
+*{scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+::-webkit-scrollbar{width:12px;height:12px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{
+  background:var(--border);border-radius:8px;
+  border:3px solid transparent;background-clip:content-box;
+}
+::-webkit-scrollbar-thumb:hover{background:var(--acc);background-clip:content-box}
+::-webkit-scrollbar-corner{background:transparent}
 /* ---- Designs (per Nutzer/global wählbar über <html data-design=…>) ---- */
 /* seerr = Standard (die :root-Werte oben, dunkel & poliert). glass & clean unten. */
 [data-design=glass]{--bg:#0b0e1a;--card:rgba(32,37,58,.55);--acc:#22d3ee;--acc2:#6366f1;--txt:#eaf2ff;--mut:#93a0c0;
