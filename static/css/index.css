@@ -29,6 +29,98 @@
 [data-design=clean] #side .logo{background:none;-webkit-text-fill-color:var(--txt);color:var(--txt)}
 [data-design=clean] .nav.on{box-shadow:inset 3px 0 0 var(--acc);border-radius:0 8px 8px 0}
 [data-design=clean] .card,[data-design=clean] .pcover{box-shadow:none}
+
+/* ---- aurora: Farbverlauf oben, Navigation oben, Buehne ueber den Reihen (#629) ----
+   DIE LEITIDEE, und sie ist keine Zier: Romseerrs Entdecken-Ansicht ist COVER-DOMINIERT.
+   Ein Verlauf HINTER den Reihen stellt zwei Farbquellen gegeneinander, und beide
+   verlieren. Der Verlauf gehoert deshalb dorthin, wo keine Cover liegen — Buehne,
+   Kopfleiste, Leerflaechen — und blendet vor der ersten Reihe aus.
+
+   ZWEI ROTTOENE, wie schon beim Violett (#330): `--acc` ist eine TEXTfarbe auf dunklem
+   Grund (5,99:1) und dafuer hell genug; auf einer FLAECHE mit weisser Schrift ergaebe
+   derselbe Ton nur 3,31:1. Fuer Flaechen deshalb `--navon` mit 4,69:1. Nachgerechnet,
+   nicht geschaetzt. */
+[data-design=aurora]{
+  --bg:#0b0910;--card:#16121d;--acc:#ff4d2e;--acc2:#7c5cff;--txt:#f3f0f7;--mut:#9990a6;
+  --side:#100d16;--topbar:#100d16;--border:#241f2e;--hover:#1b1724;--input:#100d16;
+  --radius:14px;--shadow:0 10px 26px rgba(0,0,0,.45);--blur:0px;
+  --navon:#d63a19;--navtxt:#fff;
+}
+/* Navigation nach oben. Derselbe Griff, den die Mobil-Abfrage weiter unten schon macht —
+   die Technik ist in dieser Datei erprobt, nur ohne Bildschirmbreite als Bedingung. */
+[data-design=aurora] #side{
+  position:static;width:auto;flex-direction:row;flex-wrap:wrap;align-items:center;
+  gap:2px;padding:10px 16px;border-right:0;border-bottom:1px solid var(--border);
+  position:relative;overflow:hidden;
+}
+[data-design=aurora] main{margin-left:0;display:flex;flex-direction:column}
+/* Die Buehne VOR die Suchleiste ziehen. Im Markup steht sie hinter `#topbar`, weil sie
+   inhaltlich zur Entdecken-Ansicht gehoert — optisch gehoert sie aber nach oben, sonst
+   steht die Suche ueber ihrer eigenen Ueberschrift. `order` loest das ohne HTML-Umbau
+   und ohne die Reihenfolge fuer Vorleser zu verdrehen, denn die bleibt am Markup. */
+[data-design=aurora] #buehne{order:-1}
+[data-design=aurora] #cfgwarn{order:-2}
+[data-design=aurora] #side .logo{margin:0 16px 0 4px;font-size:18px;
+  background:linear-gradient(95deg,#ff8a3d,#ff4d2e);-webkit-background-clip:text;background-clip:text}
+[data-design=aurora] #side .grow{flex:1}
+[data-design=aurora] .nav{padding:8px 13px;margin:0;border-radius:11px}
+[data-design=aurora] .nav.on{box-shadow:0 5px 16px rgba(214,58,25,.34)}
+/* Der Verlauf in der Leiste: hinter der Navigation liegen keine Cover. */
+[data-design=aurora] #side::before{
+  content:"";position:absolute;inset:-260% -30% auto -30%;height:520%;pointer-events:none;
+  background:radial-gradient(38% 46% at 16% 50%,rgba(255,77,46,.40),transparent 66%),
+             radial-gradient(40% 48% at 84% 46%,rgba(124,92,255,.46),transparent 68%);
+  filter:blur(38px);
+}
+[data-design=aurora] #side>*{position:relative}
+[data-design=aurora] #topbar{background:transparent;border-bottom:1px solid var(--border)}
+[data-design=aurora] #q,[data-design=aurora] .fbtn{border-radius:999px}
+[data-design=aurora] #q{padding-left:16px}
+[data-design=aurora] .card,[data-design=aurora] .pcover{border-radius:var(--radius)}
+[data-design=aurora] .pcard:hover .pcover{transform:translateY(-4px)}
+
+/* Die Buehne. Nur in diesem Design sichtbar und nur, solange nichts gesucht wurde —
+   `#buehne` traegt sonst `hidden`. */
+#buehne{display:none}
+[data-design=aurora] #buehne{
+  display:block;position:relative;overflow:hidden;text-align:center;
+  padding:52px 26px 44px;border-bottom:1px solid var(--border);
+}
+[data-design=aurora] #buehne::before{
+  content:"";position:absolute;inset:-70% -25% -14% -25%;pointer-events:none;
+  background:
+    radial-gradient(42% 52% at 15% 4%, rgba(255,77,46,.62), transparent 62%),
+    radial-gradient(46% 54% at 85% 8%, rgba(124,92,255,.66), transparent 64%),
+    radial-gradient(62% 60% at 50% 32%, rgba(214,60,140,.34), transparent 66%);
+  filter:blur(46px) saturate(1.12);
+  animation:aurora-wandern 32s ease-in-out infinite alternate;
+}
+/* Ausblenden vor der ersten Reihe: ab hier gehoert die Buehne den Covern. */
+[data-design=aurora] #buehne::after{
+  content:"";position:absolute;left:0;right:0;bottom:0;height:44%;pointer-events:none;
+  background:linear-gradient(to bottom,transparent,var(--bg));
+}
+@keyframes aurora-wandern{
+  from{transform:translate3d(-2%,-1%,0) scale(1)}
+  to{transform:translate3d(3%,2%,0) scale(1.07)}
+}
+@media (prefers-reduced-motion:reduce){[data-design=aurora] #buehne::before{animation:none}}
+[data-design=aurora] #buehne>*{position:relative}
+[data-design=aurora] #buehne .bmarke{
+  font-family:ui-monospace,Menlo,monospace;font-size:11.5px;letter-spacing:.22em;
+  text-transform:uppercase;color:var(--mut);margin-bottom:16px;
+}
+[data-design=aurora] #buehne h1{
+  margin:0 0 14px;font-size:clamp(32px,4.2vw,58px);line-height:.99;
+  letter-spacing:-.045em;font-weight:820;
+}
+[data-design=aurora] #buehne h1 span{
+  background:linear-gradient(100deg,var(--acc),#ff9a4d 42%,var(--acc2));
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+[data-design=aurora] #buehne p{
+  margin:0 auto;max-width:600px;color:var(--mut);font-size:16px;line-height:1.6;
+}
 [data-design=clean] .pcard:hover .pcover{transform:none;border-color:var(--acc)}
 #side{position:fixed;top:0;left:0;bottom:0;width:210px;background:var(--side);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:16px 12px;z-index:6}
 #side .logo{font-size:20px;font-weight:700;margin:4px 8px 18px;background:linear-gradient(90deg,#8a7bff,#6c5ce7);-webkit-background-clip:text;background-clip:text;color:transparent}
