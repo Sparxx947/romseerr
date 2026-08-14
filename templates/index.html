@@ -36,6 +36,14 @@
  <a class=nav id=nM href="#/messages" onclick="return navGeh('msg')"><span class=navsym aria-hidden=true>✉️</span><span data-i18n=nav_messages>Nachrichten</span><span id=msgbadge></span></a>
  <a class=nav id=nSet href="#/settings" onclick="return navGeh('set')" style="display:none"><span class=navsym aria-hidden=true>⚙️</span><span data-i18n=nav_settings>Einstellungen</span></a>
 </div>
+<!-- Eigener Bestaetigungsdialog statt `confirm()` (#641). Ein nativer Dialog wird vom
+     BROWSER gezeichnet, ist mit keiner Regel erreichbar und friert ausserdem die Seite
+     fuer die Browsertests ein — mehrere zerstoerende Pfade hatten deshalb gar keine
+     Abdeckung. `<dialog>` bringt Fokusfalle, Escape und oberste Ebene selbst mit. -->
+<dialog id=frage aria-labelledby=frage-text>
+ <p id=frage-text></p>
+ <div class=frage-knoepfe></div>
+</dialog>
 <main>
  <!-- Konfigurationswarnungen: nur für Verwalter, nur wenn etwas kaputt ist. Ein Weg,
       der gar nicht erst starten kann, gehört hierhin und nicht ausschließlich ins Log. (#197) -->

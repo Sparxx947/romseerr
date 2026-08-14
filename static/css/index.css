@@ -201,6 +201,24 @@ main{padding-bottom:52px}
 #fuss .warn{color:#d29922}
 #topbar{position:sticky;top:0;background:var(--topbar);padding:14px 18px;display:flex;gap:12px;align-items:center;border-bottom:1px solid var(--border);z-index:5}
 input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid var(--border);background:var(--input);color:var(--txt);font-size:15px}
+/* ---- Bestaetigungsdialog (#641) ----
+   Ersetzt `confirm()`, das nicht gestaltbar ist. Farben aus den Variablen, damit er jedem
+   Design folgt. `::backdrop` verdunkelt den Rest — ohne ihn steht der Dialog auf dem
+   Inhalt statt darueber. */
+dialog#frage{
+  border:1px solid var(--border);border-radius:16px;background:var(--card);color:var(--txt);
+  padding:22px 24px 18px;max-width:min(520px,92vw);box-shadow:0 24px 60px rgba(0,0,0,.6);
+}
+dialog#frage::backdrop{background:rgba(4,3,8,.62);backdrop-filter:blur(2px)}
+dialog#frage p{margin:0 0 18px;font-size:15px;line-height:1.55;white-space:pre-line}
+.frage-knoepfe{display:flex;gap:9px;justify-content:flex-end;flex-wrap:wrap}
+.frage-knoepfe button{padding:9px 16px}
+/* Die zerstoerende Wahl traegt die Warnfarbe, das Abbrechen bleibt neutral und steht
+   zuletzt — und ist der Standard, damit Enter niemals loescht. */
+.frage-knoepfe button.gefahr{background:#7d2a1c;border-color:#95331f;color:#fff}
+.frage-knoepfe button.gefahr:hover{background:#95331f}
+[data-design=aurora] dialog#frage{border-radius:20px}
+
 /* ---- Grundstile fuer Bedienelemente (#639) ----
    `input` bekam diese Behandlung vor Jahren, `button`, `select` und `textarea` nie: 84
    Knoepfe und 20 Auswahlfelder trugen gar keine Klasse und fielen damit auf den
