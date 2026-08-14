@@ -636,3 +636,38 @@ def test_der_update_hinweis_verlinkt_die_genannte_version(seite, eingerichtet):
     assert ziel.endswith("/releases/tag/v1.3.0-beta.2"), (
         f"der Link fuehrt woandershin als sein Text verspricht: {ziel}")
     assert "noopener" in (link.get_attribute("rel") or ""), "rel fehlt am externen Link"
+
+
+def test_der_gefahrenknopf_hebt_sich_in_jedem_design_ab(seite):
+    """Ein als gefaehrlich markierter Knopf muss anders aussehen als seine Nachbarn.
+
+    WARUM IM BROWSER: Die Unit-Tests pruefen, dass die Klasse im Markup steht, die Regel im
+    Stylesheet und die Variable je Design gesetzt ist. Alles drei war wahr, waehrend der
+    Knopf auf der Einstellungsseite orange blieb wie jeder andere — `#setcontent button`
+    faerbt mit einer ID, und eine ID schlaegt jede Klasse. Was am Ende gilt, entscheidet
+    die Kaskade, und die rechnet nur ein echter Browser aus. (#647)
+    """
+    seite.evaluate("location.hash='#/settings/maint'")
+    seite.wait_for_timeout(600)
+    assert seite.locator("#setcontent").count() == 1, "Einstellungsseite nicht geladen"
+
+    designs = seite.evaluate("typeof DESIGNS!=='undefined'?DESIGNS:['aurora']")
+    assert len(designs) >= 2, f"zu wenige Designs gefunden: {designs}"
+
+    gleich = []
+    for d in designs:
+        seite.evaluate(f"document.documentElement.dataset.design={d!r}")
+        seite.wait_for_timeout(250)
+        farben = seite.evaluate("""() => {
+          const wirt = document.getElementById('setcontent');
+          const mach = (k) => { const b = document.createElement('button');
+            if (k) b.className = k; b.textContent = 'x'; wirt.appendChild(b);
+            const s = getComputedStyle(b);
+            const c = [s.backgroundColor, s.color]; b.remove(); return c; };
+          return {normal: mach(''), gefahr: mach('gefahr')};
+        }""")
+        if farben["gefahr"][0] == farben["normal"][0]:
+            gleich.append(f"{d}: beide {farben['gefahr'][0]}")
+
+    assert not gleich, ("der Gefahrenknopf sieht aus wie ein gewoehnlicher: "
+                        + "; ".join(gleich))
