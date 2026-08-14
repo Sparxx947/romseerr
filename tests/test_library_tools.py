@@ -657,6 +657,87 @@ def test_a_platform_whose_games_are_png_is_not_emptied(org, tmp_path):
         f"PICO-8-Karten wurden verschoben: {verblieben}"
 
 
+def test_amiga_icons_and_tracker_music_are_ancillary(org, tmp_path):
+    """`.info`, `.sid` und `.mod` sind kein Spielformat — sie gehoeren nicht auf Ebene 1. (#318)
+
+    AM ECHTEN BESTAND GEMESSEN (2026-08-14), Ebene 1 unter `<roms>`:
+
+        amiga    55.102 `.sid`   37.315 `.info`   15.938 `.mod`   von 273.002 Eintraegen
+        c64       9.012 `.sid`                                    von  72.061 Eintraegen
+
+    Zusammen **117.366 Eintraege**, die RomM als Spiele zaehlt — mehr, als die Bibliothek
+    vor dem Umbau ueberhaupt an Titeln hatte. Es ist Musik und Dekoration:
+
+        `.info`   200 von 200 beginnen mit `E3 10 00 01` — Amiga DiskObject, ein
+                  Workbench-Symbol. Es beschreibt die Datei daneben, es IST sie nicht.
+        `.sid`    198 `PSID` + 2 `RSID` von 200 — C64-Musik (High Voltage SID Collection).
+        `.mod`    175 von 200 tragen `M.K.`/`M!K!` bei 1080 — ProTracker. Der Rest sind
+                  aeltere 15-Instrumente-Fassungen, die per Bauart kein Kennzeichen haben.
+
+    DIE PROBE, DIE DIE ENTSCHEIDUNG TRAEGT: `ROM_EXT` in `app.py` kennt keine der drei.
+    Romseerrs Importer haelt sie also laengst fuer Nicht-ROMs — das Werkzeug zieht hier
+    nach, es entscheidet nichts Neues.
+
+    EN: Workbench icons and tracker/SID music are ancillary, not games. Romseerr's own
+    importer already refuses all three; this only aligns the library tool with it.
+    """
+    for endung in (".info", ".sid", ".mod"):
+        assert endung in org.BEIWERK, f"{endung} zaehlt noch als Spiel"
+
+    # Und durch den ganzen Umbau, nicht nur gegen die Liste: Das Verhaeltnis bleibt unter
+    # der Schranke aus `BEIWERK_HOECHSTANTEIL` — am Bestand sind es 40 % (amiga), hier 8
+    # von 20 Eintraegen.
+    basis = tmp_path / "amiga"
+    basis.mkdir()
+    for i in range(12):
+        (basis / f"Spiel {i}.adf").write_bytes(os.urandom(64))
+    for n in ("Spiel 0.adf.info", "Disk.info", "Commando.sid", "Ocean Loader.sid",
+              "axel_f.mod", "enigma.mod", "cover.jpg", "liesmich.txt"):
+        (basis / n).write_bytes(os.urandom(32))
+
+    class StummesProtokoll:
+        def schreiben(self, *a, **k): pass
+    org.umbauen(str(tmp_path), "amiga", False, StummesProtokoll())
+
+    spiele = sorted(p.name for p in basis.iterdir() if p.name != "_beiwerk")
+    assert len(spiele) == 12 and all(x.endswith(".adf") for x in spiele), \
+        f"Ebene 1 stimmt nicht: {spiele}"
+    gesammelt = sorted(p.name for p in (basis / "_beiwerk").iterdir())
+    assert gesammelt == ["Commando.sid", "Disk.info", "Ocean Loader.sid",
+                         "Spiel 0.adf.info", "axel_f.mod", "cover.jpg",
+                         "enigma.mod", "liesmich.txt"], gesammelt
+
+
+def test_no_platform_holds_its_games_in_an_ancillary_format(org):
+    """Keine der Beiwerk-Endungen darf zugleich als ROM gelten. (#318)
+
+    Der Beinahe-Schaden von `pico8` war genau dieser Widerspruch: `.png` stand als Beiwerk
+    UND war das Spielformat. Er wurde damals von Hand als Ausnahme nachgetragen. Diese
+    Pruefung faengt den naechsten Fall automatisch — sie liest `ROM_EXT` aus `app.py` und
+    verlangt, dass sich die beiden Listen nicht ueberschneiden, ausser wo eine
+    `BEIWERK_AUSNAHME` den Widerspruch ausdruecklich benennt.
+
+    EN: an extension may not be ancillary and a ROM format at the same time, unless a
+    per-platform exception says so out loud.
+    """
+    import ast
+    with open(os.path.join(WURZEL, "app.py"), encoding="utf-8") as f:
+        quelle = f.read()
+    rom_ext = None
+    for knoten in ast.walk(ast.parse(quelle)):
+        if (isinstance(knoten, ast.Assign)
+                and any(getattr(z, "id", "") == "ROM_EXT" for z in knoten.targets)):
+            rom_ext = {"." + x for x in ast.literal_eval(knoten.value)}
+            break
+    assert rom_ext, "ROM_EXT nicht in app.py gefunden"
+
+    benannt = set().union(*org.BEIWERK_AUSNAHME.values()) if org.BEIWERK_AUSNAHME else set()
+    widerspruch = (org.BEIWERK & rom_ext) - benannt
+    assert not widerspruch, (
+        f"{sorted(widerspruch)} gilt als Beiwerk UND als ROM — entweder aus BEIWERK "
+        f"nehmen oder als BEIWERK_AUSNAHME der betroffenen Plattform benennen")
+
+
 def test_collection_is_refused_when_it_would_take_most_of_the_platform(org, tmp_path):
     """Waeren mehr als die Haelfte betroffen, wird NICHT eingesammelt. (#399)
 
