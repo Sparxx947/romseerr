@@ -32,7 +32,7 @@ jobs:
     steps:
       # 1) Der zu prüfende Stand.
       - name: Checkout (zu prüfen / under review)
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           path: pr
           fetch-depth: 0
@@ -45,7 +45,7 @@ jobs:
       # From the TARGET branch, not the default branch: a PR must be judged by the rule
       # in force where it is going. What matters stays the same — never the PR itself.
       - name: Checkout policy checker from the target branch
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ github.base_ref || github.ref_name }}
           path: policy
