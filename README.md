@@ -810,6 +810,16 @@ derselben **mit**, und innerhalb des Vorabteils Bezeichner für Bezeichner mit Z
 Zahlen — `beta.10` steht über `beta.9`, obwohl es sich buchstabiert davor einsortieren
 würde.
 
+**Der Hinweis verlinkt die Version, die er nennt.** Die Web-Adresse
+`<repo>/releases/latest` überspringt Vorabversionen genauso wie der gleichnamige
+API-Endpunkt — an fremden Repos nachgemessen: `kubernetes/kubernetes` leitet auf `v1.36.3`
+um, obwohl `v1.37.0-rc.0` neuer ist, und ein Repo ohne infrage kommenden Release landet auf
+der Übersicht `/releases`, nicht auf einer 404. In einem Projekt, dessen Releases
+ausnahmslos Betas sind, führte der Klick also überall hin, nur nicht auf die Fassung, die
+der Linktext ausdrücklich nennt. Er zeigt deshalb auf `<repo>/releases/tag/v<version>` —
+dasselbe Muster, das die Fußzeile für die laufende Version schon benutzt — und fällt nur
+dann auf die Übersicht zurück, wenn gar keine Version bekannt ist.
+
 **Eine andere Version fahren** heißt für einen ziehenden Container: die Marke am Abbild
 ändern, mehr nicht.
 

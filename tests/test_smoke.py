@@ -3025,6 +3025,41 @@ def test_the_footer_shows_the_version_only_to_signed_in_visitors():
     assert "main{padding-bottom:" in css, "ohne Ausgleich verdeckt die Fußzeile den Inhalt"
 
 
+def test_the_update_notice_links_to_the_version_it_names():
+    """Der Linktext nennt eine Version — dann muss der Link auch dorthin führen. (#577)
+
+    `/releases/latest` verhält sich wie der gleichnamige API-Endpunkt aus #572: Es
+    überspringt Vorabversionen. Nachgemessen an fremden Repos, nicht angenommen —
+    `kubernetes/kubernetes` leitet auf `v1.36.3` um, obwohl `v1.37.0-rc.0` neuer ist, und
+    ein Repo ohne infrage kommenden Release landet auf der Übersicht `/releases`. Da alle
+    Releases dieses Projekts Vorabversionen sind (bzw. es werden, #572), zeigte der Link
+    also überall hin, nur nicht auf die im Text genannte Fassung.
+
+    Die Fußzeile macht es zwei Funktionen weiter oben schon richtig; hier dasselbe Muster.
+
+    EN: the web URL /releases/latest skips pre-releases exactly like the API endpoint, so
+    the link went somewhere other than the version its own text names.
+    """
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    fn = js[js.index("async function secAbout(c){"):]
+    fn = fn[:fn.index("\nasync function ", 1)]
+    # Ohne die Kommentarzeilen — die Begründung darf die Adresse nennen, der Code nicht.
+    code = "\n".join(z for z in fn.splitlines() if not z.lstrip().startswith("//"))
+    assert "/releases/latest" not in code, \
+        "der Hinweis zeigt weiterhin auf /releases/latest, das Vorabversionen überspringt"
+    assert "releases/tag/v${encodeURIComponent(ver.latest)}" in fn, \
+        "der Link führt nicht auf den Release, den sein eigener Text nennt"
+    # Ohne `ver.latest` gibt es kein Ziel — dann die Übersicht statt einer 404-Adresse
+    # `/releases/tag/v`. Der Server liefert `update_available` zwar nur mit `latest`
+    # zusammen, aber der Rückfall kostet nichts und hält die Stelle für sich allein wahr.
+    assert "`${repo}/releases`" in fn, "ohne latest fehlt der Rückfall auf die Übersicht"
+    # Der Fuß setzt rel, dieser Block nicht — dieselbe Sorte Link, dieselbe Regel.
+    zeilen = [z for z in fn.splitlines() if "target=_blank" in z]
+    assert zeilen, "keine externen Links im Über-Abschnitt gefunden — Test prüft nichts"
+    for z in zeilen:
+        assert "rel=" in z, f"externer Link ohne rel: {z.strip()[:90]}"
+
+
 def test_escape_closes_the_menu_first_and_the_dialog_second():
     """Ein Handler für Escape, nicht zwei, die um dieselbe Taste konkurrieren. Und mit
     offenem Menü über dem Fenster schließt der erste Druck das Menü, der zweite das
