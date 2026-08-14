@@ -17,6 +17,29 @@
 # merged into main carries changes past dev. Measured 2026-08-13: dev was 53 commits ahead,
 # main had none of its own, and eleven such PRs were open at once. Not redundant; do not tidy
 # it away.
+#
+# WARUM `groups` (#585): Ein PR je Abhaengigkeit ist hier ueberdurchschnittlich teuer. Das
+# Ruleset auf `dev` traegt `strict_required_status_checks_policy: true`, und Auto-Merge ist
+# im Repository abgeschaltet — jeder Merge setzt also ALLE uebrigen Dependabot-PRs zurueck
+# auf `BEHIND`, und jeder braucht danach eine eigene Runde aus Nachziehen und voller CI.
+#
+# Gemessen am 2026-08-14 an sechs offenen PRs (#566-#571): 106 s, 259 s, 453 s, 627 s, 779 s
+# bis `CLEAN`, danach fuer #571 ein echter Merge-Konflikt, weil die frueheren Bumps
+# benachbarte Zeilen derselben Workflow-Dateien angefasst hatten. Rund 40 Minuten und sechs
+# volle CI-Laeufe fuer sechs einzeilige Versionsspruenge.
+#
+# WARUM ZWEI GRUPPEN JE OEKOSYSTEM statt einer: Ein Hauptversionssprung kann brechen — heute
+# waren vier der sechs welche, und jeder brauchte einen Blick in die Release-Notes (entfernte
+# Eingaben, geaenderte Laufzeit). Lieber die harmlosen minor/patch geschlossen durchwinken und
+# die Majors zusammen, aber getrennt davon pruefen: Ein rotes Major blockiert dann nicht die
+# uebrigen Aktualisierungen, und ein Rueckbau trifft nur seine Gruppe.
+#
+# EN: one PR per dependency is expensive here — `dev` requires branches to be up to date and
+# auto-merge is disabled, so every merge sends the remaining PRs back to `BEHIND` and each
+# needs its own update + full CI round. Measured 2026-08-14 across #566-#571: ~40 minutes and
+# six CI runs for six one-line bumps, plus one real conflict between adjacent lines. Two
+# groups per ecosystem, not one: majors can break (four of those six were majors), so they
+# travel together but apart from minor/patch — a red major then blocks only its own group.
 version: 2
 updates:
   - package-ecosystem: docker
@@ -24,13 +47,34 @@ updates:
     target-branch: dev
     schedule:
       interval: weekly
+    groups:
+      docker-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      docker-major:
+        patterns: ["*"]
+        update-types: ["major"]
   - package-ecosystem: github-actions
     directory: /
     target-branch: dev
     schedule:
       interval: weekly
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      actions-major:
+        patterns: ["*"]
+        update-types: ["major"]
   - package-ecosystem: pip
     directory: /
     target-branch: dev
     schedule:
       interval: weekly
+    groups:
+      pip-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      pip-major:
+        patterns: ["*"]
+        update-types: ["major"]

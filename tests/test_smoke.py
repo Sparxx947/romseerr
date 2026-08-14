@@ -2175,6 +2175,44 @@ def test_dependabot_opens_its_pull_requests_where_work_happens():
         f"wo nicht entwickelt wird: {falsch}")
 
 
+def test_every_dependabot_entry_groups_its_updates():
+    """Ohne `groups` oeffnet Dependabot einen PR je Abhaengigkeit — hier besonders teuer. (#585)
+
+    WARUM DAS ZAEHLT: Das Ruleset auf `dev` traegt
+    `strict_required_status_checks_policy: true`, und Auto-Merge ist im Repository
+    abgeschaltet. Jeder Merge setzt damit ALLE uebrigen Dependabot-PRs auf `BEHIND`
+    zurueck, und jeder braucht danach eine eigene Runde aus Nachziehen und voller CI.
+
+    GEMESSEN am 2026-08-14 an sechs offenen PRs (#566-#571): 106 s, 259 s, 453 s, 627 s,
+    779 s bis `CLEAN`, danach fuer #571 ein echter Merge-Konflikt, weil die frueheren
+    Bumps benachbarte Zeilen derselben Workflow-Dateien angefasst hatten. Rund 40 Minuten
+    und sechs volle CI-Laeufe fuer sechs einzeilige Versionsspruenge.
+
+    Geprueft wird JEDER Eintrag und die TRENNUNG nach `update-types`: Ein Hauptversions-
+    sprung kann brechen — vier der sechs waren welche — und darf, wenn er rot wird, nicht
+    die harmlosen minor/patch mit blockieren. Eine einzige Gruppe je Oekosystem waere
+    genau dieser Fehler.
+
+    EN: without `groups` Dependabot opens one PR per dependency, and with strict status
+    checks plus auto-merge disabled each merge invalidates the rest. Every entry must
+    group, and majors must travel in their own group so a breaking one cannot block
+    minor/patch updates.
+    """
+    d = yaml.safe_load(open(os.path.join(REPO, ".github/dependabot.yml"), encoding="utf-8"))
+    eintraege = d.get("updates") or []
+    assert eintraege, "dependabot.yml hat keine Eintraege"
+    for u in eintraege:
+        oeko = u.get("package-ecosystem")
+        gruppen = u.get("groups") or {}
+        assert gruppen, f"{oeko}: keine `groups` — jede Abhaengigkeit kaeme wieder einzeln"
+        arten = [set(g.get("update-types") or []) for g in gruppen.values()]
+        assert {"major"} in arten, (
+            f"{oeko}: keine eigene Gruppe nur fuer `major` — ein brechender Sprung "
+            "blockierte sonst auch minor/patch")
+        assert {"minor", "patch"} in arten, (
+            f"{oeko}: keine Gruppe fuer minor/patch — gefunden: {arten}")
+
+
 def test_content_policy_checker_comes_from_the_target_branch():
     """Nie aus dem PR selbst — sonst senkt ein Beitrag seine eigene Schranke. Und nicht
     aus dem Standardzweig, sonst pruefte ein Release-PR nach der falschen Regel. (#111)"""

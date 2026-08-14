@@ -945,6 +945,15 @@ Only the `--- direkt / direct ---` section is hand-kept: what `app.py` imports i
 test tooling in `requirements-dev.txt` stays **deliberately open** — a drifting test tool
 turns CI red and is therefore visible, a drifting runtime dependency ships silently.
 
+**Dependabot groups its updates** (`groups` in `.github/dependabot.yml`, #585): one group
+per ecosystem for `minor`/`patch`, another for `major`. The reason is cost, not tidiness.
+`dev` requires a branch to be up to date and auto-merge is disabled for the repository, so
+**every merge sends all remaining Dependabot PRs back to `BEHIND`**, each then needing its
+own full CI round. On 2026-08-14 six one-line version bumps cost roughly 40 minutes and six
+CI runs, plus a merge conflict between adjacent lines of the same workflow file. Majors
+stay separate because they can break — four of those six were majors — and a red one would
+otherwise block the harmless updates as well.
+
 ---
 
 ## Project status
