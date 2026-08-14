@@ -68,7 +68,7 @@ Die vollständige Regel steht in
 - ⭐ **Wunschliste mit Auto-Download**, **Sammel-Anfragen**, **Anfrage im Namen anderer**,
   **personalisierte Empfehlungen** und **Reihen-/Collection-Ansicht**.
 - ✉️ **Nachrichten** zwischen Nutzern, **Problem-Meldungen** mit Kommentaren, **Sperrliste**.
-- 🎨 **Drei wählbare Designs** (Seerr / Glas / Klar) und **fünf Sprachen** (DE/EN/FR/ES/IT).
+- 🎨 **Vier wählbare Designs** (Seerr / Glas / Klar / Aurora) und **fünf Sprachen** (DE/EN/FR/ES/IT).
 - 🔔 **Benachrichtigungen** über Discord, Telegram, E-Mail, Gotify, ntfy, Pushover und **Web-Push (PWA)**.
 - 🔑 **REST-API** mit API-Key und vollständiger **OpenAPI-3.1**-Doku (`/api/docs`).
 - 🧩 **Ein einziges `app.py`** (Python 3.14 / Flask), **SQLite**-Persistenz, kein Build-Schritt,
@@ -823,8 +823,13 @@ In der Oberfläche konfigurierbar (jeweils mit Testknopf):
 
 ## Designs & Sprachen
 
-- **Designs:** drei wählbare Looks — **Seerr** (dunkel, poliert), **Glas** (Glassmorphism,
-  Farbverlauf + Blur), **Klar** (flach, minimal). Der Admin setzt den Standard, jeder Nutzer
+- **Designs:** vier wählbare Looks — **Seerr** (dunkel, poliert), **Glas** (Glassmorphism,
+  Farbverlauf + Blur), **Klar** (flach, minimal) und **Aurora** (#629): Navigation oben statt
+  links, Bühne über den Entdecken-Reihen, Farbverlauf und ein kräftiger Akzent.
+  **Der Verlauf liegt bewusst nur dort, wo keine Cover sind** — Bühne, Kopfleiste,
+  Leerflächen — und blendet vor der ersten Reihe aus. Die Entdecken-Ansicht ist
+  cover-dominiert; ein Verlauf dahinter stellt zwei Farbquellen gegeneinander, und beide
+  verlieren. Der Admin setzt den Standard, jeder Nutzer
   wählt im Profil ein eigenes. Eigene Designs lassen sich leicht ergänzen — siehe die Wiki-Seite
   **[Designs / Themes](../../wiki/Designs)**.
 - **Sprachen:** Deutsch, Englisch, Französisch, Spanisch, Italienisch (Umschalter in der Seitenleiste).

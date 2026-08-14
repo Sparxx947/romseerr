@@ -67,7 +67,7 @@ The full rule is in
 - ⭐ **Wishlist with auto-download**, **bulk requests**, **request on behalf of others**,
   **personalized recommendations** and a **series/collection** view.
 - ✉️ **Private messages** between users, **issue reports** with comments, a **blocklist**.
-- 🎨 **Three selectable designs** (Seerr / Glass / Clean) and **five languages** (DE/EN/FR/ES/IT).
+- 🎨 **Four selectable designs** (Seerr / Glass / Clean / Aurora) and **five languages** (DE/EN/FR/ES/IT).
 - 🔔 **Notifications** via Discord, Telegram, email, Gotify, ntfy, Pushover and **web push (PWA)**.
 - 🔑 **REST API** with an API key and a full **OpenAPI 3.1** doc (`/api/docs`).
 - 🧩 **A single `app.py`** (Python 3.14 / Flask), **SQLite** persistence, no build step,
@@ -792,8 +792,13 @@ user can also set a **personal Discord webhook**. Password reset is done via ema
 
 ## Designs & languages
 
-- **Designs:** three selectable looks — **Seerr** (dark, polished), **Glass** (glassmorphism,
-  gradient + blur), **Clean** (flat, minimal). The admin sets the default, each user picks their own
+- **Designs:** four selectable looks — **Seerr** (dark, polished), **Glass** (glassmorphism,
+  gradient + blur), **Clean** (flat, minimal) and **Aurora** (#629): navigation on top instead of
+  the side, a hero above the discover rows, an aurora gradient and one strong accent.
+  **The gradient deliberately sits only where there are no covers** — hero, top bar, empty
+  states — and fades out before the first row. The discover view is cover-dominated; a
+  gradient behind it puts two colour sources in competition and both lose.
+  The admin sets the default, each user picks their own
   in the profile. Adding your own design is easy — see the wiki page
   **[Designs / Themes](../../wiki/Designs)**.
 - **Languages:** German, English, French, Spanish, Italian (switcher in the sidebar).

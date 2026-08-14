@@ -69,6 +69,15 @@
   </div>
  </div>
  <div id=filter></div>
+ <!-- Die Buehne des Aurora-Designs. Steht VOR dem Raster, ist in den anderen Designs
+      per CSS ausgeblendet (`#buehne{display:none}`) und verschwindet, sobald gesucht wird —
+      `zeigeBuehne()` setzt `hidden`. Der Text liegt in der Sprachtabelle, nicht im CSS:
+      ein `content:`-Text waere nicht uebersetzbar und fuer Vorleser unsichtbar. (#629) -->
+ <div id=buehne>
+  <div class=bmarke id=bmarke></div>
+  <h1><span data-i18n=hero_titel>Finde ein Spiel.</span><br><span data-i18n=hero_titel2>Spiel es sofort.</span></h1>
+  <p data-i18n=hero_text>Suche über Archive.org und Usenet, sieh was schon da ist, und starte es im Browser oder auf dem Stream-Host — ohne Umweg.</p>
+ </div>
  <div id=discview><div id=grid></div><div class=hint id=hint data-i18n=hint_type>Tippe einen Titel und drücke Enter.</div></div>
  <div id=jobs></div>
  <div id=settings></div>

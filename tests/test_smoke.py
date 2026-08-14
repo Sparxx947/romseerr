@@ -6365,6 +6365,46 @@ def test_the_requests_list_names_an_unknown_platform_instead_of_leaving_a_gap(ap
     assert i18n_hat("plat_unknown") == 5, "der Text fehlt in mindestens einer Sprache"
 
 
+def test_the_aurora_theme_is_offered_everywhere_a_theme_can_be_picked(appmod):
+    """Ein Design ist erst vorhanden, wenn es an ALLEN drei Stellen ankommt: in der Liste
+    `DESIGNS`, als CSS-Block, und als uebersetzter Name. Faellt eine davon aus, erscheint
+    entweder ein leerer Knopf, ein Knopf ohne Wirkung oder gar keiner. (#629)"""
+    js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
+    css = open(os.path.join(REPO, "static/css/index.css"), encoding="utf-8").read()
+    assert "'aurora'" in js.split("const DESIGNS=")[1].split("]")[0], \
+        "aurora fehlt in DESIGNS — der Knopf erscheint gar nicht erst"
+    assert "[data-design=aurora]" in css, "es gibt keinen CSS-Block fuer das Design"
+    assert i18n_hat("d_aurora") == 5, "der Designname fehlt in mindestens einer Sprache"
+
+
+def test_the_aurora_theme_moves_the_navigation_to_the_top(appmod):
+    """Die Buehne braucht die volle Breite, deshalb wandert die Seitenleiste nach oben.
+    Technisch derselbe Griff, den die Mobil-Abfrage schon macht: `#side` wird `static` und
+    `main` verliert seinen linken Rand. Beides muss im Design-Block stehen — nur eins von
+    beiden ergibt eine Leiste ueber einem eingerueckten Inhalt. (#629)"""
+    css = open(os.path.join(REPO, "static/css/index.css"), encoding="utf-8").read()
+    block = css[css.index("[data-design=aurora]"):]
+    assert "#side" in block and "position:static" in block, \
+        "die Seitenleiste bleibt links stehen"
+    assert "margin-left:0" in block, "der Inhalt behaelt seinen Rand fuer eine Leiste, die weg ist"
+
+
+def test_the_aurora_hero_does_not_sit_behind_the_covers(appmod):
+    """Der Kern dieses Designs, nicht Schmuck: Romseerrs Entdecken-Ansicht ist
+    COVER-DOMINIERT. Ein Verlauf hinter den Reihen stellt zwei Farbquellen gegeneinander
+    und beide verlieren — im ersten Entwurf sah das nur deshalb gut aus, weil dort
+    Platzhalter statt Cover lagen. Der Verlauf gehoert an Buehne, Kopf und Leerflaechen,
+    NICHT an `#grid` oder die Reihen. (#629)"""
+    css = open(os.path.join(REPO, "static/css/index.css"), encoding="utf-8").read()
+    block = css[css.index("[data-design=aurora]"):]
+    # `.pcover` ist die Kachel, `.pcard` ihr Rahmen, `#grid` das Raster — dort duerfen
+    # keine Verlaeufe liegen. (`.prow` waere falsch: das ist Prowlarr in den Einstellungen.)
+    for stelle in ("#grid", ".pcard", ".pcover"):
+        for zeile in block.splitlines():
+            if stelle in zeile and "radial-gradient" in zeile:
+                raise AssertionError(f"Verlauf liegt hinter {stelle}: {zeile.strip()[:90]}")
+
+
 def test_a_search_hit_without_a_platform_says_so_instead_of_a_question_mark(appmod):
     """Die Anfragenzeile sagt „Plattform unbekannt" (#367) — die TREFFERKARTE nicht. Dort
     stand ein blosses `?`, und der Titel liess sich anfordern, ohne dass jemand sah, dass er
