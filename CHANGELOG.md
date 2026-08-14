@@ -4,6 +4,17 @@ Alle nennenswerten Änderungen an diesem Projekt. Format nach
 [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung nach [SemVer](https://semver.org/lang/de/).
 
+## [1.4.1](https://github.com/Sparxx947/romseerr/compare/v1.4.0...v1.4.1) (2026-08-14)
+
+
+### Behoben / Fixes
+
+* **import:** keep the internal job prefix out of library filenames ([#613](https://github.com/Sparxx947/romseerr/issues/613)) ([#614](https://github.com/Sparxx947/romseerr/issues/614)) ([865bb38](https://github.com/Sparxx947/romseerr/commit/865bb38a21faaf31b9890c03cb1f3ee8ac365639))
+* **import:** recognise a ROM by its magic when the name gives nothing ([#611](https://github.com/Sparxx947/romseerr/issues/611)) ([#612](https://github.com/Sparxx947/romseerr/issues/612)) ([4edf1de](https://github.com/Sparxx947/romseerr/commit/4edf1de8f3ed8544cf234657a0be68abda8403b5))
+* **jobs:** ask SAB before handing it the same NZB again ([#609](https://github.com/Sparxx947/romseerr/issues/609)) ([#610](https://github.com/Sparxx947/romseerr/issues/610)) ([a88c5d4](https://github.com/Sparxx947/romseerr/commit/a88c5d4f4fbb8599be61864f6d0b3ebc4f0c32ed))
+* **search:** drop PS5 and Xbox Series hits instead of calling them Switch ([#607](https://github.com/Sparxx947/romseerr/issues/607)) ([#608](https://github.com/Sparxx947/romseerr/issues/608)) ([44488ba](https://github.com/Sparxx947/romseerr/commit/44488ba2ca64eb556a1f5cdb6bfb909d35d21c45))
+* **test:** a vanishing onboarding tour no longer fails the browser suite ([#603](https://github.com/Sparxx947/romseerr/issues/603)) ([#604](https://github.com/Sparxx947/romseerr/issues/604)) ([0f248c7](https://github.com/Sparxx947/romseerr/commit/0f248c7f67e5a219d1285f1948a2e1bbd8fbddc9))
+
 ## [1.4.0](https://github.com/Sparxx947/romseerr/compare/v1.3.0-beta.1...v1.4.0) (2026-08-14)
 
 
