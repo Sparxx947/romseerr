@@ -296,6 +296,7 @@
  "lo_none": "nichts liegen geblieben",
  "lo_remove": "Entfernen",
  "lo_removeall": "Alle entfernen",
+ "lo_failed": "Nicht entfernt:",
  "lo_days": "Verfallsfrist (Tage, 0 = aus)",
  "lo_confirm": "Diesen Download endgültig löschen?",
  "lo_confirmall": "ALLE liegengebliebenen Downloads endgültig löschen?",

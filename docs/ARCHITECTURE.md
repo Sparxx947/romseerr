@@ -834,6 +834,16 @@ nur, was nach Auflösung aller Symlinks unterhalb eines Sammelordners liegt **un
 `romseerr_`-Präfix trägt. `rm -rf` auf einem Pfad aus einer Einstellung ist die eine Stelle
 hier, an der ein Denkfehler nicht rückgängig zu machen ist.
 
+Ob das Löschen geklappt hat, entscheidet **der Zustand am Ziel**, nicht der Rückgabewert
+von `rm`: `leftover_remove()` prüft nach dem Aufruf, ob der Ordner wirklich weg ist. Der
+Grund für einen Fehlschlag wird bis in die Oberfläche durchgereicht — er steht unter der
+Liste und zusätzlich im Log, weil eine Meldung im Browser den nächsten Klick nicht
+überlebt. Vorher fiel er zweimal hintereinander unter den Tisch: `loRemove()` warf die
+Antwort weg, und die Logzeile nannte nur die Zahl der Erfolge. „0 entfernt" las sich damit
+wie „nichts zu tun", während in Wahrheit die Rechte fehlten — der Download-Client legt
+seine Ordner unter einer anderen Kennung ohne Gruppen-Schreibrecht an, sodass Romseerr sie
+sieht, aber nicht leeren darf (#645).
+
 *EN: the import has to survive two things. Download clients rename finished files —
 SABnzbd's deobfuscation appends a second extension it guessed from content, turning
 `game.nsp` into `game.nsp.hdf`, and ROM formats are exactly what such a guesser does not
@@ -846,7 +856,13 @@ are listed under Settings → Logs & maintenance with size, age and owning reque
 removed individually or in bulk, and expire after `leftover_days` (default 14, 0 = off).
 `retry` counts attempts (`tries`) and remembers failed sources (`tried_sources`); from the third attempt it switches source via `alternative_quelle()`, matching titles through `norm()` strictly — switching to a different game would be worse than the failure it fixes. With no match left it returns `409 exhausted` and does **not** re-queue. A successful import resets the counter. `DELETE /api/jobs/{jid}` removes a finished request (`done`, `error`, `denied`; active ones are refused). Failed requests count toward the badge forever otherwise. If a kept download belongs to it, the call either deletes it too (`files: true`) or reports `files_left` — silently orphaning it is the one outcome not allowed, since the request is the only thing mapping that folder to a title. `clear-finished` accepts `states` to limit the sweep to one group. `POST /api/jobs/{jid}/reimport` re-runs the import against the kept folder — as opposed to `/retry`, which re-downloads everything. Both end in `einsortieren()` so import and cleanup cannot drift apart, and the button only appears when the files are actually still there (`reimportable` per failed job). Two guards live in the code rather than the UI: folders belonging to a **running** job are
 never listed, and removal only accepts paths that resolve inside a collect directory and
-carry the `romseerr_` prefix.*
+carry the `romseerr_` prefix. Success is decided by the state at the target, not by the
+return code of `rm` — the folder has to be gone. The reason for a failure now reaches both
+the page (below the list) and the log, since a message in the browser does not survive the
+next click. It used to be dropped twice over: `loRemove()` discarded the response, and the
+log line only carried the success count, so "0 removed" read like "nothing to do" while the
+real cause was permissions — the download client creates its folders under a different
+account without group write access, so Romseerr can see them but not empty them (#645).*
 
 ### Kurzmeldungen an einer Zeile überleben das Auffrischen nicht (#449, #459)
 

@@ -298,6 +298,7 @@
  "lo_none": "nada pendiente",
  "lo_remove": "Eliminar",
  "lo_removeall": "Eliminar todo",
+ "lo_failed": "No se ha eliminado:",
  "lo_days": "Plazo (días, 0 = off)",
  "lo_confirm": "¿Borrar definitivamente esta descarga?",
  "lo_confirmall": "¿Borrar definitivamente TODAS las sobrantes?",

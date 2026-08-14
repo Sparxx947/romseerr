@@ -4000,6 +4000,175 @@ def test_leftovers_endpoint_needs_permission(appmod, client):
     appmod.save_users({})
 
 
+def test_leftover_remove_names_the_reason_when_it_may_not_delete(appmod, tmp_path, monkeypatch):
+    """Ein Fehlschlag muss sagen, woran er lag — sonst sieht er aus wie ein toter Knopf. (#645)
+
+    Der echte Fall: der Downloader legt den Ordner als `nobody:users` mit 755 an, Romseerr
+    läuft unter einer anderen Kennung und darf darin nichts entfernen. Genau das wird hier
+    nachgestellt, nicht der Rückgabewert von `rm` nachgeahmt.
+    """
+    sammel = tmp_path / "collect"; sammel.mkdir()
+    monkeypatch.setattr(appmod, "SAB_DONE", str(sammel))
+    monkeypatch.setattr(appmod, "jd_out_dir", lambda: str(sammel))
+    echt = sammel / "romseerr_777__Y"; echt.mkdir()
+    (echt / "f.bin").write_text("x")
+    os.chmod(echt, 0o500)
+    try:
+        try:
+            (echt / "neu.bin").write_text("y")
+        except PermissionError:
+            pass
+        else:
+            pytest.skip("laeuft mit Rechten, die die Sperre aushebeln (root?)")
+
+        ok, grund = appmod.leftover_remove(str(echt))
+        assert ok is False, "ein Ordner, der stehen bleibt, darf nicht als entfernt gelten"
+        assert echt.exists(), "Testaufbau kaputt: der Ordner ist ja doch weg"
+        assert "Schreibrecht" in grund or "permission" in grund.lower(), \
+            f"der Grund benennt die Ursache nicht: {grund!r}"
+    finally:
+        os.chmod(echt, 0o700)
+
+
+def test_rm_grund_maps_the_failures_that_actually_occur(appmod):
+    """Aus der `rm`-Ausgabe wird eine Ursache, mit der man etwas anfangen kann. (#645)"""
+    assert "Schreibrecht" in appmod.rm_grund("rm: cannot remove 'x': Permission denied")
+    assert "Schreibrecht" in appmod.rm_grund("rm: cannot remove 'x': Operation not permitted")
+    assert "read-only" in appmod.rm_grund("rm: cannot remove 'x': Read-only file system")
+    assert "in Benutzung" in appmod.rm_grund("rm: cannot remove 'x': Device or resource busy")
+    # rc=0 und der Ordner steht noch: das darf nicht als allgemeiner Fehler durchgehen,
+    # denn genau diese Lage hat den Fehlschlag früher unsichtbar gemacht.
+    assert "noch da" in appmod.rm_grund("", 0)
+    assert "Fehler" in appmod.rm_grund("irgendwas Unbekanntes", 1)
+
+
+def test_leftover_remove_trusts_the_target_not_the_return_code(appmod, tmp_path, monkeypatch):
+    """Erfolg ist „der Ordner ist weg", nicht „der Befehl kam ohne Fehler zurück". (#645)
+
+    Diese Verwechslung hat den Fehler erst unsichtbar gemacht — auch bei mir selbst: ein
+    HTTP 200 galt als Beleg, dass gelöscht wurde. Hier meldet `rm` sauberen Erfolg und
+    lässt den Ordner trotzdem stehen.
+    """
+    sammel = tmp_path / "collect"; sammel.mkdir()
+    monkeypatch.setattr(appmod, "SAB_DONE", str(sammel))
+    monkeypatch.setattr(appmod, "jd_out_dir", lambda: str(sammel))
+    echt = sammel / "romseerr_555__Z"; echt.mkdir()
+    (echt / "f.bin").write_text("x")
+
+    class _Still:
+        returncode, stderr, stdout = 0, "", ""
+    monkeypatch.setattr(appmod.subprocess, "run", lambda *a, **k: _Still())
+    monkeypatch.setattr(appmod, "log", lambda m: None)
+
+    ok, grund = appmod.leftover_remove(str(echt))
+    assert ok is False, "rc=0 auf einem Ordner, der noch dasteht, darf nicht als Erfolg gelten"
+    assert "noch da" in grund or "still there" in grund, grund
+    assert echt.exists()
+
+
+def test_leftovers_log_names_the_failures(appmod, client, monkeypatch):
+    """Der Grund muss ins Log — im Browser ist er nach dem nächsten Klick weg. (#645)"""
+    _admin(appmod, client, "loadm")
+    monkeypatch.setattr(appmod, "leftover_dirs",
+                        lambda: [{"jid": "1", "name": "romseerr_1__A", "path": "/x/romseerr_1__A",
+                                  "size": 0, "age_days": 3, "state": ""}])
+    monkeypatch.setattr(appmod, "leftover_remove",
+                        lambda p: (False, "keine Schreibrechte im Sammelordner / no write permission"))
+    zeilen = []
+    monkeypatch.setattr(appmod, "log", lambda m: zeilen.append(str(m)))
+
+    r = client.post("/api/leftovers/remove", json={"jid": "1"})
+    assert r.status_code == 200
+    d = r.get_json()
+    assert d["ok"] is False and d["removed"] == 0
+    assert d["errors"] and "Schreibrecht" in d["errors"][0], d
+    passend = [z for z in zeilen if "fehlgeschlagen" in z]
+    assert passend, f"kein Fehlschlag protokolliert, nur: {zeilen}"
+    assert "Schreibrecht" in passend[0], f"das Log nennt den Grund nicht: {passend[0]!r}"
+    appmod.save_users({})
+
+
+def test_leftover_removal_failures_reach_the_browser(appmod, tmp_path):
+    """`loRemove` muss die Antwort lesen und der Grund muss sichtbar werden. (#645)
+
+    Geprüft wird nicht, ob die richtigen Wörter im Quelltext stehen, sondern was die
+    Funktionen tun: sie werden in node mit einem `fetch` ausgeführt, das einen Fehlschlag
+    liefert. Eine Textsuche hätte hier nichts gemerkt — die Wörter bleiben auch dann
+    stehen, wenn die Zuweisung leer läuft oder das Feld nie etwas zurückgibt.
+    """
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node nicht verfügbar")
+    js = _js()
+    teile = []
+    for muster in (r"^let loFehler=\[\];$",
+                   r"^async function loRemove\(jid\)\{.*?\n(?=function )",
+                   r"^function loFehlerFeld\(\)\{.*?;\}$"):
+        m = re.search(muster, js, re.S | re.M)
+        assert m, f"nicht gefunden: {muster}"
+        teile.append(m.group(0))
+
+    skript = tmp_path / "p.mjs"
+    skript.write_text("""
+function t(k){return '<'+k+'>';}
+async function bestaetigen(){return true;}
+function loadLeftovers(){}
+globalThis.fetch=async()=>({json:async()=>({ok:false,removed:0,bytes:0,
+  errors:['romseerr_1__A: keine Schreibrechte im Sammelordner / no write permission']})});
+""" + "\n".join(teile) + """
+await loRemove('1');
+console.log(JSON.stringify({fehler:loFehler, feld:loFehlerFeld()}));
+""", encoding="utf-8")
+    r = subprocess.run([node, str(skript)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr.strip()
+    d = json.loads(r.stdout.strip().splitlines()[-1])
+
+    assert d["fehler"], "die Antwort wurde weggeworfen — loFehler ist leer geblieben"
+    assert "Schreibrechte" in d["fehler"][0], d["fehler"]
+    assert d["feld"], "das Fehlerfeld liefert nichts — der Grund erreicht die Seite nie"
+    assert "Schreibrechte" in d["feld"], f"der Grund steht nicht im Feld: {d['feld']}"
+    assert "<lo_failed>" in d["feld"], "die Überschrift ist nicht übersetzt"
+    assert i18n_hat("lo_failed"), "lo_failed fehlt in einer Sprache"
+
+
+def test_leftovers_list_shows_the_failure_in_both_states(appmod):
+    """Auch wenn nach dem Fehlschlag nichts mehr in der Liste steht, muss er zu sehen sein.
+
+    `loadLeftovers` kehrt bei leerer Liste früh zurück. Genau dieser Zweig ist der
+    wahrscheinliche: „alle entfernen" schlägt fehl, die Liste wird neu geladen — und wäre
+    das Feld nur im vollen Zweig eingebaut, verschwände der Grund im Nichts. (#645)
+    """
+    js = _js()
+    m = re.search(r"async function loadLeftovers\(\)\{(.*?)\n(?=function |async function )", js, re.S)
+    assert m, "loadLeftovers nicht gefunden"
+    koerper = m.group(1)
+    # bis `return;` lesen, nicht bis zur ersten `}` — die schließt sonst ein ${…} im Template
+    frueh = re.search(r"if\(!it\.length\)\{(.*?return;)", koerper, re.S)
+    assert frueh and "loFehlerFeld()" in frueh.group(1), \
+        "bei leerer Liste wird das Fehlerfeld nicht eingebaut"
+    rest = koerper[frueh.end():] if frueh else koerper
+    assert "loFehlerFeld()" in rest, "bei gefüllter Liste wird das Fehlerfeld nicht eingebaut"
+
+
+def test_leftover_buttons_leave_the_colours_to_the_theme(appmod):
+    """Inline-Farben überstimmen jedes Design — auch Aurora. (#645)"""
+    js = _js()
+    m = re.search(r"async function loadLeftovers\(\)\{(.*?)\n(?=function |async function )", js, re.S)
+    assert m, "loadLeftovers nicht gefunden"
+    koerper = m.group(1)
+    knoepfe = re.findall(r"<button[^>]*loRemove[^>]*>", koerper)
+    assert len(knoepfe) == 2, f"erwartet: zwei Löschknöpfe, gefunden {len(knoepfe)}"
+    for k in knoepfe:
+        assert "background:" not in k, f"fest verdrahtete Farbe im Knopf: {k}"
+    assert any("class=gefahr" in k for k in knoepfe), "der Alles-Löschen-Knopf ist nicht markiert"
+    css = open(os.path.join(REPO, "static", "css", "index.css"), encoding="utf-8").read()
+    assert "button.gefahr{" in css, "die Klasse existiert nur im HTML, nicht im Stil"
+    assert ".lofail{" in css, "das Fehlerfeld hat keinen Stil"
+    aurora = re.search(r"\[data-design=aurora\]\{(.*?)\}", css, re.S)
+    assert aurora and "--gefahr:" in aurora.group(1), \
+        "Aurora erbt die Gefahrenfarbe des Grunddesigns — dann war die Klasse umsonst"
+
+
 def test_reimport_uses_files_on_disk_instead_of_downloading_again(appmod, client, tmp_path, monkeypatch):
     """Erneut einlesen heißt: die vorhandenen Dateien, kein neuer Download. (#245)
 

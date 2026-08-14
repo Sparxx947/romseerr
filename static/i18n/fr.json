@@ -298,6 +298,7 @@
  "lo_none": "rien en attente",
  "lo_remove": "Supprimer",
  "lo_removeall": "Tout supprimer",
+ "lo_failed": "Non supprimé :",
  "lo_days": "Délai (jours, 0 = off)",
  "lo_confirm": "Supprimer définitivement ce téléchargement ?",
  "lo_confirmall": "Supprimer définitivement TOUS les restes ?",

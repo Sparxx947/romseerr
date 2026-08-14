@@ -6700,7 +6700,13 @@ def api_leftovers_remove():
         ok, grund = leftover_remove(x["path"])
         if ok: weg += 1; bytes_weg += x["size"]
         else: fehler.append(f"{x['name']}: {grund}")
-    log(f"{weg} liegengebliebene Downloads entfernt ({bytes_weg/1073741824:.1f} GB, Admin)")
+    # Ein Fehlschlag, der nur im Browser steht, ist nach dem naechsten Klick weg. Er gehoert
+    # in dieselbe Zeile wie der Erfolg — sonst liest sich „0 entfernt" wie „nichts zu tun",
+    # und genau so ist er monatelang niemandem aufgefallen. (#645)
+    zeile = f"{weg} liegengebliebene Downloads entfernt ({bytes_weg/1073741824:.1f} GB, Admin)"
+    if fehler:
+        zeile += f", {len(fehler)} fehlgeschlagen: " + "; ".join(fehler)[:400]
+    log(zeile)
     return jsonify({"ok": not fehler, "removed": weg, "bytes": bytes_weg, "errors": fehler})
 
 def job_dateien_da(jid):
@@ -8175,6 +8181,34 @@ def leftover_dirs():
                         "title": job.get("title", ""), "state": job.get("state", "")})
     return sorted(aus, key=lambda x: -x["age_days"])
 
+RM_GRUENDE = (
+    (("permission denied", "operation not permitted", "keine berechtigung"),
+     "keine Schreibrechte im Sammelordner / no write permission in the collect folder"),
+    (("read-only", "schreibgeschuetzt", "schreibgeschützt"),
+     "schreibgeschuetzt / read-only"),
+    (("device or resource busy", "text file busy", " busy"),
+     "in Benutzung / in use"),
+    (("no space", "kein platz"),
+     "kein Platz / no space"),
+    (("input/output error", "e/a-fehler"),
+     "E/A-Fehler am Datentraeger / I/O error"),
+)
+
+def rm_grund(text, rc=1):
+    """Aus der `rm`-Ausgabe eine Ursache machen, die einem Menschen weiterhilft.
+
+    Der Volltext bleibt im Log — er nennt Pfade. In die Antwort geht nur die Art des
+    Fehlers, und zwar eine, aus der hervorgeht, was zu tun ist: „keine Schreibrechte"
+    schickt zum Sammelordner, „Fehler" schickt nirgendwohin. (#645)
+    """
+    s = (text or "").lower()
+    for muster, grund in RM_GRUENDE:
+        if any(m in s for m in muster):
+            return grund
+    if rc == 0:
+        return "Ordner ist noch da / folder is still there"
+    return "Fehler beim Loeschen / removal failed"
+
 def leftover_remove(pfad):
     """Einen liegengebliebenen Ordner loeschen — mit Sperre gegen alles ausserhalb.
 
@@ -8183,10 +8217,10 @@ def leftover_remove(pfad):
     (kein Symlink-Ausbruch), muss UNTERHALB eines Sammelordners liegen, und der Name muss
     das `romseerr_`-Praefix tragen.
     """
-    if not pfad: return False, "kein Pfad"
+    if not pfad: return False, "kein Pfad / no path"
     echt = os.path.realpath(pfad)
     if os.path.basename(echt).startswith("romseerr_") is False:
-        return False, "kein Romseerr-Ordner"
+        return False, "kein Romseerr-Ordner / not a Romseerr folder"
     erlaubt = False
     for basis in (SAB_DONE, jd_out_dir()):
         if not basis: continue
@@ -8194,14 +8228,22 @@ def leftover_remove(pfad):
         if echt != b and echt.startswith(b.rstrip("/") + "/"):
             erlaubt = True; break
     if not erlaubt:
-        return False, "ausserhalb der Sammelordner"
+        return False, "ausserhalb der Sammelordner / outside the collect folders"
     if not os.path.isdir(echt):
-        return False, "nicht vorhanden"
+        return False, "nicht vorhanden / not there"
     try:
-        subprocess.run(["rm", "-rf", echt], check=True)
-        return True, ""
+        p = subprocess.run(["rm", "-rf", echt], capture_output=True, text=True, timeout=300)
+        text, rc = (p.stderr or "").strip(), p.returncode
     except Exception as e:
-        return False, err_kind(e)
+        text, rc = str(e), -1
+    # Nicht der Rueckgabewert entscheidet, sondern der Zustand am Ziel: `rm -rf` meldet
+    # nicht in jeder Lage sauber, und ein "rc=0" auf einem Ordner, der noch dasteht, ist
+    # genau die Art Erfolgsmeldung, die diesen Fehler ueberhaupt erst verdeckt hat.
+    if not os.path.exists(echt):
+        return True, ""
+    # Der Volltext nennt Pfade und gehoert deshalb ins Log, nicht in die Antwort (err_kind).
+    log(f"Liegengebliebenen Ordner nicht entfernt: {echt} — rc={rc} {text[:300]}")
+    return False, rm_grund(text, rc)
 
 def worker_leftovers():
     """Taeglich: liegengebliebene Ordner verfallen lassen, die aelter sind als die Frist.
