@@ -782,6 +782,15 @@ precedence: numbers first, a version **without** a pre-release above the same ve
 **with** one, and within the pre-release identifier by identifier with numbers as numbers —
 `beta.10` ranks above `beta.9`, though spelling would sort it before.
 
+**The notice links to the version it names.** The web URL `<repo>/releases/latest` skips
+pre-releases exactly like the API endpoint of the same name — measured against foreign
+repositories: `kubernetes/kubernetes` redirects to `v1.36.3` although `v1.37.0-rc.0` is
+newer, and a repository without an eligible release lands on the `/releases` overview
+rather than a 404. In a project whose releases are betas throughout, the click therefore
+went anywhere except the version its own link text spells out. It now points at
+`<repo>/releases/tag/v<version>` — the same pattern the footer already uses for the running
+version — and falls back to the overview only when no version is known at all.
+
 **Running a different version** means, for a pulling container, changing the image tag and
 nothing else.
 
