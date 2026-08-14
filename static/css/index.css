@@ -72,10 +72,21 @@
 }
 /* Navigation nach oben. Derselbe Griff, den die Mobil-Abfrage weiter unten schon macht —
    die Technik ist in dieser Datei erprobt, nur ohne Bildschirmbreite als Bedingung. */
+/* ZWEI AENDERUNGEN AUS #657, beide notwendig:
+
+   `background:transparent` — der Schleier liegt seither auf `body::before` und damit
+   HINTER der Leiste. Mit `var(--side)` daruntergelegt waere er unter der Kopfleiste
+   schlicht uebermalt, und die Naht saesse wieder genau da, wo sie vorher sass.
+
+   `overflow:hidden` IST WEG. Es stand hier fuer `#side::before`, den eigenen Verlauf der
+   Leiste — den es nicht mehr gibt. Was es ausserdem beschnitt, war der Schlagschatten des
+   aktiven Menuepunkts (`.nav.on{box-shadow:0 5px 16px}`), und zwar an derselben Kante:
+   nachgemessen blieb dort ein Farbsprung von 22 stehen, wo sonst 0 steht; ohne die Regel
+   sind es 10. Derselbe Fehler wie der Verlauf, nur eine Zeile tiefer. */
 [data-design=aurora] #side{
   position:static;width:auto;flex-direction:row;flex-wrap:wrap;align-items:center;
   gap:2px;padding:10px 16px;border-right:0;border-bottom:1px solid var(--border);
-  position:relative;overflow:hidden;
+  position:relative;background:transparent;
 }
 [data-design=aurora] main{margin-left:0;display:flex;flex-direction:column}
 /* Die Buehne VOR die Suchleiste ziehen. Im Markup steht sie hinter `#topbar`, weil sie
@@ -89,14 +100,70 @@
 [data-design=aurora] #side .grow{flex:1}
 [data-design=aurora] .nav{padding:8px 13px;margin:0;border-radius:11px}
 [data-design=aurora] .nav.on{box-shadow:0 5px 16px rgba(214,58,25,.34)}
-/* Der Verlauf in der Leiste: hinter der Navigation liegen keine Cover. */
-[data-design=aurora] #side::before{
-  content:"";position:absolute;inset:-260% -30% auto -30%;height:520%;pointer-events:none;
-  background:radial-gradient(38% 46% at 16% 50%,rgba(255,77,46,.40),transparent 66%),
-             radial-gradient(40% 48% at 84% 46%,rgba(124,92,255,.46),transparent 68%);
-  filter:blur(38px);
+/* DER SCHLEIER — EINE SCHICHT, NICHT ZWEI (#657).
+   Vorher lag je ein Verlauf in `#side::before` und in `#buehne::before`, jeder von dem
+   `overflow:hidden` seines eigenen Kastens beschnitten und jeder anders eingestellt.
+   An der Unterkante der Leiste ergab das eine harte Kante: gemessen bei 1280x900 ein
+   Farbsprung von 84 (Entdecken) bzw. 76 (jede Ansicht ohne Buehne, wo unter der Leiste
+   gleich der nackte Hintergrund rgb(11,9,16) begann). Zwei Kaesten koennen keinen
+   gemeinsamen Verlauf tragen — also traegt ihn der gemeinsame Vorfahr.
+
+   WARUM `z-index:-1` UND NICHT `0`: Bei `0` liegt die Schicht zwar hinter allem
+   Positionierten, aber VOR dem gewoehnlichen Inhalt von `main` — Karten und Text
+   verschwaenden hinter dem Verlauf. Negativ heisst: ueber dem Hintergrund des Koerpers,
+   unter allem, was darin steht.
+
+   WARUM DIE SENKRECHTEN MASSE IN PIXELN STEHEN, die waagerechten in Prozent: Die Hoehe
+   der Schicht wechselt mit der Ansicht (siehe unten). Prozentwerte wuerden den Verlauf
+   dabei stauchen, und die Leiste saehe je nach Ansicht anders aus. In Pixeln verankert
+   bleibt oben alles gleich; die Hoehe entscheidet nur noch, wo der Verlauf aufhoert.
+
+   EN: one shared layer on the common ancestor instead of one per box. Vertical stops are
+   absolute so the header looks identical whichever height the layer currently has. */
+[data-design=aurora] body::before{
+  content:"";position:absolute;top:0;left:-10%;right:-10%;height:190px;
+  pointer-events:none;z-index:-1;
+  background:
+    radial-gradient(52% 272px at 6% -122px, rgba(255,77,46,.62), transparent 62%),
+    radial-gradient(58% 283px at 94% -101px, rgba(124,92,255,.66), transparent 64%),
+    radial-gradient(78% 314px at 50% 25px, rgba(214,60,140,.34), transparent 66%);
+  filter:blur(46px) saturate(1.12);
+  -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 120px),transparent);
+  mask-image:linear-gradient(to bottom,#000 calc(100% - 120px),transparent);
+  animation:aurora-wandern 32s ease-in-out infinite alternate;
 }
-[data-design=aurora] #side>*{position:relative}
+/* Die Buehne ist nicht immer da (`hidden`, siehe #636). Ist sie da, reicht der Verlauf
+   ueber sie hinweg; ist sie es nicht, blendet er kurz unter der Leiste aus, statt in die
+   Karten hineinzuleuchten — dieselbe Leitidee wie oben: keine zwei Farbquellen gegen die
+   Cover. `:has()` haelt das im Stylesheet, wo auch der Rest der Ansichtslogik steht;
+   ueber JavaScript waere es eine zweite Stelle, die von `zeigeBuehne()` wissen muss. */
+[data-design=aurora] body:has(#buehne:not([hidden]))::before{height:360px}
+/* WARUM DIE SCHICHT ZEHN PROZENT ZU BREIT IST UND WER SIE ZURECHTSCHNEIDET.
+   `aurora-wandern` verschiebt sie um bis zu 3 % der Breite und skaliert sie auf 1,07 —
+   genau dafuer trugen die beiden alten Verlaeufe ihre negativen Raender (-25 % / -30 %).
+   Ohne Ueberstand lag am rechten Fensterrand je nach Phase der Animation ein bis zu
+   26 px breiter Streifen blank: gemessen sprang die Farbe dort von rgb(64,38,107) auf
+   den nackten Hintergrund rgb(11,9,16).
+
+   Der Ueberstand allein erzeugt aber waagerechten Bildlauf — nachgemessen liess sich die
+   Seite um 97 px zur Seite schieben. Es braucht BEIDE Zeilen unten, jede fuer sich reicht
+   nicht, und beides ist gemessen statt vermutet:
+
+   - `position:relative` auf `body`, weil sonst der umgebende Block der Schicht das
+     ANSICHTSFENSTER ist und nicht `body` — und was ausserhalb eines Kastens verankert
+     ist, beschneidet dieser Kasten auch nicht. Ohne die Zeile: 97 px Bildlauf.
+   - `overflow-x` auch auf `html`, weil `body` seinen Wert ans Ansichtsfenster
+     WEITERREICHT, solange `html` auf `visible` steht — dann gilt fuer `body` selbst
+     wieder `visible`, und es beschneidet nichts. Ohne die Zeile: 101 px Bildlauf.
+
+   UND `clip`, NICHT `hidden`: `hidden` macht `body` zum Rollbereich, und `#topbar`
+   (`position:sticky`) klebt dann an ihm statt am Fenster — gemessen stand die Suchleiste
+   nach 400 px Bildlauf bei top -263,5 statt bei 0. `clip` schneidet ab, ohne einen
+   Rollbereich aufzumachen. `contain:paint` schneidet ebenfalls und braeuchte nur eine
+   Zeile, macht `body` aber zum Bezug fuer FESTE Positionen: Fusszeile und Modal rutschten
+   damit aus dem Bild (`#fuss` unten bei 1711 statt 900). */
+[data-design=aurora]{overflow-x:clip}
+[data-design=aurora] body{position:relative;overflow-x:clip}
 [data-design=aurora] #topbar{background:transparent;border-bottom:1px solid var(--border)}
 [data-design=aurora] #q,[data-design=aurora] .fbtn{border-radius:999px}
 [data-design=aurora] #q{padding-left:16px}
@@ -114,15 +181,8 @@
   display:block;position:relative;overflow:hidden;text-align:center;
   padding:52px 26px 44px;border-bottom:1px solid var(--border);
 }
-[data-design=aurora] #buehne::before{
-  content:"";position:absolute;inset:-70% -25% -14% -25%;pointer-events:none;
-  background:
-    radial-gradient(42% 52% at 15% 4%, rgba(255,77,46,.62), transparent 62%),
-    radial-gradient(46% 54% at 85% 8%, rgba(124,92,255,.66), transparent 64%),
-    radial-gradient(62% 60% at 50% 32%, rgba(214,60,140,.34), transparent 66%);
-  filter:blur(46px) saturate(1.12);
-  animation:aurora-wandern 32s ease-in-out infinite alternate;
-}
+/* Hier stand bis #657 ein zweiter, eigener Verlauf. Er ist nach `body::before` gewandert;
+   was die Buehne behaelt, ist nur noch ihr Ausblenden nach unten. */
 /* Ausblenden vor der ersten Reihe: ab hier gehoert die Buehne den Covern. */
 [data-design=aurora] #buehne::after{
   content:"";position:absolute;left:0;right:0;bottom:0;height:44%;pointer-events:none;
@@ -132,7 +192,7 @@
   from{transform:translate3d(-2%,-1%,0) scale(1)}
   to{transform:translate3d(3%,2%,0) scale(1.07)}
 }
-@media (prefers-reduced-motion:reduce){[data-design=aurora] #buehne::before{animation:none}}
+@media (prefers-reduced-motion:reduce){[data-design=aurora] body::before{animation:none}}
 [data-design=aurora] #buehne>*{position:relative}
 /* Knoepfe und Abzeichen der Anfragen-Ansicht (#636). Sie behielten eckige Ecken und
    eigene Farben, waehrend alles andere in diesem Design Pillenform hat und aus den

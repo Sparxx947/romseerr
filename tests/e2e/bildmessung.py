@@ -98,3 +98,40 @@ def tintenraender(bild, schwelle=170):
             "tinte": (max(xs) - min(xs) + 1, max(ys) - min(ys) + 1),
             "links": min(xs), "rechts": breite - 1 - max(xs),
             "oben": min(ys), "unten": hoehe - 1 - max(ys)}
+
+
+def abstand(a, b):
+    """Manhattan-Abstand zweier Farben ueber die drei Farbkanaele."""
+    return sum(abs(int(a[i]) - int(b[i])) for i in range(3))
+
+
+def zeilensprung(bild, y_oben, y_unten):
+    """Wie stark sich zwei Pixelzeilen unterscheiden, Spalte fuer Spalte.
+
+    Gedacht fuer waagerechte Nahtstellen: Zwei Flaechen, die ineinander uebergehen
+    sollen, unterscheiden sich in benachbarten Zeilen um wenige Einheiten. Ein Absatz
+    faellt hier als grosser `max` auf, auch wenn er nur ueber einen Teil der Breite geht —
+    deshalb wird jede Spalte einzeln verglichen und nicht ein Mittelwert gebildet.
+
+    EN: column-wise comparison of two pixel rows. An abrupt edge shows up as a large
+    max even when it only spans part of the width, which an average would hide.
+    """
+    breite, _, zeilen = bild
+    werte = [abstand(zeilen[y_oben][x], zeilen[y_unten][x]) for x in range(breite)]
+    groesster = max(werte)
+    return {"max": groesster, "bei_x": werte.index(groesster),
+            "median": sorted(werte)[breite // 2]}
+
+
+def zeilenspanne(bild, y):
+    """Wie weit die Farben EINER Zeile auseinanderliegen (hellste gegen dunkelste).
+
+    WOFUER: Als Gegenprobe. Eine Naht ist auch dann sprungfrei, wenn ueberhaupt kein
+    Verlauf mehr da ist — ein geloeschter Schleier bestuende jede Nahtpruefung. Diese
+    Spanne belegt, dass an der Stelle ueberhaupt etwas zu sehen ist.
+
+    EN: guard against a vacuous pass — a deleted glow would satisfy any seam check.
+    """
+    _, _, zeilen = bild
+    summen = [sum(px[:3]) for px in zeilen[y]]
+    return max(summen) - min(summen)

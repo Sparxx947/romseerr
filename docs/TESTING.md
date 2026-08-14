@@ -53,6 +53,19 @@ Inhaltsbereich, der ihn hielt. `tintenraender()` gibt die Ränder um die hellen 
 zurück und `None`, wenn nichts über der Schwelle liegt; ein Aufrufer, der das für
 „mittig" nähme, bestünde inhaltsleer.
 
+Für Flächen statt Zeichen kamen in #657 zwei weitere Funktionen dazu. `zeilensprung()`
+vergleicht zwei Pixelzeilen **Spalte für Spalte** — ein Mittelwert würde eine Kante
+verstecken, die nur über einen Teil der Breite geht. Damit ließ sich zeigen, dass der
+Aurora-Schleier an der Unterkante der Kopfleiste um 84 Farbeinheiten sprang und danach um
+0 (Median). `zeilenspanne()` ist die Gegenprobe dazu und genauso wichtig: Eine Naht ist
+auch dann sprungfrei, wenn der Verlauf **ganz fehlt** — ein gelöschter Schleier bestünde
+jede Nahtprüfung. Erst die Spanne über eine Zeile belegt, dass an der Stelle überhaupt
+etwas zu sehen ist.
+
+Die Rahmenzeile wird dabei bewusst übersprungen: `#side` trägt ein `border-bottom` von
+1 px, und das ist eine gewollte Trennlinie. Gemessen wird deshalb zwei Zeilen darüber
+gegen eine Zeile darunter — sonst misst die Prüfung den Rahmen und nicht den Verlauf.
+
 **axe-core** prüft Kontrast, fehlende Namen, ARIA und Dokumentstruktur. Es hat **keine
 Regel** für ein `div` mit Klick-Behandler ohne Rolle — nachgeprüft in der Regelliste,
 entgegen mehrerer verbreiteter Anleitungen. Ein reiner axe-Lauf hätte die
@@ -144,6 +157,17 @@ sat 3 px right and 5.5 px low while every measured box looked plausible on its o
 line box was simply taller than the content box holding it. `tintenraender()` returns the
 margins around the bright pixels, and `None` when nothing clears the threshold; a caller
 treating that as "centred" would pass vacuously.
+
+For areas rather than glyphs, #657 added two more. `zeilensprung()` compares two pixel rows
+**column by column** — an average would hide an edge that only spans part of the width. It
+showed the Aurora glow jumping 84 colour units across the header's bottom edge, and 0
+(median) afterwards. `zeilenspanne()` is its counter-check and matters just as much: a seam
+is also step-free when the gradient is **gone entirely**, so a deleted glow would satisfy
+any seam assertion. Only the span across one row proves there is something to see.
+
+The border row is skipped on purpose: `#side` carries a deliberate 1 px `border-bottom`, so
+the comparison runs two rows above against one row below — otherwise the check measures the
+divider instead of the gradient.
 
 **axe-core** covers contrast, missing names, ARIA and document structure. It has **no
 rule** for a `div` carrying a click handler without a role — verified against the rule

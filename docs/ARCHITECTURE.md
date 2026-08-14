@@ -953,13 +953,32 @@ Zwei Dinge, an denen das regelmäßig scheitert:
   Knopfklasse muss diese Bereiche mitnennen, sonst bleibt sie folgenlos, während Variable,
   Regel und Markup allesamt richtig aussehen (#647). Statische Tests merken das nicht;
   geprüft wird im Browsertest über die **berechnete** Farbe, für jedes Design.
+- **Ein Verlauf über zwei Kästen ist kein Verlauf.** Der Aurora-Schleier lag zunächst
+  zweimal getrennt vor — in `#side::before` und in `#buehne::before` —, jeder vom
+  `overflow:hidden` seines eigenen Kastens beschnitten und jeder anders eingestellt. An der
+  Unterkante der Kopfleiste ergab das eine harte Kante (gemessen 84 bzw. 76 Farbeinheiten
+  über die Naht). Seit #657 trägt ihn `body::before` als **eine** Schicht mit `z-index:-1`;
+  `#side` ist dafür durchsichtig. Wer daran arbeitet, sollte drei Messwerte kennen: die
+  Schicht muss über das Fenster hinausragen, weil die Animation sie um bis zu 3 % der
+  Breite verschiebt; beschnitten wird sie nur, wenn `body` `position:relative` **und**
+  `html` ein `overflow-x` trägt (jede Regel allein lässt 97 bzw. 101 px Bildlauf stehen);
+  und dort gehört `clip` hin, nicht `hidden` — `hidden` macht `body` zum Rollbereich und
+  die klebende Suchleiste hört auf zu kleben.
 
 *EN: four themes — `seerr`, `glass`, `clean`, `aurora` — selected through `data-design` on
-the root element, each redefining the same variables. Two recurring traps: a theme is not a
-single screen (check every view, cf. #636), and the cascade decides rather than the
-intention — `#setcontent button` and `#modal .row button` paint by ID, which outranks any
-class, so a new button class has to name those contexts or it silently does nothing (#647).
-Static checks cannot see this; the browser test reads the computed colour per theme.*
+the root element, each redefining the same variables. Three recurring traps: a theme is not
+a single screen (check every view, cf. #636); the cascade decides rather than the intention
+— `#setcontent button` and `#modal .row button` paint by ID, which outranks any class, so a
+new button class has to name those contexts or it silently does nothing (#647); and a
+gradient spanning two boxes is not one gradient. The Aurora glow used to live in
+`#side::before` and `#buehne::before`, each clipped by its own `overflow:hidden`, which cut
+it dead at the header edge (measured 84 and 76 colour units across the seam). Since #657 it
+is a single `body::before` layer at `z-index:-1` with a transparent header. It has to
+overhang the window because the animation shifts it by up to 3% of the width, it is only
+clipped when `body` has `position:relative` **and** `html` has an `overflow-x` (either rule
+alone leaves 97 resp. 101 px of horizontal scroll), and that clip must be `clip`, not
+`hidden` — `hidden` turns body into a scroll container and the sticky search bar stops
+sticking. Static checks cannot see any of this; the browser tests measure pixels.*
 
 ### Eine neue Route hinzufügen
 1. Funktion mit `@app.route(...)` + passendem `*_required`-Decorator schreiben.
