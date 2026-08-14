@@ -1836,7 +1836,15 @@ async function secAbout(c){
  let ver={};try{ver=await(await fetch('/api/version?check=1')).json();}catch(e){}
  let repo='https://github.com/Sparxx947/romseerr';
  let build=[ver.commit?ver.commit.slice(0,7):'',ver.built_at||''].filter(Boolean).join(' · ');
- let upd=ver.update_available?` <a href="${repo}/releases/latest" target=_blank style="color:#5b8cff">${t('upd_avail')} ${ver.latest}</a>`
+ // DER LINK MUSS DORTHIN FUEHREN, WOHIN SEIN TEXT ZEIGT. `/releases/latest` ist dieselbe
+ // Falle wie der gleichnamige API-Endpunkt aus #572: Es ueberspringt Vorabversionen. An
+ // fremden Repos nachgemessen — kubernetes/kubernetes leitet auf v1.36.3 um, obwohl
+ // v1.37.0-rc.0 neuer ist, und ohne infrage kommenden Release landet man auf der Uebersicht
+ // /releases. Da hier alle Releases Betas sind, nannte der Text die eine Version und der
+ // Klick fuehrte zu einer anderen. `ver.latest` kommt ohne fuehrendes v (der Server
+ // schneidet es ab), das Tag traegt es — wie in der Fusszeile. (#577)
+ let updUrl=ver.latest?`${repo}/releases/tag/v${encodeURIComponent(ver.latest)}`:`${repo}/releases`;
+ let upd=ver.update_available?` <a href="${updUrl}" target=_blank rel="noopener noreferrer" style="color:#5b8cff">${t('upd_avail')} ${ver.latest}</a>`
         :(ver.latest?` <span style="color:#3fb950">${t('upd_current')}</span>`:'');
  c.innerHTML=`<h3>🎮 Romseerr — ${t('sec_about')}</h3>
   <p class=meta style="margin:2px 0 12px">${t('about_txt')}</p>
@@ -1848,9 +1856,9 @@ async function secAbout(c){
   <div class=frow><span style="min-width:150px">${t('about_jobs')}</span><span class=meta>${st.jobs_total||0} (${st.jobs_active||0} ${t('about_active')})</span></div>
   <h3 style="font-size:13px;margin-top:16px">${t('about_links')}</h3>
   <div class=meta style="line-height:1.9">
-   🔗 <a href="${repo}" target=_blank style="color:#5b8cff">GitHub-Repo</a><br>
-   📖 <a href="${repo}/wiki" target=_blank style="color:#5b8cff">Wiki</a> · <a href="/api/docs" target=_blank style="color:#5b8cff">API-Doku</a> · <a href="${repo}/blob/main/CHANGELOG.md" target=_blank style="color:#5b8cff">Changelog</a><br>
-   🐞 <a href="${repo}/issues" target=_blank style="color:#5b8cff">Issues melden</a> · 🔒 <a href="${repo}/security/advisories/new" target=_blank style="color:#5b8cff">Sicherheitslücke melden</a>
+   🔗 <a href="${repo}" target=_blank rel="noopener noreferrer" style="color:#5b8cff">GitHub-Repo</a><br>
+   📖 <a href="${repo}/wiki" target=_blank rel="noopener noreferrer" style="color:#5b8cff">Wiki</a> · <a href="/api/docs" target=_blank rel="noopener noreferrer" style="color:#5b8cff">API-Doku</a> · <a href="${repo}/blob/main/CHANGELOG.md" target=_blank rel="noopener noreferrer" style="color:#5b8cff">Changelog</a><br>
+   🐞 <a href="${repo}/issues" target=_blank rel="noopener noreferrer" style="color:#5b8cff">Issues melden</a> · 🔒 <a href="${repo}/security/advisories/new" target=_blank rel="noopener noreferrer" style="color:#5b8cff">Sicherheitslücke melden</a>
   </div>
   <h3 style="font-size:13px;margin-top:16px">${t('about_feat')}</h3>
   <div class=meta style="line-height:1.7">${t('about_feat_txt')}</div>

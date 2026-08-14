@@ -532,3 +532,33 @@ def test_a_failing_lookup_says_so_instead_of_doing_nothing(seite, anfrage_vorhan
     text = seite.locator(".jobmsg").first.inner_text().strip()
     assert text, ("ein fehlgeschlagener Abruf hinterliess keine Meldung — der Klick sieht "
                   "aus, als haette er nichts getan")
+
+
+def test_der_update_hinweis_verlinkt_die_genannte_version(seite, eingerichtet):
+    """Nicht die Zeichenkette im Quelltext, sondern das `href` im gerenderten DOM. (#577)
+
+    Der Hinweis erscheint nur, wenn `/api/version?check=1` ein Update meldet — auf einer
+    frischen Testinstanz tut er das nie. Der Fall wird deshalb erzwungen: Die Antwort wird
+    abgefangen und meldet eine neuere Beta. Ohne diese Vorgabe prüfte der Test einen Link,
+    den es auf der Seite gar nicht gibt, und bestünde inhaltsleer — dieselbe Falle, die
+    schon `bibliothek_gefuellt` nötig gemacht hat.
+
+    EN: forces the update banner via a routed /api/version?check=1 and asserts the rendered
+    href, not the source string. Without the stub the link never renders and the test would
+    pass vacuously.
+    """
+    seite.route("**/api/version?check=1",
+                lambda route: route.fulfill(
+                    status=200, content_type="application/json",
+                    body='{"version":"1.3.0-beta.1","commit":"abc1234","provenance":"build",'
+                         '"latest":"1.3.0-beta.2","update_available":true}'))
+    seite.goto(f"{eingerichtet}/#/settings/about", wait_until="domcontentloaded")
+    seite.wait_for_timeout(1200)
+
+    link = seite.locator("#setcontent a").filter(has_text="1.3.0-beta.2").first
+    assert link.count() > 0, ("kein Update-Link gerendert — dann prueft dieser Test nichts. "
+                              "Erwartet war der Hinweis aus der vorgegebenen Antwort.")
+    ziel = link.get_attribute("href")
+    assert ziel.endswith("/releases/tag/v1.3.0-beta.2"), (
+        f"der Link fuehrt woandershin als sein Text verspricht: {ziel}")
+    assert "noopener" in (link.get_attribute("rel") or ""), "rel fehlt am externen Link"

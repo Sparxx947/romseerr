@@ -5563,13 +5563,71 @@ def api_metrics():
 
 # ---------- Version / Update-Hinweis ----------
 UPDATE_URL   = "https://api.github.com/repos/Sparxx947/romseerr/releases/latest"
+# ZWEITE ADRESSE, WEIL DIE ERSTE VORABVERSIONEN NICHT KENNT. `/releases/latest` ueberspringt
+# Entwuerfe UND Vorabversionen — in einem Projekt, dessen Releases bisher ausnahmslos Betas
+# sind, antwortet sie mit 404, sobald die Betas korrekt als Vorabversion markiert sind
+# (#572). Der Hinweis bliebe dann fuer immer leer, ohne dass irgendwo etwas scheitert.
+# Die Liste kennt beides und ist nach Erscheinen sortiert, das erste Element ist das
+# neueste Release ueberhaupt. Entwuerfe zeigt sie nur einem angemeldeten Aufrufer mit
+# Schreibrecht — hier fragt niemand angemeldet, sie bleiben also aussen vor.
+#
+# EN: /releases/latest skips pre-releases, so a betas-only project gets a silent 404 once
+# the betas are marked correctly. The list endpoint knows both and is newest-first.
+UPDATE_ANY_URL = "https://api.github.com/repos/Sparxx947/romseerr/releases?per_page=1"
 UPDATE_TTL   = 6 * 3600
 _UPDATE      = {"ts": 0, "latest": None}
 
+_SEMVER_RE = re.compile(r"v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?")
+
 def _semver(v):
-    """'1.2.3' / 'v1.2.3-beta.1' -> (1,2,3). Pre-Release-Suffix wird ignoriert."""
-    m = re.match(r"v?(\d+)\.(\d+)\.(\d+)", str(v or ""))
-    return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
+    """'v1.2.3-beta.1' -> Sortierschlüssel. NUR vergleichen, nicht anzeigen.
+
+    DER VORABTEIL MUSS MITZAEHLEN. Vorher warf diese Funktion ihn weg, damit galten
+    `1.3.0-beta.1` und `1.3.0-beta.2` als dieselbe Version — und schwerer wiegend: die erste
+    stabile `1.3.0` wurde einer laufenden `1.3.0-beta.1` nicht angeboten. Seit #572 sind
+    alle Releases dieses Projekts Vorabversionen, der Hinweis vergleicht also fast immer
+    Beta gegen Beta: genau der Fall, den er nicht konnte. (#574)
+
+    Rangfolge nach SemVer 2.0.0 §11, hier als Tupel gegossen, damit `>` sie von selbst
+    einhält:
+      * Zahlenteil zuerst — `1.4.0-beta.1` schlaegt `1.3.0`.
+      * Eine Version OHNE Vorabteil steht ueber derselben MIT: darum `(1,)` gegen `(0, …)`.
+      * Innerhalb des Vorabteils Bezeichner fuer Bezeichner. Ein rein numerischer zaehlt
+        als Zahl (`beta.10` > `beta.9`, was eine Zeichenkette umgekehrt sortieren wuerde)
+        und rangiert unter einem alphanumerischen — daher die Kennung 0 vor 1.
+      * Bei gleichem Anfang gewinnt der laengere Vorabteil; das erledigt der
+        Tupelvergleich, der das kuerzere Tupel als kleiner ansieht.
+    Build-Metadaten (`+abc`) bleiben aussen vor, wie es die Norm verlangt — der reguläre
+    Ausdruck laesst `+` gar nicht erst in den Vorabteil.
+
+    EN: sort key honouring SemVer 2.0.0 §11 precedence, including pre-releases — a version
+    without a pre-release outranks the same version with one, numeric identifiers compare
+    numerically and rank below alphanumeric ones, build metadata is ignored.
+    """
+    m = _SEMVER_RE.match(str(v or ""))
+    if not m:
+        # Unlesbares ist das Kleinste ueberhaupt und loest deshalb nie einen Hinweis aus.
+        return (0, 0, 0, (0,))
+    zahl = tuple(int(x) for x in m.group(1, 2, 3))
+    vorab = m.group(4)
+    if not vorab:
+        return zahl + ((1,),)
+    teile = tuple((0, int(t), "") if t.isdigit() else (1, 0, t) for t in vorab.split("."))
+    return zahl + ((0,) + teile,)
+
+def _release_tag(url):
+    """Eine Release-Adresse abfragen -> (Version ohne führendes v, HTTP-Status).
+
+    Die beiden Endpunkte antworten verschieden geformt: `/releases/latest` mit EINEM
+    Objekt, `/releases` mit einer Liste. Beides hier auf denselben Nenner bringen, damit
+    der Aufrufer nur noch über den Status entscheidet."""
+    r = requests.get(url, timeout=5, headers={"Accept": "application/vnd.github+json"})
+    if r.status_code != 200:
+        return None, r.status_code
+    daten = r.json() or {}
+    if isinstance(daten, list):
+        daten = daten[0] if daten else {}
+    return (str((daten or {}).get("tag_name") or "").lstrip("v") or None), 200
 
 def latest_release():
     """Neueste veröffentlichte Version von GitHub, gecacht. Fehler sind still — ein
@@ -5578,11 +5636,16 @@ def latest_release():
     if now - _UPDATE["ts"] < UPDATE_TTL: return _UPDATE["latest"]
     _UPDATE["ts"] = now
     try:
-        r = requests.get(UPDATE_URL, timeout=5,
-                         headers={"Accept": "application/vnd.github+json"})
-        if r.status_code == 200:
-            tag = (r.json() or {}).get("tag_name") or ""
-            _UPDATE["latest"] = tag.lstrip("v") or None
+        tag, code = _release_tag(UPDATE_URL)
+        # 404 ist hier KEIN Ausfall, sondern eine Auskunft: es gibt (noch) keine stabile
+        # Fassung. Nur dann die Liste fragen — sie kennt auch Vorabversionen. Bei jedem
+        # anderen Fehler bleibt es bei einer Anfrage: ein Register, das gerade 500 sagt,
+        # bekommt von uns nicht die doppelte Last.
+        # EN: 404 means "no stable release yet", not "broken" — only then ask the list.
+        if code == 404:
+            tag, _ = _release_tag(UPDATE_ANY_URL)
+        if tag:
+            _UPDATE["latest"] = tag
     except Exception:
         pass
     return _UPDATE["latest"]
