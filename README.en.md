@@ -3,7 +3,7 @@
 [![CI](https://github.com/Sparxx947/romseerr/actions/workflows/ci.yml/badge.svg)](https://github.com/Sparxx947/romseerr/actions/workflows/ci.yml)
 [![Security](https://github.com/Sparxx947/romseerr/actions/workflows/security.yml/badge.svg)](https://github.com/Sparxx947/romseerr/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Beta](https://img.shields.io/badge/status-beta-orange.svg)](#project-status)
+[![Stable](https://img.shields.io/badge/status-stable-brightgreen.svg)](#project-status)
 
 *Deutsche Version: **[README.md](README.md)** · Wiki: **[Home](../../wiki)***
 
@@ -995,9 +995,16 @@ otherwise block the harmless updates as well.
 
 ## Project status
 
-**Beta.** The core is complete and tested: search/discover, the request workflow, the
-**Archive.org** and **Usenet** download paths (verified end-to-end, incl. import, SAB title and
-auto-cleanup), users/permissions/quotas, wishlist, messages, issues, designs, i18n, PWA and API.
+**Stable, as of 1.4.0.** The core is complete and tested: search/discover, the request
+workflow, the **Archive.org** and **Usenet** download paths (verified end-to-end, incl.
+import, SAB title and auto-cleanup), users/permissions/quotas, wishlist, messages, issues,
+designs, i18n, PWA and API.
+
+Every version before this one was a **pre-release**, which had a consequence the version
+number does not show: with no stable release, `GET /releases/latest` answers **404**, and
+the application's update check needed its own fallback through the release list (#572).
+From 1.4.0 on, `latest` points at something again — the fallback stays, but is no longer
+the only path that works.
 
 **Known limitation:** the **filehoster path** (JDownloader) is **experimental** — the code exists,
 but no source that yields `source=filehoster` hits is wired up yet
