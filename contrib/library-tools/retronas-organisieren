@@ -138,6 +138,82 @@ def ist_beiwerk(name):
     return os.path.splitext(name)[1].lower() in BEIWERK
 
 
+# Wie viele Bytes vom Anfang fuer die Inhaltspruefung genuegen. Die IFF-Kennung steht in
+# den ersten zwoelf; fuer die Textprobe ist mehr besser, aber 4 KB reichen, um ein
+# Textdokument von einem Programm zu unterscheiden, ohne 60 MB zu lesen.
+PROBE_BYTES = 4096
+
+def ist_beiwerk_ohne_endung(pfad):
+    """Beiwerk an der SIGNATUR erkennen — nur fuer Dateien ohne Endung. (#318 Punkt 4)
+
+    WARUM UEBERHAUPT: Unter `amiga` liegen 53.807 Dateien ohne Endung auf der Spielebene,
+    und die endungsbasierte Regel sieht sie nicht. Sie sind aber nicht alle gleich:
+    gemessen an einer Stichprobe von 150 sind rund 15 % Text, IFF-Bilder oder IFF-Klaenge,
+    der Rest ausfuehrbare Amiga-Programme und Undurchsichtiges.
+
+    WARUM NICHT `file`/libmagic, was naheliegt: Es RAET auf diesen Daten. In 150
+    endungslosen `c64`-Dateien meldete es unter anderem ein „WonderSwan ROM image", einen
+    „OpenPGP Secret Key" und „DIY-Thermocam raw data" — Kollisionen von Magic-Bytes auf
+    6502-Binaerdaten. Eine Regel darauf verschoebe Spielstaende und Spiele wegen eines
+    Zufalls.
+
+    WARUM NICHT „Text gegen Binaer": Auf `c64` und `neogeoaes` sind ueber 94 % der Probe
+    schlicht `data` — dort liegen Spiele und Nicht-Spiele im selben Topf. Die Trennung
+    faende nicht statt, das Risiko bliebe.
+
+    ERKANNT WIRD DESHALB NUR, WAS EINE EIGENE KENNUNG TRAEGT:
+      * `FORM....ILBM` — IFF-Bild
+      * `FORM....8SVX` — IFF-Klang
+      * reiner Text (nur druckbare Zeichen plus Tabulator/Zeilenumbruch)
+    Alles andere bleibt liegen. Ein `data`-Block ist unentschieden, und unentschieden
+    heisst hier: nicht anfassen.
+
+    GEGENPROBE, die diese Auswahl sicher macht: Die c64-Dateien ohne Endung sind
+    64.514 Byte grosse Vollspeicher-Abzuege, die mit `00 04` beginnen und 6502-Code
+    enthalten — kein Text, kein IFF. Die `neogeoaes`-Dateien (`crom0`, `m1rom`, `prom`)
+    ebenso wenig. Beide bleiben von dieser Regel unberuehrt, und genau das ist die
+    Absicht.
+
+    EN: recognises ancillary files without an extension by signature only — IFF ILBM,
+    IFF 8SVX, or plain text. Anything undecided is left alone, because libmagic guesses
+    on this data and a text/binary split does not separate the classes at all.
+    """
+    if os.path.splitext(pfad)[1]:
+        return False
+    try:
+        with open(pfad, "rb") as f:
+            kopf = f.read(PROBE_BYTES)
+    except OSError:
+        return False
+    if not kopf:
+        return False
+    # IFF: "FORM" + 4 Byte Laenge + Typkennung.
+    if kopf[:4] == b"FORM" and kopf[8:12] in (b"ILBM", b"8SVX"):
+        return True
+    # Text — und zwar streng. Die erste Fassung war zu grosszuegig, und der Bestand hat es
+    # sofort gezeigt: Unter `c64` fielen 1024 Byte grosse Dateien wie `ELITE-CRAM-4100`
+    # oder `BOULDERDASH16-CRAM-9000` hindurch. `CRAM` ist das FARB-RAM ($D800-$DBFF) zu
+    # den Vollspeicher-Abzuegen — es gehoert zum Spiel, und ohne es fehlen die Farben.
+    # Farbwerte liegen zufaellig im druckbaren Bereich, manche dieser Dateien bestehen
+    # sogar nur aus Leerzeichen.
+    #
+    # Drei Bedingungen zusammen, weil keine einzeln traegt:
+    #   * kein Nullbyte,
+    #   * MINDESTENS EIN ZEILENUMBRUCH — das ist der Filter, der die CRAM-Bloecke
+    #     aussortiert: Ein Speicherabzug hat keine Zeilen, ein Textdokument schon,
+    #   * hoechstens 30 % ausserhalb von ASCII, damit Latin-1-Umlaute erlaubt bleiben,
+    #     eine Bytefolge aus dem oberen Bereich aber nicht als Text durchgeht. 10 % waren
+    #     zu streng: In einem kurzen deutschen Satz sind vier Umlaute schnell ein Fuenftel
+    #     der Zeichen. Ein Speicherabzug liegt dagegen bei 50 bis 100 %.
+    if b"\x00" in kopf or b"\n" not in kopf:
+        return False
+    erlaubt = bytes(range(0x20, 0x7F)) + b"\t\r\n\f" + bytes(range(0xA0, 0x100))
+    if not all(b in erlaubt for b in kopf):
+        return False
+    hoch = sum(1 for b in kopf if b >= 0x80)
+    return hoch / len(kopf) <= 0.30
+
+
 # Datentraeger-Marker: `(Disk 1)`, `(Side A)`, `[Disc 2]`, `(Tape 1 of 3)`, `(Part 2)`.
 # Das ist das EINZIGE verlaessliche Zeichen dafuer, dass mehrere Dateien EIN Spiel
 # sind. Ein gemeinsamer Namensanfang genuegt NICHT: `VC Songs-Cartridge - Inventio-Pac`
@@ -558,10 +634,15 @@ def beiwerk_einsammeln(basis, plattform, arcade, trocken, protokoll, z):
     beiwerk_ziel = os.path.join(basis, BEIWERK_ORDNER)
     ausnahme = BEIWERK_AUSNAHME.get(plattform, set())
     oben = [f for f in sorted(os.listdir(basis)) if f != BEIWERK_ORDNER]
+    # Zwei Wege zum selben Ergebnis: die Endung — und, NUR fuer Dateien ohne Endung, die
+    # Signatur (#318 Punkt 4). Die Ausnahmeliste greift ausdruecklich nur auf dem ersten:
+    # Sie nennt Endungen, die auf einer Plattform das Spielformat sind (`pico8`/`.png`).
+    # Wer keine Endung hat, ist davon nicht betroffen.
     kandidaten = [f for f in oben
                   if os.path.isfile(os.path.join(basis, f))
-                  and ist_beiwerk(f)
-                  and os.path.splitext(f)[1].lower() not in ausnahme]
+                  and ((ist_beiwerk(f)
+                        and os.path.splitext(f)[1].lower() not in ausnahme)
+                       or ist_beiwerk_ohne_endung(os.path.join(basis, f)))]
     # Wenn die Haelfte oder mehr „Beiwerk" waere, ist die Einordnung falsch, nicht der
     # Bestand. Lieber nichts tun und es sagen.
     if oben and len(kandidaten) / len(oben) > BEIWERK_HOECHSTANTEIL:
