@@ -300,6 +300,15 @@ das ist der Normalfall und vollständig so, kein Notbehelf.
   sagt der Bereich das und nennt den erwarteten Pfad. Ohne diese Ansicht wäre der Ordner
   genau die Blackbox, gegen die er gebaut wurde: Dateien verschwinden oder eben nicht, und
   niemand kann sehen, warum. (Dieselben Angaben liefert `/api/import/status`.)
+- 🔎 **Eine ROM mit falscher Endung wird an ihrer Kennung erkannt (#611).** Ein Release
+  nannte seine 6,2-GB-NSP `….hdf` — sonst ein Amiga-Festplattenabbild, und `hdf` steht
+  nicht in der Endungsliste. Die Datei begann mit `PFS0`, war also eine tadellose
+  Switch-NSP; der Import ging daran vorbei und meldete „keine ROM-Dateien gefunden",
+  nachdem er 6,2 GB geholt, entpackt und geprüft hatte. Gibt der Name nichts her, wird
+  jetzt in die Datei gesehen — **eng gefasst**: nur bei unbekannter Endung, erst ab 64 MB
+  und nur für zwei eindeutige Kennungen (`PFS0` am Anfang, `HEAD` bei `0x100`, hinter der
+  RSA-Signatur). Das ist ausdrücklich kein Raten wie bei libmagic (#607), sondern eine
+  einzelne Signatur an fester Stelle.
 - 🗂️ **Bibliothek organisieren — sehen, was der Umbau gerade tut.** Unter
   **Einstellungen → Bibliothek organisieren** (nur für Verwalter) stehen Fortschritt in
   Prozent, Laufzeit, geschätzte Restzeit und die gerade bearbeitete Plattform, dazu die

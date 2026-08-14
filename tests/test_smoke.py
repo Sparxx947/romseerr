@@ -8562,3 +8562,54 @@ def test_sab_hat_auftrag_verwechselt_keine_fremden(appmod, monkeypatch):
 
     monkeypatch.setattr(appmod, "sab_queue", lambda: {})
     assert appmod.sab_hat_auftrag("1786694066019") is None
+
+
+# --- #611: Endung aus der Dateikennung ----------------------------------------------
+
+def test_an_nsp_named_hdf_is_recognised_by_its_header(appmod, tmp_path):
+    """Eine NSP mit falscher Endung wird an ihrer Kennung erkannt. (#611)
+
+    GEMESSEN: Ein 6,2-GB-Release hiess `….hdf` — sonst ein Amiga-Festplattenabbild, und
+    `hdf` steht nicht in `ROM_EXT`. Die ersten Bytes waren `PFS0`, also eine tadellose
+    Switch-NSP. Der Import ging daran vorbei und meldete „keine ROM-Dateien gefunden",
+    nachdem er die 6,2 GB geholt, entpackt und geprueft hatte.
+
+    ABGRENZUNG ZU #607: Dort war das Problem, dass `libmagic` RAET — auf 6502-Binaerdaten
+    meldete es WonderSwan-ROMs und OpenPGP-Schluessel. Hier wird eine einzelne, eindeutige
+    Kennung an einer festen Stelle geprueft. Das ist keine Heuristik.
+    """
+    p = tmp_path / "Night.Trap.USA.eShop.NSW-BigBlueBox.hdf"
+    p.write_bytes(b"PFS0" + b"\x0c\x00\x00\x00" + b"\x00" * (65 * 1024 * 1024))
+    assert appmod.rom_endung(p.name) == (None, None), "der Name allein darf nichts hergeben"
+    assert appmod.rom_endung_aus_inhalt(str(p)) == "nsp"
+
+
+def test_the_xci_magic_sits_behind_the_signature(appmod, tmp_path):
+    """Die XCI-Kennung steht bei 0x100, nicht am Anfang. (#611)
+
+    Eine fruehere Pruefung in diesem Projekt suchte sie bei Offset 0 und erklaerte
+    daraufhin acht heile Abbilder fuer kaputt. Davor sitzt die RSA-Signatur.
+    """
+    p = tmp_path / "Titel.dat"
+    p.write_bytes(b"\xff" * 0x100 + b"HEAD" + b"\x00" * (65 * 1024 * 1024))
+    assert appmod.rom_endung_aus_inhalt(str(p)) == "xci"
+
+
+def test_content_detection_stays_narrow(appmod, tmp_path):
+    """Nur gross genug, nur eindeutig — sonst nichts. (#611)
+
+    Ohne die Groessenschranke oeffnete der Import jede uebergangene Datei; ohne die
+    Beschraenkung auf zwei Kennungen waere es dasselbe Raten, das #607 ausgebaut hat.
+    """
+    # Zu klein: eine 1-KB-Datei ist kein Switch-Titel, auch wenn sie so anfaengt.
+    klein = tmp_path / "winzig.dat"
+    klein.write_bytes(b"PFS0" + b"\x00" * 1000)
+    assert appmod.rom_endung_aus_inhalt(str(klein)) is None
+
+    # Gross, aber ohne bekannte Kennung: bleibt liegen.
+    fremd = tmp_path / "gross.dat"
+    fremd.write_bytes(b"RIFF" + b"\x00" * (65 * 1024 * 1024))
+    assert appmod.rom_endung_aus_inhalt(str(fremd)) is None
+
+    # Was es nicht gibt, wirft nicht.
+    assert appmod.rom_endung_aus_inhalt(str(tmp_path / "gibtsnicht")) is None

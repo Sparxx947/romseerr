@@ -3247,6 +3247,47 @@ def rom_endung(fn):
             return vorletzte, ".".join(teile[:-1])
     return None, None
 
+# Kennungen, die eine Datei ZWEIFELSFREI ausweisen — Offset -> Bytes -> Endung. (#611)
+# Bewusst kurz: Hier steht nur, was eindeutig ist. Raten waere der Fehler aus #607.
+INHALT_KENNUNG = ((0, b"PFS0", "nsp"), (0x100, b"HEAD", "xci"))
+# Darunter lohnt das Nachsehen nicht — ein Switch-Titel ist nie 40 MB klein, und so
+# bleibt der Griff zur Platte auf die Faelle beschraenkt, um die es geht.
+INHALT_MINDESTGROESSE = 64 * 1024 * 1024
+
+def rom_endung_aus_inhalt(pfad):
+    """Endung aus der DATEIKENNUNG, wenn der Name nichts hergibt. -> Endung oder None. (#611)
+
+    ANLASS, gemessen: Ein 6,2-GB-Release hiess `….hdf` — normalerweise ein
+    Amiga-Festplattenabbild, und `hdf` steht nicht in `ROM_EXT`. Die Datei begann mit
+    `PFS0`, war also eine tadellose Switch-NSP. Der Import ging daran vorbei und meldete
+    „keine ROM-Dateien gefunden", nachdem er 6,2 GB geholt, entpackt und geprueft hatte.
+    Umbenennen und erneut einlesen genuegte.
+
+    `rom_endung` deckt den verwandten Fall `spiel.nsp.hdf` schon ab (#241) — dort steht
+    die richtige Endung noch im Namen. Hier steht sie nirgends.
+
+    ENG GEFASST, und das ist der Unterschied zu #607: Dort war das Problem, dass
+    `libmagic` RAET; hier wird eine einzelne, eindeutige Kennung geprueft. Nur bei
+    unbekannter Endung, nur ab 64 MB, nur diese zwei Signaturen.
+
+    Die XCI-Kennung sitzt bei 0x100, HINTER der RSA-Signatur — eine fruehere Pruefung in
+    diesem Projekt suchte sie bei 0 und erklaerte acht heile Dateien fuer kaputt.
+
+    EN: derive the extension from the file's magic when the name gives nothing — narrowly:
+    unknown extension only, 64 MB minimum, two unambiguous signatures.
+    """
+    try:
+        if os.path.getsize(pfad) < INHALT_MINDESTGROESSE:
+            return None
+        with open(pfad, "rb") as f:
+            for off, magie, ext in INHALT_KENNUNG:
+                f.seek(off)
+                if f.read(len(magie)) == magie:
+                    return ext
+    except OSError:
+        return None
+    return None
+
 def import_folder(jid, folder):
     """Kern der Einsortierung: Archive entpacken, jede Datei einer Plattform zuordnen
     (eindeutige Endung via EXT2PLAT schlägt den Job-Hinweis), **Dedup** gegen die
@@ -3301,6 +3342,14 @@ def import_folder(jid, folder):
             # Bibliothek zu vermüllen. (#61) — `ziel` kann sich von `fn` unterscheiden,
             # wenn ein Downloadprogramm eine zweite Endung angehängt hat. (#241)
             ext, ziel = rom_endung(fn)
+            if not ext:
+                # Der Name gibt nichts her — dann in die Datei sehen (#611). Ein Release
+                # kann seine NSP `.hdf` nennen; 6,2 GB deswegen liegen zu lassen und
+                # „keine ROM-Dateien" zu melden, ist die teuerste Art, recht zu haben.
+                ext = rom_endung_aus_inhalt(src)
+                if ext:
+                    ziel = f"{fn}.{ext}"
+                    log(f"{fn}: als .{ext} erkannt (Dateikennung, nicht am Namen)")
             if not ext:
                 skipped += 1
                 uebergangen.append(fn)
