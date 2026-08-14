@@ -409,7 +409,7 @@ def _lauf(org, monkeypatch, wurzel, scheitert_an=()):
     """
     import json
 
-    def umbauen(_wurzel, plattform, _trocken, _prot):
+    def umbauen(_wurzel, plattform, _trocken, _prot, _nur_beiwerk=False):
         if plattform in scheitert_an:
             raise RuntimeError(f"kein freier Name fuer VERSION.NFO ({plattform})")
         return 0
@@ -758,6 +758,140 @@ def test_collection_is_refused_when_it_would_take_most_of_the_platform(org, tmp_
     assert not (basis / "_beiwerk").exists(), \
         "bei ueberwiegendem Beiwerk darf nicht eingesammelt werden"
     assert len(list(basis.iterdir())) == 9, "es darf nichts verschoben worden sein"
+
+
+# --- #318: `--nur-beiwerk` — der eine Schritt, der ohne Rest zurueckgeht --------------
+#
+# WOZU ES DEN SCHALTER GIBT: Am Bestand liegen (2026-08-14 gemessen, `find -maxdepth 1`
+# ueber alle 74 Plattformen) **121.768 Beiwerk-Dateien auf Ebene 1** verteilt auf 33
+# Plattformen, die RomM allesamt als Spiele zaehlt — 108.354 davon unter `amiga`, 9.012
+# unter `c64`, 2.166 unter `gbc`, der Rest kleinteilig.
+#
+# Sie einzusammeln verlangte bisher einen VOLLEN `retronas-organisieren`-Lauf. Der
+# entpackt aber auch Archive und LOESCHT Dubletten, und dieser Teil steht zwar im
+# Protokoll, ist daraus aber nicht wiederherstellbar. Auf `amiga` (440.000 Dateien) ist er
+# ausserdem ein Langlauf ueber Stunden. Schritt 3c allein besteht aus `shutil.move` — und
+# damit faellt der ganze Grund weg, aus dem der Umbau bisher nicht lief.
+
+
+def _stumm():
+    class StummesProtokoll:
+        def schreiben(self, *a, **k): pass
+    return StummesProtokoll()
+
+
+def test_only_the_ancillary_step_runs_when_only_it_is_asked_for(org, tmp_path):
+    """`--nur-beiwerk` fasst NUR Ebene-1-Beiwerk an. (#318)
+
+    Die drei Schritte, die es NICHT tut, sind genau die, die sich nicht zuruecknehmen
+    lassen oder Stunden kosten: entpacken (die Quelldatei wird danach geloescht),
+    Sammlungen aufloesen, Dubletten entfernen. Der Test legt von jeder Sorte eine Probe
+    aus und verlangt, dass sie unberuehrt bleibt.
+
+    EN: the ancillary-only run must not unpack, not flatten collections and not delete
+    duplicates — those are the irreversible parts.
+    """
+    basis = tmp_path / "c64"
+    basis.mkdir()
+    for i in range(12):
+        (basis / f"Spiel {i}.d64").write_bytes(os.urandom(64))
+    (basis / "liesmich.txt").write_bytes(os.urandom(16))
+    (basis / "cover.jpg").write_bytes(os.urandom(16))
+    # Ein Archiv, eine Sammlung und zwei bitgleiche Dateien — die drei Schritte, die
+    # ausbleiben muessen.
+    import zipfile
+    with zipfile.ZipFile(basis / "sammlung.zip", "w") as zf:
+        zf.writestr("drin.d64", "x" * 32)
+    sammlung = basis / "OneLoad64"
+    sammlung.mkdir()
+    for i in range(30):
+        (sammlung / f"Titel {i}.d64").write_bytes(os.urandom(32))
+    gleich = os.urandom(128)
+    (basis / "Dublette A.d64").write_bytes(gleich)
+    (basis / "Dublette B.d64").write_bytes(gleich)
+
+    org.umbauen(str(tmp_path), "c64", False, _stumm(), True)
+
+    assert (basis / "sammlung.zip").is_file(), "das Archiv wurde entpackt"
+    assert (basis / "OneLoad64").is_dir() and len(list(sammlung.iterdir())) == 30, \
+        "die Sammlung wurde aufgeloest"
+    assert (basis / "Dublette A.d64").is_file() and (basis / "Dublette B.d64").is_file(), \
+        "eine Dublette wurde geloescht — genau das darf hier nicht passieren"
+    gesammelt = sorted(p.name for p in (basis / "_beiwerk").iterdir())
+    assert gesammelt == ["cover.jpg", "liesmich.txt"], gesammelt
+
+
+def test_an_ancillary_only_run_goes_back_without_a_trace(org, tmp_path):
+    """`--zurueck` stellt nach `--nur-beiwerk` den Ausgangsstand VOLLSTAENDIG her. (#318)
+
+    Das ist die Begruendung des Schalters, deshalb wird sie geprueft und nicht behauptet.
+    Mitgeprueft: der angelegte `_beiwerk`-Ordner verschwindet wieder. Bliebe er leer
+    stehen, zaehlte RomM ihn als ein Spiel — der Rueckweg waere auf jeder angefassten
+    Plattform um genau einen Eintrag daneben.
+    """
+    basis = tmp_path / "c64"
+    basis.mkdir()
+    for i in range(12):
+        (basis / f"Spiel {i}.d64").write_bytes(os.urandom(64))
+    for n in ("VERSION.NFO", "readme.txt", "cover.jpg"):
+        (basis / n).write_bytes(os.urandom(32))
+    vorher = sorted(p.name for p in basis.iterdir())
+
+    pfad = org.protokoll_pfad(str(tmp_path), "c64", True)
+    prot = org.Protokoll(pfad, False)
+    try:
+        org.umbauen(str(tmp_path), "c64", False, prot, True)
+    finally:
+        prot.zu()
+    assert (basis / "_beiwerk").is_dir(), "es wurde gar nicht eingesammelt"
+
+    org.zurueck(pfad)
+    assert sorted(p.name for p in basis.iterdir()) == vorher, \
+        "der Ausgangsstand ist nicht wiederhergestellt"
+    assert not (basis / "_beiwerk").exists(), "der leere Sammelordner blieb stehen"
+
+    # Und im Protokoll steht ausschliesslich Ruecknehmbares.
+    with open(pfad, **org.PROTOKOLL_KODIERUNG) as f:
+        arten = {json.loads(z)["art"] for z in f if z.strip()}
+    assert arten <= {"verschoben", "ordner_angelegt"}, \
+        f"ein --nur-beiwerk-Lauf hat mehr getan als verschoben: {sorted(arten)}"
+
+
+def test_an_ancillary_only_run_is_not_a_finished_rebuild(org, tmp_path, monkeypatch):
+    """Ein `--nur-beiwerk --alle` darf einen spaeteren vollen Lauf NICHT verkuerzen. (#318)
+
+    Beide Laufarten schreiben ihren Fortschritt; teilten sie sich eine Datei, gaelte eine
+    nur aufgeraeumte Plattform als vollstaendig umgebaut. Der naechste `--alle`-Lauf
+    uebersprAENGE sie — ohne je ein Archiv entpackt zu haben, und ohne es zu sagen. Das
+    ist derselbe Fehler wie #397, nur eine Ebene hoeher.
+    """
+    wurzel = _bibliothek(tmp_path, "gb", "c64", "amiga")
+
+    def umbauen(_wurzel, _plattform, _trocken, _prot, _nur_beiwerk=False):
+        return 0
+    monkeypatch.setattr(org, "umbauen", umbauen)
+
+    org.alle_umbauen(wurzel, False, set(), False, True)
+    umbau = os.path.join(wurzel, ".umbau")
+    assert os.path.exists(os.path.join(umbau, "fortschritt-beiwerk.json")), \
+        "der Beiwerk-Lauf hat seinen Fortschritt nirgends abgelegt"
+    assert not os.path.exists(os.path.join(umbau, "fortschritt.json")), \
+        "er hat den Wiederaufsetzpunkt des VOLLEN Laufs beschrieben"
+
+    erledigt, _ = org.stand_laden(os.path.join(umbau, "fortschritt.json"))
+    assert erledigt == set(), "ein voller Lauf wuerde jetzt Plattformen ueberspringen"
+
+
+def test_the_log_of_an_ancillary_only_run_says_so_in_its_name(org):
+    """Am Dateinamen erkennbar, welcher Art der Lauf war. (#318)
+
+    In `.umbau/` liegen Dutzende Protokolle. Nur die aus `--nur-beiwerk` gehen restlos
+    zurueck; wer `--zurueck` aufruft, soll das vorher sehen und nicht erst hinterher.
+    """
+    voll = org.protokoll_pfad("/roms", "amiga", False)
+    nur = org.protokoll_pfad("/roms", "amiga", True)
+    assert "-beiwerk-" in os.path.basename(nur)
+    assert "-beiwerk-" not in os.path.basename(voll)
 
 
 # --- #366: Zusammenhang statt Endung --------------------------------------------------
