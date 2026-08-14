@@ -6365,6 +6365,30 @@ def test_the_requests_list_names_an_unknown_platform_instead_of_leaving_a_gap(ap
     assert i18n_hat("plat_unknown") == 5, "der Text fehlt in mindestens einer Sprache"
 
 
+def test_html_is_revalidated_while_assets_stay_immutable(client):
+    """Die Anwendungsseite nennt die gehashten Asset-URLs. Wird SIE gecacht, zeigt sie auf
+    die ALTEN Hashes — und ein Browser bleibt beliebig lange auf einer frueheren Fassung,
+    ohne Fehler und ohne Hinweis. Genau das war die wahrscheinlichste Erklaerung fuer eine
+    Meldung, dass ein Knopf „nichts tut", waehrend derselbe Ablauf gemessen funktionierte.
+
+    Die Kombination ist der Sinn gehashter URLs: Seite revalidieren, Assets ewig behalten.
+    Beides wird hier festgehalten, weil ein Umbau, der den Header wieder verliert, sonst
+    unsichtbar bliebe. (#643)"""
+    # `/login`, nicht `/`: Ohne Sitzung antwortet `/` mit 302 auf den Login, und eine
+    # Weiterleitung traegt den Header nicht. Der erste Anlauf dieses Tests mass genau das
+    # und behauptete, der Fix wirke nicht.
+    r = client.get("/login")
+    cc = (r.headers.get("Cache-Control") or "").lower()
+    assert "no-cache" in cc, f"die Seite darf gecacht werden: {cc!r}"
+    # Gegenprobe: die gehashten Assets muessen weiterhin lange gueltig sein.
+    import re
+    m = re.search(rb"/assets/[a-f0-9]+/(js|css)/[a-z]+\.(js|css)", r.data)
+    assert m, "keine gehashte Asset-URL in der Seite"
+    a = client.get(m.group(0).decode())
+    acc = (a.headers.get("Cache-Control") or "").lower()
+    assert "immutable" in acc or "max-age=3153" in acc, f"Assets nicht mehr dauerhaft: {acc!r}"
+
+
 def test_no_native_confirm_dialogs_remain(appmod):
     """`confirm()` wird vom BROWSER gezeichnet und ist mit keiner Regel erreichbar — es sah
     auf allen vier Designs fremd aus. Schwerer wiegt: Ein nativer Dialog friert die Seite

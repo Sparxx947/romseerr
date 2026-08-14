@@ -5032,6 +5032,24 @@ def asset_url(rel):
     a = _ASSETS.get(rel)
     return f"/assets/{a['hash']}/{rel}" if a else f"/assets/dev/{rel}"
 
+def html_antwort(name):
+    """HTML-Einstiegsseite ausliefern — mit `no-cache`, NICHT ohne Header. (#643)
+
+    WARUM: Die Seite nennt die gehashten Asset-URLs. Wird SIE gecacht, zeigt sie auf die
+    ALTEN Hashes, und ein Browser bleibt beliebig lange auf einer frueheren Fassung — ohne
+    Fehler und ohne Hinweis. Genau das war die wahrscheinlichste Erklaerung fuer eine
+    Meldung, ein Knopf tue „nichts", waehrend derselbe Ablauf gemessen einwandfrei lief.
+
+    `no-cache` heisst REVALIDIEREN, nicht „nie speichern": Der Browser darf die Seite
+    behalten, muss aber nachfragen. Zusammen mit `immutable` auf den gehashten Assets ist
+    das genau der Sinn gehashter URLs — die Seite ist billig, die Assets sind teuer.
+
+    EN: the page names the hashed asset URLs; caching it pins a browser to an old release.
+    """
+    return Response(render_page(name), mimetype="text/html",
+                    headers={"Cache-Control": "no-cache"})
+
+
 def render_page(name):
     """Vorlage lesen und die __ASSET:…__-Platzhalter durch gehashte URLs ersetzen.
     Bewusst KEINE Template-Engine: die Dateien stecken voller JS-Template-Literale
@@ -5070,7 +5088,7 @@ load_assets()   # beim Import, damit auch Tests und der WSGI-Betrieb ohne __main
 
 @app.route("/")
 @login_required
-def index(): return Response(render_page("index.html"), mimetype="text/html")
+def index(): return html_antwort("index.html")
 
 @app.route("/api/search")
 @login_required
@@ -6103,7 +6121,7 @@ def _guard():
         return redirect("/login")
 
 @app.route("/login")
-def login_page(): return Response(render_page("login.html"), mimetype="text/html")
+def login_page(): return html_antwort("login.html")
 
 @app.route("/api/auth/status")
 def auth_status():
@@ -6190,7 +6208,7 @@ def api_forgot():
     return jsonify({"ok": True})   # generisch, verrät keine Existenz
 
 @app.route("/reset")
-def reset_page(): return Response(render_page("reset.html"), mimetype="text/html")
+def reset_page(): return html_antwort("reset.html")
 
 @app.route("/api/reset", methods=["POST"])
 def api_reset():
@@ -8111,7 +8129,7 @@ OPENAPI = {
 def api_openapi(): return jsonify(OPENAPI)
 
 @app.route("/api/docs")
-def api_docs(): return Response(render_page("redoc.html"), mimetype="text/html")
+def api_docs(): return html_antwort("redoc.html")
 
 # ---------- Start ----------
 # ---------- Liegengebliebene Downloads (#244) ----------
