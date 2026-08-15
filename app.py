@@ -3586,6 +3586,35 @@ INHALT_KENNUNG = ((0, b"PFS0", "nsp"), (0x100, b"HEAD", "xci"))
 # bleibt der Griff zur Platte auf die Faelle beschraenkt, um die es geht.
 INHALT_MINDESTGROESSE = 64 * 1024 * 1024
 
+# Mindestens ZWEI Zeichen, beginnend mit einem Buchstaben. Beide Grenzen sind gemessen,
+# nicht geschaetzt (#649): In der Bibliothek stehen 17 Titel, deren Name auf einen einzelnen
+# Buchstaben hinter einem Punkt endet — `H.E.R.O`, `I.C.U.P.S`, `H.A.T.E`. Bei ihnen ist die
+# letzte Silbe Teil des Namens, keine Endung. Der Ziffernausschluss schuetzt Versionsnummern
+# (`Spiel v1.0`, `Rev 1.2`), die sonst genauso aussehen.
+ENDUNGSFOERMIG = re.compile(r"[a-z][a-z0-9]{1,4}\Z")
+
+def ziel_mit_endung(fn, ext):
+    """Zielname fuer eine Datei, deren Endung aus der DATEIKENNUNG stammt. (#649)
+
+    ERSETZEN statt anhaengen — und warum das hier sicher ist: `rom_endung_aus_inhalt`
+    meldet nur bei Dateien ab 64 MB und nur bei zwei eindeutigen Signaturen etwas. Wenn
+    sie anschlaegt, ist die vorhandene Endung fuer DIESE Datei nachweislich falsch, ganz
+    gleich was sie anderswo bedeutet: `.hdf` ist bei Amiga ein echtes Format (3.193 Stueck
+    in der Bibliothek) und bei einem Switch-Release ein geratener Suffix.
+
+    Vorher wurde angehaengt. Das ergab `Portal.2.NSW.VENOM.hdf.nsp` — lauffaehig, aber der
+    Rest blieb im Namen und damit im Dedup-Schluessel: `norm()` lieferte
+    „portal 2 venom hdf" statt „portal 2". Dieselbe Datei aus einer Quelle ohne
+    Verschleierung galt dadurch als neu und waere ein zweites Mal geholt worden (7,3 GB).
+
+    Gekuerzt wird nur, was wie eine Endung aussieht. Alles andere bekommt die Endung
+    zusaetzlich — ein Name, den wir nicht als Endung erkennen, ist keiner.
+    """
+    stamm, punkt, letzte = fn.rpartition(".")
+    if punkt and letzte.lower() != ext and ENDUNGSFOERMIG.match(letzte.lower()):
+        return f"{stamm}.{ext}"
+    return f"{fn}.{ext}"
+
 def rom_endung_aus_inhalt(pfad):
     """Endung aus der DATEIKENNUNG, wenn der Name nichts hergibt. -> Endung oder None. (#611)
 
@@ -3680,8 +3709,9 @@ def import_folder(jid, folder):
                 # „keine ROM-Dateien" zu melden, ist die teuerste Art, recht zu haben.
                 ext = rom_endung_aus_inhalt(src)
                 if ext:
-                    ziel = f"{fn}.{ext}"
-                    log(f"{fn}: als .{ext} erkannt (Dateikennung, nicht am Namen)")
+                    ziel = ziel_mit_endung(fn, ext)
+                    log(f"{fn}: als .{ext} erkannt (Dateikennung, nicht am Namen)"
+                        + (f" -> {ziel}" if ziel != f"{fn}.{ext}" else ""))
             if not ext:
                 skipped += 1
                 uebergangen.append(fn)
