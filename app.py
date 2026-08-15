@@ -1811,6 +1811,58 @@ def in_library(title, slug):
             return n in LIB["per"][slug]
         return n in LIB["all"]      # Plattform unbekannt -> global prüfen (konservativ)
 
+# Erscheinungsjahr der PLATTFORM, nicht des Spiels (#685). Damit laesst sich sagen, welche
+# der gefundenen Plattformen die aelteste ist — und das ist bei einem Titel, der auf mehreren
+# liegt, fast immer die, auf der er zuerst erschien: `pac man` liegt hier auf 22 Systemen,
+# und Atari 2600 (1977) vor NES (1983) vor Game Boy (1989) trifft die Reihenfolge.
+#
+# WARUM NICHT IGDB: Es liefert `first_release_date` als EIN Datum fuer das Spiel, nicht je
+# Plattform; plattformweise Daten waeren zusaetzliche Abfragen je Treffer. Und die Titel, um
+# die es hier geht — `Super Mario World 64 (Unl)`, Hacks, Homebrew — kennt IGDB gar nicht.
+#
+# EHRLICH BLEIBEN: Das ist das Jahr der KONSOLE. Ein Homebrew von 2020 fuer den Atari 2600
+# stuende damit vor einem Original von 1995. Die Karte behauptet deshalb nichts ueber das
+# Spiel, sie nennt nur die Plattform zuerst, die es am laengsten gibt.
+PLAT_JAHR = {
+ "arcade":1972, "atari2600":1977, "apple2":1977, "atari5200":1982, "c64":1982, "zxs":1982,
+ "colecovision":1982, "intellivision":1979, "vic20":1980, "dos":1981, "msx":1983, "nes":1983,
+ "sg1000":1983, "acpc":1984, "c16":1984, "atari7800":1984, "sms":1985, "amiga":1985,
+ "atari-st":1985, "turbografx16":1987, "genesis":1988, "gb":1989, "lynx":1989, "gamegear":1990,
+ "neogeo":1990, "snes":1990, "segacd":1991, "sega32x":1994, "amiga-cd32":1993, "3do":1993,
+ "jaguar":1993, "neo-geo-cd":1994, "psx":1994, "saturn":1994, "virtualboy":1995, "n64":1996,
+ "gbc":1998, "dreamcast":1998, "neogeopocket":1998, "wonderswan":1999, "ps2":2000, "gba":2001,
+ "ngc":2001, "xbox":2001, "nds":2004, "psp":2004, "xbox360":2005, "wii":2006, "ps3":2006,
+ "3ds":2011, "psvita":2011, "wiiu":2012, "ps4":2013, "xboxone":2013, "switch":2017,
+ # Ordner, die nur in der Bibliothek vorkommen, nicht in der Filterliste. Ohne Eintrag
+ # landen sie hinten — was fuer die drei ohne Jahr (pico8, scummvm, RG350) auch richtig ist:
+ # sie sind Laufzeitumgebungen, keine Konsolen mit Erscheinungsdatum.
+ "vectrex":1982, "atari8bit":1979, "apple":1977, "aquarius":1983, "g-and-w":1980,
+ "sharp-x68000":1987, "epoch-super-cassette-vision":1984, "GP32":2001,
+}
+
+def plat_sortierung(slug):
+    """Aeltere Plattform zuerst; unbekannte ans Ende, alphabetisch. (#685)"""
+    return (PLAT_JAHR.get(slug, 9999), slug)
+
+def library_slugs(title):
+    """In WELCHEN Plattformen liegt dieser Titel? -> sortierte Liste. (#685)
+
+    `in_library` beantwortet nur das Ob. Bei einem Treffer ohne Plattformangabe faellt es
+    auf die globale Pruefung zurueck und liefert `True` — die Karte hatte danach nichts
+    anzuzeigen und schrieb „Plattform unbekannt" NEBEN „in Bibliothek". Beides zugleich
+    kann nicht stimmen: was in der Bibliothek liegt, liegt in einem Plattformordner.
+
+    Bewusst eine LISTE und kein einzelner Wert: `Super Mario World` liegt auf snes und als
+    Handheld-Portierung. Einen davon als Tatsache auszugeben waere schlechter als
+    „unbekannt" — die Karte kann daraus „SNES +2" machen und bleibt damit ehrlich.
+    """
+    n = norm(title)
+    if not n: return []
+    with LIB_LOCK:
+        if n not in LIB["all"]: return []
+        return sorted((sl for sl, menge in (LIB["per"] or {}).items() if n in menge),
+                      key=plat_sortierung)
+
 # Wohin eine Datei geht, deren Plattform sich nicht bestimmen laesst. Der PUNKT ist die
 # ganze Mechanik: `build_index` ueberspringt Ordner, die damit beginnen (#321). Ein
 # Ablageort, der keine Plattform vortaeuscht, braucht deshalb keine neue Sonderregel.
@@ -2489,6 +2541,11 @@ def do_search(q, platforms=None):
             if r["source"]=="usenet" and not r["platform"]: continue
         r["platform_slug"] = resolve_slug(r["platform"])
         r["in_library"] = in_library(r["title"], r["platform"])
+        # Sagt die Quelle keine Plattform, wir wissen sie aber aus der Bibliothek, dann
+        # gehoert sie an die Karte — ABGELEITET, nicht als Angabe der Quelle. Sonst steht
+        # dort „Plattform unbekannt" neben „in Bibliothek". (#685)
+        if r["in_library"] and not r["platform_slug"]:
+            r["lib_slugs"] = library_slugs(r["title"])
         r["is_set"] = is_set(r["title"], r["size"])
         r["gkey"] = norm(r["title"])          # zum Gruppieren gleicher Titel (Versionen)
         # „angefragt" ist ein ANDERER Zustand als „vorhanden", und beide interessieren VOR
