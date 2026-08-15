@@ -9565,3 +9565,65 @@ def test_ein_teillauf_liest_auch_den_alias_ordner_der_plattform(appmod):
         if unserer and os.path.isdir(dc) and not os.listdir(dc):
             os.rmdir(dc)
         appmod.build_index()
+
+
+# --- #649: Endung aus der Dateikennung ersetzt die falsche, statt sich anzuhängen -------
+
+def test_ziel_mit_endung_replaces_a_wrong_extension(appmod):
+    """`Portal.2.NSW.VENOM.hdf` wird `…VENOM.nsp`, nicht `…VENOM.hdf.nsp`. (#649)
+
+    Der angehängte Rest blieb im Namen und damit im Dedup-Schlüssel — dieselbe Datei aus
+    einer Quelle ohne Verschleierung galt als neu.
+    """
+    assert appmod.ziel_mit_endung("Portal.2.NSW.VENOM.hdf", "nsp") == "Portal.2.NSW.VENOM.nsp"
+    assert appmod.ziel_mit_endung("Game.bin", "nsp") == "Game.nsp"
+    assert appmod.ziel_mit_endung("Marble.Master.mdf", "xci") == "Marble.Master.xci"
+
+
+def test_ziel_mit_endung_keeps_names_that_only_look_like_extensions(appmod):
+    """Die Grenzen sind an echten Namen der Bibliothek gemessen, nicht geschätzt. (#649)
+
+    Ein einzelner Buchstabe hinter einem Punkt ist in 17 Titeln Teil des Namens
+    (`H.E.R.O`, `I.C.U.P.S`, `H.A.T.E`), und eine Zahl dahinter ist eine Versionsangabe.
+    Beides darf nicht als Endung gelten — sonst kostet der Fix mehr, als er einbringt.
+    """
+    # Einzelbuchstabe: echte Titel aus der Bibliothek
+    assert appmod.ziel_mit_endung("H.E.R.O", "nsp") == "H.E.R.O.nsp"
+    assert appmod.ziel_mit_endung("I.C.U.P.S", "nsp") == "I.C.U.P.S.nsp"
+    # Versions- und Zählnummern
+    assert appmod.ziel_mit_endung("Spiel v1.0", "nsp") == "Spiel v1.0.nsp"
+    assert appmod.ziel_mit_endung("AGS_Mini.7z.001", "nsp") == "AGS_Mini.7z.001.nsp"
+    # gar kein Punkt
+    assert appmod.ziel_mit_endung("crom0 (32)", "nsp") == "crom0 (32).nsp"
+    # zu lang für eine Endung
+    assert appmod.ziel_mit_endung("Sammlung.komplett", "nsp") == "Sammlung.komplett.nsp"
+    # bereits die richtige Endung — nichts zu ersetzen, nichts zu doppeln
+    assert appmod.ziel_mit_endung("Spiel.nsp", "nsp") == "Spiel.nsp.nsp"
+
+
+def test_the_import_uses_the_replacing_form(appmod):
+    """Die Funktion muss auch aufgerufen werden. (#649)
+
+    Sie stand fertig da, während `import_folder` weiter `f"{fn}.{ext}"` baute — genau so
+    bleibt ein Fix ausgeliefert und wirkungslos.
+    """
+    quelle = open(os.path.join(REPO, "app.py"), encoding="utf-8").read()
+    m = re.search(r"ext = rom_endung_aus_inhalt\(src\)(.*?)\n            if not ext:", quelle, re.S)
+    assert m, "die Stelle im Import ist nicht mehr auffindbar"
+    zweig = m.group(1)
+    assert "ziel_mit_endung(fn, ext)" in zweig, "der Import hängt die Endung weiterhin selbst an"
+    assert 'ziel = f"{fn}.{ext}"' not in zweig, "die alte, anhängende Form steht noch da"
+
+
+def test_the_replacement_actually_fixes_the_dedup_key(appmod):
+    """Der Zweck der Änderung, gemessen am echten `norm()`. (#649)
+
+    Ohne sie lieferte `Portal.2.NSW.VENOM.hdf.nsp` den Schlüssel „portal 2 venom hdf":
+    der Rest verhinderte, dass die Gruppenkürzel-Regel griff, denn die verlangt das Kürzel
+    am Namensende. 7,3 GB wären ein zweites Mal geholt worden.
+    """
+    vorher = appmod.norm("Portal.2.NSW.VENOM.hdf.nsp")
+    nachher = appmod.norm(appmod.ziel_mit_endung("Portal.2.NSW.VENOM.hdf", "nsp"))
+    sauber = appmod.norm("Portal 2 (Switch).nsp")
+    assert vorher != sauber, f"Ausgangslage stimmt nicht mehr: {vorher!r} == {sauber!r}"
+    assert nachher == sauber, f"der Schlüssel passt immer noch nicht: {nachher!r} != {sauber!r}"

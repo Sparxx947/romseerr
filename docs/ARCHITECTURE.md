@@ -878,6 +878,27 @@ vorletzte eine bekannte ROM-Endung ist, und **kürzt den Namen beim Kopieren** �
 liegt in der Bibliothek ein Name, den kein Emulator öffnet. Nur eine Ebene tief:
 `spiel.nsp.hdf` ja, `spiel.foo.bar` nein.
 
+**Steht die richtige Endung nirgends im Namen**, entscheidet die Dateikennung
+(`rom_endung_aus_inhalt`) — eng gefasst: nur bei unbekannter Endung, erst ab 64 MB, nur
+zwei eindeutige Signaturen. Was sie liefert, **ersetzt** die vorhandene Endung, statt sich
+anzuhängen (`ziel_mit_endung`, #649). Das ist der Unterschied zwischen
+`Portal.2.NSW.VENOM.nsp` und `Portal.2.NSW.VENOM.hdf.nsp`; die zweite Form lief zwar, ließ
+den Rest aber im Namen und damit im Dedup-Schlüssel stehen — `norm()` lieferte
+„portal 2 venom hdf" statt „portal 2", weil die Gruppenkürzel-Regel das Kürzel am
+Namensende erwartet. Dieselbe Datei aus einer Quelle ohne Verschleierung wäre ein zweites
+Mal geholt worden.
+
+**Gekürzt wird nur, was wie eine Endung aussieht**, und die Grenzen sind am Bestand
+gemessen statt geschätzt: mindestens zwei Zeichen, beginnend mit einem Buchstaben. In der
+Bibliothek endet der Name von 17 Titeln auf einen einzelnen Buchstaben hinter einem Punkt
+(`H.E.R.O`, `I.C.U.P.S`, `H.A.T.E`) — dort ist die letzte Silbe Teil des Namens. Der
+Ziffernausschluss schützt Versionsangaben (`Spiel v1.0`, `AGS_Mini.7z.001`).
+
+Eine Positivliste „bekannter Müll-Suffixe" wäre der naheliegende, aber falsche Weg:
+**`.hdf` ist bei Amiga ein echtes Format** — 3.193 Festplattenabbilder in der Bibliothek
+tragen es. Was eine Endung bedeutet, hängt an der Datei, nicht am Suffix. Tragfähig ist
+allein, dass die Kennung diese eine Datei bereits eindeutig bestimmt hat.
+
 **Ein fehlgeschlagener Import darf nichts wegwerfen.** Vorher räumten Erfolgs- und
 Fehlerweg identisch auf: `import_folder` kehrte auch bei „nichts erkannt" normal zurück,
 und `worker_collect` löschte anschließend den Ordner *und* — über `sab_cleanup` mit
@@ -967,7 +988,17 @@ sieht, aber nicht leeren darf (#645).
 SABnzbd's deobfuscation appends a second extension it guessed from content, turning
 `game.nsp` into `game.nsp.hdf`, and ROM formats are exactly what such a guesser does not
 know. `rom_endung()` falls back to the second-to-last extension when the last one is
-unknown, and trims the bogus suffix when copying. And a failed import must not destroy the
+unknown, and trims the bogus suffix when copying. When the right extension is nowhere in the
+name, the file's magic decides (`rom_endung_aus_inhalt`: unknown extension only, 64 MB
+minimum, two unambiguous signatures) and what it returns **replaces** the existing extension
+rather than being appended (#649) — `Portal.2.NSW.VENOM.nsp`, not `…VENOM.hdf.nsp`, whose
+leftover suffix stayed in the dedup key and would have caused the same file to be fetched
+twice. Only extension-shaped endings are cut, with the limits measured rather than guessed:
+at least two characters, starting with a letter, because 17 titles in the library end in a
+single letter after a dot (`H.E.R.O`) and digits mark versions (`AGS_Mini.7z.001`). A
+positive list of "junk suffixes" would be the obvious wrong answer: `.hdf` is a genuine
+Amiga format carried by 3,193 files here. What an extension means depends on the file, not
+on the suffix. And a failed import must not destroy the
 payload: cleanup now happens only when the import actually took something, because
 previously both paths cleaned up identically and a 2 GB download was deleted along with
 the client's history entry (`del_files=1`), leaving nothing to diagnose. Leftover folders
