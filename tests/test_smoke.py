@@ -9993,3 +9993,73 @@ def test_the_stream_host_describes_virtualgl_as_it_is(appmod):
     assert "libvglfaker" in kopf2, "die zweite Messfalle fehlt"
     for emu in ("dolphin", "pcsx2", "xemu"):
         assert emu in kopf2, f"{emu} fehlt in der Aufstellung"
+
+
+# --- #684: Web-Push lässt sich prüfen, und der Test sagt die Wahrheit ------------------
+
+def test_push_send_reports_what_happened(appmod, monkeypatch):
+    """Kein stilles Ende mehr. (#684)
+
+    Die Funktion gab nichts zurück und meldete Fehlschläge nur ins Log — der Test-Endpunkt
+    antwortete deshalb immer `ok`. Dieselbe Bauart hat bei den liegengebliebenen Downloads
+    (#645) monatelang einen echten Fehler verdeckt.
+    """
+    monkeypatch.setattr(appmod, "PUSH_OK", False)
+    e = appmod.send_push_to_user("u", "T", "B")
+    assert e["gesendet"] == 0 and "pywebpush" in e["grund"], e
+
+    monkeypatch.setattr(appmod, "PUSH_OK", True)
+    monkeypatch.setattr(appmod, "ensure_vapid", lambda: None)
+    e = appmod.send_push_to_user("u", "T", "B")
+    assert e["gesendet"] == 0 and "VAPID" in e["grund"], e
+
+    monkeypatch.setattr(appmod, "ensure_vapid", lambda: {"priv_pem": "x"})
+    monkeypatch.setattr(appmod, "load_push", lambda: {})
+    e = appmod.send_push_to_user("u", "T", "B")
+    assert e["abos"] == 0 and "kein Abo" in e["grund"], e
+
+    monkeypatch.setattr(appmod, "load_push", lambda: {"u": [{"endpoint": "e1"}]})
+    # `webpush` gibt es nur, wenn pywebpush installiert ist — `raising=False`
+    monkeypatch.setattr(appmod, "webpush", lambda **kw: None, raising=False)
+    e = appmod.send_push_to_user("u", "T", "B")
+    assert e["gesendet"] == 1 and not e["grund"], e
+
+
+def test_push_test_endpoint_can_fail(appmod, client, monkeypatch):
+    """`ok` heißt: mindestens ein Abo hat sie angenommen. (#684)"""
+    _admin(appmod, client, "pusht")
+    monkeypatch.setattr(appmod, "send_push_to_user",
+                        lambda *a: {"abos": 0, "gesendet": 0, "abgelaufen": 0, "grund": "kein Abo"})
+    d = client.post("/api/push/test").get_json()
+    assert d["ok"] is False and d["grund"] == "kein Abo", d
+
+    monkeypatch.setattr(appmod, "send_push_to_user",
+                        lambda *a: {"abos": 1, "gesendet": 1, "abgelaufen": 0, "grund": ""})
+    assert client.post("/api/push/test").get_json()["ok"] is True
+    appmod.save_users({})
+
+
+def test_the_push_test_button_exists_and_shows_the_reason(appmod):
+    """Der Endpunkt war da, nur rief ihn niemand. (#684)"""
+    js = _js()
+    # bis zur schließenden Klammer der Funktion, nicht bis zum ersten textContent
+    i = js.index("async function testPush(){")
+    j = js.index("\n", js.index("d.grund", i))
+    m = re.match(r"(?s).*", js[i:j])
+    assert m, "testPush fehlt"
+    k = m.group(0)
+    assert "/api/push/test" in k, "der vorhandene Endpunkt wird nicht benutzt"
+    assert "d.grund" in k, "der Grund vom Server wird verworfen"
+    assert "test_sent" in k, "der Erfolgsfall meldet nichts"
+    # und der Knopf zeigt sich nur im abonnierten Zustand
+    # bis zur Zeile mit dem Testknopf lesen — die Funktion endet mit `'none';}` und ein
+    # Regex auf das erste `;}` bricht schon nach der ersten Bedingung ab
+    i = js.index("async function refreshPushBtn(){")
+    j = js.index("\n", js.index("pushtest", i))
+    refresh = js[i:j]
+    assert "pushtest" in refresh, "der Testknopf wird nie ein- oder ausgeblendet"
+    # die Bedingung muss in DERSELBEN Anweisung stehen wie der Knopf — `st=='on'` kommt
+    # eine Zeile höher schon vor, und ein Test, der das findet, prüft die falsche Stelle
+    zeile = [z for z in refresh.splitlines() if "pushtest" in z][-1]
+    assert "st=='on'" in zeile, f"der Testknopf hängt nicht am Abo-Zustand: {zeile.strip()}"
+    assert "'none'" in zeile, "er wird nie versteckt"

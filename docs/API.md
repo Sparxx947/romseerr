@@ -129,6 +129,16 @@ release match is the better hit; the shortened form only helps when platform and
 tokens are what block it. Without the flag the query is untouched. The shortening stays in
 the backend on purpose: a second copy in the frontend would drift.*
 
+`POST /api/push/test` schickt eine Testbenachrichtigung an die eigenen Abos und antwortet
+`{"ok", "abos", "gesendet", "abgelaufen", "grund"}`. **`ok` heisst: mindestens ein Abo hat
+sie angenommen** — vorher stand dort ein festes `{"ok": true}`, gleichgültig ob pywebpush
+fehlte, kein VAPID-Schlüssel da war, kein Abo existierte oder jeder Versand scheiterte. Ein
+Test, der immer gelingt, prüft nichts (#684, dieselbe Bauart wie #645).
+
+*EN: `POST /api/push/test` answers `{"ok", "abos", "gesendet", "abgelaufen", "grund"}`, where
+`ok` means at least one subscription accepted it. It used to return a fixed `{"ok": true}`
+whatever happened.*
+
 `GET /api/usenet/check` misst den Usenet-Weg stufenweise durch (Suche, SAB-Kategorie,
 Warteschlange, Einsammelordner) und lädt dabei **nichts** herunter. Die letzte Stufe
 nennt Romseerrs und SABnzbds Sicht auf den Ordner mit den fertigen Downloads
