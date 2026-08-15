@@ -1,4 +1,11 @@
-FROM python:3.14-slim
+# AUF DAS DIGEST FESTGENAGELT, nicht auf den Tag. Der Tag `3.14-slim` zeigt heute auf
+# ein anderes Abbild als morgen — und damit waeren zwei Bauten desselben Commits
+# wieder zwei verschiedene Programme, genau das, was requirements.txt weiter unten
+# fuer die Pakete schon verhindert. Dependabot fuehrt das Digest nach (Oekosystem
+# `docker` in dependabot.yml), es veraltet also nicht still.
+# EN: pinned by digest, not by tag — otherwise two builds of the same commit are two
+# different programs, which requirements.txt already prevents for the packages.
+FROM python:3.14-slim@sha256:ce40764625a4ff50df3548277632e7f96c4e77fe75fa848aae9885476e7df5a4
 # p7zip-full fuer den Umbau aus der Oberflaeche (#593): `unar` allein reicht nicht — der
 # Wegwerf-Container hat `p7zip` bisher bei jedem Start nachinstalliert, und ohne 7z bliebe
 # ein Teil der Archive im vollen Umbau liegen, ohne dass es jemandem auffiele.
