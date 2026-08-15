@@ -1171,6 +1171,29 @@ Archive und ROMhack-Pakete —, und für die stehen jetzt `mod archive`, `rom ha
 `anthology` und `trilogy` in `SET_RE`. **`archive` allein bewusst nicht**: Das Wort steht in
 jedem zweiten Archive.org-Titel.
 
+**Der Plattformfilter sagt in der Liste, was er zurückhält (#688).** Ein Klick auf eine
+Entdecken-Karte setzt den Filter auf deren Plattform und schreibt ihn nach `localStorage` —
+sinnvoll für die Suche, die der Klick auslöst, und danach bleibt er dort stehen. Über
+Suchen, über Neuladen, über Tage. „Silent Hill Homecoming" fand mit hängengebliebenem `snes`
+noch **4 Treffer statt 14**.
+
+Warum das nicht wie ein Filter aussieht: Ergebnisse **ohne** erkannte Plattform passieren
+jeden Filter absichtlich (Archive.org-Titel tragen oft keine Zuordnung und sind trotzdem
+gemeint). Es bleibt also etwas übrig — die Liste wirkt nicht gefiltert, sondern so, als
+gäbe es den Titel kaum.
+
+Der Knopf darüber half nicht: „Plattformen: 1 gewählt" sagt, wie viele Plattformen gewählt
+sind, nicht dass **gerade** zehn Treffer fehlen. `do_search()` zählt deshalb mit, was allein
+der Plattformfilter weggenommen hat, und `/api/search` gibt die Zahl als Kopfzeile
+`X-Platform-Hidden` zurück — als Kopfzeile, weil die Antwort eine nackte Liste ist, die in
+`window.LASTRES`, in `d.forEach` und in der Sammelanfrage steckt; daraus ein Objekt zu
+machen, um eine Zahl unterzubringen, hätte jeden dieser Aufrufer angefasst.
+
+Gezählt wird **nur** der Plattformfilter. Sperrliste und Achievements-Filter bleiben außen
+vor: Der Hinweis bietet „Filter aufheben" an, und der Klick muss die genannten Treffer auch
+wirklich zurückholen. Eine Zahl, die zum Teil aus einer anderen Quelle stammt, wäre nach dem
+Klick unerklärlich.
+
 **„In Bibliothek" und „Plattform unbekannt" schließen einander aus (#685).** Sagt ein
 Treffer keine Plattform, prüft `in_library()` global gegen die ganze Bibliothek — richtig,
 aber es beantwortet nur das *Ob*. Die Karte hatte danach nichts anzuzeigen und schrieb die
@@ -1262,6 +1285,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
   die klebende Suchleiste hört auf zu kleben.
 
 *EN: size only indicates a collection on cartridge-era platforms (#689). `is_set` feeds the sort key, so anything marked lands at the bottom. Measured across twelve queries: 156 hits counted as collections, 136 of them single games — `Uncharted 2` at 21.9 GB, `The Last of Us` at 29.5 GB. The three Silent Hill Homecoming releases sat at positions 33, 34 and 53 of 59, which is how it surfaced. The threshold now applies only below 1994; the four genuine collections that would have slipped through are caught by name instead. `archive` alone is deliberately not a keyword — it appears in every other Archive.org title.*
+
+*EN: the platform filter states in the list what it is holding back (#688). Clicking a discover card sets the filter to that platform and persists it to `localStorage` — reasonable for the search the click triggers, and it then stays there across searches, reloads and days. With a stale `snes` filter, "Silent Hill Homecoming" returned 4 hits instead of 14. It does not look filtered because results without a recognised platform deliberately pass any filter, so something always remains. The button above reads "Plattformen: 1 gewählt", which says how many platforms are selected, not that ten hits are being withheld right now. `do_search()` therefore counts what the platform filter alone removed and `/api/search` returns it as an `X-Platform-Hidden` header — a header because the response is a bare list consumed in three places. Only the platform filter is counted: the notice offers "drop filter", and that click must actually bring the named hits back.*
 
 *EN: a card can no longer say "in library" and "platform unknown" at once (#685). `in_library()` falls back to a global check when the hit names no platform — correct, but it only answers whether. `library_slugs()` answers where, sorted by the platform's release year (oldest first), which for a title on several systems is almost always the one it appeared on first. Measured: 6.9% of titles sit on more than one platform. Deliberately the console's year, not the game's — IGDB gives one date per game and does not know the hacks and homebrew this concerns. The card marks the value as derived.*
 

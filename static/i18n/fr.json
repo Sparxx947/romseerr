@@ -444,5 +444,7 @@
  "org_own": "lancé depuis cette interface",
  "org_foreign": "lancé ailleurs — impossible à arrêter d'ici",
  "org_dry_note": "Un essai à blanc ne déplace rien et ne laisse pas de point de reprise.",
- "org_output": "Sortie"
+ "org_output": "Sortie",
+ "plat_hidden": "{n} masqués par le filtre de plateformes",
+ "plat_drop": "Retirer le filtre"
 }

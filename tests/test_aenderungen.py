@@ -217,7 +217,7 @@ def test_search_falls_back_to_the_cleaned_title(appmod, client, monkeypatch):
     Reihenfolge, denn ein exakter Treffer ist der bessere. (#638)"""
     _admin(appmod, client, "such1")
     gefragt = []
-    def falsch(q, plats):
+    def falsch(q, plats, stats=None):
         gefragt.append(q)
         return [{"title": "Resident Evil 2", "platform": "psx"}] if q == "Resident Evil 2" else []
     monkeypatch.setattr(appmod, "do_search", falsch)
@@ -237,7 +237,7 @@ def test_search_does_not_clean_when_the_raw_title_works(appmod, client, monkeypa
     """Wo es heute geht, muss es weiter gehen — und ohne zweite Suche. (#638)"""
     _admin(appmod, client, "such2")
     gefragt = []
-    def treffer(q, plats):
+    def treffer(q, plats, stats=None):
         gefragt.append(q)
         return [{"title": "Crime OClock", "platform": "switch"}]
     monkeypatch.setattr(appmod, "do_search", treffer)
@@ -251,7 +251,7 @@ def test_search_leaves_the_query_alone_without_the_flag(appmod, client, monkeypa
     """Ohne `clean=1` bleibt alles wie zuvor — die Suchleiste kürzt nicht. (#638)"""
     _admin(appmod, client, "such3")
     gefragt = []
-    monkeypatch.setattr(appmod, "do_search", lambda q, p: gefragt.append(q) or [])
+    monkeypatch.setattr(appmod, "do_search", lambda q, p, st=None: gefragt.append(q) or [])
     client.get("/api/search?q=" + urllib.parse.quote("Resident Evil 2 PS1 (Europe) (Disc 1&2)"))
     assert len(gefragt) == 1, f"ohne Schalter wurde gekürzt: {gefragt}"
     appmod.save_users({})
@@ -695,3 +695,129 @@ def test_search_passes_the_platform_to_is_set(appmod):
     quelle = open(os.path.join(REPO, "app.py"), encoding="utf-8").read()
     assert 'is_set(r["title"], r["size"], r["platform_slug"])' in quelle, \
         "die Suche übergibt die Plattform nicht"
+
+
+# ---------------------------------------------------------------------------
+# #688 — der Plattformfilter haelt Treffer zurueck, ohne es zu sagen
+# ---------------------------------------------------------------------------
+
+def _quellen(monkeypatch, appmod, treffer):
+    """Alle drei Quellen durch eine feste Liste ersetzen."""
+    monkeypatch.setattr(appmod, "search_archive", lambda q, **k: [dict(t) for t in treffer])
+    monkeypatch.setattr(appmod, "search_usenet", lambda q, cats: [])
+    monkeypatch.setattr(appmod, "catalog_urls", lambda: [])
+    monkeypatch.setattr(appmod, "in_library", lambda t, p: False)
+
+
+def _tr(titel, plattform, quelle="archive"):
+    return {"source": quelle, "ref": titel, "title": titel, "platform": plattform,
+            "size": 1, "cover": "", "extra": ""}
+
+
+def test_do_search_reports_how_many_the_platform_filter_hid(appmod, monkeypatch):
+    """Die Zahl, die in der Liste fehlte. (#688)
+
+    Jens fand „Silent Hill Homecoming" nicht: Ein Klick auf eine Entdecken-Karte hatte den
+    Filter auf `snes` gesetzt, und dort blieb er — ueber Suchen, Neuladen und Tage hinweg.
+    Statt 14 Treffern kamen 4, weil Ergebnisse OHNE erkannte Plattform absichtlich jeden
+    Filter passieren. Die Liste sah damit nicht gefiltert aus, sondern duenn.
+    """
+    _quellen(monkeypatch, appmod, [
+        _tr("Homecoming PS3", "ps3"),
+        _tr("Homecoming Xbox", "xbox360"),
+        _tr("Homecoming PC", "pc"),
+        _tr("Irgendwas ohne Plattform", ""),      # passiert den Filter, absichtlich
+        _tr("Ein SNES-Titel", "snes"),
+    ])
+    st = {}
+    res = appmod.do_search("egal", ["snes"], st)
+    assert len(res) == 2, f"erwartet SNES + Unbestimmter, bekam {[r['title'] for r in res]}"
+    assert st["plat_hidden"] == 3, \
+        f"der Filter nahm 3 Treffer weg, gemeldet werden {st.get('plat_hidden')}"
+
+
+def test_do_search_counts_usenet_hits_without_a_platform(appmod, monkeypatch):
+    """Der zweite Zweig des Filters zaehlt genauso. (#688)
+
+    Usenet-Treffer OHNE erkannte Plattform fliegen bei aktivem Filter raus — anders als
+    Archive.org-Treffer, die durchgelassen werden, weil ihre Titel oft keine Zuordnung
+    tragen. Diese Asymmetrie ist gewollt. Sie darf aber nicht dazu fuehren, dass ein
+    ganzer Zweig lautlos aus der Zaehlung faellt: Wer nach einem Switch-Titel filtert und
+    zwanzig Usenet-Treffer verliert, bekaeme eine leere Liste ohne Grund.
+
+    (Diese Luecke fand ein Mutationstest — die vorherigen Tests hatten nur
+    Archive.org-Treffer und blieben gruen, als der Zweig aufhoerte zu zaehlen.)
+    """
+    monkeypatch.setattr(appmod, "search_archive", lambda q, **k: [_tr("SNES-Titel", "snes")])
+    monkeypatch.setattr(appmod, "search_usenet", lambda q, cats: [
+        _tr("Release ohne Zuordnung", "", "usenet"),
+        _tr("Noch eins ohne Zuordnung", "", "usenet"),
+    ])
+    monkeypatch.setattr(appmod, "catalog_urls", lambda: [])
+    monkeypatch.setattr(appmod, "in_library", lambda t, p: False)
+    st = {}
+    res = appmod.do_search("egal", ["snes"], st)
+    assert [r["title"] for r in res] == ["SNES-Titel"],         "die Usenet-Treffer ohne Plattform muessen der Filterung zum Opfer fallen"
+    assert st["plat_hidden"] == 2,         f"beide Usenet-Treffer gehoeren in die Zahl, gemeldet werden {st.get('plat_hidden')}"
+
+
+def test_do_search_reports_zero_when_no_filter_is_set(appmod, monkeypatch):
+    """Ohne Filter kann nichts zurueckgehalten werden. (#688)"""
+    _quellen(monkeypatch, appmod, [_tr("A", "ps3"), _tr("B", "snes"), _tr("C", "")])
+    st = {}
+    res = appmod.do_search("egal", [], st)
+    assert len(res) == 3
+    assert st["plat_hidden"] == 0, f"ohne Filter darf nichts fehlen, gemeldet {st}"
+
+
+def test_do_search_does_not_blame_the_platform_filter_for_the_blocklist(appmod, monkeypatch):
+    """Zwei Filter, eine Zahl — das waere eine Falschauskunft. (#688)
+
+    Die Sperrliste nimmt ebenfalls Treffer weg. Wuerde ihr Anteil mitgezaehlt, boete der
+    Hinweis „Filter aufheben" fuer etwas an, das der Plattformfilter nie versteckt hat:
+    Der Klick brachte die Treffer nicht zurueck, und die Zahl waere unerklaerlich.
+    """
+    _quellen(monkeypatch, appmod, [
+        _tr("Ein SNES-Titel", "snes"),
+        _tr("Gesperrtes PS3-Spiel", "ps3"),       # faellt der Sperrliste zum Opfer
+        _tr("Normales PS3-Spiel", "ps3"),         # faellt dem Plattformfilter zum Opfer
+    ])
+    monkeypatch.setattr(appmod, "load_settings", lambda: {"blocklist": ["gesperrtes"]})
+    st = {}
+    res = appmod.do_search("egal", ["snes"], st)
+    assert [r["title"] for r in res] == ["Ein SNES-Titel"]
+    assert st["plat_hidden"] == 1, \
+        f"nur der Plattformfilter zaehlt, gemeldet werden {st.get('plat_hidden')}"
+
+
+def test_do_search_still_works_without_the_stats_argument(appmod, monkeypatch):
+    """Drei interne Aufrufer uebergeben nichts. (#688)
+
+    `stats` ist ein Ausgabeparameter und kein zweiter Rueckgabewert, damit die Autosuche,
+    der Versionsabgleich und die Tests unveraendert bleiben. Wird das je zu einem Tupel,
+    faellt es hier auf und nicht erst im Betrieb.
+    """
+    _quellen(monkeypatch, appmod, [_tr("A", "ps3"), _tr("B", "snes")])
+    res = appmod.do_search("egal", ["snes"])
+    assert isinstance(res, list), f"do_search gibt {type(res).__name__} statt einer Liste"
+    assert [r["title"] for r in res] == ["B"]
+
+
+def test_search_endpoint_reports_the_hidden_count_in_a_header(appmod, client, monkeypatch):
+    """Die Zahl muss beim Frontend ankommen. (#688)
+
+    Als Kopfzeile und nicht im Rumpf: `/api/search` liefert eine nackte Liste, und die
+    steckt in `window.LASTRES`, in `d.forEach`, in der Sammelanfrage. Daraus ein Objekt zu
+    machen, um EINE Zahl unterzubringen, haette jeden dieser Aufrufer angefasst.
+    """
+    _quellen(monkeypatch, appmod, [
+        _tr("Homecoming PS3", "ps3"), _tr("Homecoming PC", "pc"), _tr("SNES-Titel", "snes"),
+    ])
+    _als(client, appmod, "admin")
+    r = client.get("/api/search?q=egal&platforms=snes")
+    assert r.status_code == 200
+    assert r.headers.get("X-Platform-Hidden") == "2", \
+        f"Kopfzeile sagt {r.headers.get('X-Platform-Hidden')!r} statt '2'"
+    r = client.get("/api/search?q=egal")
+    assert r.headers.get("X-Platform-Hidden") == "0", \
+        f"ohne Filter erwartet '0', bekam {r.headers.get('X-Platform-Hidden')!r}"

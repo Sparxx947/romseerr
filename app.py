@@ -2538,10 +2538,14 @@ def is_blocked(title, bl=None):
     t = (title or "").lower()
     return any(p in t for p in bl)
 
-def do_search(q, platforms=None):
+def do_search(q, platforms=None, stats=None):
     """Suche über die aktiven Quellen und Zusammenführung: Archive.org (Retro) + Prowlarr/
     Usenet (moderne Konsolen), nach `platforms` gefiltert, gruppiert (gkey) für die Versionen-
-    Ansicht und mit `in_library`-Markierung. Reine Retro-Auswahl überspringt Usenet."""
+    Ansicht und mit `in_library`-Markierung. Reine Retro-Auswahl überspringt Usenet.
+
+    `stats` ist ein optionales Woerterbuch, das MITGEFUELLT wird (`plat_hidden`): wie viele
+    Treffer der Plattformfilter weggenommen hat. Als Ausgabeparameter und nicht als zweiter
+    Rueckgabewert, damit die drei internen Aufrufer unveraendert bleiben. (#688)"""
     platforms = [p for p in (platforms or []) if p]
     # IMMER ALLE QUELLEN FRAGEN (#375, Jens' Vorgabe). Hier stand vorher eine Abkuerzung:
     # Enthielt die Auswahl keine Plattform mit bekannter Usenet-Kategorie, wurde Usenet
@@ -2561,13 +2565,14 @@ def do_search(q, platforms=None):
     ar = search_archive(q); us = search_usenet(q, usenet_cats)
     fh = search_filehoster(q) if catalog_urls() else []
     offen = angefragte_titel()   # einmal, nicht je Treffer
+    verdeckt = 0        # was allein der Plattformfilter weggenommen hat (#688)
     for idx, r in enumerate(ar+us+fh):
         if is_blocked(r["title"], bl): continue        # Sperrliste
         if platforms:
             # bekannte Fremd-Plattform raus (beide Quellen)
-            if r["platform"] and r["platform"] not in platforms: continue
+            if r["platform"] and r["platform"] not in platforms: verdeckt += 1; continue
             # Usenet ohne erkannte Plattform raus (Titel tragen sonst keine Zuordnung)
-            if r["source"]=="usenet" and not r["platform"]: continue
+            if r["source"]=="usenet" and not r["platform"]: verdeckt += 1; continue
         r["platform_slug"] = resolve_slug(r["platform"])
         r["in_library"] = in_library(r["title"], r["platform"])
         # Sagt die Quelle keine Plattform, wir wissen sie aber aus der Bibliothek, dann
@@ -2604,6 +2609,8 @@ def do_search(q, platforms=None):
         else (lambda x: 0)
     res.sort(key=lambda x: (x["in_library"], passt(x), x["is_set"],
                             variant_rank(x["variant"], prefs), x["_rank"]))
+    if stats is not None:
+        stats["plat_hidden"] = verdeckt
     return res
 
 # ---------- Jobs ----------
@@ -5392,7 +5399,8 @@ def api_search():
     q = request.args.get("q","").strip()
     if not q: return jsonify([])
     plats = [p for p in request.args.get("platforms","").split(",") if p]
-    res = do_search(q, plats)
+    st = {}
+    res = do_search(q, plats, st)
     # `clean=1`: findet der rohe Titel nichts, noch einmal mit dem gekuerzten versuchen.
     # ROH ZUERST, denn ein exakter Release-Treffer ist der bessere — `Crime OClock
     # NSW-SUXXORS` liefert heute 6 Treffer und muss das weiter tun. Erst wenn nichts
@@ -5405,10 +5413,16 @@ def api_search():
     if not res and request.args.get("clean") == "1":
         kurz = clean_query(q)
         if kurz and kurz.lower() != q.lower():
-            res = do_search(kurz, plats)
+            res = do_search(kurz, plats, st)   # ueberschreibt `st` — gemeint ist die Suche, die `res` erzeugt hat
     if request.args.get("achievements") == "1":
         res = [r for r in res if ra_has_set(r.get("title", ""), r.get("platform", ""))]
-    return jsonify(res)
+    # Wie viele Treffer der Plattformfilter weggenommen hat — als KOPFZEILE, nicht im Rumpf:
+    # `/api/search` liefert eine nackte Liste, und die steckt in `window.LASTRES`, in
+    # `d.forEach`, in der Sammelanfrage. Daraus ein Objekt zu machen, um EINE Zahl
+    # unterzubringen, haette jeden dieser Aufrufer angefasst. (#688)
+    antwort = jsonify(res)
+    antwort.headers["X-Platform-Hidden"] = str(st.get("plat_hidden", 0))
+    return antwort
 
 @app.route("/api/platforms")
 def api_platforms():
@@ -8137,7 +8151,14 @@ OPENAPI = {
         # --- Search ---
         "/api/search": {"get": _op("ROMs suchen (Archive.org + Usenet), plattform-gefiltert", "Search",
             params=[_qp("q", "Suchbegriff"), _qp("platforms", "kommagetrennte Plattform-Slugs")],
-            responses={**_R_AUTH, "200": {"description": "Trefferliste"}})},
+            responses={**_R_AUTH, "200": {"description": "Trefferliste",
+                "headers": {"X-Platform-Hidden": {
+                    "description": "Wie viele Treffer der Plattformfilter weggenommen hat. "
+                                   "0 ohne Filter. Zaehlt NUR den Plattformfilter — "
+                                   "Sperrliste und Achievements-Filter bleiben aussen vor, "
+                                   "sonst boete die Oberflaeche an, Treffer zurueckzuholen, "
+                                   "die davon gar nicht betroffen sind. (#688)",
+                    "schema": {"type": "integer"}}}}})},
         "/api/coverage": {"get": _op("Abdeckung je Plattform (besessen/bekannt/Prozent, mit Quelle und Stand)", "Search")},
         "/api/coverage/status": {"get": _op("Fortschritt eines laufenden Katalogabrufs", "Search")},
         "/api/catalog/status": {"get": _op("Filehoster-Katalogquellen: Stand, Anzahl, Fehler", "Search")},
