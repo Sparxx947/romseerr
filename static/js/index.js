@@ -1380,7 +1380,9 @@ async function openProfile(){let m=document.getElementById('modal');m.style.disp
    <div class=row><label style="color:#8b929e;font-size:13px;min-width:150px">${t('var_prefs')}</label>
     <div style="flex:1">${varPrefFields('p',p.variant||{},p.variant_regions||[])}</div></div>
    <div class=row><button onclick="saveProfile()">${t('save')}</button><span id=pmsg class=meta></span></div>
-   <div class=row><button onclick="togglePush()" id=pushbtn>${t('push_enable')}</button><span id=pushmsg class=meta></span></div>
+   <div class=row><button onclick="togglePush()" id=pushbtn>${t('push_enable')}</button>
+    <button onclick="testPush()" id=pushtest style="display:none">${t('test')}</button>
+    <span id=pushmsg class=meta></span></div>
    <div class=row><span class=meta>Kontingent / Quota</span><span class=meta>${p.quota&&p.quota.enabled?(p.quota.remaining+' / '+p.quota.count+' ('+p.quota.days+'d)'):'—'}</span></div></div>
   <div class=sec><h3>${t('change_pw')}</h3>
    <div class=row><input id=pold type=password ${inp} placeholder="${t('cur_pw')}"><input id=pnew type=password ${inp} placeholder="${t('new_pw')}"></div>
@@ -1391,7 +1393,23 @@ async function pushState(){if(!('serviceWorker'in navigator)||!('PushManager'in 
  try{let reg=await navigator.serviceWorker.ready;let sub=await reg.pushManager.getSubscription();return sub?'on':'off';}catch(_){return 'unsupported';}}
 async function refreshPushBtn(){let b=document.getElementById('pushbtn');if(!b)return;let st=await pushState();
  if(st=='unsupported'){b.textContent=t('push_unsupported');b.disabled=true;return;}
- b.disabled=false;b.textContent=st=='on'?t('push_disable'):t('push_enable');}
+ b.disabled=false;b.textContent=st=='on'?t('push_disable'):t('push_enable');
+ // Testen lohnt nur im abonnierten Zustand — sonst meldet er einen Fehlschlag, der nichts
+ // ueber die Einrichtung sagt. Gleiche Regel wie bei den Suchknoepfen (#661).
+ let tb=document.getElementById('pushtest');if(tb)tb.style.display=st=='on'?'':'none';}
+
+// Web-Push war der EINZIGE Weg ohne Probe (#684) — und der, der am leisesten ausfaellt: er
+// haengt an HTTPS, einem Service Worker und einer Berechtigung, die der Browser jederzeit
+// zurueckziehen kann. Der Endpunkt gab es schon, nur rief ihn niemand.
+async function testPush(){
+ let msg=document.getElementById('pushmsg');if(!msg)return;
+ msg.textContent='…';
+ let d={};
+ try{d=await(await fetch('/api/push/test',{method:'POST'})).json();}
+ catch(e){msg.textContent=t('st_error');return;}
+ // Der Grund kommt vom Server und wird ANGEZEIGT. Frueher antwortete er stets `ok` — ein
+ // Test, der immer gelingt, ist keiner (#645).
+ msg.textContent=d.ok?t('test_sent'):(d.grund||t('st_error'));}
 async function togglePush(){let msg=document.getElementById('pushmsg');let st=await pushState();
  if(st=='unsupported'){msg.textContent=t('push_unsupported');return;}
  let reg=await navigator.serviceWorker.ready;

@@ -4977,24 +4977,52 @@ def save_push(d):
 
 def send_push_to_user(user, title, body):
     """Web-Push an alle Abos eines Nutzers senden (VAPID). Abgelaufene Abos (404/410) werden
-    verworfen. No-op, wenn pywebpush fehlt oder kein Abo existiert."""
-    if not PUSH_OK or not user: return
+    verworfen.
+
+    LIEFERT EIN ERGEBNIS, statt still zu enden (#684):
+    `{"abos", "gesendet", "abgelaufen", "grund"}`. Vorher gab die Funktion nichts zurueck
+    und meldete jeden Fehlschlag nur ins Log — `/api/push/test` antwortete deshalb immer
+    `{"ok": True}`, ganz gleich ob etwas ankam. Genau diese Bauart hat bei den
+    liegengebliebenen Downloads (#645) monatelang einen echten Fehler verdeckt.
+
+    Die Aufrufer im Benachrichtigungspfad ignorieren den Rueckgabewert weiterhin — fuer sie
+    aendert sich nichts.
+    """
+    if not PUSH_OK:
+        return {"abos": 0, "gesendet": 0, "abgelaufen": 0,
+                "grund": "pywebpush fehlt / pywebpush not installed"}
+    if not user:
+        return {"abos": 0, "gesendet": 0, "abgelaufen": 0, "grund": "kein Benutzer / no user"}
     vp = ensure_vapid()
-    if not vp: return
+    if not vp:
+        return {"abos": 0, "gesendet": 0, "abgelaufen": 0,
+                "grund": "kein VAPID-Schluessel / no VAPID key"}
     subs = load_push().get(user, []); keep = []
+    gesendet, abgelaufen, gruende = 0, 0, []
     for s in subs:
         try:
             webpush(subscription_info=s, data=json.dumps({"title": title, "body": body}),
                     vapid_private_key=vp["priv_pem"], vapid_claims={"sub": "mailto:romseerr@localhost"})
-            keep.append(s)
+            keep.append(s); gesendet += 1
         except WebPushException as e:
             code = getattr(getattr(e, "response", None), "status_code", None)
-            if code in (404, 410): pass   # Abo abgelaufen -> verwerfen
-            else: keep.append(s); log(f"Push-Fehler: {e}")
+            if code in (404, 410):
+                abgelaufen += 1               # Abo abgelaufen -> verwerfen
+                gruende.append("Abo abgelaufen / subscription expired")
+            else:
+                keep.append(s); log(f"Push-Fehler: {e}")
+                gruende.append(err_kind(e))
         except Exception as e:
             keep.append(s); log(f"Push-Fehler: {e}")
+            gruende.append(err_kind(e))
     if len(keep) != len(subs):
         d = load_push(); d[user] = keep; save_push(d)
+    grund = ""
+    if not subs:
+        grund = "kein Abo auf diesem Konto / no subscription for this account"
+    elif not gesendet:
+        grund = "; ".join(dict.fromkeys(gruende))[:200] or "nicht zugestellt / not delivered"
+    return {"abos": len(subs), "gesendet": gesendet, "abgelaufen": abgelaufen, "grund": grund}
 
 # Passwort-Reset-Token (nur im RAM, 1 h gültig). gen_reset erzeugt, check_reset prüft/löst auf.
 RESET_TOKENS = {}
@@ -7034,8 +7062,15 @@ def api_push_unsubscribe():
 @app.route("/api/push/test", methods=["POST"])
 @login_required
 def api_push_test():
-    send_push_to_user(session.get("user", ""), "Romseerr", "Test-Benachrichtigung / test notification")
-    return jsonify({"ok": True})
+    """Eine Testbenachrichtigung an die eigenen Abos. (#684)
+
+    `ok` heisst: mindestens ein Abo hat sie angenommen. Vorher stand hier ein festes
+    `{"ok": True}` — ohne Abo, ohne Schluessel und bei jedem Fehlschlag dasselbe. Ein Test,
+    der immer gelingt, prueft nichts.
+    """
+    e = send_push_to_user(session.get("user", ""), "Romseerr",
+                          "Test-Benachrichtigung / test notification")
+    return jsonify({"ok": bool(e.get("gesendet")), **e})
 
 @app.route("/api/apikey", methods=["GET"])
 @admin_required
