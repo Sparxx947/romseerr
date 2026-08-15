@@ -4,6 +4,69 @@ Alle nennenswerten Änderungen an diesem Projekt. Format nach
 [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung nach [SemVer](https://semver.org/lang/de/).
 
+## [1.5.0](https://github.com/Sparxx947/romseerr/compare/v1.4.3...v1.5.0) (2026-08-15)
+
+
+### Neu / Features
+
+* **brand:** draw every menu and settings-tab icon, outline style ([#700](https://github.com/Sparxx947/romseerr/issues/700)) ([80008cb](https://github.com/Sparxx947/romseerr/commit/80008cbc0b314a2a94e7ffd27ce5e0b9e41be7fb))
+* **brand:** give Romseerr a drawn mark instead of an emoji ([#651](https://github.com/Sparxx947/romseerr/issues/651)) ([fc20f6a](https://github.com/Sparxx947/romseerr/commit/fc20f6aabc4f274564abeb938fee687f6190510b)), closes [#650](https://github.com/Sparxx947/romseerr/issues/650)
+* **import:** show what landed in .unsortiert ([#674](https://github.com/Sparxx947/romseerr/issues/674)) ([f4e61a9](https://github.com/Sparxx947/romseerr/commit/f4e61a9db9271bafeb3df5a553f441de7d684315)), closes [#656](https://github.com/Sparxx947/romseerr/issues/656)
+* **notify:** let web push be tested, and make the test able to fail ([#686](https://github.com/Sparxx947/romseerr/issues/686)) ([c4580dd](https://github.com/Sparxx947/romseerr/commit/c4580dd2795e4be0bb027443dc8193c0eded6bb0)), closes [#684](https://github.com/Sparxx947/romseerr/issues/684)
+* **notify:** make notifications selectable per event, on two levels ([#716](https://github.com/Sparxx947/romseerr/issues/716)) ([5250540](https://github.com/Sparxx947/romseerr/commit/525054056e6da200da2d1f2ec4dc1ccbe2eec055))
+* **quota:** measure volume as well as count, and allow a per-user limit ([#715](https://github.com/Sparxx947/romseerr/issues/715)) ([54c82f2](https://github.com/Sparxx947/romseerr/commit/54c82f2670d4a57f4876bb3052fa07ac28756384))
+* **search:** add back and clear buttons to the search row ([#679](https://github.com/Sparxx947/romseerr/issues/679)) ([b8c86fb](https://github.com/Sparxx947/romseerr/commit/b8c86fbfaff7577e07c4d369a3c9d249ab024a80)), closes [#661](https://github.com/Sparxx947/romseerr/issues/661)
+* **ui:** draw the in-library badge in the mark's language, per theme ([#696](https://github.com/Sparxx947/romseerr/issues/696)) ([713e8fa](https://github.com/Sparxx947/romseerr/commit/713e8faa8b476fb6cd85d975feadeb2e7fbf658b))
+* **ui:** fourth theme 'aurora' — top navigation, hero, aurora gradient ([#630](https://github.com/Sparxx947/romseerr/issues/630)) ([ce50ee3](https://github.com/Sparxx947/romseerr/commit/ce50ee3fdfd50167f56e9f501c660a0772d7208c)), closes [#629](https://github.com/Sparxx947/romseerr/issues/629)
+* **ui:** give warning and error their own per-theme variables ([#704](https://github.com/Sparxx947/romseerr/issues/704)) ([a3ee2a1](https://github.com/Sparxx947/romseerr/commit/a3ee2a138ee2c2bc79bb548ee0be2483a60242da))
+* **ui:** make the mark a link back to the start page ([#670](https://github.com/Sparxx947/romseerr/issues/670)) ([6cb9690](https://github.com/Sparxx947/romseerr/commit/6cb96907f4b3e736a31ab50a0393becdbeb2a870))
+* **ui:** map the JavaScript's hard-coded palette onto theme variables ([#706](https://github.com/Sparxx947/romseerr/issues/706)) ([4f139bc](https://github.com/Sparxx947/romseerr/commit/4f139bc8255c263105102f691ce5e9006957166f))
+* **ui:** move the language picker and user menu into the navigation under Aurora ([#678](https://github.com/Sparxx947/romseerr/issues/678)) ([7b69ffe](https://github.com/Sparxx947/romseerr/commit/7b69ffe8b0b7967401ab717905bd8b7c88538ef8)), closes [#672](https://github.com/Sparxx947/romseerr/issues/672)
+* **ui:** replace the 8 native confirm() dialogs with a themed one ([#642](https://github.com/Sparxx947/romseerr/issues/642)) ([691441f](https://github.com/Sparxx947/romseerr/commit/691441f99d2444e3fbabb1d8b6ce49fb2dcff4eb)), closes [#641](https://github.com/Sparxx947/romseerr/issues/641)
+
+
+### Behoben / Fixes
+
+* **brand:** size the mark on the login and reset pages ([#653](https://github.com/Sparxx947/romseerr/issues/653)) ([8436d8e](https://github.com/Sparxx947/romseerr/commit/8436d8e0fc326640f1cba86ea787144e965cd08d)), closes [#652](https://github.com/Sparxx947/romseerr/issues/652)
+* **http:** serve HTML entry points with no-cache ([#644](https://github.com/Sparxx947/romseerr/issues/644)) ([ac4c90b](https://github.com/Sparxx947/romseerr/commit/ac4c90bc91fc772808c0ea0fed22f4b3b4ed87ea)), closes [#643](https://github.com/Sparxx947/romseerr/issues/643)
+* **i18n:** stop gluing the count to a plural noun ([#676](https://github.com/Sparxx947/romseerr/issues/676)) ([ba2a3cf](https://github.com/Sparxx947/romseerr/commit/ba2a3cfc140d9f6d1bb0263657c82c19c894b864)), closes [#675](https://github.com/Sparxx947/romseerr/issues/675)
+* **import:** replace the wrong extension instead of appending to it ([#673](https://github.com/Sparxx947/romseerr/issues/673)) ([b08ebf8](https://github.com/Sparxx947/romseerr/commit/b08ebf8372ccfc689f9fb5935f1f9cb442be6449)), closes [#649](https://github.com/Sparxx947/romseerr/issues/649)
+* **leftovers:** surface why a removal failed instead of reporting zero ([#646](https://github.com/Sparxx947/romseerr/issues/646)) ([693e1fb](https://github.com/Sparxx947/romseerr/commit/693e1fb8cb1610e096299afc7f51a54e126d6026)), closes [#645](https://github.com/Sparxx947/romseerr/issues/645)
+* **library:** name the four counts correctly instead of calling three of them the same ([#680](https://github.com/Sparxx947/romseerr/issues/680)) ([9db374e](https://github.com/Sparxx947/romseerr/commit/9db374e818719a010279fb0ea0f674484fc57288)), closes [#654](https://github.com/Sparxx947/romseerr/issues/654)
+* **library:** the load path had the same mislabelling as the rebuild ([#681](https://github.com/Sparxx947/romseerr/issues/681)) ([1bef173](https://github.com/Sparxx947/romseerr/commit/1bef17377ce9cc2430263de330155203d3c90301))
+* **search:** count and send the bulk request by group state too ([#695](https://github.com/Sparxx947/romseerr/issues/695)) ([dccd4be](https://github.com/Sparxx947/romseerr/commit/dccd4beaeca7b82fe2fb78f9f58c199345c7ffe4))
+* **search:** one card per game instead of one per release ([#694](https://github.com/Sparxx947/romseerr/issues/694)) ([2f30c74](https://github.com/Sparxx947/romseerr/commit/2f30c740c607d6597d2ba02d124cd9cded74151a))
+* **search:** say in the result list what the platform filter is holding back ([#692](https://github.com/Sparxx947/romseerr/issues/692)) ([96fb9ec](https://github.com/Sparxx947/romseerr/commit/96fb9ec815b5a70f67e26f29de53d6a4516a8390))
+* **search:** size only marks a collection on cartridge-era platforms ([#690](https://github.com/Sparxx947/romseerr/issues/690)) ([77ba186](https://github.com/Sparxx947/romseerr/commit/77ba1867b1902ae8d8a36e1d5e6cf2ee76fa97f7)), closes [#689](https://github.com/Sparxx947/romseerr/issues/689)
+* **stream:** describe VirtualGL as it actually is — wrapper set, Vulkan bypassing it ([#683](https://github.com/Sparxx947/romseerr/issues/683)) ([eeee679](https://github.com/Sparxx947/romseerr/commit/eeee6790e0eeab1ffc8b099593b1605a1bfa70f6)), closes [#628](https://github.com/Sparxx947/romseerr/issues/628)
+* **ui:** base styling for buttons, selects and textareas ([#640](https://github.com/Sparxx947/romseerr/issues/640)) ([fcd9d7c](https://github.com/Sparxx947/romseerr/commit/fcd9d7c934df26869b2c059c06f4e7f7b2977613)), closes [#639](https://github.com/Sparxx947/romseerr/issues/639)
+* **ui:** carry the Aurora glow across the header edge ([#664](https://github.com/Sparxx947/romseerr/issues/664)) ([ad5363b](https://github.com/Sparxx947/romseerr/commit/ad5363bb233e9cdfcde1385c42eab465dfcaac66)), closes [#657](https://github.com/Sparxx947/romseerr/issues/657)
+* **ui:** centre the × in the modal close button ([#663](https://github.com/Sparxx947/romseerr/issues/663)) ([11fe8a2](https://github.com/Sparxx947/romseerr/commit/11fe8a26b88e792cbe37b74491843575f896caea)), closes [#659](https://github.com/Sparxx947/romseerr/issues/659)
+* **ui:** derive the platform from the library instead of saying "unknown" ([#687](https://github.com/Sparxx947/romseerr/issues/687)) ([7f7d488](https://github.com/Sparxx947/romseerr/commit/7f7d488b66458bb9c4483496b268d92123cf5c64)), closes [#685](https://github.com/Sparxx947/romseerr/issues/685)
+* **ui:** give the three detail-card buttons one class and drawn icons ([#709](https://github.com/Sparxx947/romseerr/issues/709)) ([3e35e2e](https://github.com/Sparxx947/romseerr/commit/3e35e2e01c8beb851d2533434e736643b841cf1b))
+* **ui:** hide the aurora hero outside discover, and match the request buttons ([#637](https://github.com/Sparxx947/romseerr/issues/637)) ([aea9a32](https://github.com/Sparxx947/romseerr/commit/aea9a328bcc50b788ecf2907a658634ddd0c8ec0)), closes [#636](https://github.com/Sparxx947/romseerr/issues/636)
+* **ui:** label a recommendation row the same in both places ([#633](https://github.com/Sparxx947/romseerr/issues/633)) ([8957090](https://github.com/Sparxx947/romseerr/commit/89570900551b619754a8ca1f7983ab272b7aa481)), closes [#632](https://github.com/Sparxx947/romseerr/issues/632)
+* **ui:** let the danger button class win against the ID rules that paint by context ([#648](https://github.com/Sparxx947/romseerr/issues/648)) ([68c3d75](https://github.com/Sparxx947/romseerr/commit/68c3d753fbffaf5438bb4534d76ff5e1ada979d0)), closes [#647](https://github.com/Sparxx947/romseerr/issues/647)
+* **ui:** make a click on a request title reach the card ([#677](https://github.com/Sparxx947/romseerr/issues/677)) ([676d23a](https://github.com/Sparxx947/romseerr/commit/676d23a4131f1bb0923a5914ac54802ff16b137a)), closes [#638](https://github.com/Sparxx947/romseerr/issues/638)
+* **ui:** make the in-library drawing fill its box so the chamfer survives ([#697](https://github.com/Sparxx947/romseerr/issues/697)) ([52d5985](https://github.com/Sparxx947/romseerr/commit/52d598523778244ab356995c57768dd497b47272))
+* **ui:** make the navigation column width one value instead of three copies ([#711](https://github.com/Sparxx947/romseerr/issues/711)) ([90a31bd](https://github.com/Sparxx947/romseerr/commit/90a31bdd5ec186fc826d0cc8c390d1593599c649))
+* **ui:** move the seven remaining greens in the JavaScript onto the theme ([#701](https://github.com/Sparxx947/romseerr/issues/701)) ([33c1d9f](https://github.com/Sparxx947/romseerr/commit/33c1d9f73b28ffea5ac762f04e2e6f27f0d18376))
+* **ui:** scope the absolute badge to covers so the play button stays in the card ([#702](https://github.com/Sparxx947/romseerr/issues/702)) ([beb025b](https://github.com/Sparxx947/romseerr/commit/beb025bd06d0ff3b895661e0e751c8a47e193318))
+* **ui:** style the scrollbars from the design variables ([#635](https://github.com/Sparxx947/romseerr/issues/635)) ([1da7a17](https://github.com/Sparxx947/romseerr/commit/1da7a1750b6f089347ae34e5477c25e755f1187e)), closes [#634](https://github.com/Sparxx947/romseerr/issues/634)
+
+
+### Leistung / Performance
+
+* **import:** re-read only the platforms an import wrote to ([#665](https://github.com/Sparxx947/romseerr/issues/665)) ([025a998](https://github.com/Sparxx947/romseerr/commit/025a998091ff1001ba040903b5ce0c8a8b7fbb30))
+* **index:** ask the filesystem in parallel, not one file after another ([#666](https://github.com/Sparxx947/romseerr/issues/666)) ([#671](https://github.com/Sparxx947/romseerr/issues/671)) ([ead8be8](https://github.com/Sparxx947/romseerr/commit/ead8be8afb0ad8fa3566d55e2f58806652aea8bd))
+
+
+### Dokumentation / Documentation
+
+* add interface screenshots to both READMEs ([#707](https://github.com/Sparxx947/romseerr/issues/707)) ([7cc5cda](https://github.com/Sparxx947/romseerr/commit/7cc5cda2f06aae3a3c34615884d80a174d9bb247))
+* **css:** correct the colour claim on the platform-filter notice ([#693](https://github.com/Sparxx947/romseerr/issues/693)) ([20d2b8b](https://github.com/Sparxx947/romseerr/commit/20d2b8bb2078f3a95656dd1e5b71fff1e5fdb647))
+* **stream:** say that VirtualGL is unused instead of describing it as the path ([#682](https://github.com/Sparxx947/romseerr/issues/682)) ([f888de4](https://github.com/Sparxx947/romseerr/commit/f888de4cc766e10887074783df9b07a2fa0dce14)), closes [#628](https://github.com/Sparxx947/romseerr/issues/628)
+
 ## [1.4.3](https://github.com/Sparxx947/romseerr/compare/v1.4.2...v1.4.3) (2026-08-14)
 
 
