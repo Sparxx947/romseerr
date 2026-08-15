@@ -304,7 +304,7 @@
  "uns_title": "Nicht zugeordnet",
  "uns_hint": "Was sich beim Import keiner Plattform zuordnen liess, wandert hierher, statt geraten zu werden — <b>diese Ansicht zeigt nur an</b>. Einsortieren oder wegräumen musst du selbst; von allein verschwindet hier nichts.",
  "uns_none": "nichts liegen geblieben",
- "uns_count": "{n} Einträge · {s}",
+ "uns_count": "Einträge: {n} · {s}",
  "uns_where": "Ordner: {p}",
  "reimp": "Erneut einlesen",
  "reimp_hint": "Liest die bereits geladenen Dateien noch einmal ein — ohne neuen Download.",
