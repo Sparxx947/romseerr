@@ -444,5 +444,7 @@
  "org_own": "iniciada desde esta interfaz",
  "org_foreign": "iniciada fuera — no se puede detener desde aquí",
  "org_dry_note": "Una simulación no mueve nada ni deja punto de reanudación.",
- "org_output": "Salida"
+ "org_output": "Salida",
+ "plat_hidden": "{n} ocultos por el filtro de plataformas",
+ "plat_drop": "Quitar filtro"
 }

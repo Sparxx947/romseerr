@@ -1197,3 +1197,89 @@ def test_zurueck_knopf_zeigt_sich_nur_mit_eigenem_verlauf(seite):
     seite.wait_for_timeout(400)
     assert seite.evaluate("EIGENE_SCHRITTE") > 0, "Testaufbau: kein eigener Verlaufseintrag"
     assert zurueck.is_visible(), "nach einem eigenen Schritt fehlt der Zurueck-Knopf"
+
+
+# --- #688: der Plattformfilter haelt Treffer zurueck, ohne es zu sagen ---
+
+def _suche_mit_filter(seite, treffer, versteckt, filt="snes"):
+    """Setzt den Plattformfilter, verdrahtet /api/search samt Kopfzeile, sucht."""
+    seite.evaluate("""f => { SELP = new Set([f]);
+      localStorage.setItem('romp', JSON.stringify([f])); updateFLabel(); }""", filt)
+    gefragt = []
+    seite.route("**/api/search*", lambda route: (
+        gefragt.append(route.request.url),
+        route.fulfill(status=200, content_type="application/json",
+                      headers={"X-Platform-Hidden": str(
+                          versteckt if "platforms=" + filt in route.request.url else 0)},
+                      body=treffer if "platforms=" + filt in route.request.url else "[]"),
+    ) and None)
+    seite.locator("#q").fill("Silent Hill Homecoming")
+    seite.keyboard.press("Enter")
+    seite.wait_for_timeout(800)
+    return gefragt
+
+
+TREFFER_JSON = ('[{"title":"Irgendwas ohne Plattform","platform":"","platform_slug":"",'
+                '"source":"archive","size":524288,"ref":"p1","cover":"","gkey":"a"}]')
+
+
+def test_zurueckgehaltene_treffer_stehen_in_der_liste(seite):
+    """Die Zahl gehoert dorthin, wo das Ergebnis steht. (#688)
+
+    WARUM IM BROWSER: Der Hinweis entsteht aus einer HTTP-KOPFZEILE, die nur ein echter
+    Abruf traegt — der Flask-Testclient rendert nichts und fuehrt kein JavaScript aus.
+    Ob die Zahl beim Nutzer ankommt, sieht nur eine Seite, die wirklich gesucht hat.
+    """
+    _suche_mit_filter(seite, TREFFER_JSON, 10)
+    hinweis = seite.locator(".plathint")
+    assert hinweis.count() == 1, "kein Hinweis auf zurueckgehaltene Treffer"
+    text = hinweis.inner_text()
+    assert "10" in text, f"die Zahl fehlt im Hinweis: {text!r}"
+    assert seite.locator(".plathint-x").is_visible(), "kein Weg aus dem Filter heraus"
+
+
+def test_zurueckgehaltene_treffer_stehen_auch_bei_null_treffern_da(seite):
+    """Der schlimmste Fall ist der, in dem gar nichts kommt. (#688)
+
+    Eine leere Liste mit haengengebliebenem Filter liest sich als „gibt es nicht". Genau
+    dort muss der Grund stehen — der Zweig fuer null Treffer springt frueh heraus und
+    haette den Hinweis sonst uebersprungen.
+    """
+    _suche_mit_filter(seite, "[]", 14)
+    assert seite.locator(".plathint").count() == 1, \
+        "bei null Treffern fehlt der Hinweis — genau da wird er gebraucht"
+    assert "14" in seite.locator(".plathint").inner_text()
+
+
+def test_kein_hinweis_ohne_filter(seite):
+    """Ohne Filter haelt nichts zurueck — dann steht dort auch nichts. (#688)"""
+    seite.evaluate("() => { SELP = new Set(); localStorage.setItem('romp','[]'); }")
+    seite.route("**/api/search*", lambda route: route.fulfill(
+        status=200, content_type="application/json",
+        headers={"X-Platform-Hidden": "0"}, body=TREFFER_JSON))
+    seite.locator("#q").fill("Silent Hill")
+    seite.keyboard.press("Enter")
+    seite.wait_for_timeout(800)
+    assert seite.locator(".plathint").count() == 0, "Hinweis ohne aktiven Filter"
+
+
+def test_filter_aufheben_sucht_ohne_den_filter_neu(seite):
+    """Der Knopf muss die Treffer wirklich zurueckholen. (#688)
+
+    Nur den Filter zu leeren, ohne neu zu suchen, liesse die duenne Liste stehen — mit
+    dem Hinweis daneben, dass zehn Treffer fehlen, und nichts passiert. Geprueft wird
+    deshalb die ZWEITE Anfrage: sie darf keine Plattform mehr tragen.
+    """
+    gefragt = _suche_mit_filter(seite, TREFFER_JSON, 10)
+    assert len(gefragt) == 1, f"unerwartete Zahl Suchanfragen: {gefragt}"
+
+    seite.locator(".plathint-x").click()
+    seite.wait_for_timeout(900)
+
+    assert len(gefragt) == 2, "der Klick hat keine neue Suche ausgeloest"
+    assert "platforms=snes" not in gefragt[1], \
+        f"die zweite Suche traegt den Filter noch: {gefragt[1]}"
+    assert seite.evaluate("() => JSON.parse(localStorage.getItem('romp')||'[]').length") == 0, \
+        "der Filter steht noch in localStorage und kaeme beim naechsten Laden zurueck"
+    assert seite.locator(".plathint").count() == 0, \
+        "der Hinweis steht noch da, obwohl nichts mehr zurueckgehalten wird"

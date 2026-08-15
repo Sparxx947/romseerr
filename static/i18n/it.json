@@ -444,5 +444,7 @@
  "org_own": "avviata da questa interfaccia",
  "org_foreign": "avviata altrove — non fermabile da qui",
  "org_dry_note": "Una prova a vuoto non sposta nulla e non lascia punti di ripresa.",
- "org_output": "Output"
+ "org_output": "Output",
+ "plat_hidden": "{n} nascosti dal filtro piattaforme",
+ "plat_drop": "Rimuovi filtro"
 }

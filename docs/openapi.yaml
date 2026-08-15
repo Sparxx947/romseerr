@@ -292,6 +292,14 @@ paths:
       responses:
         '200':
           description: Trefferliste
+          headers:
+            X-Platform-Hidden:
+              description: Wie viele Treffer der Plattformfilter weggenommen hat. 0 ohne Filter. Zaehlt
+                NUR den Plattformfilter — Sperrliste und Achievements-Filter bleiben aussen vor, sonst
+                boete die Oberflaeche an, Treffer zurueckzuholen, die davon gar nicht betroffen sind.
+                (#688)
+              schema:
+                type: integer
         '401': *id002
       security: *id003
       parameters:

@@ -450,6 +450,15 @@ button.job:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .st{font-size:12px;padding:2px 8px;border-radius:6px;background:#2a2f37}
 .st.done{background:#1e5e3a}.st.error{background:#6e2a2a}.st.downloading,.st.importing{background:#5a4a1e}
 .hint{color:var(--mut);padding:0 18px 18px;font-size:12px}
+/* Zurueckgehaltene Treffer (#688). Absichtlich KEIN Rot: nichts ist kaputt, es ist eine
+   Auskunft. Die Farbe kommt aus --acc, damit sie in allen vier Designs mitgeht — der
+   Sammelknopf daneben hat seine Farben fest im JavaScript stehen und ist im hellen
+   Design entsprechend falsch. Eine Klasse genuegt hier: im Umfeld `#discview` gibt es
+   keine Button-Regel mit ID-Kontext, die sie schlagen wuerde. */
+.plathint{color:var(--mut)}
+.plathint-x{margin-left:6px;background:none;border:1px solid var(--acc);color:var(--acc);
+ padding:1px 8px;border-radius:6px;font-size:11px;font-family:inherit}
+.plathint-x:hover{background:var(--acc);color:#fff}
 /* Konfigurationswarnung (#197): Gelb statt Rot — der Betrieb läuft, ein Weg nicht. */
 #cfgwarn{padding:10px 18px;background:#2a2410;border-bottom:1px solid #6b5a1e;color:#e8d68a;font-size:13px;line-height:1.5}
 #cfgwarn b{color:#f0c437}

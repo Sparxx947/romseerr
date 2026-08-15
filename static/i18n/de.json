@@ -444,5 +444,7 @@
  "org_own": "aus dieser Oberfläche gestartet",
  "org_foreign": "außerhalb gestartet — von hier nicht anzuhalten",
  "org_dry_note": "Ein Testlauf verschiebt nichts und hinterlässt keinen Wiederaufsetzpunkt.",
- "org_output": "Ausgabe"
+ "org_output": "Ausgabe",
+ "plat_hidden": "{n} durch den Plattformfilter ausgeblendet",
+ "plat_drop": "Filter aufheben"
 }
