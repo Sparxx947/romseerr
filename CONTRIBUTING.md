@@ -62,7 +62,7 @@ Praktisch heißt das:
 | Eine Ansicht, ein Bedienelement, die Navigation | ein Test in `tests/e2e/`, der die Seite lädt |
 | Eine Route oder ihre Antwort | die Spezifikation mitziehen — `tests/test_contract.py` prüft sie gegen den laufenden Server |
 | Auslieferung, Köpfe, Caching | `tests/test_auslieferung.py` |
-| Ein neuer `import` in `app.py` | ins `--- direkt ---` von `requirements.txt`, dann `python3 scripts/lock_requirements.py` — der Dockerfile installiert mit `--no-deps`, was dort fehlt, fehlt im Image (`tests/test_abhaengigkeiten.py`) |
+| Ein neuer `import` in `app.py` | ins `--- direkt ---` von `requirements.txt`, dann `python3 scripts/lock_requirements.py` — der Dockerfile installiert mit `--no-deps`, was dort fehlt, fehlt im Image (`tests/test_abhaengigkeiten.py`). Am besten mit `uv`: das Skript löst für die Python-Fassung des Dockerfile auf, und ohne `uv` geht das nur unter genau dieser Fassung (#667) |
 
 Vier Werkzeuge stehen dafür bereit (`requirements-dev.txt`):
 
@@ -143,7 +143,7 @@ and has neither a keyboard nor an address bar — it cannot see this class of de
 | A view, a control, the navigation | a test in `tests/e2e/` that loads the page |
 | A route or its response | update the spec — `tests/test_contract.py` checks it against the running server |
 | Delivery, headers, caching | `tests/test_auslieferung.py` |
-| A new `import` in `app.py` | add it to the `--- direct ---` section of `requirements.txt`, then run `python3 scripts/lock_requirements.py` — the Dockerfile installs with `--no-deps`, so what is missing there is missing in the image (`tests/test_abhaengigkeiten.py`) |
+| A new `import` in `app.py` | add it to the `--- direct ---` section of `requirements.txt`, then run `python3 scripts/lock_requirements.py` — the Dockerfile installs with `--no-deps`, so what is missing there is missing in the image (`tests/test_abhaengigkeiten.py`). Prefer `uv`: the script resolves for the Dockerfile's Python version, and without `uv` that only works on exactly that version (#667) |
 
 Four tools are available (`requirements-dev.txt`): **Playwright** (real browser, keyboard,
 address bar, console errors), **axe-core** (contrast, missing names, ARIA — **not**

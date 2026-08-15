@@ -108,6 +108,25 @@ Sie halten den erreichten Stand, statt ein Ziel zu setzen:
   misst ihn statt der Seite. Die Fixture `seite` schließt ihn.
 - **`--cov=app` sammelt nichts**, sobald `app.py` zweimal geladen wird. Deshalb `--cov=.`
   plus `.coveragerc`.
+- **Ein Test kann am Interpreter hängen, unter dem er startet.** `requirements.txt`
+  beschreibt das Abbild (`python:3.14-slim`), aber `tests/test_abhaengigkeiten.py` wertete
+  die Marker der Pakete gegen den laufenden Python aus. Auf 3.12 verlangen `aiohttp` und
+  `aiosignal` `typing_extensions` hinter `python_version < "3.13"` — dort war die Hülle 27
+  Pakete groß, im Abbild 26, und `test_transitive_huelle_ist_vollstaendig` schlug lokal
+  fehl, während dieselbe Prüfung in der CI grün blieb. Das rote Kreuz war nicht das
+  Problem, sondern der naheliegende Schluss: Wer `typing-extensions` nachträgt, liefert
+  dem Abbild ein Paket, das dort niemand braucht. Seit #667 stehen die Marker auf der
+  Fassung aus dem `Dockerfile`; wo sich das nicht messen lässt, wird mit Begründung
+  übersprungen statt still grün gemeldet. (#667)
+
+### Eine Zahl, ein Ort: die Python-Fassung des Abbilds
+
+Sie steht im `Dockerfile` und sonst nirgends. Sie ist hier schon zweimal auseinander-
+gelaufen — in #588 zwischen `Dockerfile` und den Workflows, in #667 zwischen `Dockerfile`
+und `scripts/lock_requirements.py`, das mit `ZIEL_PYTHON = "3.12"` weiter für die alte
+Fassung auflöste. Gemessen: 27 Pakete für 3.12 gegen 26 für 3.14. Zwei Prüfungen halten
+das jetzt zusammen — `test_ci_tests_the_python_the_image_runs` für die Workflows und
+`test_der_generator_zielt_auf_die_python_fassung_des_abbilds` für den Generator.
 
 ---
 
@@ -210,3 +229,22 @@ They hold the level reached rather than stating a target:
   instead of the page. The `seite` fixture dismisses it.
 - **`--cov=app` collects nothing** once `app.py` is loaded twice. Hence `--cov=.` plus
   `.coveragerc`.
+- **A test can depend on the interpreter it is started with.** `requirements.txt`
+  describes the image (`python:3.14-slim`), but `tests/test_abhaengigkeiten.py` evaluated
+  the packages' environment markers against the running Python. On 3.12 `aiohttp` and
+  `aiosignal` require `typing_extensions` behind `python_version < "3.13"` — the hull was
+  27 packages there against 26 in the image, and `test_transitive_huelle_ist_vollstaendig`
+  failed locally while the same check stayed green in CI. The red cross was not the
+  problem; the obvious conclusion was. Adding `typing-extensions` would ship the image a
+  package nothing there needs. Since #667 the markers are evaluated against the version in
+  the `Dockerfile`, and where that cannot be measured the test skips with a stated reason
+  instead of quietly reporting green. (#667)
+
+### One number, one place: the image's Python version
+
+It lives in the `Dockerfile` and nowhere else. It has drifted apart twice here — in #588
+between the `Dockerfile` and the workflows, in #667 between the `Dockerfile` and
+`scripts/lock_requirements.py`, which kept resolving for the old version via
+`ZIEL_PYTHON = "3.12"`. Measured: 27 packages for 3.12 against 26 for 3.14. Two checks now
+hold it together — `test_ci_tests_the_python_the_image_runs` for the workflows and
+`test_der_generator_zielt_auf_die_python_fassung_des_abbilds` for the generator.
