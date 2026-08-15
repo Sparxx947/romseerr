@@ -45,6 +45,7 @@
  "nav_library": "Library",
  "lib_hint": "What is actually here, by manufacturer and system. Coverage next to it answers the opposite question: what is missing.",
  "lib_titles": "titles",
+ "lib_entries": "entries",
  "lib_owned": "titles owned",
  "lib_none": "No titles found.",
  "lib_empty": "The library is empty or not indexed yet.",

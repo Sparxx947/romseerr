@@ -45,6 +45,7 @@
  "nav_library": "Biblioteca",
  "lib_hint": "Ciò che c’è davvero — per produttore e sistema. La copertura accanto risponde alla domanda opposta: ciò che manca.",
  "lib_titles": "titoli",
+ "lib_entries": "voci",
  "lib_owned": "titoli posseduti",
  "lib_none": "Nessun titolo trovato.",
  "lib_empty": "La biblioteca è vuota o non ancora indicizzata.",
