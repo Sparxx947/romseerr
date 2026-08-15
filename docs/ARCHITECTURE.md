@@ -1224,23 +1224,46 @@ Von den verbleibenden zwei ist einer riesig:
 IGDB daneben        348 / 521 / 575 ms kalt        7–9 ms warm
 ```
 
-Die Zeit hängt **nicht an der Größe** — 3 KB kosten so viel wie 30 KB. Das ist feste
-Serverzeit bei archive.org, nicht unsere Leitung. Der schmalere Pfad `/metadata/<id>/files`
-hilft nicht (8,65 / 8,48 / 7,63 s). Zum Vergleich: archive.orgs **Suche** lag am Vortag bei
-851 ms Median — Suche schnell, Metadaten langsam, zwei verschiedene Dienste.
+Die Zeit hängt **nicht an der Größe** — 3 KB kosten so viel wie 30 KB. Das ist Serverzeit bei
+archive.org, nicht unsere Leitung. Der schmalere Pfad `/metadata/<id>/files` hilft nicht
+(8,65 / 8,48 / 7,63 s).
 
-Damit war der Faden-Pool die falsche Antwort, und zwar messbar:
+### Die eigentliche Lehre: dieselbe Falle wie bei #728
 
-| Fall | vorher | mit Pool | mit Gedächtnis |
+Nach dem Ausrollen wurden **dieselben zehn Elemente** noch einmal gemessen, rund 90 Minuten
+später:
+
+```
+zehn Sonic-Elemente, ~90 min später   0,60  0,63  0,67  0,69  0,72  0,73  0,82  0,95  1,19  1,19 s
+vier Gunstar-Elemente   vorher 8,16 – 15,27 s      danach 0,62 – 1,05 s
+```
+
+**~9,4 s war also eine schlechte Phase, nicht der Normalzustand.** Genau das hatte #728 einen
+Tag zuvor für archive.orgs *Suche* festgehalten (10,9 s Median, am nächsten Tag 851 ms) — die
+Lehre wurde hier zuerst wiederholt statt angewandt. Wer archive.org einmal misst, hat die
+Tagesform gemessen, nicht den Dienst.
+
+Die Änderung trägt trotzdem, weil sie an keiner der beiden Phasen hängt:
+
+| Fall | schlechte Phase | gute Phase | mit Gedächtnis |
 |---|---|---|---|
-| Karte ohne Archive-Ref | 0,35–0,58 s | unverändert (nur **ein** Aufruf) | 7–9 ms |
-| Karte mit Archive-Ref | 10,3–12,3 s | ~9,6 s (−5 %) | **~7 ms beim zweiten Mal** |
+| Karte ohne Archive-Ref | 0,35–0,58 s | 0,35–0,58 s | 7–9 ms |
+| Karte mit Archive-Ref, 1. Aufruf | 10,3–12,3 s | 1,4–2,6 s | unverändert |
+| dieselbe Karte, 2. Aufruf | 10,3–12,3 s | 1,4–2,6 s | **7–9 ms** (live gemessen) |
+
+Der Faden-Pool bleibt trotzdem nicht drin, aber der Grund ist enger als zunächst
+aufgeschrieben: Auf einer Karte **ohne** Archive-Ref gibt es nur einen externen Aufruf, und
+bei warmem IGDB-Speicher (7–9 ms) auf **jeder** Karte nichts zu überlappen. Übrig bleibt
+„Archive-Ref und IGDB kalt" — dort ~0,5 s von 10,3–12,3 s in der schlechten und ~0,5 s von
+~2 s in der guten Phase. Das ist zu wenig für den `session`-Fallstrick aus #722, aber es ist
+**„zu wenig Gewinn"**, nicht „gewinnt nichts".
 
 **Derselbe Aufruf stand zweimal im Code.** `archive_file_urls()` holt beim Download-Start
 dieselben Metadaten desselben Elements noch einmal — wer eine Karte öffnete und dann
-herunterlud, zahlte die ~9,4 s unmittelbar hintereinander zweimal. Beide gehen jetzt durch
-`archive_metadata()`, und ein Test liest den Quelltext darauf, dass kein dritter direkter
-`requests.get` auf `/metadata/` dazukommt: genau so ist das Problem entstanden.
+herunterlud, zahlte den vollen Abruf unmittelbar hintereinander zweimal. Das ist bei 0,6 s
+derselbe Fehler wie bei 9 s. Beide gehen jetzt durch `archive_metadata()`, und ein Test liest
+den Quelltext darauf, dass kein dritter direkter `requests.get` auf `/metadata/` dazukommt:
+genau so ist das Problem entstanden.
 
 Die Fristen sind bewusst verschieden. Der Suchspeicher aus #726 hält 10 Minuten, dieser
 **eine Stunde** — gemerkt wird die Dateiliste eines *veröffentlichten fremden* Elements, die
@@ -1725,7 +1748,7 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 
 *EN: one reused RomM session instead of one per lookup (#724). With play and stream no longer waiting for `/api/detail`, `/api/play` itself was the remaining 2.5–2.8 s. Measured inside the container: the login alone costs ~1 s and was paid on every single lookup, i.e. every card opened; the search itself (1.2–1.7 s) is RomM's own speed. The session is now reused, keyed on url+user+password so changed credentials invalidate it, with exactly one silent re-login and retry on 401/403, and built under a lock because callers have run concurrently since #722. Measured and deliberately left alone: the `await fetch('/api/users')` at the top of `openDetail` is 13–24 ms, not the second serialization it looked like.*
 
-*EN: one memory for archive.org item metadata (#731). The issue assumed three equally sized external calls in sequence inside `/api/detail` and proposed a thread pool; measured on 2026-08-16, neither holds. `ra_lookup` is not a network call at all but a `SELECT` on the local `ra_games` table, and of the remaining two one dwarfs the other: `/metadata/<id>` costs 8.44–10.59 s across ten different items, median ~9.4 s, and the time does NOT depend on payload size (3 KB costs the same as 30 KB) — flat server time at archive.org, with `connect` at 0.17 s throughout. The narrower `/metadata/<id>/files` path does not help (8.65 / 8.48 / 7.63 s). For contrast, archive.org’s SEARCH measured 851 ms median the day before: search fast, metadata slow, two different services. So the pool was measurably the wrong answer — on a card without an archive ref there is only ONE external call (IGDB, 348–575 ms cold) and concurrency wins exactly nothing; on a card with one it would have saved that ~0.5 s out of 10.3–12.3 s, a twentieth. Remembering saves all of it. The same call also sat in the code twice: `archive_file_urls()` fetches the same item’s metadata again when a download starts, so opening a card and then downloading paid ~9.4 s twice back to back. Both now go through `archive_metadata()`, and a source-reading test asserts no third direct `requests.get` on `/metadata/` appears — that is exactly how the duplication arose. The TTL is deliberately an hour rather than #726’s ten minutes: what is remembered is the file list of a PUBLISHED FOREIGN item, which changes only when the uploader adds something, so #730’s "it would hide freshly imported files" trap concerns our own library and does not apply. Same four traps as #726, each with a test: empty answers are not remembered (archive.org answers an unknown item with HTTP 200 and `{}`, which is exactly what a just-uploaded item looks like), copies are handed out, the cache is bounded, and `ARCHIVE_META_TTL=0` really turns everything off including the fallback. A fifth is new here: without a known answer a failure stays a failure. For search an empty list is a valid result; here it would look like an item with no content, and the download start would silently create a job with not a single URL.*
+*EN: one memory for archive.org item metadata (#731). The issue assumed three equally sized external calls in sequence inside `/api/detail` and proposed a thread pool; measured on 2026-08-16, neither holds. `ra_lookup` is not a network call at all but a `SELECT` on the local `ra_games` table, and of the remaining two one dwarfs the other: `/metadata/<id>` measured 8.44–10.59 s across ten different items, median ~9.4 s, and the time does NOT depend on payload size (3 KB costs the same as 30 KB) — server time at archive.org, with `connect` at 0.17 s throughout. **But measuring archive.org once measures its day, not the service:** the same ten items came back at 0.60–1.20 s ninety minutes later, and four Gunstar items went from 8.16–15.27 s to 0.62–1.05 s. So ~9.4 s is a bad phase, not the normal state — exactly what #728 had recorded a day earlier for archive.org's search (10.9 s median, 851 ms the next day), a lesson repeated here before it was applied. The narrower `/metadata/<id>/files` path does not help (8.65 / 8.48 / 7.63 s). For contrast, archive.org’s SEARCH measured 851 ms median the day before: search fast, metadata slow, two different services. The pool still stays out, but for a narrower reason than first written: on a card without an archive ref there is only ONE external call (IGDB, 348–575 ms cold) and concurrency wins exactly nothing, and with a warm IGDB cache (7–9 ms) there is nothing to overlap on ANY card. What remains is "archive ref and IGDB cold", worth ~0.5 s out of 10.3–12.3 s in the bad phase and ~0.5 s out of ~2 s in the good one — too little for #722's `session` trap, but "too little gain", not "no gain". Remembering, by contrast, is worth the same whatever archive.org's day looks like: the second lookup measures 7–9 ms live. The same call also sat in the code twice: `archive_file_urls()` fetches the same item’s metadata again when a download starts, so opening a card and then downloading paid the full lookup twice back to back — the same defect at 0.6 s as at 9 s. Both now go through `archive_metadata()`, and a source-reading test asserts no third direct `requests.get` on `/metadata/` appears — that is exactly how the duplication arose. The TTL is deliberately an hour rather than #726’s ten minutes: what is remembered is the file list of a PUBLISHED FOREIGN item, which changes only when the uploader adds something, so #730’s "it would hide freshly imported files" trap concerns our own library and does not apply. Same four traps as #726, each with a test: empty answers are not remembered (archive.org answers an unknown item with HTTP 200 and `{}`, which is exactly what a just-uploaded item looks like), copies are handed out, the cache is bounded, and `ARCHIVE_META_TTL=0` really turns everything off including the fallback. A fifth is new here: without a known answer a failure stays a failure. For search an empty list is a valid result; here it would look like an item with no content, and the download start would silently create a job with not a single URL.*
 
 *EN: short-lived per-source search cache (#726). Since #722 the search waits for the SLOWEST source, and that is Archive.org: measured with the app's own query, five terms 15 s apart, 2.9 / 30 / 30 / 10.9 / 9.4 seconds, median 10.9 s, against Prowlarr's 0.6–2.1 s at the same moment. So the same search no longer waits twice (10-minute memory per source and query), and a failed source returns its last known result instead of "no hits". That required `search_archive` to stop swallowing its transport errors and returning an empty list indistinguishable from "no hits" — without that difference no fallback is honest. Four traps, each with a test a deliberate break turns red: empty results are not remembered, copies are stored and handed out, the cache is bounded, and the key is the SOURCE rather than `fn.__name__`. `SEARCH_CACHE_TTL=0` really turns everything off, fallback included. Side finding: seven existing do_search tests broke the moment the cache existed, because the previous test's hit was still in it — global state that leaks between tests leaks between requests, so conftest clears it.*
 

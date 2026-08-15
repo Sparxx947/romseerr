@@ -3569,29 +3569,46 @@ def jd_probe(wartezeit=30):
 
 # ---------- archive.org: Metadaten eines Elements, einmal geholt (#731) ----------
 #
-# GEMESSEN am 2026-08-16, zehn verschiedene Elemente, vom Desktop wie aus dem Container:
-# `https://archive.org/metadata/<id>` braucht **8,44–10,59 s, Median ~9,4 s** — und zwar
-# UNABHAENGIG von der Groesse der Antwort (3 KB wie 30 KB). Das ist feste Serverzeit
-# drueben, keine Bandbreite und nicht unsere Leitung: `connect` lag durchweg bei 0,17 s.
-# Der schmalere Pfad `/metadata/<id>/files` hilft nicht (8,65 / 8,48 / 7,63 s).
+# DIE DAUER SCHWANKT UM EINE ZEHNERPOTENZ — das ist der eigentliche Befund, und die erste
+# Messung hat es fast verschluckt. Beide Reihen am 2026-08-16, DIESELBEN Elemente:
 #
-# Zum Vergleich: archive.orgs SUCHE (`advancedsearch.php`) lag bei 851 ms Median. Suche
-# schnell, Metadaten langsam — zwei verschiedene Dienste, und nur der zweite ist teuer.
+#   10 Sonic-Elemente, 02:xx Uhr   8,44 – 10,59 s   Median ~9,4 s
+#   dieselben 10, ~90 min spaeter  0,60 –  1,20 s
+#   4 Gunstar-Elemente, vorher     8,16 – 15,27 s   danach  0,62 – 1,05 s
+#
+# Damit ist ~9,4 s NICHT der Normalzustand, sondern eine schlechte Phase — dieselbe
+# Lehre, die #728 fuer archive.orgs Suche schon aufgeschrieben hatte (10,9 s Median,
+# einen Tag spaeter 851 ms). Sie wurde hier zunaechst wiederholt statt angewandt.
+#
+# Was in BEIDEN Phasen gilt und die Aenderung traegt:
+#   * Die Dauer haengt NICHT an der Antwortgroesse (3 KB wie 30 KB) und nicht an unserer
+#     Leitung (`connect` durchweg 0,17 s) — sie ist Serverzeit drueben, wie viel auch
+#     immer gerade.
+#   * Der schmalere Pfad `/metadata/<id>/files` hilft nicht (8,65 / 8,48 / 7,63 s).
+#   * Der Aufruf stand ZWEIMAL im Code (s. u.) — das ist ein Fehler bei 0,6 s wie bei 9 s.
+#   * Gemerkt kostet der zweite Aufruf live gemessen 7–9 ms. Das ist der Gewinn, und er
+#     ist von der Tagesform drueben unabhaengig.
 #
 # WARUM KEIN FADEN-POOL (das war der urspruengliche Vorschlag in #731): Auf einer Karte
 # ohne Archive-Ref gibt es nur EINEN externen Aufruf (IGDB, 348–575 ms kalt) — daneben
-# ist `ra_lookup` eine lokale SQLite-Abfrage. Nebeneinander gewinnt dort exakt nichts.
-# Auf der Karte MIT Archive-Ref sind es gemessen 10,3–12,3 s, davon 85–95 % archive.org;
-# der Pool haette die ~0,5 s IGDB gespart, also ein Zwanzigstel. Gemerkt spart es alles.
+# ist `ra_lookup` eine lokale SQLite-Abfrage. Nebeneinander gewinnt dort exakt nichts,
+# und bei warmem IGDB-Speicher (7–9 ms) auf jeder Karte ebenfalls nichts. Uebrig bleibt
+# der Fall „Archive-Ref UND IGDB kalt": in der schlechten Phase ~0,5 s von 10,3–12,3 s
+# (ein Zwanzigstel), in der guten ~0,5 s von ~2 s. Dafuer lohnt der `session`-Fallstrick
+# aus #722 nicht — aber der Grund ist „zu wenig Gewinn fuer den Aufwand", nicht „nie".
 #
 # DERSELBE AUFRUF STAND ZWEIMAL IM CODE: die Detailkarte und `archive_file_urls` beim
 # Download-Start holen dieselben Metadaten desselben Elements. Wer eine Karte oeffnet und
-# dann herunterlaedt, zahlte die ~9,4 s zweimal hintereinander.
+# dann herunterlaedt, zahlte den vollen Abruf unmittelbar hintereinander zweimal.
 #
-# EN: archive.org's metadata endpoint costs a flat ~9.4 s per item regardless of payload
-# size, and the same call sat in the code twice — detail card and download start. One
+# EN: the latency of archive.org's metadata endpoint swings by an order of magnitude —
+# the same ten items measured 8.44–10.59 s and, 90 minutes later, 0.60–1.20 s. So ~9.4 s
+# is a bad phase, not the normal state (the same lesson #728 recorded for archive.org's
+# search). What holds in both phases: the cost does not depend on payload size or on our
+# link, and the same call sat in the code twice — detail card and download start. One
 # shared memory, following the #726 pattern: bounded, empty answers are not remembered,
-# copies are handed out, and a failing lookup falls back to the last known answer.
+# copies are handed out, and a failing lookup falls back to the last known answer. The
+# second lookup measures 7–9 ms live, whatever archive.org's day looks like.
 ARCHIVE_META_TTL = int(os.environ.get("ARCHIVE_META_TTL", "3600"))   # 1 h
 ARCHIVE_META_MAX = int(os.environ.get("ARCHIVE_META_MAX", "200"))
 ARCHIVE_META = {}
