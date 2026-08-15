@@ -306,7 +306,7 @@
  "uns_title": "Unassigned",
  "uns_hint": "Anything the import could not match to a platform ends up here instead of being guessed — <b>this view only shows it</b>. Filing or clearing is up to you; nothing here disappears on its own.",
  "uns_none": "nothing left behind",
- "uns_count": "{n} entries · {s}",
+ "uns_count": "Entries: {n} · {s}",
  "uns_where": "Folder: {p}",
  "reimp": "Re-import",
  "reimp_hint": "Reads the already downloaded files again — no new download.",

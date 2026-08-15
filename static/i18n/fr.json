@@ -306,7 +306,7 @@
  "uns_title": "Non attribué",
  "uns_hint": "Ce que l'import n'a pu rattacher à aucune plateforme atterrit ici plutôt que d'être deviné — <b>cette vue se contente de l'afficher</b>. Le classement ou le retrait vous revient ; rien ne disparaît ici tout seul.",
  "uns_none": "rien n'est resté",
- "uns_count": "{n} entrées · {s}",
+ "uns_count": "Entrées : {n} · {s}",
  "uns_where": "Dossier : {p}",
  "reimp": "Réimporter",
  "reimp_hint": "Relit les fichiers déjà téléchargés — sans nouveau téléchargement.",

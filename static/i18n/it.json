@@ -306,7 +306,7 @@
  "uns_title": "Non assegnati",
  "uns_hint": "Ciò che l'importazione non ha potuto attribuire a una piattaforma finisce qui invece di essere indovinato — <b>questa vista si limita a mostrarlo</b>. Sistemarlo o rimuoverlo spetta a te; qui nulla sparisce da solo.",
  "uns_none": "non è rimasto nulla",
- "uns_count": "{n} voci · {s}",
+ "uns_count": "Voci: {n} · {s}",
  "uns_where": "Cartella: {p}",
  "reimp": "Reimporta",
  "reimp_hint": "Rilegge i file già scaricati — senza un nuovo download.",

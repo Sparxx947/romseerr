@@ -9695,3 +9695,18 @@ def test_the_maintenance_view_actually_shows_it(appmod):
     assert lade and "/api/unsortiert" in lade.group(1), "die Funktion fragt den Endpunkt nicht"
     for schluessel in ("uns_title", "uns_hint", "uns_none", "uns_count"):
         assert i18n_hat(schluessel), f"{schluessel} fehlt in einer Sprache"
+
+
+def test_counted_strings_do_not_glue_a_number_to_a_plural_noun(appmod):
+    """„1 Einträge" — richtig für jede Zahl außer eins, und eins ist der Normalfall. (#675)
+
+    Statt Singular- und Pluralformen in fünf Sprachen zu pflegen, steht die Zahl hinter dem
+    Substantiv: „Einträge: 1". Das stimmt für jede Anzahl und übersteht auch die nächste
+    Sprache, ohne dass jemand ihre Pluralregeln kennen muss.
+    """
+    for sprache, tabelle in sprachtabellen().items():
+        wert = tabelle.get("uns_count")
+        assert wert, f"{sprache}: uns_count fehlt"
+        assert not re.match(r"^\s*\{n\}\s+\S", wert), \
+            f"{sprache}: die Zahl klebt am Substantiv — {wert!r}"
+        assert "{n}" in wert and "{s}" in wert, f"{sprache}: Platzhalter fehlen — {wert!r}"
