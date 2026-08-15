@@ -447,5 +447,9 @@
  "org_output": "Sortie",
  "plat_hidden": "{n} masqués par le filtre de plateformes",
  "plat_drop": "Retirer le filtre",
- "versions_n": "{n} versions"
+ "versions_n": "{n} versions",
+ "quota_count_hint": "requêtes / X jours — 0 = sans limite",
+ "quota_bytes_hint": "Go par période — 0 = sans limite",
+ "quota_own": "quota propre",
+ "quota_own_hint": "vide = valeur globale"
 }

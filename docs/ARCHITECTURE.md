@@ -1171,6 +1171,30 @@ Archive und ROMhack-Pakete —, und für die stehen jetzt `mod archive`, `rom ha
 `anthology` und `trilogy` in `SET_RE`. **`archive` allein bewusst nicht**: Das Wort steht in
 jedem zweiten Archive.org-Titel.
 
+**Das Kontingent misst Volumen, nicht nur Anzahl — und gilt je Nutzer (#712/#713).** Die
+Vergleichsprojekte begrenzen Anfragen nach Stückzahl; hier begrenzt das nichts, was ausgeht:
+Ein SNES-Modul wiegt ~4 MB, ein PS3-Titel ~30 GB — **Faktor 7.500**. Zehn Anfragen können
+also 40 MB oder 300 GB bedeuten.
+
+Beide Grenzen lassen sich einzeln abschalten (`0` = aus), weil jede für sich eine Lücke hat:
+Eine Anzahl allein lässt 300 GB durch, ein Volumen allein hundert winzige Anfragen. Geprüft
+wird gegen die Größe **dieser** Anfrage, nicht nur gegen den Verbrauch — sonst passte der
+letzte Titel immer noch hinein, egal wie groß er ist.
+
+`denied` und `error` zählen nicht: Abgelehntes wurde nie geholt, ein Fehlschlag hat nichts
+abgelegt. **`pending` zählt sehr wohl** — sonst ließe sich die Grenze umgehen, indem man
+schneller anfragt, als die Warteschlange leert.
+
+Ein Nutzer kann eine **eigene** Vorgabe bekommen; fehlt sie, gilt die globale. Ein leerer
+Wert heißt „global", nicht „null" — deshalb entfernt der Server den Schlüssel, statt ihn auf
+0 zu setzen, sonst gäbe es keinen Weg zurück. Vorher gab es nur die globale Vorgabe plus
+`quota_exempt`, also alles oder nichts.
+
+**Zwei Löcher fand erst der Mutationstest**, und eines davon war älter als diese Änderung:
+Weder die Volumen- noch die **Anzahl**-Durchsetzung war je geprüft. `if qi.get("remaining")
+<= 0` ließ sich durch `if False` ersetzen, und die gesamte Testreihe blieb grün — geprüft war
+nur die Rechnung, nie die Weigerung.
+
 **Die Breite der Navigationsspalte steht einmal, nicht dreimal (#710).** `210px` stand in
 `#side`, `main` und `#fuss`. Zwei Zustände lösen die linke Spalte auf — **Aurora** (#629,
 Navigation nach oben) und schmale Fenster unter 680 px — und beide müssen dann alle drei
@@ -1500,6 +1524,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 *EN: the three detail-card buttons now share one class (#708). Two carried their styling inline and one came from the stylesheet, so in Aurora they differed in background, text colour AND corner radius. The finding ran the opposite way to expectation: Aurora rounds every button to 12 px, and because inline beats any theme rule, the favourite button was the one FOLLOWING the design while the other two ignored it. The colour difference was a consequence of #705, which mapped the JavaScript's palette onto variables while `.favbtn` lives in the stylesheet — the same shape of gap as #703, one file over. Icon and text live in separate nodes because `toggleFav` and `addWishlist` set `textContent`, which deletes every child: an icon inside the button would have vanished on the first click, silently, since the text still reads correctly. The favourite state now hangs on FORM — filled versus outline heart — not on colour. No new icon was drawn for "report" and "watch": the cartridge with an exclamation mark and the bookmark mean the same as the menu entries they belong to.*
 
 *EN: the navigation column's width exists once, not three times (#710). `210px` sat in `#side`, `main` and `#fuss`. Two states dissolve the left column — Aurora (navigation on top) and windows below 680 px — and both must then follow through in all three places. The media query did; the Aurora block forgot the footer, which kept its 210 px offset although no column stood there any more, leaving a strip the content scrolled through. The three copies became `--navspalte`: whoever dissolves the column sets it to 0 and is done — the same move as the colours in #705, fixing the class of mistake rather than the instance. A mutation test also showed the third use was untested: break `main`'s offset and the content slides under the sidebar with nothing noticing.*
+
+*EN: the quota measures volume, not only count, and applies per user (#712/#713). Comparable projects limit by number of requests; here that bounds nothing that runs out — a SNES cartridge is ~4 MB and a PS3 title ~30 GB, a factor of 7,500, so ten requests can mean 40 MB or 300 GB. Both limits can be switched off individually because each has its own hole: a count alone lets 300 GB through, a volume alone lets a hundred tiny requests through. Enforcement checks the size of THIS request, not just consumption. `denied` and `error` do not spend the quota; `pending` does, or the limit could be walked past by requesting faster than the queue drains. A user may carry an own limit, falling back to the global one — an empty value means "global", not "zero", so the server removes the key rather than storing 0. Two holes surfaced only under mutation testing, one of them older than this change: neither the volume nor the COUNT enforcement had ever been covered — `if qi.get("remaining") <= 0` could be replaced by `if False` with the whole suite staying green.*
 
 *EN: a card can no longer say "in library" and "platform unknown" at once (#685). `in_library()` falls back to a global check when the hit names no platform — correct, but it only answers whether. `library_slugs()` answers where, sorted by the platform's release year (oldest first), which for a title on several systems is almost always the one it appeared on first. Measured: 6.9% of titles sit on more than one platform. Deliberately the console's year, not the game's — IGDB gives one date per game and does not know the hacks and homebrew this concerns. The card marks the value as derived.*
 

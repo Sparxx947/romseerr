@@ -447,5 +447,9 @@
  "org_output": "Salida",
  "plat_hidden": "{n} ocultos por el filtro de plataformas",
  "plat_drop": "Quitar filtro",
- "versions_n": "{n} versiones"
+ "versions_n": "{n} versiones",
+ "quota_count_hint": "solicitudes / X días — 0 = sin límite",
+ "quota_bytes_hint": "GB por periodo — 0 = sin límite",
+ "quota_own": "cuota propia",
+ "quota_own_hint": "vacío = valor global"
 }

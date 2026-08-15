@@ -3061,20 +3061,63 @@ def worker_wishlist():
             log(f"Wunschlisten-Worker: {ex}")
         time.sleep(WISH_INTERVAL)
 
+# Zustaende, die NICHT aufs Kontingent gehen: Abgelehntes wurde nie geholt, und ein
+# Fehlschlag hat nichts abgelegt. Alles andere zaehlt — auch `pending`, sonst liesse
+# sich die Grenze umgehen, indem man schneller anfragt als die Warteschlange leert.
+def sz_kurz(b):
+    """Bytes lesbar. Die Kontingentgrenze reicht von einigen MB bis in den TB-Bereich,
+    eine feste Einheit waere an einem Ende immer unbrauchbar."""
+    b = float(b or 0)
+    for e in ("B", "KB", "MB", "GB", "TB"):
+        if b < 1024 or e == "TB":
+            return f"{b:.1f} {e}" if e != "B" else f"{int(b)} B"
+        b /= 1024
+
+KONTINGENT_FREI = ("denied", "error")
+
 def quota_used(user, days):
-    """Anzahl der Anfragen eines Nutzers innerhalb der letzten `days` Tage (abgelehnte zählen nicht)."""
+    """(Anzahl, Bytes) der Anfragen eines Nutzers in den letzten `days` Tagen. (#712)"""
     cutoff = time.time() - int(days)*86400
     with JOBS_LOCK:
-        return sum(1 for j in JOBS if j.get("user")==user and j.get("state")!="denied" and j.get("created",0)>=cutoff)
+        treffer = [j for j in JOBS
+                   if j.get("user") == user
+                   and j.get("state") not in KONTINGENT_FREI
+                   and j.get("created", 0) >= cutoff]
+    return len(treffer), sum(int(j.get("size") or 0) for j in treffer)
+
+def quota_grenzen(user):
+    """Die fuer DIESEN Nutzer geltenden Grenzen -> (anzahl, bytes). 0 heisst „aus". (#713)
+
+    Eine eigene Vorgabe am Benutzer schlaegt die globale; fehlt sie, gilt die globale.
+    Vorher gab es nur die globale plus `quota_exempt` — also alles oder nichts, und keinen
+    Weg, einem Einzelnen mehr zu geben, ohne die Grenze ganz aufzuheben.
+    """
+    q = load_settings().get("quota", {})
+    eigen = (load_users().get(user) or {}).get("quota") or {}
+    anzahl = eigen.get("count", q.get("count", 10))
+    bytes_ = eigen.get("bytes", q.get("bytes", 0))
+    return int(anzahl or 0), int(bytes_ or 0)
+
 def quota_info(user):
-    """Kontingent-Status für einen Nutzer (enabled/count/days/used/remaining);
-    quota_exempt-Berechtigte und deaktiviertes Kontingent -> {'enabled': False}."""
+    """Kontingent-Status eines Nutzers; `quota_exempt` und ausgeschaltet -> {'enabled': False}.
+
+    ZWEI GRENZEN, jede einzeln abschaltbar (#712). Eine Anzahl allein begrenzt nicht, was
+    ausgeht: Ein SNES-Modul wiegt ~4 MB, ein PS3-Titel ~30 GB — Faktor 7.500. Zehn
+    Anfragen koennen also 40 MB oder 300 GB heissen. Ein Volumen allein laesst dagegen
+    hundert winzige Anfragen zu. Wer beides setzt, ist gegen beides geschuetzt.
+    """
     q = load_settings().get("quota", {})
     if not q.get("enabled") or has_perm("quota_exempt", user):
         return {"enabled": False}
-    cnt = int(q.get("count", 10) or 10); days = int(q.get("days", 7) or 7)
-    used = quota_used(user, days)
-    return {"enabled": True, "count": cnt, "days": days, "used": used, "remaining": max(0, cnt-used)}
+    days = int(q.get("days", 7) or 7)
+    cnt, byt = quota_grenzen(user)
+    used, used_bytes = quota_used(user, days)
+    # `remaining` bleibt die ANZAHL — die Oberflaeche und die Durchsetzung lesen es seit
+    # jeher so. Ist die Anzahl aus, ist sie unbegrenzt, und das Volumen entscheidet.
+    rest = max(0, cnt - used) if cnt else 10**9
+    rest_bytes = max(0, byt - used_bytes) if byt else None
+    return {"enabled": True, "count": cnt, "days": days, "used": used, "remaining": rest,
+            "bytes": byt, "used_bytes": used_bytes, "remaining_bytes": rest_bytes}
 
 # ---------- Download-Aktionen ----------
 def dl_name(jid, title):
@@ -6033,9 +6076,19 @@ def api_download():
     fu = (it.get("for_user") or "").strip()
     if fu and fu != requester and has_perm("manage_requests") and fu in load_users():
         user = fu; onbehalf = True   # Anfrage im Namen eines anderen Nutzers
+    # BEIDE GRENZEN PRUEFEN (#712). Die Anzahl allein liess 300 GB durch, solange es
+    # zehn Anfragen blieben. Geprueft wird gegen die Groesse DIESER Anfrage, nicht nur
+    # gegen den Verbrauch — sonst passte der letzte Titel immer noch hinein, egal wie
+    # gross er ist.
     qi = quota_info(user)
-    if qi.get("enabled") and qi.get("remaining", 1) <= 0 and not onbehalf:
-        return jsonify({"ok":False,"msg":"Kontingent erschöpft / quota reached"})
+    if qi.get("enabled") and not onbehalf:
+        if qi.get("remaining", 1) <= 0:
+            return jsonify({"ok":False,"msg":"Kontingent erschöpft / quota reached"})
+        rest_b = qi.get("remaining_bytes")
+        if rest_b is not None and int(it.get("size") or 0) > rest_b:
+            return jsonify({"ok": False,
+                            "msg": f"Kontingent erschöpft / quota reached "
+                                   f"({sz_kurz(rest_b)} frei / left)"})
     auto = onbehalf or may_autoapprove(user)
     # Was der Nutzer angefragt HAT und was er sich gewuenscht hatte — beides festhalten,
     # damit eine Falschlieferung spaeter belegbar ist statt Diskussionssache. (#77)
@@ -7249,7 +7302,10 @@ def api_logout():
 @app.route("/api/users", methods=["GET"])
 @perm_required("manage_users")
 def api_users_list():
-    return jsonify([{"username":u,"role":v.get("role","user"),"perms":v.get("perms",[])}
+    # `quota` nur, wenn der Nutzer eine EIGENE Vorgabe hat — fehlt sie, gilt die globale,
+    # und das Feld bleibt weg statt eine Null vorzutaeuschen. (#713)
+    return jsonify([{"username":u,"role":v.get("role","user"),"perms":v.get("perms",[]),
+                     **({"quota": v["quota"]} if v.get("quota") else {})}
                     for u,v in load_users().items()])
 
 @app.route("/api/users", methods=["POST"])
@@ -7284,6 +7340,18 @@ def api_users_patch(u):
             newp = [x for x in newp if x not in PRIV_PERMS] + [x for x in cur if x in PRIV_PERMS]
         users[u]["perms"] = newp
     if "autoapprove" in d: users[u]["autoapprove"] = bool(d["autoapprove"])
+    # EIGENES KONTINGENT je Nutzer (#713). Ein leerer oder fehlender Wert heisst „gilt die
+    # globale Vorgabe" — nicht „null". Deshalb wird der Schluessel ENTFERNT statt auf 0
+    # gesetzt, sonst waere die Rueckkehr zur globalen Vorgabe nicht ausdrueckbar.
+    if "quota" in d:
+        qq = d.get("quota") or {}
+        eigen = {}
+        for feld in ("count", "bytes"):
+            wert = qq.get(feld)
+            if wert not in (None, ""):
+                eigen[feld] = max(0, int(wert))
+        if eigen: users[u]["quota"] = eigen
+        else: users[u].pop("quota", None)
     if d.get("role") in ("admin","user") and d["role"] != users[u].get("role"):
         if not caller_is_admin():
             return jsonify({"ok":False,"msg":"nur Admin darf Rollen ändern / admin only"}), 403
@@ -7322,7 +7390,7 @@ def api_settings_get():
                         "pushover": {"enabled": bool(s.get("agents",{}).get("pushover",{}).get("enabled")),
                                      "user": s.get("agents",{}).get("pushover",{}).get("user",""),
                                      "has_token": bool(s.get("agents",{}).get("pushover",{}).get("token"))}},
-                    "quota": s.get("quota", {"enabled": False, "count": 10, "days": 7}),
+                    "quota": s.get("quota", {"enabled": False, "count": 10, "days": 7, "bytes": 0}),
                     "onboarded": bool(s.get("onboarded")),
                     "update_check": bool(s.get("update_check", True)),
                     "allow_private_webhooks": bool(s.get(_PRIVATE_OK_KEY)),
@@ -7373,8 +7441,10 @@ def api_settings_set():
                 "token": po.get("token") if po.get("token") else cur.get("pushover",{}).get("token","")}
     if "quota" in d:
         qq = d["quota"]
-        s["quota"] = {"enabled": bool(qq.get("enabled")), "count": int(qq.get("count") or 10),
-                      "days": int(qq.get("days") or 7)}
+        # `bytes` mit Standard 0 = aus: Wer die Einstellung nie angefasst hat, behaelt
+        # genau das Verhalten von vorher. (#712)
+        s["quota"] = {"enabled": bool(qq.get("enabled")), "count": int(qq.get("count") or 0),
+                      "days": int(qq.get("days") or 7), "bytes": int(qq.get("bytes") or 0)}
     if "connections" in d:
         cn = d["connections"]; s.setdefault("connections", {})
         for k in CONN_KEYS:

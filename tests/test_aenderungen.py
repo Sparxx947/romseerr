@@ -1095,3 +1095,162 @@ def test_every_theme_defines_the_full_status_set(appmod):
                  "--gefahr", "--gefahr-b", "--gefahr-h", "--btn2"):
         n = len(re.findall(re.escape(name) + r"\s*:", ohne))
         assert n == 4, f"{name} ist {n}x gesetzt, erwartet 4 — ein Wert je Design"
+
+
+# ---------------------------------------------------------------------------
+# #712 / #713 — Kontingent nach Volumen, und je Nutzer
+# ---------------------------------------------------------------------------
+
+def _kontingent(appmod, **werte):
+    """Globales Kontingent setzen und den Ausgangsstand zurueckgeben."""
+    s = appmod.load_settings()
+    s["quota"] = {"enabled": True, "count": 0, "days": 7, "bytes": 0, **werte}
+    appmod.save_settings(s)
+
+
+def _auftrag(appmod, user, groesse, zustand="done", alter_tage=0):
+    appmod.JOBS.append({"id": str(len(appmod.JOBS)), "title": f"T{len(appmod.JOBS)}",
+                        "user": user, "size": groesse, "state": zustand,
+                        "created": int(appmod.time.time()) - alter_tage*86400})
+
+
+def test_the_quota_counts_bytes_not_only_requests(appmod, monkeypatch):
+    """Die Anzahl begrenzt nicht das, was ausgeht. (#712)
+
+    Ein SNES-Modul wiegt ~4 MB, ein PS3-Titel ~30 GB — Faktor 7.500. Zehn Anfragen koennen
+    also 40 MB oder 300 GB heissen, und eine Zahl, die beides gleich behandelt, begrenzt
+    keinen Plattenplatz.
+    """
+    monkeypatch.setattr(appmod, "JOBS", [])
+    _kontingent(appmod, bytes=10 * 1024**3)          # 10 GB, keine Anzahlgrenze
+    _auftrag(appmod, "a", 4 * 1024**3)
+    with appmod.app.test_request_context():
+        info = appmod.quota_info("a")
+    assert info["enabled"]
+    assert info["used_bytes"] == 4 * 1024**3
+    assert info["remaining_bytes"] == 6 * 1024**3
+    # Die Anzahl ist AUS — sie darf hier nicht bremsen.
+    assert info["remaining"] > 100, "die abgeschaltete Anzahl begrenzt trotzdem"
+    _auftrag(appmod, "a", 7 * 1024**3)
+    with appmod.app.test_request_context():
+        assert appmod.quota_info("a")["remaining_bytes"] == 0, "das Volumen laeuft nicht voll"
+
+
+def test_both_quota_limits_can_be_used_and_switched_off(appmod, monkeypatch):
+    """Jede Grenze fuer sich. (#712)
+
+    Eine Anzahl allein laesst 300 GB durch, ein Volumen allein hundert winzige Anfragen.
+    Wer beides setzt, ist gegen beides geschuetzt — und wer eines auf 0 setzt, schaltet
+    genau dieses ab.
+    """
+    monkeypatch.setattr(appmod, "JOBS", [])
+    _kontingent(appmod, count=3, bytes=0)
+    for _ in range(3): _auftrag(appmod, "a", 1)
+    with appmod.app.test_request_context():
+        i = appmod.quota_info("a")
+    assert i["remaining"] == 0, "die Anzahl greift nicht"
+    assert i["remaining_bytes"] is None, "ein abgeschaltetes Volumen meldet trotzdem einen Rest"
+
+    monkeypatch.setattr(appmod, "JOBS", [])
+    _kontingent(appmod, count=0, bytes=1024)
+    _auftrag(appmod, "a", 900)
+    with appmod.app.test_request_context():
+        i = appmod.quota_info("a")
+    assert i["remaining_bytes"] == 124
+    assert i["remaining"] > 100, "die abgeschaltete Anzahl begrenzt trotzdem"
+
+
+def test_denied_and_failed_requests_do_not_spend_the_quota(appmod, monkeypatch):
+    """Abgelehntes wurde nie geholt, ein Fehlschlag hat nichts abgelegt. (#712)
+
+    `pending` zaehlt dagegen sehr wohl — sonst liesse sich die Grenze umgehen, indem man
+    schneller anfragt, als die Warteschlange leert.
+    """
+    monkeypatch.setattr(appmod, "JOBS", [])
+    _kontingent(appmod, count=10, bytes=1000)
+    _auftrag(appmod, "a", 100, "denied")
+    _auftrag(appmod, "a", 100, "error")
+    _auftrag(appmod, "a", 100, "pending")
+    n, b = appmod.quota_used("a", 7)
+    assert (n, b) == (1, 100), f"gezaehlt wurden {n} Auftraege / {b} Bytes, erwartet 1 / 100"
+
+
+def test_a_user_can_have_their_own_quota(appmod, monkeypatch):
+    """Vorher gab es nur global plus `quota_exempt` — alles oder nichts. (#713)"""
+    monkeypatch.setattr(appmod, "JOBS", [])
+    _kontingent(appmod, count=5, bytes=1000)
+    appmod.save_users({**ADMIN_FIX,
+                       "gross": {"pw": "x", "role": "user", "perms": ["request"],
+                                 "quota": {"count": 20, "bytes": 9000}},
+                       "normal": {"pw": "x", "role": "user", "perms": ["request"]}})
+    try:
+        assert appmod.quota_grenzen("gross") == (20, 9000), "die eigene Vorgabe greift nicht"
+        assert appmod.quota_grenzen("normal") == (5, 1000), "ohne eigene Vorgabe gilt die globale"
+        # Eine eigene Vorgabe darf auch NIEDRIGER sein als die globale.
+        appmod.save_users({**appmod.load_users(),
+                           "klein": {"pw": "x", "role": "user", "perms": ["request"],
+                                     "quota": {"count": 1}}})
+        assert appmod.quota_grenzen("klein") == (1, 1000), \
+            "eine teilweise eigene Vorgabe muss den Rest global lassen"
+    finally:
+        appmod.save_users({})
+
+
+def test_the_download_endpoint_actually_refuses_an_oversized_request(appmod, client, monkeypatch):
+    """Eine Grenze, die nicht greift, ist Zierde. (#712)
+
+    Ein Mutationstest hat es gezeigt: Die Volumenpruefung aus `/api/download` liess sich
+    entfernen, ohne dass ein Test anschlug — geprueft war nur die Rechnung in
+    `quota_info`, nicht die Weigerung.
+
+    Geprueft wird gegen die Groesse DIESER Anfrage, nicht nur gegen den Verbrauch. Sonst
+    passte der letzte Titel immer noch hinein, egal wie gross er ist.
+    """
+    monkeypatch.setattr(appmod, "JOBS", [])
+    _kontingent(appmod, count=0, bytes=5 * 1024**3)      # 5 GB, Anzahl aus
+    _als(client, appmod, "admin")
+    appmod.save_users({**appmod.load_users(),
+                       "knapp": {"pw": appmod.generate_password_hash("pw123456"),
+                                 "role": "user", "perms": ["request"]}})
+    _als(client, appmod, "knapp", rolle="user")
+    try:
+        # 2 GB passen
+        r = client.post("/api/download", json={"title": "Klein", "source": "archive",
+                                               "ref": "k", "size": 2 * 1024**3})
+        assert r.get_json().get("ok"), f"eine passende Anfrage wurde abgewiesen: {r.get_json()}"
+        # 4 GB passen NICHT mehr — 3 GB sind uebrig
+        r = client.post("/api/download", json={"title": "Gross", "source": "archive",
+                                               "ref": "g", "size": 4 * 1024**3})
+        d = r.get_json()
+        assert not d.get("ok"), "die zu grosse Anfrage wurde angenommen"
+        assert "ontingent" in (d.get("msg") or "") or "quota" in (d.get("msg") or "").lower(), \
+            f"die Ablehnung nennt den Grund nicht: {d}"
+    finally:
+        appmod.save_users({})
+
+
+def test_the_download_endpoint_refuses_once_the_count_is_spent(appmod, client, monkeypatch):
+    """Die Anzahlgrenze war an der Durchsetzung nie geprueft. (#712)
+
+    Das ist ein VORBESTEHENDES Loch, gefunden beim Mutationstest zu dieser Aenderung: Die
+    Zeile `if qi.get("remaining", 1) <= 0` liess sich durch `if False` ersetzen, und die
+    komplette Testreihe blieb gruen. Geprueft war nur die Rechnung, nie die Weigerung.
+    """
+    monkeypatch.setattr(appmod, "JOBS", [])
+    _kontingent(appmod, count=2, bytes=0)                # 2 Anfragen, Volumen aus
+    _als(client, appmod, "admin")
+    appmod.save_users({**appmod.load_users(),
+                       "zwei": {"pw": appmod.generate_password_hash("pw123456"),
+                                "role": "user", "perms": ["request"]}})
+    _als(client, appmod, "zwei", rolle="user")
+    try:
+        for i in (1, 2):
+            r = client.post("/api/download", json={"title": f"T{i}", "source": "archive",
+                                                   "ref": str(i), "size": 1})
+            assert r.get_json().get("ok"), f"Anfrage {i} wurde abgewiesen: {r.get_json()}"
+        r = client.post("/api/download", json={"title": "T3", "source": "archive",
+                                               "ref": "3", "size": 1})
+        d = r.get_json()
+        assert not d.get("ok"), "die dritte Anfrage kam durch, obwohl das Kontingent 2 ist"
+    finally:
+        appmod.save_users({})
