@@ -22,6 +22,7 @@ into the library and notifies when they are available. The library is shared by 
 ## Contents
 
 - [Highlights](#highlights)
+- [Screenshots](#screenshots)
 - [Features in detail](#features-in-detail)
 - [How a request works](#how-a-request-works)
 - [The stack](#the-stack)
@@ -72,6 +73,41 @@ The full rule is in
 - 🔑 **REST API** with an API key and a full **OpenAPI 3.1** doc (`/api/docs`).
 - 🧩 **A single `app.py`** (Python 3.14 / Flask), **SQLite** persistence, no build step,
   **non-root** container with healthcheck, multi-arch image (amd64 + arm64).
+
+---
+
+## Screenshots
+
+> Every shot comes from a **throwaway instance** with invented users and an invented
+> library — nothing in them is real. Produced by `romseerr-doku-bilder`, which starts the
+> instance fresh and checks the page text for private data before each capture. An image
+> cannot be searched; the text behind it can.
+
+| | |
+|---|---|
+| **Discover** — rows per console and genre, owned titles marked | **Search** — Archive.org and Usenet, with platform, size and versions |
+| ![Discover](docs/img/11-entdecken.webp) | ![Search](docs/img/02-suche.webp) |
+| **Detail card** — versions and sources, rating, play and stream | **Requests** — approval flow with per-job state |
+| ![Detail card](docs/img/03-detailkarte.webp) | ![Requests](docs/img/10-anfragen.webp) |
+| **Library** — what is actually there, by vendor and system | **Coverage** — the opposite question: what is missing |
+| ![Library](docs/img/04-bibliothek.webp) | ![Coverage](docs/img/05-abdeckung.webp) |
+| **Settings** — connections, services, maintenance | **Profile** — theme, language, notifications |
+| ![Settings](docs/img/06-einstellungen.webp) | ![Profile](docs/img/07-profil.webp) |
+
+### On a phone
+
+Romseerr is a PWA and lays out differently below 680 px: the navigation moves to the top and
+the grid narrows.
+
+| Discover | Search | Library |
+|---|---|---|
+| ![Discover, narrow](docs/img/12-schmal-entdecken.webp) | ![Search, narrow](docs/img/13-schmal-suche.webp) | ![Library, narrow](docs/img/14-schmal-bibliothek.webp) |
+
+### First start
+
+| Login | Onboarding tour |
+|---|---|
+| ![Login](docs/img/01-anmeldung.webp) | ![Onboarding tour](docs/img/08-einfuehrungstour.webp) |
 
 ---
 
@@ -814,6 +850,14 @@ user can also set a **personal Discord webhook**. Password reset is done via ema
   in the profile. Adding your own design is easy — see the wiki page
   **[Designs / Themes](../../wiki/Designs)**.
 - **Languages:** German, English, French, Spanish, Italian (switcher in the sidebar).
+
+The same view in all four themes:
+
+| Seerr | Glass |
+|---|---|
+| ![Seerr](docs/img/09-design-seerr.webp) | ![Glass](docs/img/09-design-glas.webp) |
+| **Clean** | **Aurora** |
+| ![Clean](docs/img/09-design-klar.webp) | ![Aurora](docs/img/09-design-aurora.webp) |
 
 ---
 

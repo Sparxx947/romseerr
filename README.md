@@ -22,6 +22,7 @@ teilen sich **RomM** (Browser/Player) und **RetroNAS**.
 ## Inhalt
 
 - [Highlights](#highlights)
+- [Bilder](#bilder)
 - [Funktionen im Detail](#funktionen-im-detail)
 - [So funktioniert eine Anfrage](#so-funktioniert-eine-anfrage)
 - [Der Stack](#der-stack)
@@ -73,6 +74,41 @@ Die vollständige Regel steht in
 - 🔑 **REST-API** mit API-Key und vollständiger **OpenAPI-3.1**-Doku (`/api/docs`).
 - 🧩 **Ein einziges `app.py`** (Python 3.14 / Flask), **SQLite**-Persistenz, kein Build-Schritt,
   **non-root**-Container mit Healthcheck, Multi-Arch-Image (amd64 + arm64).
+
+---
+
+## Bilder
+
+> Alle Aufnahmen stammen aus einer **Wegwerf-Instanz** mit erfundenen Benutzern und einer
+> erfundenen Bibliothek — nichts darin ist echt. Erzeugt mit `romseerr-doku-bilder`, das die
+> Instanz frisch startet und vor jeder Aufnahme prüft, dass im Seitentext nichts Privates
+> steht. Ein Bild lässt sich nicht durchsuchen, der Seitentext davor schon.
+
+| | |
+|---|---|
+| **Entdecken** — Reihen je Konsole und Genre, vorhandene Titel gekennzeichnet | **Suche** — Archive.org und Usenet, mit Plattform, Größe und Fassungen |
+| ![Entdecken](docs/img/11-entdecken.webp) | ![Suche](docs/img/02-suche.webp) |
+| **Detailkarte** — Fassungen und Quellen, Bewertung, Spielen und Streamen | **Anfragen** — Freigabelauf mit Zustand je Auftrag |
+| ![Detailkarte](docs/img/03-detailkarte.webp) | ![Anfragen](docs/img/10-anfragen.webp) |
+| **Bibliothek** — was tatsächlich da ist, nach Hersteller und System | **Abdeckung** — die Gegenfrage: was fehlt |
+| ![Bibliothek](docs/img/04-bibliothek.webp) | ![Abdeckung](docs/img/05-abdeckung.webp) |
+| **Einstellungen** — Verbindungen, Dienste, Wartung | **Profil** — Design, Sprache, Benachrichtigungen |
+| ![Einstellungen](docs/img/06-einstellungen.webp) | ![Profil](docs/img/07-profil.webp) |
+
+### Auf dem Telefon
+
+Romseerr ist eine PWA und wird unter 680 px anders aufgebaut: Die Navigation wandert nach
+oben, das Raster wird schmaler.
+
+| Entdecken | Suche | Bibliothek |
+|---|---|---|
+| ![Entdecken, schmal](docs/img/12-schmal-entdecken.webp) | ![Suche, schmal](docs/img/13-schmal-suche.webp) | ![Bibliothek, schmal](docs/img/14-schmal-bibliothek.webp) |
+
+### Erster Start
+
+| Anmeldung | Einführungstour |
+|---|---|
+| ![Anmeldung](docs/img/01-anmeldung.webp) | ![Einführungstour](docs/img/08-einfuehrungstour.webp) |
 
 ---
 
@@ -845,6 +881,14 @@ In der Oberfläche konfigurierbar (jeweils mit Testknopf):
   wählt im Profil ein eigenes. Eigene Designs lassen sich leicht ergänzen — siehe die Wiki-Seite
   **[Designs / Themes](../../wiki/Designs)**.
 - **Sprachen:** Deutsch, Englisch, Französisch, Spanisch, Italienisch (Umschalter in der Seitenleiste).
+
+Dieselbe Ansicht in allen vier Designs:
+
+| Seerr | Glas |
+|---|---|
+| ![Seerr](docs/img/09-design-seerr.webp) | ![Glas](docs/img/09-design-glas.webp) |
+| **Klar** | **Aurora** |
+| ![Klar](docs/img/09-design-klar.webp) | ![Aurora](docs/img/09-design-aurora.webp) |
 
 ---
 
