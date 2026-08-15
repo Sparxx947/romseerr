@@ -9953,3 +9953,33 @@ def test_the_library_view_counts_entries_not_titles(appmod):
         umfeld = js[i:i + 120]
         assert "lib_entries" in umfeld, f"noch als Titel beschriftet: {umfeld[:80]}"
     assert i18n_hat("lib_entries"), "lib_entries fehlt in einer Sprache"
+
+
+def test_the_stream_host_does_not_claim_virtualgl_is_in_use(appmod):
+    """Ein Kommentar, der einen früheren Zustand als gegenwärtigen ausgibt, ist schlimmer
+    als keiner — ihm wird geglaubt. (#628)
+
+    Gemessen am laufenden Container: `VGLDEV` leer, DRI3 vorhanden, null Prozesse mit
+    `libvglfaker`, kein Emulator über `vglrun`. Beide Dateien behaupteten das Gegenteil,
+    und am 2026-08-14 hat genau das eine Fehlersuche in die falsche Richtung geschickt.
+    """
+    basis = os.path.join(REPO, "contrib", "streaming-host", "init")
+    vgl = open(os.path.join(basis, "10-virtualgl"), encoding="utf-8").read()
+    kopf = vgl[:vgl.index("\n# ---")] if "\n# ---" in vgl else vgl[:2000]
+    assert "UNBENUTZT" in kopf or "unused" in kopf.lower(), \
+        "der Kopf stellt VirtualGL weiterhin als den Weg dar"
+    assert "DRI3" in kopf, "er sagt nicht, was heute die Beschleunigung trägt"
+
+    agent = open(os.path.join(basis, "30-agent"), encoding="utf-8").read()
+    # auf die AUSSAGE prüfen, nicht auf den Satz: er darf als Zitat vorkommen („hier stand
+    # jahrelang …"), und ein Verbot des Wortlauts würde genau diese Erklärung verbieten
+    kopfzeilen = agent[:agent.index("VGLDEV=")]
+    behauptung = [z for z in kopfzeilen.splitlines()
+                  if "Alle Emulatoren laufen über VirtualGL" in z and "stand jahrelang" not in z]
+    assert not behauptung, f"die alte Behauptung steht noch als Aussage da: {behauptung}"
+    assert "ÜBER DRI3" in kopfzeilen, "der Kopf sagt nicht, was heute trägt"
+    # die Startmeldung darf CPU-Rendering nicht behaupten, ohne es zu prüfen
+    i = agent.index('VGL=""')
+    zweig = agent[i:i + 900]
+    assert "xdpyinfo" in zweig, "die Meldung behauptet weiterhin CPU, statt DRI3 zu prüfen"
+    assert "DRI3" in zweig, "der DRI3-Fall wird nicht genannt"

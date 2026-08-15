@@ -1,8 +1,41 @@
 #!/bin/bash
-# VirtualGL — der Weg zu echter GPU-Beschleunigung in diesem Container.
-# VirtualGL — how the GPU actually gets used in here.
+# VirtualGL — installiert, aber DERZEIT UNBENUTZT. Rückfallweg, kein Regelweg.
+# VirtualGL — installed but currently UNUSED. A fallback, not the normal path.
 #
-# WARUM ÜBERHAUPT:
+# STAND 2026-08-15, am laufenden Container gemessen:
+#
+#   VGLDEV                        leer      -> der Zweig in `30-agent` feuert nie
+#   DRINODE                       /dev/dri/renderD129
+#   DISABLE_DRI3                  false
+#   DRI3-Erweiterung              vorhanden (auf DISPLAY=:1, NICHT :0 — siehe unten)
+#   Prozesse mit `libvglfaker`    0
+#
+# Seit #167/#169 (2026-08-10) läuft die Beschleunigung über DRI3: Dolphin nutzt Vulkan,
+# `libvglfaker` ist aus den Prozessen verschwunden, und der Video-Thread fiel von rund
+# 100 % eines Kerns auf 5,7 %. PS2, PS3, GameCube und Wii wurden je mit Bild, Ton und
+# Gamepad nachgeprüft. KEIN Emulator startet mehr über `vglrun`.
+#
+# Der Text unten beschreibt, warum es das Paket gibt und wie es wirkt — er galt, als
+# DRI3 fehlte. Er beschreibt NICHT den heutigen Betrieb. Was hier stand, hat am
+# 2026-08-14 zu der falschen Folgerung „wir brauchen VirtualGL noch" geführt; ein
+# Kommentar, der einen früheren Zustand als gegenwärtigen ausgibt, ist schlimmer als
+# keiner, weil ihm geglaubt wird. (#628)
+#
+# WANN ES WIEDER EINSPRINGEN WÜRDE: wenn DRI3 verschwindet — dann fällt Mesa auf
+# `llvmpipe` zurück, Vulkan verweigert ganz, und `VGLDEV` müsste auf den CARD-Knoten
+# gesetzt werden. Die vier Zeilen oben beantworten in Sekunden, welcher Fall vorliegt.
+#
+# MESSFALLE: der X-Server läuft auf **:1**, nicht auf :0. `DISPLAY=:0 xdpyinfo` meldet
+# „antwortet nicht", und wer das als „kein DRI3" liest, kommt genau zur falschen
+# Schlussfolgerung. Richtig: `DISPLAY=:1 xdpyinfo | grep -i DRI3`.
+#
+# EN: installed but unused since #167/#169 — DRI3 carries the acceleration now and no
+# emulator launches through `vglrun`. The description below explains why the package
+# exists and how it works; it describes the past, not today's operation. It would matter
+# again only if DRI3 disappeared. Note the X server is on :1, not :0.
+#
+# ---------------------------------------------------------------------------------
+# WARUM ÜBERHAUPT (historisch — siehe oben):
 # Der X-Server im Container ist ein Xvfb ohne DRI3. Ohne DRI3 fällt Mesa auf
 # `llvmpipe` zurück — reine Software-Rasterisierung auf der CPU. Das fällt nicht
 # auf, weil alles trotzdem läuft; nur eben zehnmal langsamer. Prüfen lässt es sich
