@@ -153,20 +153,25 @@ def live_server(servermod):
 
 @pytest.fixture(autouse=True)
 def _suchspeicher_leeren(appmod):
-    """Der Such-Zwischenspeicher ist Modulzustand und ueberlebt sonst den Test. (#726)
+    """Die Zwischenspeicher sind Modulzustand und ueberleben sonst den Test. (#726, #731)
 
     GEMESSEN BEIM FUND: Sieben bestehende `do_search`-Tests schlugen fehl, sobald der
     Zwischenspeicher da war — nicht weil sie kaputt sind, sondern weil der Treffer des
     vorigen Tests noch drinlag. Ein globaler Speicher, der zwischen Tests durchschlaegt,
     schlaegt auch zwischen Anfragen durch; deshalb wird er hier geleert und nicht in den
     einzelnen Tests.
+
+    Jeder weitere Speicher gehoert in dieselbe Liste — er hat dasselbe Problem.
     """
-    try:
-        appmod.SUCH_CACHE.clear()
-    except AttributeError:
-        pass
+    für_alle = ("SUCH_CACHE", "ARCHIVE_META")   # #726 Suchquellen, #731 archive.org-Metadaten
+    for name in für_alle:
+        try:
+            getattr(appmod, name).clear()
+        except AttributeError:
+            pass
     yield
-    try:
-        appmod.SUCH_CACHE.clear()
-    except AttributeError:
-        pass
+    for name in für_alle:
+        try:
+            getattr(appmod, name).clear()
+        except AttributeError:
+            pass
