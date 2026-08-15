@@ -9816,3 +9816,84 @@ def test_the_default_markup_still_follows_206(appmod):
     assert "class=kopfrechts" in topbar, "der Block startet nicht in der Suchzeile"
     side = tpl[tpl.index("<div id=side>"):tpl.index("<main>")]
     assert "class=kopfrechts" not in side, "er steht schon im Markup in der Navigation"
+
+
+# --- #661: Zurück und Leeren in der Suchzeile ------------------------------------------
+
+def test_the_search_buttons_only_appear_when_they_do_something(appmod):
+    """Ein Knopf, bei dem nichts passiert, ist von einem kaputten nicht zu unterscheiden.
+    Das war der Befund in #638 — hier von vornherein vermieden. (#661)"""
+    js = _js()
+    m = re.search(r"function suchKnoepfe\(\)\{(.*?;\})$", js, re.S | re.M)
+    assert m, "suchKnoepfe fehlt"
+    k = m.group(1)
+    assert "q.value" in k, "der Leeren-Knopf hängt nicht am Feldinhalt"
+    assert "EIGENE_SCHRITTE>0" in k, "der Zurück-Knopf hängt nicht an der Verlaufstiefe"
+    assert k.count("'none'") == 2, "einer der beiden wird nie versteckt"
+
+
+def test_back_never_leaves_romseerr(appmod):
+    """`history.back()` ohne eigenen Verlaufseintrag führt aus der Anwendung heraus —
+    genau davor schützt `EIGENE_SCHRITTE` seit #194/#226. (#661)"""
+    js = _js()
+    m = re.search(r"function suchZurueck\(\)\{(.*?;?\})$", js, re.S | re.M)
+    assert m, "suchZurueck fehlt"
+    assert "EIGENE_SCHRITTE>0" in m.group(1), "der Knopf prüft die Verlaufstiefe nicht"
+
+
+def test_clearing_has_exactly_one_implementation(appmod):
+    """EINE Funktion fürs Leeren, nicht zwei. (#661/#662)
+
+    Beim Bauen stand kurzzeitig eine zweite `sucheLeeren` in der Datei — gleicher Name,
+    andere Wirkung, und die spätere gewinnt stillschweigend. `markeGeh()` aus #662 hätte
+    dann unbemerkt die neue Fassung bekommen. Der Klick auf die Marke, der Leeren-Knopf
+    und Escape gehen deshalb alle durch dieselbe Funktion.
+    """
+    js = _js()
+    assert len(re.findall(r"^function sucheLeeren\(", js, re.M)) == 1, \
+        "es gibt mehr als eine Definition — die spätere überschreibt die frühere"
+    m = re.search(r"^function sucheLeeren\(fokus\)\{(.*?return true;\})$", js, re.S | re.M)
+    assert m, "sucheLeeren nimmt kein `fokus`-Argument mehr"
+    k = m.group(1)
+    assert "q.value=''" in k, "das Feld wird nicht geleert"
+    assert "suchKnoepfe()" in k, "die Knöpfe werden danach nicht aktualisiert"
+    assert "loadDiscover()" in k, "es führt nicht zur Startseite"
+    assert "if(fokus)q.focus()" in k, "der Fokus wird nicht bedingt gesetzt"
+    # der Klick auf die Marke darf NICHT im Suchfeld enden
+    marke = re.search(r"function markeGeh\(\)\{(.*?\})$", js, re.M)
+    assert marke and "sucheLeeren()" in marke.group(1), \
+        "der Klick auf die Marke geht nicht durch dieselbe Funktion oder fordert Fokus an"
+
+
+def test_escape_clears_the_field_last_of_all(appmod):
+    """Reihenfolge: Menü, Dialog, dann erst das Feld. (#661)
+
+    Stünde das Leeren vorn, nähme ein Escape dem Dialog das Schließen weg — und wer einen
+    Dialog schließt, will nicht seine Suche verlieren.
+    """
+    js = _js()
+    m = re.search(r"document\.addEventListener\('keydown',e=>\{\n if\(e\.key!=='Escape'\)return;(.*?)\}\);",
+                  js, re.S)
+    assert m, "der Escape-Handler ist nicht auffindbar"
+    k = m.group(1)
+    i_menu, i_modal = k.index("closeMenus()"), k.index("closeModal()")
+    i_feld = k.index("sucheLeeren(true)")
+    assert i_menu < i_modal < i_feld, \
+        f"falsche Reihenfolge: Menü {i_menu}, Dialog {i_modal}, Feld {i_feld}"
+    assert "return;}" in k[i_modal-30:i_modal+30], "der Dialogzweig kehrt nicht zurück"
+
+
+def test_the_search_buttons_are_drawn_not_typed(appmod):
+    """Pfade, keine Textzeichen — wie die Marke (#650) und das × im Dialog (#659). (#661)"""
+    tpl = open(os.path.join(REPO, "templates/index.html"), encoding="utf-8").read()
+    for knopf_id in ("tBack", "tClear"):
+        i = tpl.index(f"id={knopf_id}")
+        block = tpl[i:tpl.index("</button>", i)]
+        assert "<svg" in block and "<path" in block, f"{knopf_id}: kein gezeichnetes Zeichen"
+        assert "aria-label" in block, f"{knopf_id}: kein zugänglicher Name"
+        assert "data-i18n-al" in block, f"{knopf_id}: der Name wird nicht übersetzt"
+    js = _js()
+    assert "data-i18n-al" in js and "setAttribute('aria-label'" in js, \
+        "aria-label wird nirgends übersetzt"
+    for s in ("such_back", "such_clear"):
+        assert i18n_hat(s), f"{s} fehlt in einer Sprache"

@@ -1133,3 +1133,67 @@ def test_das_menue_bleibt_im_bild(seite):
             fehler.append(f"{d}: Menue ausserhalb des Bildes "
                           f"(oben {m['oben']:.0f}, unten {m['unten']:.0f}, Fenster {m['hoehe']})")
     assert not fehler, "; ".join(fehler)
+
+
+def test_leeren_knopf_erscheint_und_raeumt_auf(seite):
+    """Der Knopf zeigt sich erst, wenn es etwas zu leeren gibt — und leert dann. (#661)
+
+    WARUM IM BROWSER: Sichtbarkeit haengt an `style.display`, das ein Ereignis setzt.
+    Ob der Knopf nach dem Tippen erscheint und nach dem Klick wieder verschwindet, sieht
+    nur eine Seite, auf der wirklich getippt wurde.
+    """
+    q = seite.locator("#q")
+    knopf = seite.locator("#tClear")
+    assert not knopf.is_visible(), "der Leeren-Knopf steht schon bei leerem Feld da"
+
+    q.fill("Zelda")
+    seite.dispatch_event("#q", "input")
+    seite.wait_for_timeout(200)
+    assert knopf.is_visible(), "nach dem Tippen erscheint er nicht"
+
+    knopf.click()
+    seite.wait_for_timeout(400)
+    assert q.input_value() == "", "das Feld ist nicht leer"
+    assert not knopf.is_visible(), "er bleibt nach dem Leeren stehen"
+    assert seite.evaluate("document.activeElement===document.getElementById('q')"), \
+        "der Fokus steht nicht mehr im Feld"
+
+
+def test_escape_raeumt_erst_dialog_dann_suchfeld(seite):
+    """Escape gehoert zuerst dem Dialog. (#661)
+
+    Waere es andersherum, verloere man mit dem Schliessen eines Dialogs seine Suche —
+    und das faellt erst auf, wenn es einmal passiert ist.
+    """
+    seite.locator("#q").fill("Mario")
+    seite.dispatch_event("#q", "input")
+    seite.wait_for_timeout(150)
+
+    # Dialog auf: er muss zuerst weichen, das Feld bleibt
+    seite.evaluate("""() => {
+      const m = document.getElementById('modal');
+      m.innerHTML = '<div class=box>Test</div>'; m.style.display = 'block';
+    }""")
+    seite.keyboard.press("Escape")
+    seite.wait_for_timeout(250)
+    assert seite.evaluate("document.getElementById('modal').style.display") != "block", \
+        "der Dialog blieb offen"
+    assert seite.locator("#q").input_value() == "Mario", \
+        "das Feld wurde geleert, obwohl der Dialog dran war"
+
+    # zweites Escape: jetzt das Feld
+    seite.keyboard.press("Escape")
+    seite.wait_for_timeout(250)
+    assert seite.locator("#q").input_value() == "", "das Feld wurde nicht geleert"
+
+
+def test_zurueck_knopf_zeigt_sich_nur_mit_eigenem_verlauf(seite):
+    """Sonst fuehrte er aus Romseerr hinaus. (#661/#226)"""
+    zurueck = seite.locator("#tBack")
+    start = seite.evaluate("EIGENE_SCHRITTE")
+    if start == 0:
+        assert not zurueck.is_visible(), "er steht da, obwohl es nichts zurueck gibt"
+    menuepunkt(seite, "Anfragen").click()
+    seite.wait_for_timeout(400)
+    assert seite.evaluate("EIGENE_SCHRITTE") > 0, "Testaufbau: kein eigener Verlaufseintrag"
+    assert zurueck.is_visible(), "nach einem eigenen Schritt fehlt der Zurueck-Knopf"

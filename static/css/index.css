@@ -276,6 +276,18 @@ main{padding-bottom:52px}
 #fuss a{color:#5b8cff;text-decoration:none}
 #fuss a:hover{text-decoration:underline}
 #fuss .warn{color:#d29922}
+/* Suchfeld mit Leeren-Knopf darin (#661). Der Knopf sitzt IM Feld, nicht daneben — sonst
+   wandert er beim Umbrechen der Zeile weg von dem, was er leert. Aurora rundet das Feld
+   auf 999px, deshalb haelt der Knopf Abstand zum Rand. */
+.suchbox{position:relative;flex:1;display:flex;min-width:0}
+.suchbox #q{flex:1;padding-right:40px;min-width:0}
+.xclear{position:absolute;right:10px;top:50%;transform:translateY(-50%);
+  background:none;border:none;color:var(--mut);cursor:pointer;padding:5px;
+  border-radius:50%;line-height:0;display:flex;align-items:center}
+.xclear:hover{color:var(--txt);background:var(--hover)}
+.xclear:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.ficon{width:18px;height:18px;display:block}
+#tBack{padding:8px 10px;line-height:0}
 #topbar{position:sticky;top:0;background:var(--topbar);padding:14px 18px;display:flex;gap:12px;align-items:center;border-bottom:1px solid var(--border);z-index:5}
 input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid var(--border);background:var(--input);color:var(--txt);font-size:15px}
 /* ---- Bestaetigungsdialog (#641) ----
@@ -371,7 +383,7 @@ button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-vis
 @media(max-width:680px){#side{position:static;width:auto;flex-direction:row;flex-wrap:wrap;align-items:center;padding:10px}#side .logo{margin:0 12px 0 4px}main{margin-left:0}.nav{padding:8px 10px;margin:0}
  /* Die Kopfleiste wird auf dem Telefon schnell eng: Suche, Filter, Sprache, Person.
     Deshalb umbrechen statt quetschen, und die Suche behält eine brauchbare Breite. */
- #topbar{flex-wrap:wrap;padding:10px 12px;gap:8px}#topbar input{min-width:60%}
+ #topbar{flex-wrap:wrap;padding:10px 12px;gap:8px}#topbar .suchbox{min-width:60%}
  .kopfrechts{margin-left:auto}
  #fuss{left:0}}
 #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;padding:18px}

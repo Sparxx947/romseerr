@@ -73,7 +73,24 @@
       der gar nicht erst starten kann, gehört hierhin und nicht ausschließlich ins Log. (#197) -->
  <div id=cfgwarn style="display:none"></div>
  <div id=topbar>
-  <input id=q data-i18n-ph=search_ph placeholder="Spiel suchen … (Enter)" autofocus>
+  <!-- Zurueck und Leeren (#661). Beide erscheinen NUR, wenn sie etwas tun: der eine, wenn
+       die App selbst einen Verlaufseintrag angelegt hat (`EIGENE_SCHRITTE`), der andere,
+       wenn im Feld etwas steht. Ein Knopf, der beim Druecken nichts bewirkt, ist schlechter
+       als keiner — das war der Befund in #638. Beide Zeichen sind PFADE, kein Text: eine
+       Schrift liefert `←` und `×` je nach System verschieden aus (#650, #659). -->
+  <button class=fbtn id=tBack onclick="suchZurueck()" style="display:none"
+          data-i18n-al=such_back aria-label="Zurück">
+   <svg viewBox="0 0 24 24" aria-hidden=true focusable=false class=ficon>
+    <path d="M14.5 5.5 8 12l6.5 6.5" fill=none stroke=currentColor stroke-width=2.2
+          stroke-linecap=round stroke-linejoin=round/></svg></button>
+  <div class=suchbox>
+   <input id=q data-i18n-ph=search_ph placeholder="Spiel suchen … (Enter)" autofocus>
+   <button class=xclear id=tClear onclick="sucheLeeren(true)" style="display:none"
+           data-i18n-al=such_clear aria-label="Eingabe leeren">
+    <svg viewBox="0 0 24 24" aria-hidden=true focusable=false class=ficon>
+     <path d="M6.5 6.5 17.5 17.5M17.5 6.5 6.5 17.5" fill=none stroke=currentColor
+           stroke-width=2.2 stroke-linecap=round/></svg></button>
+  </div>
   <button class=fbtn id=tF onclick="toggleFilter()">🎛 Plattformen: Alle</button>
   <!-- `title` allein reicht als Name nicht: Es ist im Namensalgorithmus nur der letzte
        Ausweg, auf Touch-Geräten unsichtbar und wird von manchen Vorlesern übergangen.

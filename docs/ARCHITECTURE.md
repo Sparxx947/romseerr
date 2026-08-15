@@ -1153,6 +1153,21 @@ Fensterrands und ist unerreichbar; in der Spalte muss es nach oben öffnen. Der 
 misst beides je Design, weil eine Regel im Stylesheet nichts darüber beweist, wohin der
 Flex-Container sie tatsächlich legt.
 
+**Die Suchzeile trägt Zurück und Leeren (#661).** Beide erscheinen nur, wenn sie etwas
+bewirken: der Zurück-Knopf, wenn `EIGENE_SCHRITTE > 0` — ohne diese Frage führte ein
+`history.back()` aus der Anwendung heraus, sobald jemand direkt auf einer Such-Adresse
+gelandet ist (#194/#226) —, der Leeren-Knopf, wenn im Feld etwas steht. Ein Knopf, bei dem
+nichts passiert, ist von einem kaputten nicht zu unterscheiden; das war der Befund in #638.
+
+**Geleert wird an genau einer Stelle.** `sucheLeeren(fokus)` bedient den Klick auf die
+Marke (#662), den Knopf und Escape. Beim Bauen stand kurzzeitig eine zweite Funktion
+gleichen Namens in der Datei — die spätere gewinnt stillschweigend, und `markeGeh()` hätte
+unbemerkt die andere Wirkung bekommen. Ein Test zählt die Definitionen.
+
+**Escape hat eine feste Reihenfolge:** Menü, dann Dialog, dann das Suchfeld. Stünde das
+Leeren vorn, nähme ein Escape dem Dialog das Schließen weg — und wer einen Dialog schließt,
+will nicht seine Suche verlieren.
+
 **Die Navigation wechselt die Achse — und nicht alles darf mitwandern.** `#side` ist im
 Grundzustand eine feste Spalte am linken Rand und **nur unter Aurora** (sowie unter 680 px)
 eine Zeile oben. Sprache und Benutzermenü stehen deshalb im Markup in der Suchzeile und
@@ -1186,6 +1201,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
   `html` ein `overflow-x` trägt (jede Regel allein lässt 97 bzw. 101 px Bildlauf stehen);
   und dort gehört `clip` hin, nicht `hidden` — `hidden` macht `body` zum Rollbereich und
   die klebende Suchleiste hört auf zu kleben.
+
+*EN: the search row carries back and clear buttons (#661). Both appear only when they do something — back when `EIGENE_SCHRITTE > 0`, clear when the field holds text; a button that does nothing is indistinguishable from a broken one (#638). Clearing happens in exactly one function, `sucheLeeren(fokus)`, shared by the mark click (#662), the button and Escape: a second function of the same name briefly existed while building this, and the later definition wins silently. Escape has a fixed order — menu, dialog, then the field.*
 
 *EN: the navigation changes axis — `#side` is a fixed left column by default and a top row only under Aurora and below 680px, so anything placed there is built for two layouts. The language picker and user menu sit at the END of the navigation since #672: right in the row, bottom in the column. Two measured traps: `margin-left:auto` shifts nothing in a column (264px of slack without `margin-top:auto`), and a menu opening downwards at the foot of a sidebar lands 106px below the viewport. The browser test measures both per theme.*
 
