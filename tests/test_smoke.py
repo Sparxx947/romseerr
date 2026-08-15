@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from hilfen import (  # noqa: F401  gemeinsam genutzt (#505)
@@ -5410,6 +5411,96 @@ def test_xsym_symlink_placeholders_do_not_become_titles(appmod):
         assert not appmod.ist_xsym(echt)
     finally:
         for p in (verweis, echt):
+            if os.path.exists(p):
+                os.remove(p)
+        appmod.build_index()
+
+
+def test_die_xsym_pruefung_laeuft_nebenlaeufig(appmod, monkeypatch):
+    """Der Index fragt die Dateien eines Ordners GLEICHZEITIG, nicht nacheinander. (#666)
+
+    Das ist der ganze Inhalt der Aenderung, und er laesst sich nur so pruefen: Eine
+    Schranke ueber `XSYM_THREADS` Dateien geht nur auf, wenn wirklich so viele Anfragen
+    zur selben Zeit laufen. Eine Fassung, die Datei fuer Datei fragt, laeuft in den
+    Zeitablauf der Schranke und faellt hier durch.
+
+    Gemessen am Bestand (660.671 Dateien): 193,1 s nacheinander gegen 55,0 s gebuendelt.
+    """
+    import threading
+    n = appmod.XSYM_THREADS
+    schranke = threading.Barrier(n, timeout=15)
+
+    def wartend(pfad):
+        schranke.wait()          # BrokenBarrierError, wenn nicht n Threads ankommen
+        return False
+
+    monkeypatch.setattr(appmod, "ist_xsym", wartend)
+    with ThreadPoolExecutor(max_workers=n) as pool:
+        namen = [f"Spiel {i}.bin" for i in range(n)]
+        assert appmod.xsym_namen("/gibt-es-nicht", namen, pool) == set()
+
+
+def test_gebuendelt_und_einzeln_kommen_zum_selben_ergebnis(appmod):
+    """Das Buendeln darf am Ergebnis nichts aendern — sonst ist es keine Beschleunigung,
+    sondern eine andere Regel. Geprueft mit und ohne Pool, ueber echte Dateien: einen
+    Platzhalter, eine gleich grosse Datei OHNE Kopfwort, ein gewoehnliches Spiel und
+    einen Namen, den es gar nicht gibt. (#666, Zusage aus #193)"""
+    d = tempfile.mkdtemp(prefix="romseerr-xsym-")
+    try:
+        with open(os.path.join(d, "turbografx16"), "wb") as f:
+            f.write(b"XSym\n0031\n" + b"0" * 32 + b"\n/srv/retronas/roms/nec/pcengine\n")
+            f.truncate(appmod.XSYM_GROESSE)
+        with open(os.path.join(d, "Gleich gross.bin"), "wb") as f:
+            f.write(b"RNC\x01" + b"0" * (appmod.XSYM_GROESSE - 4))
+        with open(os.path.join(d, "Echtes Spiel.md"), "wb") as f:
+            f.write(b"x" * 2048)
+        namen = ["turbografx16", "Gleich gross.bin", "Echtes Spiel.md", "Fehlt.bin"]
+        einzeln = appmod.xsym_namen(d, namen)
+        assert einzeln == {"turbografx16"}
+        with ThreadPoolExecutor(max_workers=appmod.XSYM_THREADS) as pool:
+            assert appmod.xsym_namen(d, namen, pool) == einzeln
+            # Die Sonderfaelle des Buendelns: leer und genau eine Datei laufen an der
+            # Verteilung vorbei und muessen trotzdem dasselbe sagen.
+            assert appmod.xsym_namen(d, [], pool) == set()
+            assert appmod.xsym_namen(d, ["turbografx16"], pool) == {"turbografx16"}
+            assert appmod.xsym_namen(d, ["Echtes Spiel.md"], pool) == set()
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_der_index_fragt_nur_dateien_mit_titelschluessel(appmod, monkeypatch):
+    """Kein `stat` fuer Dateien, die ohnehin uebergangen werden. (#666)
+
+    `norm()` verwirft Namen ohne Titelschluessel; die kosteten frueher schon keine
+    Anfrage, weil das `continue` davor stand. Beim Buendeln muss die Reihenfolge von
+    Hand erhalten bleiben — sonst fragt der Index mehr Dateien als vorher, und die
+    Aenderung waere an der grossen Bibliothek teilweise wieder aufgezehrt.
+    """
+    d = os.path.join(appmod.ROMS, "nec")
+    os.makedirs(d, exist_ok=True)
+    echt = os.path.join(d, "Zzz Echtes Spiel.md")
+    ohne = os.path.join(d, "(USA)")          # norm() -> "" : kein Titel
+    for p in (echt, ohne):
+        with open(p, "wb") as f:
+            f.write(b"x" * 32)
+    assert appmod.norm("(USA)") == "", "Voraussetzung des Tests weggefallen"
+    gefragt = []
+    echtes = appmod.ist_xsym
+
+    def mitschreiben(pfad):
+        gefragt.append(os.path.basename(pfad))
+        return echtes(pfad)
+
+    monkeypatch.setattr(appmod, "ist_xsym", mitschreiben)
+    try:
+        appmod.build_index()
+        assert "Zzz Echtes Spiel.md" in gefragt
+        assert "(USA)" not in gefragt, "Datei ohne Titelschluessel wurde gefragt"
+        # und genau einmal, nicht zweimal — Buendel UND Einzelweg zusammen
+        assert gefragt.count("Zzz Echtes Spiel.md") == 1
+    finally:
+        monkeypatch.undo()
+        for p in (echt, ohne):
             if os.path.exists(p):
                 os.remove(p)
         appmod.build_index()
