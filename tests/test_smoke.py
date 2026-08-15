@@ -9976,13 +9976,20 @@ def test_the_stream_host_describes_virtualgl_as_it_is(appmod):
     assert ohne == {"xemu"}, f"ohne VirtualGL erwartet nur xemu, gefunden: {sorted(ohne)}"
 
     kopf = agent[:agent.index("VGLDEV=")]
-    assert "UEBER VirtualGL" in kopf or "über VirtualGL" in kopf, \
-        "der Kopf verschweigt, dass die Emulatoren darüber starten"
+    # BEIDE Hälften müssen dastehen: der Wrapper wird gesetzt, UND Vulkan geht daran
+    # vorbei. Nur eine davon zu nennen erzeugt genau die zwei Fehlschlüsse, die diese
+    # Datei heute schon zweimal enthalten hat.
+    assert "vglrun" in kopf and "apprun_ohne_vgl" in kopf, \
+        "der Kopf sagt nicht, dass der Präfix gesetzt wird"
+    assert "Vulkan" in kopf, "er verschweigt, dass Vulkan daran vorbeigeht"
+    assert "RUECKFALL" in kopf or "Rückfall" in kopf, "die Rolle bleibt unbenannt"
     assert "Container-Umgebung" in kopf, \
         "die Messfalle steht nicht dabei — sie hat schon zu einem falschen Schluss geführt"
 
     vgl = open(os.path.join(basis, "10-virtualgl"), encoding="utf-8").read()
     kopf2 = vgl[:vgl.index("# ---")]
-    assert "IN BENUTZUNG" in kopf2, "der Kopf stellt VirtualGL weiterhin als unbenutzt dar"
+    assert "Vulkan" in kopf2 and "vorbei" in kopf2.lower(), \
+        "der Kopf trennt nicht zwischen gesetztem Wrapper und tatsächlichem Renderer"
+    assert "libvglfaker" in kopf2, "die zweite Messfalle fehlt"
     for emu in ("dolphin", "pcsx2", "xemu"):
         assert emu in kopf2, f"{emu} fehlt in der Aufstellung"
