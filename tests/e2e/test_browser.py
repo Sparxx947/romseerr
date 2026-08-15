@@ -1283,3 +1283,93 @@ def test_filter_aufheben_sucht_ohne_den_filter_neu(seite):
         "der Filter steht noch in localStorage und kaeme beim naechsten Laden zurueck"
     assert seite.locator(".plathint").count() == 0, \
         "der Hinweis steht noch da, obwohl nichts mehr zurueckgehalten wird"
+
+
+# --- #691: eine Karte je Spiel, nicht je Fassung ---
+
+def _sechs_fassungen(gkeys):
+    """Trefferliste bauen: je Eintrag (gkey, titel, vorhanden)."""
+    import json as _j
+    return _j.dumps([
+        {"title": t, "platform": "pc", "platform_slug": "pc", "source": "archive",
+         "size": 524288, "ref": f"r{i}", "cover": "", "gkey": g,
+         "in_library": lib, "grp_in_library": lib, "is_set": False,
+         "variant": {}, "variant_label": ""}
+        for i, (g, t, lib) in enumerate(gkeys)])
+
+
+def _suche(seite, koerper):
+    seite.evaluate("() => { SELP = new Set(); localStorage.setItem('romp','[]'); }")
+    seite.route("**/api/search*", lambda route: route.fulfill(
+        status=200, content_type="application/json",
+        headers={"X-Platform-Hidden": "0"}, body=koerper))
+    seite.locator("#q").fill("Mario Kart")
+    seite.keyboard.press("Enter")
+    seite.wait_for_timeout(900)
+
+
+def test_dieselbe_gkey_ergibt_eine_karte(seite):
+    """Zehnmal `mario kart` verdraengte neun andere Spiele. (#691)
+
+    WARUM IM BROWSER: Die Zusammenfassung passiert beim Aufbau der Liste. Ob am Ende eine
+    Karte dasteht oder sechs, sieht nur eine Seite, die wirklich gesucht hat.
+    """
+    _suche(seite, _sechs_fassungen([
+        ("mk", "Mario Kart (USA)", False), ("mk", "Mario Kart (EUR)", False),
+        ("mk", "Mario Kart (JPN)", False), ("mk", "Mario Kart Rev A", False),
+        ("mk8", "Mario Kart 8", False), ("mkw", "Mario Kart Wii", False),
+    ]))
+    karten = seite.locator("#grid .card")
+    assert karten.count() == 3, \
+        f"{karten.count()} Karten statt 3 — sechs Fassungen, drei Spiele"
+    titel = [karten.nth(i).locator(".t").inner_text().strip() for i in range(3)]
+    assert len(set(titel)) == 3, f"ein Titel steht doppelt: {titel}"
+
+
+def test_die_karte_sagt_wie_viele_fassungen_dahinter_liegen(seite):
+    """Sonst waere die Zusammenfassung ein Verlust. (#691)"""
+    _suche(seite, _sechs_fassungen([
+        ("mk", "Mario Kart (USA)", False), ("mk", "Mario Kart (EUR)", False),
+        ("mk", "Mario Kart (JPN)", False), ("mk8", "Mario Kart 8", False),
+    ]))
+    meta = seite.locator("#grid .card").first.locator(".meta").inner_text()
+    assert "3" in meta and "Fassungen" in meta, \
+        f"die Karte verschweigt die drei Fassungen: {meta!r}"
+    # Bei genau einer Fassung waere „1 Fassung" nur Rauschen.
+    meta2 = seite.locator("#grid .card").nth(1).locator(".meta").inner_text()
+    assert "Fassungen" not in meta2, f"Einzelfassung traegt trotzdem eine Zahl: {meta2!r}"
+
+
+def test_die_zahl_ueber_der_liste_zaehlt_was_dasteht(seite):
+    """„47 Treffer" neben 30 Karten war der Widerspruch. (#691)"""
+    _suche(seite, _sechs_fassungen([
+        ("mk", "Mario Kart (USA)", False), ("mk", "Mario Kart (EUR)", False),
+        ("mk8", "Mario Kart 8", False),
+    ]))
+    hint = seite.locator("#hint").inner_text()
+    karten = seite.locator("#grid .card").count()
+    assert hint.strip().startswith(str(karten)), \
+        f"oben steht {hint!r}, danebenliegen aber {karten} Karten"
+
+
+def test_die_detailansicht_kennt_weiterhin_alle_fassungen(seite):
+    """Zusammenfassen darf nichts wegwerfen. (#691)
+
+    Die Fassungsliste in der Karte baut auf `window.LASTRES`. Wuerde dort nur noch der
+    Vertreter stehen, waere die Wahl zwischen Regionen und Fassungen (#77) verloren —
+    und genau die ist der Grund, warum es die Detailansicht gibt.
+    """
+    _suche(seite, _sechs_fassungen([
+        ("mk", "Mario Kart (USA)", False), ("mk", "Mario Kart (EUR)", False),
+        ("mk", "Mario Kart (JPN)", False),
+    ]))
+    assert seite.evaluate("() => window.LASTRES.length") == 3, \
+        "LASTRES wurde beim Zusammenfassen beschnitten"
+    seite.locator("#grid .card").first.locator(".t").click()
+    seite.wait_for_timeout(1500)
+    # Nicht `h3` allgemein — der erste ist die Bewertung. Gemeint ist die Ueberschrift
+    # ueber der Fassungsliste, und die haengt am Behaelter `#mvar`.
+    kopf = seite.locator("#modal .sec", has=seite.locator("#mvar")).locator("h3").inner_text()
+    assert "(3)" in kopf, f"die Detailansicht zaehlt nicht drei Fassungen: {kopf!r}"
+    assert seite.locator("#mvar .row").count() == 3, \
+        f"{seite.locator('#mvar .row').count()} Fassungszeilen statt 3"
