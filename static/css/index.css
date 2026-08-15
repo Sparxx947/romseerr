@@ -1,4 +1,4 @@
-:root{--bg:#14161a;--card:#1e2229;--acc:#7c5cff;--acc2:#6c5ce7;--ok:#3ddc97;--ok-bg:#1d5c45;--warn:#e0a92e;--warn-bg:#5a4410;--bad:#ff7b72;--err-bg:#6e2a2a;--gefahr:#7a2b2b;--gefahr-b:#933838;--gefahr-h:#c05252;--txt:#e6e8ec;--mut:#8b929e;
+:root{--bg:#14161a;--card:#1e2229;--acc:#7c5cff;--acc2:#6c5ce7;--btn2:#2a2f37;--link:#9b85ff;--ok:#3ddc97;--ok-bg:#1d5c45;--warn:#e0a92e;--warn-bg:#5a4410;--bad:#ff7b72;--err-bg:#6e2a2a;--gefahr:#7a2b2b;--gefahr-b:#933838;--gefahr-h:#c05252;--txt:#e6e8ec;--mut:#8b929e;
  --side:#0f1114;--topbar:#0f1114;--border:#262b33;--hover:#1a1e25;--input:#0b0d10;
  --radius:12px;--shadow:0 1px 2px rgba(0,0,0,.25);--blur:0px;
  /* Der aktive Menuepunkt traegt WEISSE Schrift. Auf `--acc` (#7c5cff) ergibt das 4,34:1
@@ -35,7 +35,7 @@
 ::-webkit-scrollbar-corner{background:transparent}
 /* ---- Designs (per Nutzer/global wählbar über <html data-design=…>) ---- */
 /* seerr = Standard (die :root-Werte oben, dunkel & poliert). glass & clean unten. */
-[data-design=glass]{--bg:#0b0e1a;--card:rgba(32,37,58,.55);--acc:#22d3ee;--acc2:#6366f1;--ok:#7ee787;--ok-bg:#1e5c33;--warn:#f0c452;--warn-bg:#54431a;--bad:#ff8f8a;--err-bg:#69303a;--gefahr:#7a2b2b;--gefahr-b:#933838;--gefahr-h:#c05252;--txt:#eaf2ff;--mut:#93a0c0;
+[data-design=glass]{--bg:#0b0e1a;--card:rgba(32,37,58,.55);--acc:#22d3ee;--acc2:#6366f1;--btn2:rgba(56,63,92,.65);--link:#22d3ee;--ok:#7ee787;--ok-bg:#1e5c33;--warn:#f0c452;--warn-bg:#54431a;--bad:#ff8f8a;--err-bg:#69303a;--gefahr:#7a2b2b;--gefahr-b:#933838;--gefahr-h:#c05252;--txt:#eaf2ff;--mut:#93a0c0;
  --side:rgba(18,22,38,.55);--topbar:rgba(18,22,38,.45);--border:rgba(255,255,255,.10);--hover:rgba(255,255,255,.07);--input:rgba(10,13,24,.5);
  --radius:16px;--shadow:0 10px 34px rgba(0,0,0,.40);--blur:16px;--navon:linear-gradient(90deg,#22d3ee,#818cf8);--navtxt:#04121a}
 [data-design=glass] body{background:
@@ -46,7 +46,7 @@
 [data-design=glass] .pcover,[data-design=glass] .job,[data-design=glass] .fbtn,[data-design=glass] input,
 [data-design=glass] #setcontent .frow input,[data-design=glass] .badge{backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur))}
 [data-design=glass] #side .logo{background:linear-gradient(90deg,#22d3ee,#818cf8);-webkit-background-clip:text;background-clip:text}
-[data-design=clean]{--bg:#0c0e11;--card:#14171b;--acc:#5b8cff;--acc2:#5b8cff;--ok:#56d364;--ok-bg:#17532f;--warn:#d29922;--warn-bg:#503c12;--bad:#f85149;--err-bg:#5f2626;--gefahr:#7a2b2b;--gefahr-b:#933838;--gefahr-h:#c05252;--txt:#e7eaef;--mut:#7d8695;
+[data-design=clean]{--bg:#0c0e11;--card:#14171b;--acc:#5b8cff;--acc2:#5b8cff;--btn2:#232830;--link:#5b8cff;--ok:#56d364;--ok-bg:#17532f;--warn:#d29922;--warn-bg:#503c12;--bad:#f85149;--err-bg:#5f2626;--gefahr:#7a2b2b;--gefahr-b:#933838;--gefahr-h:#c05252;--txt:#e7eaef;--mut:#7d8695;
  --side:#0c0e11;--topbar:#0c0e11;--border:#1c2026;--hover:#161a1f;--input:#0c0e11;
  --radius:8px;--shadow:none;--blur:0px;--navon:transparent;--navtxt:var(--acc)}
 [data-design=clean] #side .logo{background:none;-webkit-text-fill-color:var(--txt);color:var(--txt)}
@@ -64,7 +64,7 @@
    derselbe Ton nur 3,31:1. Fuer Flaechen deshalb `--navon` mit 4,69:1. Nachgerechnet,
    nicht geschaetzt. */
 [data-design=aurora]{
-  --bg:#0b0910;--card:#16121d;--acc:#ff4d2e;--acc2:#7c5cff;--ok:#4fd39a;--ok-bg:#1c5a45;--txt:#f3f0f7;--mut:#9990a6;
+  --bg:#0b0910;--card:#16121d;--acc:#ff4d2e;--acc2:#7c5cff;--btn2:#26202f;--link:#ff4d2e;--ok:#4fd39a;--ok-bg:#1c5a45;--txt:#f3f0f7;--mut:#9990a6;
   --side:#100d16;--topbar:#100d16;--border:#241f2e;--hover:#1b1724;--input:#100d16;
   --radius:14px;--shadow:0 10px 26px rgba(0,0,0,.45);--blur:0px;
   --navon:#d63a19;--navtxt:#fff;
@@ -292,7 +292,7 @@ main{margin-left:210px}
 [data-design=glass] #fuss{background:#121626}
 [data-design=clean] #fuss{background:#0c0e11}
 main{padding-bottom:52px}
-#fuss a{color:#5b8cff;text-decoration:none}
+#fuss a{color:var(--link);text-decoration:none}
 #fuss a:hover{text-decoration:underline}
 #fuss .warn{color:var(--warn)}
 /* Suchfeld mit Leeren-Knopf darin (#661). Der Knopf sitzt IM Feld, nicht daneben — sonst

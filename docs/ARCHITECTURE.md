@@ -1230,6 +1230,33 @@ die Modulform bei 11 px nicht von einem gerundeten Quadrat zu unterscheiden, die
 Ecke ging unter. Ohne diese Vergrößerung wäre die Form umsonst — ein Test hält 16 px als
 Untergrenze fest.
 
+**Auch die neutralen Farben kommen aus Variablen (#705).** Nach den Statusfarben blieben
+**153** feste Farben im JavaScript, und der größte Teil war schlicht die Palette des
+Standard-Designs: `#8b929e`, `#e6e8ec` und `#2c323b` sind wörtlich die Seerr-Werte von
+`--mut`, `--txt` und `--border`. In den drei anderen Designs waren sie damit falsch — es
+fiel nur niemandem auf, weil heute alle vier Designs dunkel sind. Ein helles Design hätte
+alle 153 auf einmal sichtbar gemacht.
+
+Zugeordnet wurde nach der **Rolle**, nicht nach dem Ton: Was das Element *ist*, entscheidet
+die Variable. Dabei kamen zwei Rollen dazu, die es vorher nur als Zahl gab:
+
+- **`--btn2`** — der zurückhaltende Knopf. Dialoge und Karten liegen selbst auf `--card`;
+  ein Knopf mit demselben Grund wäre dort unsichtbar. Genau deshalb stand im JavaScript
+  überall ein helleres `#2a2f37`.
+- **`--link`** — die Verweisfarbe. Der naheliegende Griff zu `--acc` war in drei von vier
+  Designs richtig und in Seerr falsch: `#7c5cff` auf `#0f1114` ergibt **4,35:1** gegen die
+  geforderten 4,5. Der Akzent ist als *Knopffarbe* gewählt, also für weiße Schrift **auf**
+  ihm — als kleine Schrift auf dem dunkelsten Grund taugt er nicht überall.
+
+**Gefunden hat das die Barrierefreiheitsprüfung, nicht ich.** axe meldete den Verstoß auf
+jeder Ansicht, nachdem die Verweise auf `--acc` lagen. Ein Browsertest hält die Bedingung
+jetzt ausdrücklich fest, gemessen gegen Fußzeile *und* Karte.
+
+Übrig bleiben **29** feste Farben, und die sind Absicht — je Ton mit Begründung in
+`JS_FESTE_FARBEN`: weiße Schrift auf farbigem Grund (18), die Avatar-Palette (5, die muss
+sich *voneinander* unterscheiden und darf gerade nicht mitwandern), der Streamen-Knopf, das
+Hinweisblau `unverified` und eine durchscheinende Fortschrittsspur.
+
 **Warnung und Fehler haben jetzt ebenfalls Variablen — und der Wächter zählt nicht mehr
 Sünder auf, sondern hält den Bestand fest (#703).** 33 feste Farbangaben trugen Warn- und
 Fehlerbedeutung, und die Gefahr-Variablen aus #647 (`--gefahr*`, `--bad`) standen
@@ -1428,6 +1455,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 *EN: "in library" now speaks the mark's language (#660). The green sat in five places, four of them hard-coded as `#1e5e3a`, so all four themes got the same signal green whatever else they looked like — and restyling only the cover badge would have left the request list and coverage view green while the cards changed, which is worse than the original state. Each theme now sets `--ok` and `--ok-bg` itself. The glyph is drawn, not typed: the tick is cut OUT of the cartridge silhouette (`fill-rule="evenodd"`), the same construction as the R in the mark; it used to be the text character `✓`, which comes from whatever font the system has. The badge grew, and that is the point — measured on the draft, the cartridge was indistinguishable from a rounded square at 11 px, so a test pins 16 px as the floor. Contrast is measured in a browser test rather than asserted; the only tight case is Glass, whose cyan accent sits close to green — distance there rises from 126 to 140 by going yellow-green rather than teal.*
 
 *EN: warning and error now have variables too, and the guard records an inventory instead of listing offenders (#703). 33 hard-coded places carried warning or error meaning, and the danger variables from #647 lived only in the Aurora block — so every `var(--bad,#f85149)` fell back to its literal in three of four themes, which reads as if the problem were already solved. Two findings exposed the #699 guard as too narrow: a fourth success green `#2a6f4b` passed because the guard listed values, and four more status colours were invisible to it because they are assigned through lookup tables rather than a `color:` property. The guard now scans every hex literal in the JavaScript (comments stripped — issue numbers look like hex) against a recorded inventory. That inventory is not an allow-list: most of the 153 remaining occurrences are the default theme's palette written literally into JS, wrong in the other three themes, filed separately. Aurora needed different tones because its accent is an orange-red and both amber and red sat 89/102 away from the download button; it uses a yellow at 144 and a pink-red at 139 instead.*
+
+*EN: the neutral colours now come from variables too (#705). After the status colours, 153 hard-coded values remained in the JavaScript, most of them simply the default theme's palette — `#8b929e`, `#e6e8ec` and `#2c323b` are literally the Seerr values of `--mut`, `--txt` and `--border`, and therefore wrong in the other three themes; nobody noticed because all four themes are dark today. Mapping went by ROLE, not by tone, and two roles that previously existed only as a number got names: `--btn2` (the quiet button — cards and dialogs sit on `--card` themselves, so a button with the same ground would be invisible) and `--link`. The obvious reach for `--acc` was right in three themes and wrong in Seerr: `#7c5cff` on `#0f1114` is 4.35:1 against the required 4.5. The accent is chosen as a BUTTON colour, for white text on it. The accessibility suite caught that, not I; a browser test now pins the condition against both the footer and the card. 29 literals remain deliberately, each with a reason recorded — white on coloured grounds, the avatar palette (which must differ from itself, not follow the theme), the stream button, the "unverified" info blue and a translucent progress track.*
 
 *EN: menu and tabs carry drawn icons (#658). The navigation ran on emoji, which come from whatever font the system has — `.navsym` even carried `font-variant-emoji:emoji` plus U+FE0F, two coercions to force a presentation out of a font. Jens chose the outline style from two drafts. The vocabulary comes from the mark without copying it: where the subject is a GAME the icon carries the cartridge silhouette with its chamfered corner; where it is not, a conventional shape stands instead — sliders, padlock, bell. Discover is a magnifier whose lens carries the chamfer, because a cartridge with a separate magnifier would be two too-small things at 21 px. The #337 path was live and worse than assumed: `applyI18n` sets `textContent` and deletes children, and for `profile` and `nav_lists` the symbol lived only in the template, so 👤 and ⭐ were never visible at all — not after a language switch, but from load. Only 🚪 survived because it sat inside the translated string, which is why it had to come out of all five language files. Settings sub-entries deliberately get no icons: they are product names.*
 
