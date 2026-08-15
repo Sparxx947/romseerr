@@ -9912,6 +9912,16 @@ def test_the_index_log_separates_folders_from_platforms(appmod, tmp_path, monkey
     assert "Ordner" in zeile, "die Ordnerzahl fehlt ganz"
     assert "len(slugs)} Ordner" in zeile, "`slugs` wird nicht als Ordnerzahl ausgewiesen"
 
+    # BEIDE Logzeilen, nicht nur die eine: der Index wird beim Start aus der DB geladen und
+    # bei Änderungen neu gebaut. Die Ladezeile trug denselben Fehler und blieb beim ersten
+    # Anlauf stehen — sichtbar erst im Log der laufenden Anlage.
+    i = quelle.index('log(f"Bibliotheks-Index aus DB geladen:')
+    laden = quelle[i:quelle.index("\n", quelle.index("Titel", i))]
+    assert "Plattformen mit Inhalt" in laden, \
+        f"die Ladezeile nennt Ordner weiterhin Plattformen: {laden[:120]}"
+    assert "Ordner)" in laden, "die Ordnerzahl fehlt in der Ladezeile"
+    assert "LIB['slugs']} Plattformen" not in laden, "sie zählt weiterhin Ordner als Plattformen"
+
 
 def test_admin_stats_reports_all_four_numbers(appmod, client, monkeypatch):
     """Ordner, Plattformen mit Inhalt, Einträge und Titel. (#654)

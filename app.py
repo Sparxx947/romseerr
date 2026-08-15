@@ -8776,7 +8776,10 @@ if __name__ == "__main__":
     geheimnisse_absichern()      # vor allem anderen: Rechte am Schluesselmaterial (#256)
     db_init(); load_jobs(); jobs_nach_neustart_aufraeumen()
     if load_index_from_db():
-        log(f"Bibliotheks-Index aus DB geladen: {len(LIB['slugs'])} Plattformen, {len(LIB['all'])} Titel")
+        # Dieselbe Unterscheidung wie beim Neuaufbau (#654): `slugs` sind Ordner.
+        _mit = sum(1 for v in (LIB["per"] or {}).values() if v)
+        log(f"Bibliotheks-Index aus DB geladen: {_mit} Plattformen mit Inhalt "
+            f"({len(LIB['slugs'])} Ordner), {len(LIB['all'])} Titel")
         threading.Thread(target=build_index, daemon=True).start()   # im Hintergrund auffrischen
     else:
         build_index()   # kein DB-Index -> erstmalig aus dem Dateisystem
