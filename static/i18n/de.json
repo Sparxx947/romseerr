@@ -447,5 +447,9 @@
  "org_output": "Ausgabe",
  "plat_hidden": "{n} durch den Plattformfilter ausgeblendet",
  "plat_drop": "Filter aufheben",
- "versions_n": "{n} Fassungen"
+ "versions_n": "{n} Fassungen",
+ "quota_count_hint": "Anfragen / X Tage — 0 = keine Grenze",
+ "quota_bytes_hint": "GB je Zeitraum — 0 = keine Grenze",
+ "quota_own": "eigenes Kontingent",
+ "quota_own_hint": "leer = globale Vorgabe"
 }
