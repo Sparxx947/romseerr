@@ -1815,3 +1815,219 @@ def test_both_archive_call_sites_go_through_the_memory(appmod):
     assert len(direkt) == 1, \
         ("archive.org/metadata wird ausserhalb von `_archive_metadata_holen` geholt:\n  "
          + "\n  ".join(direkt))
+
+
+# ---------------------------------------------------------------------------
+# #729 — Usenet und Filehoster verschluckten ihre Transportfehler
+# ---------------------------------------------------------------------------
+#
+# GEMESSEN am laufenden System, bevor etwas geaendert wurde:
+#
+#   * Im Protokoll des Containers stehen zwischen 2026-08-07 und 2026-08-15 zehn Zeilen
+#     `Usenet-Suche-Fehler: ... Read timed out (read timeout=25)` — alle am 15.08. in drei
+#     Buendeln (10:07–10:08, 15:35–15:39 sechsmal, 16:01–16:02). Das ist kein gedachter
+#     Fall: An dem Tag hat jede dieser Suchen 25 s gewartet und danach „keine Usenet-
+#     Treffer" gezeigt. `_quelle_ruhig` hat davon nie etwas gesehen.
+#   * Prowlarr am selben Ort, fuenf Begriffe: 0,32 / 0,34 / 0,38 / 0,50 / 0,59 s.
+#   * HTTP 401 (falscher Schluessel) hat einen LEEREN Rumpf — `r.json()` warf
+#     `Expecting value: line 1 column 1`, und das wurde verschluckt.
+#   * HTTP 400 (ungueltige Kategorie) antwortet mit einem JSON-OBJEKT statt einer Liste —
+#     `for it in r.json()` lief dann ueber die Schluessel und warf
+#     `'str' object has no attribute 'get'`. Auch verschluckt.
+#
+# Die Tests messen deshalb VERHALTEN, keine Sekunden: kommt der Fehler beim Aufrufer an,
+# und greift der Rueckfall aus #726?
+
+
+def _usenet_vorbereiten(appmod, monkeypatch):
+    """Prowlarr als eingerichtet ausgeben — sonst steigt `search_usenet` vorher aus."""
+    monkeypatch.setattr(appmod, "cfg",
+                        lambda k, *a: "http://prow" if k == "prow_url"
+                        else ("k" if k == "prow_apikey" else ("1000" if k == "prow_cats" else "")))
+
+
+def test_a_timed_out_usenet_search_is_not_reported_as_no_hits(appmod, monkeypatch):
+    """Eine Zeitueberschreitung sah aus wie „nichts gefunden". (#729, wie #726)
+
+    Belegt im Protokoll des laufenden Systems: zehnmal `Read timed out (read timeout=25)`,
+    und jedes Mal bekam der Aufrufer eine leere Liste — nicht zu unterscheiden von einer
+    Suche ohne Usenet-Treffer.
+    """
+    _usenet_vorbereiten(appmod, monkeypatch)
+
+    def zeitueberschreitung(*a, **k):
+        raise RuntimeError("Read timed out. (read timeout=25)")
+    monkeypatch.setattr(appmod.requests, "get", zeitueberschreitung)
+    import pytest as _p
+    with _p.raises(Exception):
+        appmod.search_usenet("mario", "1000")
+
+
+def test_a_rejected_usenet_api_key_is_not_reported_as_no_hits(appmod, monkeypatch):
+    """HTTP 401 hat bei Prowlarr einen LEEREN Rumpf. (#729)
+
+    Gemessen: `curl` auf `/api/v1/search` mit falschem Schluessel gibt 401 und null Bytes.
+    Ohne `raise_for_status` stolperte erst `r.json()` darueber — mit der nichtssagenden
+    Meldung „Expecting value: line 1 column 1", die dann verschluckt wurde.
+    """
+    _usenet_vorbereiten(appmod, monkeypatch)
+
+    class _Abgelehnt:
+        status_code = 401
+        def raise_for_status(self):
+            import requests as _r
+            raise _r.HTTPError("401 Client Error", response=self)
+        def json(self):
+            raise ValueError("Expecting value: line 1 column 1 (char 0)")
+    monkeypatch.setattr(appmod.requests, "get", lambda *a, **k: _Abgelehnt())
+    import pytest as _p
+    with _p.raises(Exception):
+        appmod.search_usenet("mario", "1000")
+
+
+def test_a_failing_usenet_source_falls_back_to_its_last_known_result(appmod, monkeypatch):
+    """Der letzte bekannte Stand schlaegt „keine Treffer" — auch bei Usenet. (#729)
+
+    #726 hat das fuer Archive.org gebaut; fuer Usenet lief es ins Leere, weil der Fehler
+    nie bis `_quelle_ruhig` kam.
+
+    BEWUSST DURCH DIE ECHTE `search_usenet`: Wuerde der Test stattdessen die Funktion
+    selbst durch eine werfende ersetzen, pruefte er nur `_quelle_ruhig` — und waere schon
+    vor dieser Aenderung gruen gewesen. Kaputt gemacht wird deshalb der Transport.
+    """
+    appmod.SUCH_CACHE.clear()
+    _usenet_vorbereiten(appmod, monkeypatch)
+    monkeypatch.setattr(appmod, "catalog_urls", lambda: [])
+    monkeypatch.setattr(appmod, "in_library", lambda t, p: False)
+    monkeypatch.setattr(appmod, "search_archive", lambda q: [])
+
+    class _Gut:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self):
+            return [{"protocol": "usenet", "title": "Aus dem Usenet", "size": 1,
+                     "downloadUrl": "http://x/1", "categories": [{"id": 1000}], "indexer": "i"}]
+    monkeypatch.setattr(appmod.requests, "get", lambda *a, **k: _Gut())
+    appmod.do_search("Mario", [])
+    for k in list(appmod.SUCH_CACHE):
+        zeit, wert = appmod.SUCH_CACHE[k]
+        appmod.SUCH_CACHE[k] = (zeit - appmod.SUCH_CACHE_TTL - 1, wert)
+
+    def tot(*a, **k):
+        raise RuntimeError("Read timed out. (read timeout=25)")
+    monkeypatch.setattr(appmod.requests, "get", tot)
+    res = appmod.do_search("Mario", [])
+    assert [r["title"] for r in res] == ["Aus dem Usenet"], \
+        f"die ausgefallene Usenet-Quelle lieferte nichts statt des letzten Standes: {res}"
+
+
+def test_a_partial_usenet_result_is_not_upgraded_to_a_complete_one(appmod, monkeypatch):
+    """Was vor dem Fehler schon eingesammelt war, ist kein vollstaendiges Ergebnis. (#729)
+
+    Vorher gab `search_usenet` nach einer Ausnahme mitten in der Auswertung die bis dahin
+    gesammelten Treffer zurueck — ununterscheidbar von „das waren alle". Jetzt faellt der
+    Aufrufer stattdessen auf den letzten VOLLSTAENDIGEN Stand zurueck.
+    """
+    _usenet_vorbereiten(appmod, monkeypatch)
+
+    class _Haelfte:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self):
+            return [{"protocol": "usenet", "title": "Erster Treffer", "size": 1,
+                     "downloadUrl": "http://x/1", "categories": [{"id": 1000}], "indexer": "i"},
+                    "kaputte Zeile"]
+    monkeypatch.setattr(appmod.requests, "get", lambda *a, **k: _Haelfte())
+    import pytest as _p
+    with _p.raises(Exception):
+        appmod.search_usenet("mario", "1000")
+
+
+def test_the_usenet_connection_test_still_reports_not_reachable(appmod, monkeypatch, client):
+    """Ein kaputtes Prowlarr darf die Einstellungsseite nicht auf 500 werfen. (#729)
+
+    `search_usenet` hat einen ZWEITEN Aufrufer: den Verbindungstest unter
+    `/api/usenet/check`. Wenn die Suche kuenftig wirft, muss dort weiterhin eine rote
+    Zeile stehen — kein Serverfehler.
+
+    EHRLICH GESAGT: Dieser Test war schon VOR der Aenderung gruen — die Aufrufstelle
+    hatte ihr `try/except` bereits. Er ist deshalb kein Beleg fuer die Reparatur,
+    sondern die Sicherung daneben: Er haelt fest, dass die zweite Aufrufstelle das
+    neue Werfen aushaelt, und schlaegt an, wenn jemand dort das `except` entfernt.
+    """
+    _usenet_vorbereiten(appmod, monkeypatch)
+
+    def tot(*a, **k):
+        raise RuntimeError("Read timed out. (read timeout=25)")
+    monkeypatch.setattr(appmod.requests, "get", tot)
+    appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "j"; sess["role"] = "admin"
+    antwort = client.get("/api/usenet/check")
+    appmod.save_users({})
+    assert antwort.status_code == 200, \
+        f"ein kaputtes Prowlarr warf die Einstellungsseite auf HTTP {antwort.status_code}"
+    suche = next(s for s in antwort.get_json()["steps"] if s["step"] == "search")
+    assert suche["ok"] is False, f"der Verbindungstest meldete Erfolg: {suche}"
+    assert suche["info"], "der Verbindungstest sagt nicht, WAS kaputt ist"
+
+
+def test_a_broken_filehoster_query_is_not_reported_as_no_hits(appmod, monkeypatch):
+    """Auch der Katalog verschluckte seinen Fehler. (#729)
+
+    Die Quelle ist zwar lokal (SQLite), aber der Defekt ist derselbe: eine gesperrte oder
+    beschaedigte Datenbank sah aus wie „dieser Titel liegt in keinem Katalog".
+    """
+    def kaputt(*a, **k):
+        raise RuntimeError("database is locked")
+    monkeypatch.setattr(appmod, "db_conn", kaputt)
+    import pytest as _p
+    with _p.raises(Exception):
+        appmod.search_filehoster("Chrono Trigger")
+
+
+def test_a_failing_filehoster_source_falls_back_to_its_last_known_result(appmod, monkeypatch):
+    """Der Rueckfall aus #726 gilt jetzt fuer alle drei Quellen. (#729)
+
+    Auch hier geht der Weg durch die echte `search_filehoster` — kaputt gemacht wird die
+    Datenbankverbindung, nicht die Funktion.
+    """
+    appmod.SUCH_CACHE.clear()
+    monkeypatch.setattr(appmod, "catalog_urls", lambda: ["http://katalog"])
+    monkeypatch.setattr(appmod, "in_library", lambda t, p: False)
+    monkeypatch.setattr(appmod, "search_archive", lambda q: [])
+    monkeypatch.setattr(appmod, "search_usenet", lambda q, cats: [])
+
+    class _Verbindung:
+        def execute(self, *a):
+            return [("Chrono Trigger (USA)", '["http://h/ct.zip"]', "4 MB", "2020",
+                     "Katalog", appmod.norm("Chrono Trigger (USA)"))]
+        def close(self): pass
+    monkeypatch.setattr(appmod, "db_conn", lambda *a, **k: _Verbindung())
+    appmod.do_search("Chrono", [])
+    for k in list(appmod.SUCH_CACHE):
+        zeit, wert = appmod.SUCH_CACHE[k]
+        appmod.SUCH_CACHE[k] = (zeit - appmod.SUCH_CACHE_TTL - 1, wert)
+
+    def tot(*a, **k):
+        raise RuntimeError("database is locked")
+    monkeypatch.setattr(appmod, "db_conn", tot)
+    res = appmod.do_search("Chrono", [])
+    assert [r["title"] for r in res] == ["Chrono Trigger (USA)"], \
+        f"die ausgefallene Katalogquelle lieferte nichts statt des letzten Standes: {res}"
+
+
+def test_no_search_source_swallows_its_transport_errors_any_more(appmod):
+    """Alle drei Quellen muessen ihren Fehler weiterreichen. (#729)
+
+    Genau das ist der Rueckfall aus #726 wert: Eine vierte Quelle, die spaeter dazukommt
+    und ihren Fehler still in eine leere Liste uebersetzt, faellt hier auf.
+    """
+    import inspect
+    for fn in (appmod.search_archive, appmod.search_usenet, appmod.search_filehoster):
+        quelle = inspect.getsource(fn)
+        zeilen = [z.strip() for z in quelle.splitlines()]
+        i = next((n for n, z in enumerate(zeilen) if z.startswith("except Exception")), None)
+        assert i is not None, f"{fn.__name__} faengt gar nichts ab — dann bitte diesen Test anpassen"
+        assert any(z == "raise" for z in zeilen[i:]), \
+            f"{fn.__name__} verschluckt seinen Transportfehler — `_quelle_ruhig` sieht ihn nie"

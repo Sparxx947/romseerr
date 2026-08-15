@@ -2466,7 +2466,14 @@ def search_filehoster(q, limit=30):
                 "WHERE norm LIKE ? ORDER BY LENGTH(title) LIMIT ?",
                 (f"%{toks[0]}%", int(limit) * 8)))
     except Exception as e:
-        log(f"Filehoster-Suche-Fehler: {e}"); return []
+        # NICHT STILL EINE LEERE LISTE (#729, wie #726 fuer Archive.org). Die Quelle ist
+        # zwar lokal, der Defekt derselbe: eine gesperrte oder beschaedigte Datenbank sah
+        # aus wie „dieser Titel liegt in keinem Katalog" — und damit kam der Rueckfall auf
+        # den letzten bekannten Stand nie zum Zug.
+        # EN: the source is local, but the defect was the same — a locked or damaged
+        # database looked exactly like "not in any catalogue", so the fallback never fired.
+        log(f"Filehoster-Suche-Fehler: {e}")
+        raise
     out = []
     for title, uris_json, size, uploaded, src, n in rows:
         if len(out) >= limit: break
@@ -2518,6 +2525,16 @@ def search_usenet(q, cats, limit=30):
         u = f"{cfg("prow_url")}/api/v1/search"
         r = requests.get(u, params={"query":q,"categories":cats,"type":"search","limit":limit},
                          headers={"X-Api-Key":cfg("prow_apikey")}, timeout=25)
+        # DEN STATUS ANSEHEN, BEVOR DER RUMPF GELESEN WIRD (#729). Gemessen an Prowlarr
+        # 2.x: HTTP 401 (falscher Schluessel) hat einen LEEREN Rumpf — `r.json()` warf
+        # dann „Expecting value: line 1 column 1". HTTP 400 (ungueltige Kategorie)
+        # antwortet mit einem JSON-OBJEKT statt einer Liste, worauf die Schleife unten
+        # ueber die Schluessel lief und an „'str' object has no attribute 'get'" starb.
+        # Beide Meldungen sagten nicht, was los war; `err_kind` macht daraus jetzt
+        # „HTTP 401" bzw. „HTTP 400".
+        # EN: check the status before reading the body — a 401 has an empty body and a
+        # 400 answers with an object, and both used to surface as unrelated parse errors.
+        r.raise_for_status()
         for it in r.json():
             if it.get("protocol") != "usenet": continue
             cats = [c.get("id") for c in it.get("categories",[]) if c.get("id")]
@@ -2535,7 +2552,24 @@ def search_usenet(q, cats, limit=30):
                         "platform":slug,"size":int(it.get("size") or 0),
                         "cover":"", "extra":it.get("indexer","")})
     except Exception as e:
+        # NICHT STILL EINE LEERE ODER HALBE LISTE (#729, wie #726 fuer Archive.org).
+        #
+        # BELEGT AM LAUFENDEN SYSTEM, nicht vermutet: Im Protokoll standen zwischen dem
+        # 2026-08-07 und dem 2026-08-15 zehn Zeilen „Usenet-Suche-Fehler: Read timed out
+        # (read timeout=25)", alle am 15.08. in drei Buendeln. Jede dieser Suchen hat
+        # 25 s gewartet und danach „keine Usenet-Treffer" gezeigt — ununterscheidbar von
+        # einer Suche, fuer die es wirklich keine gab. `_quelle_ruhig` sah nie eine
+        # Ausnahme, merkte sich nichts und fiel auf nichts zurueck.
+        #
+        # Die bis hierhin gesammelten Treffer werden bewusst VERWORFEN: ein halbes
+        # Ergebnis stillschweigend als vollstaendig auszugeben ist genau der Fehler, den
+        # der Rueckfall auf den letzten VOLLSTAENDIGEN Stand vermeidet.
+        #
+        # EN: ten real timeouts in the live log, each showing as "no usenet hits". The
+        # partial results collected so far are dropped on purpose — passing half a result
+        # off as a complete one is the very defect the fallback exists to avoid.
         log(f"Usenet-Suche-Fehler: {e}")
+        raise
     if verworfen:
         # NICHT STILL WENIGER LIEFERN. Wer sucht und nichts findet, soll nachlesen
         # koennen, ob es nichts gab oder ob etwas aussortiert wurde.

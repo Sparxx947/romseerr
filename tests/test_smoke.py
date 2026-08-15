@@ -3845,6 +3845,11 @@ def test_search_usenet_field_names_are_pinned(appmod, monkeypatch):
                                           "prow_cats": "1000"}})
 
     class R:
+        # `raise_for_status` gehoert dazu: `search_usenet` sieht seit #729 zuerst den
+        # Status an. Eine Attrappe ohne ihn waere genau die Attrappe, die den Defekt
+        # verdeckt hat.
+        status_code = 200
+        def raise_for_status(self): pass
         def json(self):
             return [{"protocol": "usenet", "title": "Spiel (Europe)", "size": 4711,
                      "indexer": "MeinIndexer", "downloadUrl": "http://prow/1/download?x=1",
@@ -7012,6 +7017,8 @@ def test_the_usenet_search_labels_a_vita_release_as_vita(appmod, monkeypatch):
     appmod.save_settings({"connections": {"prow_url": "http://prow", "prow_apikey": "k"}})
 
     class R:
+        status_code = 200
+        def raise_for_status(self): pass      # seit #729 wird der Status zuerst geprueft
         def json(self):
             return [{"protocol": "usenet", "title": "Uncharted Golden Abyss.PSVITA",
                      "size": 3076095179, "indexer": "I", "downloadUrl": "http://prow/1",
@@ -9163,6 +9170,7 @@ def test_a_ps5_hit_is_dropped_instead_of_being_called_switch(appmod, monkeypatch
 
     class _R:
         status_code = 200
+        def raise_for_status(self): pass      # seit #729 wird der Status zuerst geprueft
         def json(self): return antwort
     monkeypatch.setattr(appmod, "cfg", lambda k, *a: "x" if k in ("prow_url", "prow_apikey") else "")
     monkeypatch.setattr(appmod.requests, "get", lambda *a, **k: _R())
