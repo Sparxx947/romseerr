@@ -1069,3 +1069,67 @@ def test_die_marke_sieht_als_verweis_aus_wie_vorher(seite):
             abweichend.append(f"{d}: {unterschied}")
     assert not abweichend, ("der Schriftzug sieht als Verweis anders aus: "
                             + "; ".join(abweichend))
+
+
+def test_konto_und_sprache_wandern_nur_unter_aurora(seite):
+    """Unter Aurora in die Navigation, sonst in der Suchzeile. (#672 / #206)
+
+    WARUM IM BROWSER: Das Umhaengen passiert erst zur Laufzeit in `applyDesign` — im
+    Markup steht der Block immer in der Suchzeile. Ob er tatsaechlich wandert (und beim
+    Zurueckschalten auch wieder zurueck), zeigt nur die geladene Seite.
+    """
+    fehler = []
+    for d in seite.evaluate("typeof DESIGNS!=='undefined'?DESIGNS:['aurora']"):
+        seite.evaluate(f"applyDesign({d!r})")
+        seite.wait_for_timeout(300)
+        wo = seite.evaluate("""() => {
+          const kr = document.querySelector('.kopfrechts');
+          if (!kr) return {fehlt: true};
+          const side = document.getElementById('side'), top = document.getElementById('topbar');
+          const r = kr.getBoundingClientRect();
+          const sr = side.getBoundingClientRect();
+          return {in_side: side.contains(kr), in_top: top.contains(kr),
+                  anzahl: document.querySelectorAll('.kopfrechts').length,
+                  luft_rechts: sr.right - r.right, sichtbar: r.width > 0 && r.height > 0};
+        }""")
+        if wo.get("fehlt"):
+            fehler.append(f"{d}: kein .kopfrechts vorhanden"); continue
+        if wo["anzahl"] != 1:
+            fehler.append(f"{d}: {wo['anzahl']} Fassungen statt einer")
+        if not wo["sichtbar"]:
+            fehler.append(f"{d}: unsichtbar")
+        if d == "aurora":
+            if not wo["in_side"]:
+                fehler.append("aurora: der Block steht nicht in der Navigation")
+            elif wo["luft_rechts"] > 40:
+                fehler.append(f"aurora: {wo['luft_rechts']:.0f} px Luft nach rechts — nicht am Ende")
+        else:
+            if not wo["in_top"]:
+                fehler.append(f"{d}: der Block hat die Suchzeile verlassen (#206)")
+    assert not fehler, "; ".join(fehler)
+
+
+def test_das_menue_bleibt_im_bild(seite):
+    """Am Fuss einer Seitenleiste muss es nach OBEN aufklappen. (#672)
+
+    Sonst liegt es unterhalb des Fensterrands und ist unerreichbar — sichtbar wird das
+    erst, wenn man es oeffnet und nachmisst.
+    """
+    fehler = []
+    for d in seite.evaluate("typeof DESIGNS!=='undefined'?DESIGNS:['aurora']"):
+        seite.evaluate(f"document.documentElement.dataset.design={d!r}")
+        seite.wait_for_timeout(250)
+        seite.evaluate("document.getElementById('userbox').classList.add('auf')")
+        seite.wait_for_timeout(200)
+        m = seite.evaluate("""() => {
+          const el = document.getElementById('usermenu');
+          const r = el.getBoundingClientRect();
+          return {oben: r.top, unten: r.bottom, hoehe: window.innerHeight, sichtbar: r.height > 0};
+        }""")
+        seite.evaluate("document.getElementById('userbox').classList.remove('auf')")
+        if not m["sichtbar"]:
+            fehler.append(f"{d}: das Menue hat keine Hoehe"); continue
+        if m["unten"] > m["hoehe"] + 1 or m["oben"] < -1:
+            fehler.append(f"{d}: Menue ausserhalb des Bildes "
+                          f"(oben {m['oben']:.0f}, unten {m['unten']:.0f}, Fenster {m['hoehe']})")
+    assert not fehler, "; ".join(fehler)

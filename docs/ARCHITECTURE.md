@@ -1140,6 +1140,31 @@ aufgezählt: `seerr`, `glass`, `clean` und `aurora`. Gewählt wird über `data-d
 `<html>`-Element; jedes Design definiert dieselben Variablen (`--bg`, `--card`, `--acc`,
 `--gefahr`, …) neu, die Regeln selbst greifen ausschließlich über diese Variablen.
 
+**Die Navigation wechselt die Achse.** `#side` ist im Grundzustand eine feste Spalte am
+linken Rand und **nur unter Aurora** — sowie unter 680 px — eine Zeile oben. Wer dort etwas
+einbaut, baut es für zwei Layouts. Sprache und Benutzermenü sitzen seit #672 am **Ende** der
+Navigation: rechts in der Zeile, unten in der Spalte, wo Konten üblicherweise stehen. Der
+Plattformfilter und der Pokal bleiben in der Suchzeile, weil sie zum Suchen gehören.
+
+Zwei Fallen, beide gemessen statt vermutet: `margin-left:auto` schiebt in einer Spalte
+nichts — ohne `margin-top:auto` klebt der Block am Logo, mit **264 px Luft** nach unten. Und
+ein Menü, das am Fuß der Leiste nach unten aufklappt, liegt **106 px unterhalb** des
+Fensterrands und ist unerreichbar; in der Spalte muss es nach oben öffnen. Der Browsertest
+misst beides je Design, weil eine Regel im Stylesheet nichts darüber beweist, wohin der
+Flex-Container sie tatsächlich legt.
+
+**Die Navigation wechselt die Achse — und nicht alles darf mitwandern.** `#side` ist im
+Grundzustand eine feste Spalte am linken Rand und **nur unter Aurora** (sowie unter 680 px)
+eine Zeile oben. Sprache und Benutzermenü stehen deshalb im Markup in der Suchzeile und
+werden von `kopfrechtsPlatzieren()` **nur unter Aurora** in die Navigation gehängt, wo sie
+oben rechts landen (#672).
+
+Überall zu verschieben wäre der naheliegende, aber falsche Schluss: In den drei anderen
+Designs landeten sie unten links in der Spalte — und **aus genau dieser Ecke hat #206 sie
+geholt**, weil sie dort niemand absucht. Zwei Wünsche, die einander widersprechen, und die
+Auflösung ist der Ort, nicht die Regel. Verschoben wird der **eine** Knoten, keine zweite
+Fassung: Zwei Kopien laufen auseinander, wie es der Zeilenbeschriftung in #632 ergangen ist.
+
 Zwei Dinge, an denen das regelmäßig scheitert:
 
 - **Ein Design ist kein Bildschirm.** Wer nur die Entdecken-Ansicht ansieht, übersieht, was
@@ -1161,6 +1186,10 @@ Zwei Dinge, an denen das regelmäßig scheitert:
   `html` ein `overflow-x` trägt (jede Regel allein lässt 97 bzw. 101 px Bildlauf stehen);
   und dort gehört `clip` hin, nicht `hidden` — `hidden` macht `body` zum Rollbereich und
   die klebende Suchleiste hört auf zu kleben.
+
+*EN: the navigation changes axis — `#side` is a fixed left column by default and a top row only under Aurora and below 680px, so anything placed there is built for two layouts. The language picker and user menu sit at the END of the navigation since #672: right in the row, bottom in the column. Two measured traps: `margin-left:auto` shifts nothing in a column (264px of slack without `margin-top:auto`), and a menu opening downwards at the foot of a sidebar lands 106px below the viewport. The browser test measures both per theme.*
+
+*EN: the navigation changes axis — `#side` is a fixed left column by default and a top row only under Aurora. The language picker and user menu therefore live in the search row in the markup and are moved into the navigation by `kopfrechtsPlatzieren()` **only under Aurora** (#672). Moving them in every theme would be the obvious wrong answer: elsewhere they would end up at the bottom of the left column, which is exactly where #206 took them from because nobody looks there. One node is moved, never a second copy (#632).*
 
 *EN: four themes — `seerr`, `glass`, `clean`, `aurora` — selected through `data-design` on
 the root element, each redefining the same variables. Three recurring traps: a theme is not

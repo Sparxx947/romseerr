@@ -44,7 +44,16 @@ async function i18nLaden(l){
 let LANG=localStorage.getItem('lang')||'de';
 // Design (Look) so früh wie möglich setzen, um ein Umflackern beim Laden zu vermeiden.
 const DESIGNS=['seerr','glass','clean','aurora'];
-function applyDesign(dz){if(!DESIGNS.includes(dz))dz='seerr';document.documentElement.dataset.design=dz;localStorage.setItem('design',dz);
+// SPRACHE UND PERSON WANDERN NUR UNTER AURORA IN DIE NAVIGATION (#672). Dort liegt sie
+// oben, und genau das war der Wunsch. In den drei anderen Designs ist `#side` eine Spalte
+// am linken Rand — dorthin gehoert der Block NICHT: #206 hat ihn aus genau dieser Ecke
+// geholt, weil sie niemand absucht. Verschoben wird der EINE Knoten, keine zweite Fassung:
+// zwei Kopien laufen auseinander, wie es der Zeilenbeschriftung in #632 ergangen ist.
+function kopfrechtsPlatzieren(dz){
+ let kr=document.querySelector('.kopfrechts');if(!kr)return;
+ let ziel=dz==='aurora'?document.getElementById('side'):document.getElementById('topbar');
+ if(ziel&&kr.parentElement!==ziel)ziel.appendChild(kr);}
+function applyDesign(dz){if(!DESIGNS.includes(dz))dz='seerr';document.documentElement.dataset.design=dz;localStorage.setItem('design',dz);kopfrechtsPlatzieren(dz);
  document.querySelectorAll('.dpick').forEach(e=>e.classList.toggle('on',e.dataset.d==dz));}
 applyDesign(localStorage.getItem('design')||'seerr');
 function t(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.de[k]||k;}

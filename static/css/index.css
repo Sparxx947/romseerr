@@ -340,6 +340,11 @@ button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-vis
    also genau in der Ecke, in der es niemand sucht, und mit drei Dauerzeilen für Dinge,
    die man selten (Abmelden) oder einmal im Leben (Sprache) braucht. */
 .kopfrechts{display:flex;gap:8px;align-items:center;margin-left:auto}
+/* NUR UNTER AURORA steht der Block in der Navigation (#672) — dort ist `#side` eine Zeile
+   oben, und `margin-left:auto` schiebt ihn ans rechte Ende, hinter die Menuepunkte. In den
+   drei anderen Designs bleibt er in der Suchzeile: `#side` ist dort eine Spalte am linken
+   Rand, und aus dieser Ecke hat #206 ihn bewusst geholt. Umgehaengt wird in `applyDesign`. */
+[data-design=aurora] #side .kopfrechts{margin-left:auto}
 .aufklapp{position:relative}
 /* Deckender Hintergrund und Unschärfe: `--card` ist im Glass-Design halbtransparent,
    und durch ein Menü scheinender Text ist unlesbar. Ein Menü ist kein Fensterrahmen. */
