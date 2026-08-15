@@ -4163,25 +4163,67 @@ NEEDS_BIOS = {"psx", "3do", "saturn", "amiga", "segacd", "amiga-cd32", "neo-geo-
 CAVEAT = {"arcade": "romset", "neogeo": "romset"}
 PLAY_MAX_BYTES = int(os.environ.get("ROMSEERR_PLAY_MAX_MB", "2048")) * 1024 * 1024
 
-def romm_session():
+# Eine angemeldete RomM-Sitzung wird WIEDERVERWENDET (#724).
+#
+# GEMESSEN im Container gegen das laufende RomM:
+#     login 926 ms   suche 1486 ms
+#     login 993 ms   suche 1574 ms
+#   nur suche, gleiche Sitzung   1673 / 1681 / 1326 ms
+#
+# Die Anmeldung kostet also rund eine SEKUNDE — und sie wurde bei jedem einzelnen
+# `romm_find` erneut bezahlt, also bei jeder geoeffneten Karte. `/api/play` brauchte
+# damit 2,5–2,8 s, wovon 5 ms auf uns entfielen (gemessen an einer Plattform ohne Kern,
+# die vor RomM antwortet).
+#
+# Drei Dinge muessen stimmen, sonst tauscht das eine Sekunde gegen einen Fehler:
+#   * ZUGANGSDATEN: Der Schluessel enthaelt URL, Benutzer und Passwort. Ohne das redet
+#     eine geaenderte Konfiguration weiter ueber das alte Sitzungsplaetzchen.
+#   * ABGELAUFEN: Antwortet RomM mit 401/403, wird GENAU EINMAL neu angemeldet und der
+#     Aufruf wiederholt. Ohne das wird aus einer abgelaufenen Sitzung ein totes Feature.
+#   * FAEDEN: Seit #722 laeuft die Suche in einem Faden-Pool, und `play` kommt aus
+#     parallelen Anfrage-Faeden. Das Anlegen gehoert deshalb unter ein Schloss.
+#
+# EN: reuse one authenticated RomM session. The login costs ~1 s and was paid on every
+# single lookup. Keyed on url+user+password so changed credentials invalidate it, with a
+# single silent re-login on 401/403 and a lock because callers are concurrent.
+ROMM_SESSION_TTL = int(os.environ.get("ROMM_SESSION_TTL", "900"))
+_ROMM_SITZUNG = {"s": None, "schluessel": None, "bis": 0.0}
+_ROMM_LOCK = threading.Lock()
+
+def romm_session(erneuern=False):
     """Angemeldete RomM-Sitzung oder None. Fehler sind still — Play ist eine Zugabe."""
-    if not (cfg("romm_url") and cfg("romm_user") and cfg("romm_pass")): return None
-    try:
-        s = requests.Session()
-        r = s.post(f"{cfg("romm_url")}/api/login", auth=(cfg("romm_user"), cfg("romm_pass")), timeout=10)
-        return s if r.ok else None
-    except Exception:
-        return None
+    schluessel = (cfg("romm_url"), cfg("romm_user"), cfg("romm_pass"))
+    if not all(schluessel): return None
+    with _ROMM_LOCK:
+        alt = _ROMM_SITZUNG
+        if (not erneuern and alt["s"] is not None and alt["schluessel"] == schluessel
+                and time.time() < alt["bis"]):
+            return alt["s"]
+        try:
+            s = requests.Session()
+            r = s.post(f"{schluessel[0]}/api/login", auth=(schluessel[1], schluessel[2]), timeout=10)
+        except Exception:
+            return None
+        if not r.ok:
+            return None
+        _ROMM_SITZUNG.update(s=s, schluessel=schluessel, bis=time.time() + ROMM_SESSION_TTL)
+        return s
 
 def romm_find(title, slug=""):
     """Titel -> RomM-Eintrag. Exakter Abgleich des normalisierten Namens; bei mehreren
     gleich guten Treffern wird der erste genommen, aber NUR wenn die Plattform passt."""
-    s = romm_session()
-    if not s: return None
+    def frag(erneuern):
+        s = romm_session(erneuern)
+        if not s: return None
+        return s.get(f"{cfg("romm_url")}/api/roms",
+                     params={"search_term": clean_query(title)[:80], "limit": 25}, timeout=12)
     try:
-        r = s.get(f"{cfg("romm_url")}/api/roms",
-                  params={"search_term": clean_query(title)[:80], "limit": 25}, timeout=12)
-        if not r.ok: return None
+        r = frag(False)
+        # Abgelaufenes Plaetzchen: GENAU EINMAL neu anmelden und wiederholen. Ohne das
+        # waere die wiederverwendete Sitzung ein Feature mit Verfallsdatum. (#724)
+        if r is not None and r.status_code in (401, 403):
+            r = frag(True)
+        if r is None or not r.ok: return None
         items = (r.json() or {}).get("items") or []
     except Exception:
         return None
