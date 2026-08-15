@@ -989,13 +989,45 @@ Zwei Regeln, beide aus Fehlern der Vorgängerfassung (#650):
 In Benachrichtigungen an Discord bleibt das 🎮 stehen: dort ist es Schmuck in einer
 Textnachricht, kein Zeichen, das für sich stehen muss.
 
+**Sie ist ein Verweis, kein Schmuck (#662).** Ein Klick auf Zeichen oder Schriftzug führt
+zur Startseite. Drei Dinge daran sind leicht zu übersehen:
+
+- **„Startseite" heißt Entdecken MIT LEEREM SUCHFELD.** `zeige()` blendet die Bühne nur
+  ein, solange `#q` leer ist. Bleibt der Suchbegriff stehen, landet der Klick auf einer
+  Trefferliste — dann tut die Marke nichts anderes als der Menüpunkt „Entdecken". Das
+  Leeren steht deshalb in `sucheLeeren()`, einer eigenen Funktion: Der Zurück-/Leeren-Knopf
+  der Suche (#661) braucht dieselbe Zurücksetzung, und zwei Fassungen davon laufen
+  auseinander, sobald eine von beiden noch etwas mehr zurücksetzt.
+- **`<a href>` und `return false`, nicht `div` mit `onclick`.** Nur der Verweis steht in
+  der Tab-Reihenfolge, hat eine Rolle und lässt sich in einem neuen Tab öffnen — gemessen
+  am Stand davor: 40 Tab-Schritte, kein Treffer. Der Klick läuft trotzdem über `markeGeh()`
+  → `show()` statt über die Navigation des Browsers, aus demselben Grund wie bei den
+  Menüpunkten: `routeSetzen` zählt in `EIGENE_SCHRITTE` mit, wie viele Verlaufseinträge die
+  App selbst gesetzt hat.
+- **Ein Verweis bringt Farbe und Unterstreichung mit.** `.logo` färbt seinen Text über
+  `background-clip:text` mit `color:transparent`; die Farbe hält, weil `#side .logo` eine
+  ID trägt und damit `a:-webkit-any-link` schlägt, die Unterstreichung nicht — die muss
+  ausdrücklich weg. Und die Breite des Kastens bleibt, wie sie ist: Der Verlauf wird über
+  den Kasten gemalt, ein `width:fit-content` färbte den Schriftzug anders.
+  `test_die_marke_sieht_als_verweis_aus_wie_vorher` vergleicht dafür in allen vier Designs
+  gegen einen eingesetzten `div.logo` als Referenz.
+
 *EN: the mark is a cartridge with the letter R cut out, in three files — full for the
 interface, simplified for favicons, and a maskable tile with a safe area. It is defined
 once as `<g id="rs-marke">` and referenced with `<use>`, including from the footer and
 about page built in JS. Two rules, both learned the hard way: paths only, never a font or
 an emoji (a favicon loads no emoji font), and `maskable` needs its own image with clearance
 rather than a second word in `purpose`. The 🎮 stays in Discord notifications, where it is
-decoration in a message rather than a mark standing on its own.*
+decoration in a message rather than a mark standing on its own.
+Since #662 the mark is also a link home. Three things are easy to miss there: "home" means
+the discover view with an EMPTY search field, because the stage only shows while `#q` is
+empty — the reset lives in `sucheLeeren()` so the search clear button (#661) can reuse it;
+it must be a real `<a href>` rather than a div with an onclick (measured before the change:
+40 tab steps never reached it), while the click still goes through `markeGeh()` → `show()`
+so that `EIGENE_SCHRITTE` keeps counting the history entries the app pushed; and a link
+brings link colour and underline along, so the underline is switched off explicitly and the
+box width is left alone — the gradient is painted across the box, so a narrower box would
+recolour the wordmark.*
 
 ### Designs
 Vier Stück, umschaltbar in den Einstellungen und in `DESIGNS` (`static/js/index.js`)

@@ -32,8 +32,15 @@
        M26 47.5h3v6h-3z M30.5 47.5h3v6h-3z M35 47.5h3v6h-3z"/>
  </g></defs></svg>
 <div id=side>
- <div class=logo><svg class=marke viewBox="0 0 64 64" aria-hidden=true
-   focusable=false><use href="#rs-marke"/></svg>Romseerr</div>
+ <!-- EIN VERWEIS, KEIN `div` MIT `onclick` (#662). Nur der Verweis steht in der
+      Tab-Reihenfolge, traegt eine Rolle, laesst sich in einem neuen Tab oeffnen und
+      bekommt einen Fokusring — dieselbe Begruendung wie bei den Menuepunkten in #329.
+      KEIN `aria-label`: Der Name „Romseerr" steht sichtbar daneben; ein Label wuerde ihn
+      fuer Sprachsteuerung durch etwas ersetzen, das niemand sehen kann.
+      A real link, not a div with an onclick: only the link is focusable, has a role and
+      can be opened in a new tab. No aria-label — the visible word is the accessible name. -->
+ <a class=logo href="#/discover" onclick="return markeGeh()"><svg class=marke viewBox="0 0 64 64" aria-hidden=true
+   focusable=false><use href="#rs-marke"/></svg>Romseerr</a>
  <!-- Das Symbol steht in einem EIGENEN span, nicht im uebersetzten Text (#337).
       `applyI18n` setzt `textContent` des Elements mit `data-i18n` — ein Symbol darin
       wird dabei geloescht. Genau so verloren Abdeckung und Bibliothek ihres: In der
