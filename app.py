@@ -2466,7 +2466,12 @@ def search_filehoster(q, limit=30):
                 "WHERE norm LIKE ? ORDER BY LENGTH(title) LIMIT ?",
                 (f"%{toks[0]}%", int(limit) * 8)))
     except Exception as e:
-        log(f"Filehoster-Suche-Fehler: {e}"); return []
+        # WEITERREICHEN, NICHT VERSCHLUCKEN (#729) — wie `search_archive` seit #726.
+        # Eine gesperrte oder kaputte Datenbank sah bisher aus wie „im Katalog steht
+        # nichts dazu"; `_quelle_ruhig` sah nie eine Ausnahme und kam nie an seinen
+        # Rueckfall. EN: a locked database used to look exactly like "not in the
+        # catalogue", so the fallback never fired.
+        log(f"Filehoster-Suche-Fehler: {e}"); raise
     out = []
     for title, uris_json, size, uploaded, src, n in rows:
         if len(out) >= limit: break
@@ -2535,7 +2540,25 @@ def search_usenet(q, cats, limit=30):
                         "platform":slug,"size":int(it.get("size") or 0),
                         "cover":"", "extra":it.get("indexer","")})
     except Exception as e:
+        # WEITERREICHEN, NICHT VERSCHLUCKEN (#729) — wie `search_archive` seit #726.
+        #
+        # Prowlarrs Frist ist 25 s, gemessen antwortet es in 0,6–2,1 s. Ausgerechnet der
+        # teure Ausfall war damit von „dieser Titel liegt nicht im Usenet" nicht zu
+        # unterscheiden: `_quelle_ruhig` bekam eine gueltig aussehende leere Liste,
+        # merkte sie (zu Recht) nicht und fiel auch nicht zurueck — die naechste
+        # gleiche Suche wartete wieder die vollen 25 s.
+        #
+        # AUCH DIE HALBE LISTE FAELLT WEG. Bricht die Antwort mitten in der Schleife ab,
+        # waeren die bis dahin gesammelten Treffer ein VOLLSTAENDIG aussehendes Ergebnis
+        # gewesen — und als solches gemerkt worden. Der letzte vollstaendige Stand ist
+        # die ehrlichere Antwort.
+        #
+        # Der zweite Aufrufer, die Verbindungspruefung in den Einstellungen
+        # (`api_usenet_check`), faengt das ab und meldet die Fehlerart als rote Stufe.
+        # EN: a Prowlarr timeout used to look exactly like "no usenet hits"; partial
+        # results are dropped rather than passed off as complete.
         log(f"Usenet-Suche-Fehler: {e}")
+        raise
     if verworfen:
         # NICHT STILL WENIGER LIEFERN. Wer sucht und nichts findet, soll nachlesen
         # koennen, ob es nichts gab oder ob etwas aussortiert wurde.

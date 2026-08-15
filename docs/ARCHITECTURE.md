@@ -1210,6 +1210,33 @@ um, sobald es den Speicher gab — nicht weil sie falsch sind, sondern weil der 
 vorigen Tests noch drinlag. Ein globaler Speicher, der zwischen Tests durchschlägt, schlägt
 auch zwischen Anfragen durch; geleert wird er deshalb in `conftest.py`, nicht im Test.
 
+**Dieselbe Ehrlichkeit für die anderen zwei Quellen (#729).** #726 hat nur
+`search_archive` angefasst — `search_usenet` und `search_filehoster` verschluckten ihre
+Transportfehler weiter, und für sie griff der Rückfall deshalb **nie**. Vor der Änderung
+nachgemessen, beide Quellen einzeln:
+
+```
+search_usenet     bei „Read timed out"       -> []   (keine Ausnahme)
+search_filehoster bei „database is locked"   -> []   (keine Ausnahme)
+do_search: guter Lauf gemerkt, Quelle fällt aus -> []  statt des letzten Standes
+```
+
+Prowlarrs eigene Frist ist **25 s**, geantwortet hat es gemessen in 0,6–2,1 s. Ausgerechnet
+der teure Ausfall sah damit aus wie „dieser Titel liegt nicht im Usenet": `_quelle_ruhig`
+bekam eine gültig aussehende leere Liste, merkte sie zu Recht nicht — und die nächste
+gleiche Suche wartete wieder die vollen 25 s.
+
+Beide geben ihren Fehler jetzt weiter. **Auch die halbe Liste fällt dabei weg**: Bricht die
+Antwort mitten in der Schleife ab, wären die bis dahin gesammelten Treffer ein vollständig
+aussehendes Ergebnis gewesen — und als solches gemerkt worden. Der letzte **vollständige**
+Stand ist die ehrlichere Antwort.
+
+`search_usenet` hat einen **zweiten Aufrufer**: die Verbindungsprüfung der Einstellungen
+(`/api/usenet/check`). Sie fängt die Ausnahme ab und meldet die Fehlerart als rote Stufe —
+nachgeprüft, nicht angenommen; ein Test hält beides fest. Sie geht bewusst **direkt** an
+`search_usenet` statt über `_quelle_ruhig`: Eine Verbindungsprüfung, die aus dem Gedächtnis
+antwortet, prüft nichts.
+
 **Eine RomM-Sitzung statt einer je Nachschlagen (#724).** Nachdem `play` und `stream` nicht
 mehr auf `/api/detail` warten, blieb `/api/play` selbst mit **2,5–2,8 s** der Rest. Die
 Aufteilung, im Container gegen das laufende RomM gemessen:
@@ -1678,6 +1705,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 *EN: one reused RomM session instead of one per lookup (#724). With play and stream no longer waiting for `/api/detail`, `/api/play` itself was the remaining 2.5–2.8 s. Measured inside the container: the login alone costs ~1 s and was paid on every single lookup, i.e. every card opened; the search itself (1.2–1.7 s) is RomM's own speed. The session is now reused, keyed on url+user+password so changed credentials invalidate it, with exactly one silent re-login and retry on 401/403, and built under a lock because callers have run concurrently since #722. Measured and deliberately left alone: the `await fetch('/api/users')` at the top of `openDetail` is 13–24 ms, not the second serialization it looked like.*
 
 *EN: short-lived per-source search cache (#726). Since #722 the search waits for the SLOWEST source, and that is Archive.org: measured with the app's own query, five terms 15 s apart, 2.9 / 30 / 30 / 10.9 / 9.4 seconds, median 10.9 s, against Prowlarr's 0.6–2.1 s at the same moment. So the same search no longer waits twice (10-minute memory per source and query), and a failed source returns its last known result instead of "no hits". That required `search_archive` to stop swallowing its transport errors and returning an empty list indistinguishable from "no hits" — without that difference no fallback is honest. Four traps, each with a test a deliberate break turns red: empty results are not remembered, copies are stored and handed out, the cache is bounded, and the key is the SOURCE rather than `fn.__name__`. `SEARCH_CACHE_TTL=0` really turns everything off, fallback included. Side finding: seven existing do_search tests broke the moment the cache existed, because the previous test's hit was still in it — global state that leaks between tests leaks between requests, so conftest clears it.*
+
+*EN: the same honesty for the other two sources (#729). #726 deliberately touched one function, so `search_usenet` and `search_filehoster` kept swallowing their transport errors and the fallback never fired for them. Measured before the change: `search_usenet` returns `[]` on "Read timed out", `search_filehoster` returns `[]` on "database is locked", and a `do_search` with a good run cached beforehand still yields `[]` instead of the last known result. Prowlarr's own timeout is 25 s while it answers in 0.6–2.1 s, so precisely the expensive failure looked like "no usenet hits", and the next identical search waited the full 25 s again. Both now re-raise, and the partial list is dropped with them: hits collected before the answer broke off would have looked complete and been remembered as such, and the last COMPLETE state is the honest answer. `search_usenet` has a second caller, the settings connection test (`/api/usenet/check`) — verified rather than assumed that it catches the exception and reports the error kind as a red step, with a test pinning it. That call deliberately goes straight to `search_usenet` instead of through `_quelle_ruhig`: a connection test answered from memory tests nothing.*
 
 *EN: a card can no longer say "in library" and "platform unknown" at once (#685). `in_library()` falls back to a global check when the hit names no platform — correct, but it only answers whether. `library_slugs()` answers where, sorted by the platform's release year (oldest first), which for a title on several systems is almost always the one it appeared on first. Measured: 6.9% of titles sit on more than one platform. Deliberately the console's year, not the game's — IGDB gives one date per game and does not know the hacks and homebrew this concerns. The card marks the value as derived.*
 

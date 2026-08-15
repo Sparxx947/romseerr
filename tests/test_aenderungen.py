@@ -1641,3 +1641,141 @@ def test_search_cache_ttl_zero_really_turns_it_off(appmod, monkeypatch):
     monkeypatch.setattr(appmod, "search_archive", tot)
     assert appmod.do_search("Mario", []) == [], \
         "trotz TTL 0 kam ein alter Stand zurueck"
+
+
+# ---------------------------------------------------------------------------
+# #729 — Usenet und Filehoster verschlucken ihre Transportfehler nicht mehr
+# ---------------------------------------------------------------------------
+# GEMESSEN VOR DER AENDERUNG (2026-08-15), beide Quellen einzeln:
+#   search_usenet     bei „Read timed out"    -> []   (keine Ausnahme)
+#   search_filehoster bei „database is locked" -> []  (keine Ausnahme)
+#   do_search mit gesundem Lauf davor und ausgefallener Quelle danach -> []
+# Der Rueckfall aus #726 griff also fuer beide nie: `_quelle_ruhig` sah nie eine
+# Ausnahme, sondern eine gueltig aussehende leere Antwort.
+
+def test_a_timed_out_usenet_search_is_not_reported_as_no_hits(appmod, monkeypatch):
+    """Eine Prowlarr-Zeitueberschreitung sah aus wie „kein Usenet-Treffer". (#729)
+
+    Prowlarrs eigene Frist ist 25 s; gemessen wurde die Quelle in 0,6–2,1 s. Genau der
+    Ausfall, der lange dauert, war damit vom Normalfall „nichts gefunden" nicht zu
+    unterscheiden — und ein Rueckfall auf den letzten Stand unmoeglich.
+    """
+    appmod.save_settings({"connections": {"prow_url": "http://prow", "prow_apikey": "k",
+                                          "prow_cats": "1000"}})
+    try:
+        def tot(*a, **k):
+            raise RuntimeError("Read timed out")
+        monkeypatch.setattr(appmod.requests, "get", tot)
+        with pytest.raises(Exception):
+            appmod.search_usenet("egal", "1000")
+    finally:
+        appmod.save_settings({})
+
+
+def test_a_failing_filehoster_search_is_not_reported_as_no_hits(appmod, monkeypatch):
+    """Auch der Katalogzweig muss seinen Fehler weiterreichen. (#729)"""
+    class _KaputteDB:
+        def execute(self, *a, **k):
+            raise RuntimeError("database is locked")
+        def close(self):
+            pass
+    monkeypatch.setattr(appmod, "db_conn", lambda *a, **k: _KaputteDB())
+    with pytest.raises(Exception):
+        appmod.search_filehoster("mario")
+
+
+def test_a_failing_usenet_source_falls_back_to_its_last_known_result(appmod, monkeypatch):
+    """Derselbe Rueckfall wie bei Archive.org, jetzt auch fuer Usenet. (#729)
+
+    BEWUSST DURCH DIE ECHTE `search_usenet`: Ein Test, der die Quelle durch ein
+    ausnahmewerfendes Lambda ersetzt, prueft nur `_quelle_ruhig` — und der war nie
+    kaputt. Der Defekt sass darin, dass die echte Funktion nie eine Ausnahme abgab.
+    Hier faellt deshalb das HTTP darunter aus, nicht die Quelle selbst.
+    """
+    appmod.SUCH_CACHE.clear()
+    appmod.save_settings({"connections": {"prow_url": "http://prow", "prow_apikey": "k",
+                                          "prow_cats": "1000"}})
+    try:
+        monkeypatch.setattr(appmod, "catalog_urls", lambda: [])
+        monkeypatch.setattr(appmod, "in_library", lambda t, p: False)
+        monkeypatch.setattr(appmod, "search_archive", lambda q: [])
+
+        class R:
+            def json(self):
+                return [{"protocol": "usenet", "title": "Aus dem Usenet", "size": 1,
+                         "indexer": "I", "downloadUrl": "http://prow/1",
+                         "categories": [{"id": 1000}]}]
+        monkeypatch.setattr(appmod.requests, "get", lambda *a, **k: R())
+        erst = appmod.do_search("Mario", [])
+        assert [r["title"] for r in erst] == ["Aus dem Usenet"], f"Vorlauf misslungen: {erst}"
+
+        for k in list(appmod.SUCH_CACHE):          # Eintrag altern lassen
+            zeit, wert = appmod.SUCH_CACHE[k]
+            appmod.SUCH_CACHE[k] = (zeit - appmod.SUCH_CACHE_TTL - 1, wert)
+
+        def tot(*a, **k):
+            raise RuntimeError("Read timed out")
+        monkeypatch.setattr(appmod.requests, "get", tot)
+        res = appmod.do_search("Mario", [])
+        assert [r["title"] for r in res] == ["Aus dem Usenet"], \
+            f"die ausgefallene Usenet-Quelle lieferte nichts statt des letzten Standes: {res}"
+    finally:
+        appmod.save_settings({})
+
+
+def test_a_half_read_usenet_answer_is_not_passed_off_as_complete(appmod, monkeypatch):
+    """Halbe Ergebnisse duerfen nicht als vollstaendig durchgehen. (#729)
+
+    Bricht die Antwort mitten in der Liste ab, standen bisher die bis dahin gesammelten
+    Treffer als vollstaendiges Ergebnis da — und wurden als solches gemerkt. Der Rueckfall
+    auf den letzten VOLLSTAENDIGEN Stand ist die ehrlichere Antwort.
+    """
+    appmod.save_settings({"connections": {"prow_url": "http://prow", "prow_apikey": "k",
+                                          "prow_cats": "1000"}})
+    try:
+        class R:
+            def json(self):
+                return [{"protocol": "usenet", "title": "Spiel (Europe)", "size": 1,
+                         "indexer": "I", "downloadUrl": "http://prow/1",
+                         "categories": [{"id": 1000}]},
+                        "abgeschnitten"]           # kaputt ab hier
+        monkeypatch.setattr(appmod.requests, "get", lambda *a, **k: R())
+        with pytest.raises(Exception):
+            appmod.search_usenet("egal", "1000")
+    finally:
+        appmod.save_settings({})
+
+
+def test_the_usenet_connection_test_reports_instead_of_raising(appmod, client, monkeypatch):
+    """Der zweite Aufrufer darf davon nichts abbekommen. (#729)
+
+    `search_usenet` steht auch in der Verbindungspruefung der Einstellungen. Wuerde die
+    Ausnahme dort durchschlagen, machte ein kaputtes Prowlarr aus einer roten Zeile eine
+    Fehlerseite — die Pruefung, die den Fehler zeigen soll, waere selbst der Ausfall.
+    """
+    appmod.save_users({"j": {"pw": "x", "role": "admin", "perms": list(appmod.PERMS)}})
+    with client.session_transaction() as sess:
+        sess["user"] = "j"; sess["role"] = "admin"
+    try:
+        def tot(*a, **k):
+            raise RuntimeError("Read timed out")
+        monkeypatch.setattr(appmod, "search_usenet", tot)
+        r = client.get("/api/usenet/check")
+        assert r.status_code == 200, f"die Verbindungspruefung selbst fiel aus: {r.status_code}"
+        stufen = {s["step"]: s for s in r.get_json()["steps"]}
+        assert stufen["search"]["ok"] is False, "die tote Suche wurde als in Ordnung gemeldet"
+        assert "Read timed out" not in stufen["search"]["info"], \
+            "der Ausnahmetext gehoert ins Log, nicht in die Antwort (#89)"
+    finally:
+        appmod.save_users({})
+
+
+def test_the_connection_test_does_not_answer_from_the_search_cache(appmod):
+    """Eine Verbindungspruefung, die aus dem Gedaechtnis antwortet, prueft nichts. (#729)
+
+    Deshalb geht sie bewusst DIREKT an `search_usenet` und nicht ueber `_quelle_ruhig`.
+    """
+    import inspect
+    quelle = inspect.getsource(appmod.api_usenet_check)
+    assert "search_usenet(" in quelle and "_quelle_ruhig" not in quelle, \
+        "die Verbindungspruefung laeuft ueber den Zwischenspeicher — sie misst dann nichts"
