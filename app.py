@@ -77,7 +77,7 @@ WICHTIGE FALLSTRICKE / IMPORTANT GOTCHAS
   * Deployment: ein neues Image erfordert `docker rm`+`run` — `docker restart` lädt
     KEIN neues Image.
 """
-import os, re, sys, json, time, threading, queue, subprocess, urllib.parse, html, secrets, smtplib, base64, sqlite3, unicodedata
+import os, re, sys, json, time, threading, queue, subprocess, urllib.parse, html, secrets, smtplib, base64, sqlite3, unicodedata, copy
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -2339,7 +2339,13 @@ def search_archive(q, limit=30):
                         "restricted": ("loggedin" in coll) and not ia_bereit(),
                         "extra":str(doc.get("downloads") or 0)})
     except Exception as e:
+        # NICHT STILL EINE LEERE LISTE. Eine Zeitueberschreitung sah bisher genauso aus
+        # wie „nichts gefunden" — der Aufrufer konnte beides nicht unterscheiden, und
+        # damit war ein Rueckfall auf den letzten bekannten Stand unmoeglich. (#726)
+        # EN: a timeout used to look exactly like "no hits"; the caller could not tell
+        # them apart, which made a fallback to the last known result impossible.
         log(f"Archive-Suche-Fehler: {e}")
+        raise
     return out
 
 # ---------- Filehoster: generischer Katalog-JSON-Indexer (#63) ----------
@@ -2354,6 +2360,13 @@ def search_archive(q, limit=30):
 #
 # **Die Quell-URLs gehören in die Einstellungen, NIE in dieses Repo.** Wir liefern den
 # Parser, der Betreiber die Quellen. `uploadDate`/`fileSize` sind dort Strings, keine Zahlen.
+# Kurzes Gedaechtnis je Suchquelle (#726). Wert und Grenze sind ueber die Umgebung
+# einstellbar, damit man das ohne Neubau abschalten kann: SEARCH_CACHE_TTL=0.
+SUCH_CACHE_TTL = int(os.environ.get("SEARCH_CACHE_TTL", "600"))     # 10 min
+SUCH_CACHE_MAX = int(os.environ.get("SEARCH_CACHE_MAX", "200"))
+SUCH_CACHE = {}
+SUCH_CACHE_LOCK = threading.Lock()
+
 CATALOG_TTL = int(os.environ.get("ROMSEERR_CATALOG_TTL", "21600"))   # 6 h
 CATALOG_LOCK = threading.Lock()
 
@@ -2617,16 +2630,73 @@ def do_search(q, platforms=None, stats=None):
     # EN: the three sources ran in sequence, so the total was their SUM — up to 40 s with
     # the configured timeouts. Run side by side the total is the MAXIMUM. None of them
     # touches the request context, and a dead source must not take the search down with it.
-    def _quelle_ruhig(fn, *a):
+    def _quelle_ruhig(name, fn, *a):
+        """Eine Quelle abfragen — mit kurzem Gedaechtnis und Rueckfall. (#726)
+
+        GEMESSEN: Archive.org `advancedsearch.php`, fuenf Begriffe im Abstand von 15 s,
+        damit wir uns nicht selbst drosseln: 2,9 s / 30 s / 30 s / 10,9 s / 9,4 s,
+        Median 10,9 s. Prowlarr am selben Ort und zur selben Zeit: 0,6–2,1 s.
+
+        Zwei Dinge folgen daraus:
+          * Dieselbe Suche kurz hintereinander soll nicht zweimal warten.
+          * Faellt eine Quelle aus, ist der letzte bekannte Stand besser als „keine
+            Treffer" — er ist derselbe, den dieselbe Suche vor Minuten geliefert haette.
+
+        LEERE ERGEBNISSE WERDEN NICHT GEMERKT: „nichts gefunden" ist eine gueltige
+        Antwort, aber als Zwischenstand waere sie eine Falle — eine neu importierte
+        Datei taeuchte dann minutenlang nicht auf.
+
+        KOPIEN, KEINE VERWEISE: Die Aufrufer haengen den Treffern anschliessend Flaggen
+        an (`in_library`, Gruppenzustand). Ohne Kopie waere der Zwischenstand nach dem
+        ersten Aufruf verfaelscht — und zwei parallele Anfragen wuerden dieselben Objekte
+        beschreiben.
+        """
+        # DER NAME KOMMT VON AUSSEN, nicht aus `fn.__name__`. Der Funktionsname ist der
+        # falsche Schluessel: Er aendert sich, sobald jemand die Quelle austauscht oder
+        # umbenennt, und bei einem Lambda heissen alle gleich. Gemeint ist die QUELLE,
+        # nicht die zufaellig gerade eingesetzte Funktion. (#726)
+        # SEARCH_CACHE_TTL=0 heisst WIRKLICH aus — auch kein Rueckfall, denn ohne
+        # Merken gibt es nichts, worauf zurueckzufallen waere. Ein Schalter, der nur die
+        # Haelfte abschaltet, ist schlimmer als keiner.
+        if SUCH_CACHE_TTL <= 0:
+            try:
+                return fn(*a)
+            except Exception as e:
+                log(f"Suchquelle {name} fehlgeschlagen: {e}")
+                return []
+        schluessel = (name, repr(a))
+        jetzt = time.time()
+        with SUCH_CACHE_LOCK:
+            eintrag = SUCH_CACHE.get(schluessel)
+        if eintrag and jetzt - eintrag[0] < SUCH_CACHE_TTL:
+            return copy.deepcopy(eintrag[1])
         try:
-            return fn(*a)
+            res = fn(*a)
         except Exception as e:
-            log(f"Suchquelle {getattr(fn, '__name__', '?')} fehlgeschlagen: {e}")
+            log(f"Suchquelle {name} fehlgeschlagen: {e}")
+            if eintrag:
+                log(f"Suchquelle {name}: letzter bekannter Stand "
+                    f"({int(jetzt - eintrag[0])}s alt) wird benutzt")
+                return copy.deepcopy(eintrag[1])
             return []
+        if res:
+            with SUCH_CACHE_LOCK:
+                # Erst raus, dann rein: Ein blosses Ueberschreiben behaelt in einem dict
+                # die ALTE Position, und der Deckel unten wuerde dann ausgerechnet den
+                # oft benutzten Eintrag verwerfen.
+                SUCH_CACHE.pop(schluessel, None)
+                SUCH_CACHE[schluessel] = (jetzt, copy.deepcopy(res))
+                # Nach oben begrenzt: Jede neue Suchzeile legt einen Eintrag an, und
+                # nichts raeumt hier je auf. Ohne Deckel waere das ein Speicherleck mit
+                # Ansage. Aeltester fliegt zuerst.
+                while len(SUCH_CACHE) > SUCH_CACHE_MAX:
+                    SUCH_CACHE.pop(next(iter(SUCH_CACHE)))
+        return res
     with ThreadPoolExecutor(max_workers=3) as pool:
-        f_ar = pool.submit(_quelle_ruhig, search_archive, q)
-        f_us = pool.submit(_quelle_ruhig, search_usenet, q, usenet_cats)
-        f_fh = pool.submit(_quelle_ruhig, search_filehoster, q) if catalog_urls() else None
+        f_ar = pool.submit(_quelle_ruhig, "archive", search_archive, q)
+        f_us = pool.submit(_quelle_ruhig, "usenet", search_usenet, q, usenet_cats)
+        f_fh = (pool.submit(_quelle_ruhig, "filehoster", search_filehoster, q)
+                if catalog_urls() else None)
         ar, us = f_ar.result(), f_us.result()
         fh = f_fh.result() if f_fh else []
     offen = angefragte_titel()   # einmal, nicht je Treffer
