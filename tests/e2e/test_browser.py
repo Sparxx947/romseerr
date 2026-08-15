@@ -921,3 +921,151 @@ def test_der_schleier_erzeugt_keinen_waagerechten_bildlauf(seite):
             f"die Suchleiste klebt bei {breite} px nicht mehr am Fenster "
             f"(top {mass['top']}) — `overflow:hidden` statt `clip` macht `body` "
             "zum Rollbereich")
+
+
+# --- Die Marke als Weg zurück auf die Startseite (#662) ----------------------------
+#
+# Vorher stand dort ein `div` ohne Klickziel, ohne `cursor`, ohne Tab-Position. Gemessen
+# an unverändertem `dev`: ein Klick ließ die Adresse auf `#/library` stehen, und ein
+# Tab-Durchlauf über 40 Schritte erreichte das Element kein einziges Mal.
+#
+# EN: the mark used to be a plain div — measured on unmodified dev, a click left the URL
+# on #/library and 40 tab steps never reached it.
+
+MARKE = "#side .logo"
+
+
+def test_ein_klick_auf_die_marke_fuehrt_zur_startseite(seite):
+    """Klick auf Zeichen oder Schriftzug führt zur Entdecken-Ansicht mit LEEREM Suchfeld.
+
+    WARUM DAS LEEREN DAZUGEHÖRT: `zeige()` blendet die Bühne nur ein, solange das Suchfeld
+    leer ist (`index.js`: `zeigeBuehne(v=='s' && !q.value)`). Eine Rückkehr, die den alten
+    Suchbegriff stehen lässt, landet also auf einer Trefferliste — nicht auf der Startseite.
+    Genau das ist der Unterschied zwischen diesem Weg und dem Menüpunkt „Entdecken".
+
+    EN: returning to the start page means the discover view with an empty search field;
+    leaving the query in place lands on a result list instead, and the stage stays hidden.
+    """
+    seite.evaluate("document.documentElement.dataset.design='aurora'")
+    seite.fill("#q", "mario")
+    seite.press("#q", "Enter")
+    seite.wait_for_timeout(1500)
+    menuepunkt(seite, "Bibliothek").click()
+    seite.wait_for_timeout(400)
+    assert not seite.locator("#buehne").is_visible(), "Vorbedingung verfehlt: Bühne steht"
+
+    seite.locator(MARKE).click()
+    seite.wait_for_timeout(900)
+    assert seite.url.endswith("#/discover"), f"nach dem Klick auf die Marke: {seite.url}"
+    assert seite.input_value("#q") == "", "das Suchfeld hält noch den alten Begriff"
+    assert seite.locator("#discview").is_visible(), "die Entdecken-Ansicht ist nicht sichtbar"
+    assert seite.locator("#buehne").is_visible(), (
+        "die Bühne fehlt — die Startseite ist die Entdecken-Ansicht MIT Bühne")
+
+
+def test_die_marke_ist_mit_der_tastatur_erreichbar_und_zeigt_den_fokus(seite):
+    """Erreichbar per Tab, auslösbar per Enter, und man sieht, wo der Fokus steht.
+
+    Ein `div` mit `onclick` wäre für all das unsichtbar: keine Rolle, keine Tab-Position,
+    kein Fokusring. Deshalb ein echter `<a href>` — dieselbe Begründung wie bei den
+    Menüpunkten in #329.
+
+    EN: a div with an onclick has no role, no tab stop and no focus ring.
+    """
+    menuepunkt(seite, "Bibliothek").click()
+    seite.wait_for_timeout(400)
+    seite.evaluate("document.activeElement && document.activeElement.blur()")
+
+    for _ in range(40):
+        seite.keyboard.press("Tab")
+        if seite.evaluate(
+                "() => document.activeElement === document.querySelector('#side .logo')"):
+            break
+    else:
+        pytest.fail("die Marke ist per Tab nicht erreichbar")
+
+    ring = seite.evaluate("""() => {
+      const s = getComputedStyle(document.querySelector('#side .logo'));
+      return {stil: s.outlineStyle, breite: s.outlineWidth};
+    }""")
+    assert ring["stil"] != "none" and ring["breite"] not in ("0px", ""), (
+        f"kein sichtbarer Fokusring auf der Marke: {ring}")
+
+    seite.keyboard.press("Enter")
+    seite.wait_for_timeout(900)
+    assert seite.url.endswith("#/discover"), f"Enter auf der Marke führt nirgendwohin: {seite.url}"
+
+
+def test_die_marke_legt_keinen_ueberfluessigen_verlaufseintrag_an(seite):
+    """Einmal Zurück führt dorthin zurück, wo der Benutzer herkam.
+
+    Zwei Fallen auf einmal: Der `href` und `navGeh()` dürfen nicht BEIDE schreiben (dann
+    braucht Zurück zwei Drücke, #320), und ein Klick auf die Marke, während die Startseite
+    schon steht, darf gar keinen Eintrag anlegen — sonst muss man sich durch die eigenen
+    Klicks zurückdrücken.
+
+    EN: one back press must return to where the user came from; clicking the mark while
+    already on the start page must not push a duplicate entry.
+    """
+    menuepunkt(seite, "Probleme").click()
+    seite.wait_for_timeout(400)
+    menuepunkt(seite, "Bibliothek").click()
+    seite.wait_for_timeout(400)
+
+    seite.locator(MARKE).click()
+    seite.wait_for_timeout(700)
+    assert seite.url.endswith("#/discover"), f"nach dem Klick: {seite.url}"
+    seite.locator(MARKE).click()
+    seite.wait_for_timeout(700)
+
+    seite.go_back()
+    seite.wait_for_timeout(700)
+    assert seite.url.endswith("#/library"), (
+        f"nach einmal Zurück: {seite.url} — legt die Marke einen Eintrag zu viel an?")
+
+
+def test_die_marke_sieht_als_verweis_aus_wie_vorher(seite):
+    """Aus dem `div` wird ein `<a>` — das Schriftbild darf sich in keinem Design ändern.
+
+    WARUM DAS EINE EIGENE PRÜFUNG BRAUCHT: `.logo` färbt seinen Text über
+    `background-clip:text` mit `color:transparent`. Ein Verweis bringt Linkfarbe und
+    Unterstreichung des Browsers mit; setzt sich davon etwas durch, ist der Schriftzug
+    blau oder unterstrichen — und die Farbe kommt aus vier verschiedenen Design-Regeln.
+    Verglichen wird deshalb gegen einen eingesetzten `div.logo` als Referenz: Der trägt
+    genau das Aussehen, das vorher da war.
+
+    EN: turning the div into a link must not bring link colour or underline along; the
+    reference div carries exactly the previous appearance, in all four designs.
+    """
+    marke = seite.locator(MARKE)
+    assert marke.evaluate("e => e.tagName") == "A", (
+        "die Marke ist kein Verweis — ein div mit onclick hat keine Rolle und keinen Fokus")
+    assert marke.evaluate("e => getComputedStyle(e).cursor") == "pointer", (
+        "kein `cursor:pointer` — nichts zeigt an, dass die Marke etwas tut")
+
+    designs = seite.evaluate("typeof DESIGNS!=='undefined'?DESIGNS:['aurora']")
+    assert len(designs) >= 4, f"zu wenige Designs gefunden: {designs}"
+    abweichend = []
+    for d in designs:
+        seite.evaluate(f"document.documentElement.dataset.design={d!r}")
+        seite.wait_for_timeout(250)
+        unterschied = seite.evaluate("""() => {
+          const a = document.querySelector('#side .logo');
+          const ref = document.createElement('div');
+          ref.className = a.className; ref.innerHTML = a.innerHTML;
+          a.parentNode.insertBefore(ref, a.nextSibling);
+          const felder = ['color', 'webkitTextFillColor', 'backgroundImage',
+                          'textDecorationLine', 'fontSize', 'fontWeight'];
+          const sa = getComputedStyle(a), sr = getComputedStyle(ref);
+          const raus = {};
+          felder.forEach(f => { if (sa[f] !== sr[f]) raus[f] = [sa[f], sr[f]]; });
+          const ka = a.getBoundingClientRect(), kr = ref.getBoundingClientRect();
+          if (Math.abs(ka.width - kr.width) > 0.5 || Math.abs(ka.height - kr.height) > 0.5)
+            raus.kasten = [[ka.width, ka.height], [kr.width, kr.height]];
+          ref.remove();
+          return raus;
+        }""")
+        if unterschied:
+            abweichend.append(f"{d}: {unterschied}")
+    assert not abweichend, ("der Schriftzug sieht als Verweis anders aus: "
+                            + "; ".join(abweichend))

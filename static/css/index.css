@@ -230,7 +230,17 @@
    SVG nicht beruehrt: es bringt seine Farbe selbst mit. (#650) */
 .marke{width:1.05em;height:1.05em;vertical-align:-.17em;margin-right:.36em;flex:0 0 auto}
 .fussmarke{display:inline-flex;align-items:center}
-#side .logo{font-size:20px;font-weight:700;margin:4px 8px 18px;background:linear-gradient(90deg,#8a7bff,#6c5ce7);-webkit-background-clip:text;background-clip:text;color:transparent}
+/* Die Marke ist ein Verweis auf die Startseite (#662). `text-decoration:none` und die
+   Farbregeln muessen bleiben, wie sie sind: Der Schriftzug wird ueber `background-clip:text`
+   mit `color:transparent` gefaerbt, und ein Verweis bringt Linkfarbe UND Unterstreichung
+   des Browsers mit. Die Farbe traegt hier die ID-Regel und schlaegt `a:-webkit-any-link`,
+   die Unterstreichung nicht — die kommt aus `text-decoration` und wird hier abgeschaltet.
+   Die Breite des Kastens bleibt unangetastet (kein `width:fit-content`): Der Verlauf wird
+   ueber den Kasten gemalt, ein schmalerer Kasten faerbte den Text anders. */
+#side .logo{font-size:20px;font-weight:700;margin:4px 8px 18px;background:linear-gradient(90deg,#8a7bff,#6c5ce7);-webkit-background-clip:text;background-clip:text;color:transparent;cursor:pointer;text-decoration:none}
+/* Eigene Zeile statt der Sammelregel weiter unten: Die gilt fuer `button,select,textarea,
+   input` — ein `a` steht dort bewusst nicht, sonst traegt jeder Menuepunkt zwei Ringe. */
+#side .logo:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:8px}
 .nav{display:block;padding:10px 12px;border-radius:10px;color:var(--mut);font-size:14px;cursor:pointer;text-decoration:none;margin-bottom:4px}
 /* Die Symbole der Menuepunkte auf EINE Groesse und EINE Spaltenbreite zwingen (#337).
    Ohne das sitzen die Beschriftungen unterschiedlich weit eingerueckt, weil jedes Emoji
