@@ -1153,6 +1153,28 @@ Fensterrands und ist unerreichbar; in der Spalte muss es nach oben öffnen. Der 
 misst beides je Design, weil eine Regel im Stylesheet nichts darüber beweist, wohin der
 Flex-Container sie tatsächlich legt.
 
+**„In Bibliothek" und „Plattform unbekannt" schließen einander aus (#685).** Sagt ein
+Treffer keine Plattform, prüft `in_library()` global gegen die ganze Bibliothek — richtig,
+aber es beantwortet nur das *Ob*. Die Karte hatte danach nichts anzuzeigen und schrieb die
+Warnung neben das Häkchen. `library_slugs()` beantwortet das *Wo* und hängt es als
+`lib_slugs` an den Treffer; die Karte zeigt die erste Plattform normal und die weiteren
+darunter gedämpft.
+
+**Sortiert wird nach dem Erscheinungsjahr der Plattform** (`PLAT_JAHR`), älteste zuerst —
+bei einem Titel auf mehreren Systemen ist das fast immer die, auf der er zuerst erschien.
+Gemessen: **6,9 %** aller Titel liegen auf mehr als einer Plattform (20.249 von 293.067),
+Spitzenreiter „pac man" auf 22.
+
+Das ist bewusst das Jahr der **Konsole**, nicht des Spiels: IGDB liefert `first_release_date`
+nur als ein Datum je Spiel, plattformweise Daten wären zusätzliche Abfragen je Treffer — und
+die Titel, um die es geht (`Super Mario World 64 (Unl)`, Hacks, Homebrew), kennt IGDB gar
+nicht. Ein Homebrew von 2020 für den Atari 2600 stünde damit vorn; deshalb behauptet die
+Karte nichts über das Spiel, sondern nennt die Plattform zuerst, die es am längsten gibt,
+und markiert die Angabe als **abgeleitet**.
+
+Die Warnung selbst bleibt, wo sie hingehört: Bei Treffern, die **nicht** in der Bibliothek
+sind, sagt sie weiterhin, dass ein Import in `.unsortiert` landen würde (#621, #367).
+
 **Vier Zahlen, die gern verwechselt werden (#654).** Am gemessenen Bestand vom
 2026-08-15:
 
@@ -1220,6 +1242,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
   `html` ein `overflow-x` trägt (jede Regel allein lässt 97 bzw. 101 px Bildlauf stehen);
   und dort gehört `clip` hin, nicht `hidden` — `hidden` macht `body` zum Rollbereich und
   die klebende Suchleiste hört auf zu kleben.
+
+*EN: a card can no longer say "in library" and "platform unknown" at once (#685). `in_library()` falls back to a global check when the hit names no platform — correct, but it only answers whether. `library_slugs()` answers where, sorted by the platform's release year (oldest first), which for a title on several systems is almost always the one it appeared on first. Measured: 6.9% of titles sit on more than one platform. Deliberately the console's year, not the game's — IGDB gives one date per game and does not know the hacks and homebrew this concerns. The card marks the value as derived.*
 
 *EN: four counts that get confused (#654), measured on 2026-08-15: **folders** — every platform directory including empty ones (`LIB["slugs"]`, 599); **platforms** — those with content (64); **entries** — the per-platform sum, where a title on two systems counts twice (323,776); **titles** — unique `norm()` keys (`LIB["all"]`, 293,067). The home page called entries "titles" and the log called folders "platforms", so two displays contradicted each other while every number was correct. Rule of thumb: `slugs` are folders, `per` are platforms, the sum of its lengths are entries, `all` are titles.*
 

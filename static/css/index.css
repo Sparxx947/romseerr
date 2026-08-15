@@ -407,6 +407,11 @@ img.glogo{height:26px;width:auto;max-width:90px;object-fit:contain}
 .meta{font-size:11px;color:var(--mut)}
 /* Plattform unbekannt (#621): auffaellig genug, um vor dem Anfragen gesehen zu werden,
    aber kein Fehler — der Titel ist in Ordnung, nur sein Ablageort offen. */
+/* Abgeleitete Plattform (#685): erste Zeile normal, die weiteren darunter gedaempft und
+   kleiner. Es ist eine Ableitung aus der Bibliothek, keine Angabe der Quelle — deshalb
+   sichtbar anders als ein Slug, den der Treffer selbst mitbringt. */
+.plat-derived{display:block}
+.plat-more{display:block;font-size:11px;color:var(--mut);opacity:.85;margin-top:1px}
 .plat-unknown{color:#d29922;cursor:help;border-bottom:1px dotted currentColor}
 .dl{margin-top:auto;padding:8px;border:none;border-radius:8px;background:var(--acc);color:#fff;font-weight:600;cursor:pointer}
 .dl:disabled{background:#2a2f37;color:var(--mut);cursor:default}

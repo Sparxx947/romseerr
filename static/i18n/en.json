@@ -213,6 +213,7 @@
  "webhook_ph": "Discord webhook URL",
  "plat_unknown": "platform unknown",
  "plat_unknown_hint": "Platform unknown — on import this title is filed under .unsortiert and has to be sorted by hand.",
+ "plat_derived_hint": "Not stated by the source — derived from where the title sits in your library.",
  "st_pending": "⏳ Awaiting approval",
  "st_queued": "Requested",
  "st_downloading": "Downloading…",
