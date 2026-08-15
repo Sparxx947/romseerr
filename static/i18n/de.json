@@ -451,5 +451,14 @@
  "quota_count_hint": "Anfragen / X Tage — 0 = keine Grenze",
  "quota_bytes_hint": "GB je Zeitraum — 0 = keine Grenze",
  "quota_own": "eigenes Kontingent",
- "quota_own_hint": "leer = globale Vorgabe"
+ "quota_own_hint": "leer = globale Vorgabe",
+ "ev_title": "Wobei benachrichtigen",
+ "ev_available": "Titel verfügbar",
+ "ev_wish_granted": "Wunsch erfüllt",
+ "ev_request_new": "neue Anfrage",
+ "ev_issue_new": "neues Problem",
+ "ev_message": "Nachricht",
+ "ev_request_for": "für mich angefragt",
+ "ev_hint_inst": "Gilt für die Kanäle dieser Instanz (Discord, Telegram, …).",
+ "ev_hint_user": "Gilt für deine eigenen Wege: Push, persönlicher Webhook, E-Mail."
 }

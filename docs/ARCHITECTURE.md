@@ -1171,6 +1171,34 @@ Archive und ROMhack-Pakete —, und für die stehen jetzt `mod archive`, `rom ha
 `anthology` und `trilogy` in `SET_RE`. **`archive` allein bewusst nicht**: Das Wort steht in
 jedem zweiten Archive.org-Titel.
 
+**Benachrichtigungen sind je Ereignis wählbar — auf zwei Ebenen (#714).** Sechs Anlässe
+melden sich, und sie erreichen **verschiedene** Empfänger:
+
+| Anlass | persönliche Wege | Kanäle der Instanz |
+|---|---|---|
+| Titel verfügbar | Push, Webhook, Mail | ja |
+| Nachricht | Push, Webhook | — |
+| für dich angefragt | Push | — |
+| Wunsch erfüllt | Push | ja |
+| neue Anfrage (Freigabe) | — | ja |
+| neues Problem | — | ja |
+
+Diese Trennung ist der Kern: `notify_send()` schreibt an die Agenten der **Instanz** und hat
+gar keinen Nutzerbezug. Ein einziger Schalter für beides wäre falsch — wer die Instanz
+betreibt, will die Freigabeanfragen sehen; ein Nutzer nur seine eigenen Titel. Deshalb gibt
+es zwei Auswahlen, dieselbe Bauform, verschiedene Empfänger.
+
+**Fehlt ein Schlüssel, gilt EIN.** Wer nichts einstellt, merkt nichts — und ein später
+hinzukommendes Ereignis ist nicht für alle stumm, die die Seite einmal gespeichert haben.
+Genau deshalb speichert der Server nur die Schlüssel, die wirklich geschickt wurden, statt
+fehlende auf `True` zu setzen.
+
+**Ein Test liest die Quelle**, weil sich sonst genau die Stelle einschleicht, die vergessen
+wurde: Beim Bauen blieben zwei von sechs Aufrufen zunächst ohne Anlass, und beide Male sah
+alles richtig aus. Ein Mutationstest zeigte zusätzlich, dass die persönlichen Webhooks ihre
+Wache verlieren konnten, ohne dass etwas anschlug — `nutzer_will` war geprüft, die Stellen,
+die es benutzen, nicht.
+
 **Das Kontingent misst Volumen, nicht nur Anzahl — und gilt je Nutzer (#712/#713).** Die
 Vergleichsprojekte begrenzen Anfragen nach Stückzahl; hier begrenzt das nichts, was ausgeht:
 Ein SNES-Modul wiegt ~4 MB, ein PS3-Titel ~30 GB — **Faktor 7.500**. Zehn Anfragen können
@@ -1526,6 +1554,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 *EN: the navigation column's width exists once, not three times (#710). `210px` sat in `#side`, `main` and `#fuss`. Two states dissolve the left column — Aurora (navigation on top) and windows below 680 px — and both must then follow through in all three places. The media query did; the Aurora block forgot the footer, which kept its 210 px offset although no column stood there any more, leaving a strip the content scrolled through. The three copies became `--navspalte`: whoever dissolves the column sets it to 0 and is done — the same move as the colours in #705, fixing the class of mistake rather than the instance. A mutation test also showed the third use was untested: break `main`'s offset and the content slides under the sidebar with nothing noticing.*
 
 *EN: the quota measures volume, not only count, and applies per user (#712/#713). Comparable projects limit by number of requests; here that bounds nothing that runs out — a SNES cartridge is ~4 MB and a PS3 title ~30 GB, a factor of 7,500, so ten requests can mean 40 MB or 300 GB. Both limits can be switched off individually because each has its own hole: a count alone lets 300 GB through, a volume alone lets a hundred tiny requests through. Enforcement checks the size of THIS request, not just consumption. `denied` and `error` do not spend the quota; `pending` does, or the limit could be walked past by requesting faster than the queue drains. A user may carry an own limit, falling back to the global one — an empty value means "global", not "zero", so the server removes the key rather than storing 0. Two holes surfaced only under mutation testing, one of them older than this change: neither the volume nor the COUNT enforcement had ever been covered — `if qi.get("remaining") <= 0` could be replaced by `if False` with the whole suite staying green.*
+
+*EN: notifications are selectable per event, on two levels (#714). Six events fire, and they reach DIFFERENT recipients: `notify_send()` writes to the instance's agents and has no user dimension at all, while push, personal webhook and personal mail belong to one user. A single switch for both would be wrong — whoever runs the instance wants the approval requests; a user wants their own titles. A missing key means ON, so nobody who changes nothing notices anything, and a later event is not silent for everyone who once saved the page; the server therefore stores only the keys actually sent. A source-reading test guards the call sites, because two of six initially went without an event and looked correct both times; mutation testing additionally showed the personal webhooks could lose their guard unnoticed — `nutzer_will` was covered, the places using it were not.*
 
 *EN: a card can no longer say "in library" and "platform unknown" at once (#685). `in_library()` falls back to a global check when the hit names no platform — correct, but it only answers whether. `library_slugs()` answers where, sorted by the platform's release year (oldest first), which for a title on several systems is almost always the one it appeared on first. Measured: 6.9% of titles sit on more than one platform. Deliberately the console's year, not the game's — IGDB gives one date per game and does not know the hacks and homebrew this concerns. The card marks the value as derived.*
 

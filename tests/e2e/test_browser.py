@@ -2212,3 +2212,32 @@ def test_der_inhalt_beginnt_wo_die_navigation_endet(seite):
         assert w["inhalt"] == soll, (
             f"{design}: der Inhalt beginnt bei {w['inhalt']}, erwartet {soll} — "
             f"er liegt {'unter der Seitenleiste' if w['inhalt'] < soll else 'zu weit rechts'}")
+
+
+def test_die_ereignisauswahl_steht_im_profil_und_liest_sich_zurueck(seite):
+    """Die Voreinstellung muss als AN erscheinen, nicht als AUS. (#714)
+
+    Fehlt ein Schluessel, ist das Ereignis eingeschaltet — so verhaelt sich der Server.
+    Zeigte die Oberflaeche stattdessen leere Kaesten, saehe „nicht eingestellt" wie
+    „abgewaehlt" aus, und wer einmal speichert, schaltet ungewollt alles ab.
+    """
+    seite.evaluate("() => openProfile()")
+    seite.wait_for_timeout(1800)
+    zustand = seite.evaluate("""() => {
+      const k = [...document.querySelectorAll('#evuser input[data-ev]')];
+      return {anzahl: k.length, alle_an: k.every(x => x.checked),
+              namen: k.map(x => x.dataset.ev)};
+    }""")
+    assert zustand["anzahl"] == 6, f"{zustand['anzahl']} Ereignisse statt 6"
+    assert zustand["alle_an"], "ohne eigene Auswahl muessen alle Kaesten AN sein"
+    assert "available" in zustand["namen"] and "message" in zustand["namen"], \
+        f"die Ereignisse fehlen: {zustand['namen']}"
+
+    # Abwaehlen und wieder auslesen — die Bauform muss zurueckliefern, was dasteht.
+    gelesen = seite.evaluate("""() => {
+      document.querySelector('#evuser input[data-ev="message"]').checked = false;
+      return ereignisLesen('evuser');
+    }""")
+    assert gelesen["message"] is False, "das Abwaehlen kommt nicht an"
+    assert gelesen["available"] is True, "ein anderes Ereignis wurde mitgenommen"
+    seite.evaluate("() => closeModal()")
