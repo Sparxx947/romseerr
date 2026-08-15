@@ -9446,6 +9446,11 @@ def test_ein_teillauf_liest_auch_den_alias_ordner_der_plattform(appmod):
     puts nothing back.
     """
     dc = os.path.join(appmod.ROMS, "dc")
+    # Der Ordner ist nicht unbedingt unserer: `test_a_disc_image_set_folder_is_one_title`
+    # und `test_an_incomplete_set_folder_is_not_one_title` legen weiter oben `dc/Crazy
+    # Taxi (PAL)/` bzw. `dc/Unvollstaendig/` an und raeumen sie nicht ab. Deshalb hier
+    # merken, ob wir ihn selbst erzeugt haben — und ihn unten nur dann wieder entfernen.
+    unserer = not os.path.isdir(dc)
     os.makedirs(dc, exist_ok=True)
     dateien = [os.path.join(dc, "Zzz Sonic Alias.cdi")]
     open(dateien[0], "w").close()
@@ -9464,5 +9469,8 @@ def test_ein_teillauf_liest_auch_den_alias_ordner_der_plattform(appmod):
     finally:
         for p in dateien:
             if os.path.exists(p): os.remove(p)
-        os.rmdir(dc)
+        # Nur den eigenen Ordner abraeumen. `os.rmdir(dc)` ohne diese Bedingung war ein
+        # OSError [Errno 39] sobald der ganze Lauf durchlief statt nur dieser Test.
+        if unserer and os.path.isdir(dc) and not os.listdir(dc):
+            os.rmdir(dc)
         appmod.build_index()
