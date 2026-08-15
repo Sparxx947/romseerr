@@ -388,6 +388,7 @@
  "needs_ia_login": "account required",
  "ia_hint": "Some Archive.org items sit in the `loggedin` collection and need an account — without one the download answers HTTP 401. This is not the place for a password but for the key pair from archive.org/account/s3.php: revocable on its own, with no session to expire quietly.",
  "job_open_card": "Open the game's card",
+ "job_searching": "Looking for the card …",
  "job_no_card": "No card found for this title.",
  "job_lookup_failed": "Could not load the card.",
  "sec_drop": "Drop folder",

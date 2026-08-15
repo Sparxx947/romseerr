@@ -112,6 +112,23 @@ wie für `DELETE /api/users/{u}`. Eine vollständig leere Benutzerliste ist erla
 führt zur Ersteinrichtung.
 
 
+`GET /api/search` nimmt `q`, optional `platforms` und `achievements=1`. Dazu **`clean=1`**:
+Findet der übergebene Titel nichts, sucht der Endpunkt ein zweites Mal mit der über
+`clean_query()` gekürzten Fassung. **Roh zuerst** — ein exakter Release-Treffer ist der
+bessere, und `Crime OClock NSW-SUXXORS` liefert so 6 Treffer. Erst wenn nichts kommt, sind
+Plattform- und Regionsmarken das Problem: `Resident Evil 2 PS1 (Europe) (Disc 1&2)` ergab
+0 Treffer, `Resident Evil 2` deren 89 (#638). Ohne den Schalter bleibt die Abfrage
+unverändert — die Suchleiste kürzt nicht.
+
+Die Kürzung sitzt bewusst **im Backend**: `clean_query()` ist die eine Quelle dafür, und
+eine zweite Fassung im Frontend läuft auseinander.
+
+*EN: `GET /api/search` also accepts `clean=1` — if the given title finds nothing, the
+endpoint retries with the title shortened by `clean_query()`. Raw first, because an exact
+release match is the better hit; the shortened form only helps when platform and region
+tokens are what block it. Without the flag the query is untouched. The shortening stays in
+the backend on purpose: a second copy in the frontend would drift.*
+
 `GET /api/usenet/check` misst den Usenet-Weg stufenweise durch (Suche, SAB-Kategorie,
 Warteschlange, Einsammelordner) und lädt dabei **nichts** herunter. Die letzte Stufe
 nennt Romseerrs und SABnzbds Sicht auf den Ordner mit den fertigen Downloads

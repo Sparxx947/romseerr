@@ -8,6 +8,7 @@ import json
 import os
 import yaml
 import re
+import urllib.parse
 import sys
 import shutil
 import subprocess
@@ -9710,3 +9711,72 @@ def test_counted_strings_do_not_glue_a_number_to_a_plural_noun(appmod):
         assert not re.match(r"^\s*\{n\}\s+\S", wert), \
             f"{sprache}: die Zahl klebt am Substantiv — {wert!r}"
         assert "{n}" in wert and "{s}" in wert, f"{sprache}: Platzhalter fehlen — {wert!r}"
+
+
+# --- #638: Klick auf einen Anfragetitel führt zur Karte --------------------------------
+
+def test_search_falls_back_to_the_cleaned_title(appmod, client, monkeypatch):
+    """Findet der rohe Release-Titel nichts, wird der gekürzte versucht — in DIESER
+    Reihenfolge, denn ein exakter Treffer ist der bessere. (#638)"""
+    _admin(appmod, client, "such1")
+    gefragt = []
+    def falsch(q, plats):
+        gefragt.append(q)
+        return [{"title": "Resident Evil 2", "platform": "psx"}] if q == "Resident Evil 2" else []
+    monkeypatch.setattr(appmod, "do_search", falsch)
+
+    roh = "Resident Evil 2 PS1 (Europe) (Disc 1&2)"
+    # kodiert, sonst schneidet das `&` in `1&2` die Abfrage ab — der Titel ist genau
+    # deshalb ein guter Prüffall
+    r = client.get("/api/search?clean=1&q=" + urllib.parse.quote(roh))
+    assert r.status_code == 200
+    assert r.get_json(), "trotz Kürzung kein Treffer"
+    assert gefragt[0] == roh, f"der rohe Titel wurde nicht zuerst versucht: {gefragt}"
+    assert len(gefragt) == 2 and gefragt[1] == "Resident Evil 2", gefragt
+    appmod.save_users({})
+
+
+def test_search_does_not_clean_when_the_raw_title_works(appmod, client, monkeypatch):
+    """Wo es heute geht, muss es weiter gehen — und ohne zweite Suche. (#638)"""
+    _admin(appmod, client, "such2")
+    gefragt = []
+    def treffer(q, plats):
+        gefragt.append(q)
+        return [{"title": "Crime OClock", "platform": "switch"}]
+    monkeypatch.setattr(appmod, "do_search", treffer)
+    r = client.get("/api/search?clean=1&q=Crime OClock NSW-SUXXORS")
+    assert r.status_code == 200 and r.get_json()
+    assert gefragt == ["Crime OClock NSW-SUXXORS"], f"unnötig zweimal gesucht: {gefragt}"
+    appmod.save_users({})
+
+
+def test_search_leaves_the_query_alone_without_the_flag(appmod, client, monkeypatch):
+    """Ohne `clean=1` bleibt alles wie zuvor — die Suchleiste kürzt nicht. (#638)"""
+    _admin(appmod, client, "such3")
+    gefragt = []
+    monkeypatch.setattr(appmod, "do_search", lambda q, p: gefragt.append(q) or [])
+    client.get("/api/search?q=" + urllib.parse.quote("Resident Evil 2 PS1 (Europe) (Disc 1&2)"))
+    assert len(gefragt) == 1, f"ohne Schalter wurde gekürzt: {gefragt}"
+    appmod.save_users({})
+
+
+def test_clicking_a_request_title_says_something_immediately(appmod):
+    """Rückmeldung VOR dem Netzaufruf, nicht danach. (#638)
+
+    Gemessen hatte der erste Hinweis 3 s gebraucht, weil die Suche erst Usenet und
+    Archive.org fragt. Bis dahin war die Zeile nur auf 60 % Deckkraft — klicken, warten,
+    nichts sehen, den Knopf für kaputt halten. Geprüft wird die Reihenfolge im Quelltext:
+    die Meldung muss vor dem `fetch` stehen.
+    """
+    js = _js()
+    m = re.search(r"async function openJobDetail\(titel, ?plattform, ?el\)\{(.*?)\n\}", js, re.S)
+    assert m, "openJobDetail nicht gefunden"
+    koerper = m.group(1)
+    vor_meldung = koerper.index("jobMeldungSetzen(jid,t('job_searching'))")
+    vor_fetch = koerper.index("await fetch(")
+    assert vor_meldung < vor_fetch, "die Rückmeldung kommt erst nach dem Netzaufruf"
+    # auf die URL prüfen, nicht auf das Wort: `clean=1` steht auch im Kommentar darüber,
+    # und eine Prüfung, die den Kommentar findet, prüft den Code nicht
+    ohne_kommentar = re.sub(r"^\s*//.*$", "", koerper, flags=re.M)
+    assert "search?clean=1" in ohne_kommentar, "die Suche fordert die Kürzung nicht an"
+    assert i18n_hat("job_searching"), "job_searching fehlt in einer Sprache"
