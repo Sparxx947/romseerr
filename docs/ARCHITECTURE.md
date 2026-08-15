@@ -1190,8 +1190,14 @@ Plattform daliegt und auf einer anderen nicht, stünde die nicht vorhandene Fass
 und die Karte trüge einen Download-Knopf neben einem grünen Haken. `in_library` bleibt als
 **innerer** Rang darunter, damit die vertretende Fassung zum Zeichen passt.
 
-Die Zahl über der Liste zählt jetzt Karten statt Fassungen. Der Unterschied zum
-Sammelknopf sind genau die schon vorhandenen Spiele, denn der lässt die aus.
+Die Zahl über der Liste zählt jetzt Karten statt Fassungen, und der Sammelknopf zählt
+ebenfalls nach dem Gruppenzustand. Das war zuerst nicht so und fiel erst beim Nachmessen
+am laufenden System auf: Bei `Mario Kart` bot der Knopf **25** Spiele an, während **24**
+Download-Knöpfe dastanden. Die Differenz war genau eine gemischte Gruppe — ein Spiel, das
+auf einer Plattform daliegt und auf einer anderen frei ist. Die Karte trägt dort den Haken
+und keinen Download-Knopf; der Knopf hätte die freie Fassung trotzdem geholt. Eine
+Sammelanfrage, die lädt, was die Oberfläche als vorhanden ausweist, ist schlimmer als eine
+Zahl daneben.
 
 **Der Plattformfilter sagt in der Liste, was er zurückhält (#688).** Ein Klick auf eine
 Entdecken-Karte setzt den Filter auf deren Plattform und schreibt ihn nach `localStorage` —

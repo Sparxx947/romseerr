@@ -642,7 +642,11 @@ async function search(){let q=document.getElementById('q').value.trim();if(!q){l
  let versteckt=parseInt(r.headers.get('X-Platform-Hidden')||'0',10)||0;let d=await r.json();
  window.LASTRES=d;let g=document.getElementById('grid');g.className='';g.innerHTML='';
  if(!d.length){hint.textContent=t('no_results');platHinweis(hint,versteckt);return;}
- let games={};d.forEach(x=>{if(!x.in_library){let k=x.gkey||x.title;if(!games[k])games[k]=1;}});
+ // GEZAEHLT WIRD DER ZUSTAND DER GRUPPE, nicht der der Einzelfassung (#691). Ein Spiel,
+ // das auf einer Plattform daliegt und auf einer anderen frei ist, traegt auf der Karte
+ // den Haken und KEINEN Download-Knopf. Zaehlte der Sammelknopf es trotzdem mit, boete
+ // er 25 Spiele an, waehrend 24 Knoepfe dastehen — bei `Mario Kart` genau so gemessen.
+ let games={};d.forEach(x=>{if(!x.grp_in_library){let k=x.gkey||x.title;if(!games[k])games[k]=1;}});
  let n=Object.keys(games).length;
  let karten=gruppiere(d);
  // GEZAEHLT WIRD, WAS DASTEHT. Vorher stand hier `d.length` — die Zahl der Fassungen,
@@ -656,7 +660,7 @@ async function search(){let q=document.getElementById('q').value.trim();if(!q){l
   b.textContent='⬇ '+t('req_all')+' ('+n+')';b.onclick=bulkRequest;hint.appendChild(b);}
  karten.forEach(k=>g.appendChild(renderCard(k.it,k.n)));}
 async function bulkRequest(){let b=document.getElementById('bulkbtn');if(b)b.disabled=true;
- let seen={},todo=[];(window.LASTRES||[]).forEach(it=>{if(it.in_library)return;let k=it.gkey||it.title;if(seen[k])return;seen[k]=1;todo.push(it);});
+ let seen={},todo=[];(window.LASTRES||[]).forEach(it=>{if(it.grp_in_library)return;let k=it.gkey||it.title;if(seen[k])return;seen[k]=1;todo.push(it);});
  let ok=0;for(let it of todo){try{let r=await(await fetch('/api/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({},it,{for_user:window.reqFor||''}))})).json();if(r.ok)ok++;}catch(e){}
   if(b)b.textContent='⬇ '+ok+'/'+todo.length;}
  if(b)b.textContent='✓ '+ok+'/'+todo.length;}
