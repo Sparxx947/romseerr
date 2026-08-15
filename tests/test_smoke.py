@@ -3515,7 +3515,21 @@ def test_the_counter_is_absent_at_zero_and_red_on_failure():
     fn = fn[:fn.index("\nasync function ", 1)]
     assert "offen.length?' '+offen.length+' ':''" in fn, "eine 0 würde angezeigt"
     assert "el.style.cssText=offen.length" in fn, "das Abzeichen verschwindet bei Null nicht"
-    assert "fehler?'#c0392b'" in fn, "ein Fehler sieht aus wie ein normaler Lauf"
+    # DIE ZUSAGE, NICHT DER WERT. Hier stand `assert "fehler?'#c0392b'" in fn` — ein
+    # HEX-CODE. Als die Farbe in #703 zu `var(--err-bg)` wurde, schlug der Test an, obwohl
+    # die Zusage („ein Fehler unterscheidet sich farblich vom Normalfall") unveraendert
+    # eingehalten war. Umgekehrt waere er gruen geblieben, wenn beide Zweige denselben
+    # Wert bekommen haetten — Hauptsache, `#c0392b` stand irgendwo.
+    #
+    # Geprueft wird deshalb, dass die beiden Zweige VERSCHIEDEN sind. Ob sie im Aufbau
+    # auch verschieden AUSSEHEN, misst `test_der_auftragszaehler_faerbt_sich_bei_fehlern`
+    # im Browser — im Quelltext ist das nicht zu sehen.
+    zweige = re.search(r"fehler\?([^:]+):([^}]+?)\}", fn)
+    assert zweige, "der Zaehler unterscheidet Fehler und Normalfall gar nicht mehr"
+    fehlerfarbe, normalfarbe = zweige.group(1).strip(), zweige.group(2).strip()
+    assert fehlerfarbe and normalfarbe, "einer der beiden Zweige ist leer"
+    assert fehlerfarbe != normalfarbe, \
+        f"ein Fehler sieht aus wie ein normaler Lauf: beide {fehlerfarbe}"
     assert "window.ME" in fn, "der Zähler zählt nicht die eigenen Aufträge"
     assert "setInterval(updateJobBadge" in js, "der Zähler bewegt sich nicht von selbst"
 

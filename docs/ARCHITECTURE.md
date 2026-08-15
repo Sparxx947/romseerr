@@ -1230,6 +1230,34 @@ die Modulform bei 11 px nicht von einem gerundeten Quadrat zu unterscheiden, die
 Ecke ging unter. Ohne diese Vergrößerung wäre die Form umsonst — ein Test hält 16 px als
 Untergrenze fest.
 
+**Warnung und Fehler haben jetzt ebenfalls Variablen — und der Wächter zählt nicht mehr
+Sünder auf, sondern hält den Bestand fest (#703).** 33 feste Farbangaben trugen Warn- und
+Fehlerbedeutung, und die Gefahr-Variablen aus #647 (`--gefahr*`, `--bad`) standen
+**ausschließlich im Aurora-Block**. In den anderen drei Designs fiel jedes
+`var(--bad,#f85149)` auf sein Literal zurück — tückischer als ein nacktes Literal, weil der
+Code sich liest, als wäre das Thema erledigt. Alle vier Designs setzen jetzt den vollen Satz.
+
+Zwei Dinge fielen dabei auf, die den Wächter aus #699 als zu eng entlarvten:
+
+- **`#2a6f4b`**, ein viertes Erfolgsgrün am Abzeichen „laufende Anfragen", lief ungehindert
+  durch: derselbe Sinn, anderer Ton, kein Treffer in der Werteliste.
+- **Vier weitere Statusfarben** (`#7ac57a`, `#c9a227`, `#16a34a`, `#d97706`) waren gar nicht
+  zu sehen, weil sie über Nachschlagetabellen zugewiesen werden statt über `color:`.
+
+Der Wächter sucht deshalb **jedes** Hex-Literal im JavaScript (ohne Kommentare, dort stehen
+die Issue-Nummern) und vergleicht gegen eine festgehaltene Bestandsaufnahme. Jede neue feste
+Farbe fällt auf, auch eine, an die niemand gedacht hat.
+
+Die Bestandsaufnahme ist dabei **keine Erlaubnisliste**: Die verbliebenen 153 Vorkommen sind
+zum großen Teil die Werte des Standard-Designs, fest ins JavaScript geschrieben (`#2a2f37`
+33×, `#8b929e` 23×, `#e6e8ec` 19×) — in den drei anderen Designs also falsch. Das ist ein
+eigenes, größeres Stück Arbeit und als eigenes Issue erfasst.
+
+Die Aurora-Töne mussten dabei anders gewählt werden als in den übrigen Designs: Auroras
+Akzent ist ein Orangerot, und Bernstein wie Rot lagen mit Abstand 89 bzw. 102 zu dicht am
+Download-Knopf. Dort stehen deshalb ein Gelb (`#f2d55c`, Abstand 144) und ein Rosarot
+(`#ff8fa8`, Abstand 139).
+
 **Der Wächter dazu sucht den ganzen Baum ab, statt eine Liste zu pflegen (#699).** Die
 erste Fassung sah nur ins Stylesheet — und übersah **sieben** Literale, die als Inline-Stile
 im JavaScript standen. Auf Aurora hieß das: das neue gedämpfte Grün auf den Karten, das alte
@@ -1398,6 +1426,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 *EN: one card per game, not per release (#691). Across ten series searches, 6–36 % of the cards were repeats of the same game — ten `mario kart` entries at worst, pushing nine other games off the first screens. The interface contradicted itself: the bulk button counted `gkey` and offered "Alle anfragen (25)" while 47 cards sat next to it. Grouping happens in the frontend (`gruppiere()`), not in the response: the detail view builds its version list from `window.LASTRES`, and the region choice from #77 is the reason that view exists. Sorting therefore keys on the GROUP state (`grp_in_library`) rather than the individual hit — a game counts as owned once any release is in the library, which is the question asked before the click, and `varRow` resolves it per release afterwards. Without that step the card falls apart: for a game owned on one platform and missing on another, the missing release would rank first and the card would carry a download button beside a green tick. `in_library` remains as an inner rank so the representing release matches the badge.*
 
 *EN: "in library" now speaks the mark's language (#660). The green sat in five places, four of them hard-coded as `#1e5e3a`, so all four themes got the same signal green whatever else they looked like — and restyling only the cover badge would have left the request list and coverage view green while the cards changed, which is worse than the original state. Each theme now sets `--ok` and `--ok-bg` itself. The glyph is drawn, not typed: the tick is cut OUT of the cartridge silhouette (`fill-rule="evenodd"`), the same construction as the R in the mark; it used to be the text character `✓`, which comes from whatever font the system has. The badge grew, and that is the point — measured on the draft, the cartridge was indistinguishable from a rounded square at 11 px, so a test pins 16 px as the floor. Contrast is measured in a browser test rather than asserted; the only tight case is Glass, whose cyan accent sits close to green — distance there rises from 126 to 140 by going yellow-green rather than teal.*
+
+*EN: warning and error now have variables too, and the guard records an inventory instead of listing offenders (#703). 33 hard-coded places carried warning or error meaning, and the danger variables from #647 lived only in the Aurora block — so every `var(--bad,#f85149)` fell back to its literal in three of four themes, which reads as if the problem were already solved. Two findings exposed the #699 guard as too narrow: a fourth success green `#2a6f4b` passed because the guard listed values, and four more status colours were invisible to it because they are assigned through lookup tables rather than a `color:` property. The guard now scans every hex literal in the JavaScript (comments stripped — issue numbers look like hex) against a recorded inventory. That inventory is not an allow-list: most of the 153 remaining occurrences are the default theme's palette written literally into JS, wrong in the other three themes, filed separately. Aurora needed different tones because its accent is an orange-red and both amber and red sat 89/102 away from the download button; it uses a yellow at 144 and a pink-red at 139 instead.*
 
 *EN: menu and tabs carry drawn icons (#658). The navigation ran on emoji, which come from whatever font the system has — `.navsym` even carried `font-variant-emoji:emoji` plus U+FE0F, two coercions to force a presentation out of a font. Jens chose the outline style from two drafts. The vocabulary comes from the mark without copying it: where the subject is a GAME the icon carries the cartridge silhouette with its chamfered corner; where it is not, a conventional shape stands instead — sliders, padlock, bell. Discover is a magnifier whose lens carries the chamfer, because a cartridge with a separate magnifier would be two too-small things at 21 px. The #337 path was live and worse than assumed: `applyI18n` sets `textContent` and deletes children, and for `profile` and `nav_lists` the symbol lived only in the template, so 👤 and ⭐ were never visible at all — not after a language switch, but from load. Only 🚪 survived because it sat inside the translated string, which is why it had to come out of all five language files. Settings sub-entries deliberately get no icons: they are product names.*
 

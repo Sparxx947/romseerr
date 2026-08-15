@@ -1004,3 +1004,85 @@ def test_every_css_variable_used_actually_exists(appmod):
     assert not fehlend, \
         ("diese Variablen werden benutzt, aber nirgends gesetzt — CSS meldet das nicht:\n  "
          + "\n  ".join(sorted(fehlend)))
+
+
+# Was heute noch als feste Farbe im JavaScript steht, Ton -> Anzahl. Das ist eine
+# BESTANDSAUFNAHME, keine Erlaubnisliste: Der grosse Rest sind die Werte des
+# Standard-Designs, fest ins JavaScript geschrieben, und damit in den drei anderen
+# Designs falsch (`#2a2f37` ist ein Knopfgrund, `#8b929e` gedaempfter Text, `#e6e8ec`
+# Textfarbe). Sie gehoeren in Variablen — ein eigenes, groesseres Stueck Arbeit, als
+# eigenes Issue erfasst. Bis dahin haelt diese Liste den Stand fest.
+JS_FESTE_FARBEN = {
+    "#0003": 1, "#0b0d10": 9, "#171a20": 2, "#1a1d23": 5, "#1e2229": 1,
+    "#2a2f37": 33, "#2a4a35": 1, "#2a4d8f": 2, "#2c323b": 11, "#3a2b2b": 2,
+    "#4bb7c6": 1, "#58a6ff": 3, "#5b8cff": 10, "#5bbf8a": 1, "#6c5ce7": 2,
+    "#7aa2f7": 2, "#8b929e": 23, "#8b93a1": 1, "#9b6dd6": 1, "#b9c0cc": 1,
+    "#d9a441": 1, "#e0679a": 1, "#e6e8ec": 19, "#ff6b6b": 2, "#fff": 18,
+}
+
+
+def _js_ohne_kommentare():
+    """Der Quelltext ohne Kommentare — dort stehen die Issue-Nummern (`#661`), und die
+    sehen fuer jede Farbsuche aus wie Hex-Werte."""
+    import re
+    js = open(os.path.join(REPO, "static", "js", "index.js"), encoding="utf-8").read()
+    js = re.sub(r"/\*.*?\*/", "", js, flags=re.S)
+    js = re.sub(r"(?m)^\s*//.*$", "", js)
+    return re.sub(r"(?<![:'\"\w])//[^\n'\"]*$", "", js, flags=re.M)
+
+
+def test_no_new_hard_coded_colour_appears_in_the_javascript(appmod):
+    """Ein Waechter, der Werte aufzaehlt, kann keinen Wert bemerken, den niemand kannte. (#703)
+
+    Genau das ist passiert: Der Waechter aus #699 prueft auf `#1e5e3a`, `#2ecc71` und
+    `#3fb950`. Ein VIERTES Erfolgsgruen, `#2a6f4b` am Abzeichen „laufende Anfragen", lief
+    ungehindert durch — dieselbe Bedeutung, anderer Ton, kein Treffer.
+
+    Dieser Test dreht die Richtung um: Statt bekannte Suender zu suchen, haelt er den
+    GESAMTBESTAND fest. Jede neue feste Farbe faellt auf, auch eine, an die niemand
+    gedacht hat.
+
+    ER SUCHT DABEI JEDES HEX-LITERAL, nicht nur die in `color:`-Position. Ein Mutationstest
+    hat gezeigt, warum: `msg.style.color='#3d9970'` ist eine ZUWEISUNG und kam in der
+    engeren Suche nicht vor. Dieselbe Luecke verbarg vier echte Statusfarben
+    (`#7ac57a`, `#c9a227`, `#16a34a`, `#d97706`), die ueber Nachschlagetabellen gesetzt
+    werden — gefunden, als die Suche breiter wurde.
+    """
+    import re, collections
+    ohne = _js_ohne_kommentare()
+    ist = collections.Counter(m.group(0).lower() for m in
+                              re.finditer(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{1,5})?\b", ohne))
+
+    neu = {t: n for t, n in ist.items() if t not in JS_FESTE_FARBEN}
+    assert not neu, (
+        "neue feste Farbe(n) im JavaScript: "
+        + ", ".join(f"{t} ({n}x)" for t, n in sorted(neu.items()))
+        + "\nEntweder eine Variable benutzen oder bewusst in JS_FESTE_FARBEN eintragen.")
+
+    mehr = {t: (n, JS_FESTE_FARBEN[t]) for t, n in ist.items()
+            if n > JS_FESTE_FARBEN.get(t, 0)}
+    assert not mehr, (
+        "eine feste Farbe wird jetzt oefter benutzt als festgehalten: "
+        + ", ".join(f"{t} {a} statt {b}" for t, (a, b) in sorted(mehr.items())))
+
+    # Und die Statusfarben duerfen gar nicht mehr auftauchen.
+    for ton in ("#d29922", "#f85149", "#6e2a2a", "#c0392b", "#2a6f4b", "#5a4410",
+                "#7ac57a", "#c9a227", "#16a34a", "#d97706"):
+        assert ton not in ist, f"{ton} ist wieder eine feste Farbe statt einer Variablen"
+
+
+def test_every_theme_defines_the_full_status_set(appmod):
+    """Eine Variable, die nur ein Design setzt, ist tueckischer als ein Literal. (#703)
+
+    `--gefahr`, `--gefahr-b`, `--gefahr-h` und `--bad` standen ausschliesslich im
+    Aurora-Block. In den anderen drei Designs fiel jedes `var(--bad,#f85149)` auf sein
+    Literal zurueck — der Code las sich, als waere das Thema erledigt.
+    """
+    import re
+    css = open(os.path.join(REPO, "static", "css", "index.css"), encoding="utf-8").read()
+    # Kommentare raus, sonst zaehlt ein `--gefahr:` im Fliesstext mit.
+    ohne = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    for name in ("--ok", "--ok-bg", "--warn", "--warn-bg", "--bad", "--err-bg",
+                 "--gefahr", "--gefahr-b", "--gefahr-h"):
+        n = len(re.findall(re.escape(name) + r"\s*:", ohne))
+        assert n == 4, f"{name} ist {n}x gesetzt, erwartet 4 — ein Wert je Design"
