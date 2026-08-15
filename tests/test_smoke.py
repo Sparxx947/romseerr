@@ -9955,31 +9955,41 @@ def test_the_library_view_counts_entries_not_titles(appmod):
     assert i18n_hat("lib_entries"), "lib_entries fehlt in einer Sprache"
 
 
-def test_the_stream_host_does_not_claim_virtualgl_is_in_use(appmod):
-    """Ein Kommentar, der einen früheren Zustand als gegenwärtigen ausgibt, ist schlimmer
-    als keiner — ihm wird geglaubt. (#628)
+def test_the_stream_host_describes_virtualgl_as_it_is(appmod):
+    """Neun von zehn Emulatoren starten darüber — der Kopf muss das sagen. (#628)
 
-    Gemessen am laufenden Container: `VGLDEV` leer, DRI3 vorhanden, null Prozesse mit
-    `libvglfaker`, kein Emulator über `vglrun`. Beide Dateien behaupteten das Gegenteil,
-    und am 2026-08-14 hat genau das eine Fehlersuche in die falsche Richtung geschickt.
+    Diese Prüfung hat schon einmal das Gegenteil verlangt: Ich hatte aus einer
+    Fehlmessung geschlossen, VirtualGL sei unbenutzt, und die Doku entsprechend
+    umgeschrieben. `VGLDEV` steht nie in der Container-Umgebung — `30-agent` liest die
+    Gerätedatei erst beim Start eines Emulators. Wer es per `docker exec` misst, sieht
+    leer und schließt falsch.
+
+    Gemessen: `/config/.vgl-device` trägt `/dev/dri/card2`, und `apprun()` — mit
+    `vglrun`-Präfix — wird von neun Emulatoren aufgerufen, `apprun_ohne_vgl` nur von xemu.
     """
     basis = os.path.join(REPO, "contrib", "streaming-host", "init")
-    vgl = open(os.path.join(basis, "10-virtualgl"), encoding="utf-8").read()
-    kopf = vgl[:vgl.index("\n# ---")] if "\n# ---" in vgl else vgl[:2000]
-    assert "UNBENUTZT" in kopf or "unused" in kopf.lower(), \
-        "der Kopf stellt VirtualGL weiterhin als den Weg dar"
-    assert "DRI3" in kopf, "er sagt nicht, was heute die Beschleunigung trägt"
-
     agent = open(os.path.join(basis, "30-agent"), encoding="utf-8").read()
-    # auf die AUSSAGE prüfen, nicht auf den Satz: er darf als Zitat vorkommen („hier stand
-    # jahrelang …"), und ein Verbot des Wortlauts würde genau diese Erklärung verbieten
-    kopfzeilen = agent[:agent.index("VGLDEV=")]
-    behauptung = [z for z in kopfzeilen.splitlines()
-                  if "Alle Emulatoren laufen über VirtualGL" in z and "stand jahrelang" not in z]
-    assert not behauptung, f"die alte Behauptung steht noch als Aussage da: {behauptung}"
-    assert "ÜBER DRI3" in kopfzeilen, "der Kopf sagt nicht, was heute trägt"
-    # die Startmeldung darf CPU-Rendering nicht behaupten, ohne es zu prüfen
-    i = agent.index('VGL=""')
-    zweig = agent[i:i + 900]
-    assert "xdpyinfo" in zweig, "die Meldung behauptet weiterhin CPU, statt DRI3 zu prüfen"
-    assert "DRI3" in zweig, "der DRI3-Fall wird nicht genannt"
+
+    mit = set(re.findall(r"\$\(apprun ([a-z0-9]+)\)", agent))
+    ohne = set(re.findall(r"\$\(apprun_ohne_vgl ([a-z0-9]+)\)", agent))
+    assert len(mit) >= 9, f"nur {len(mit)} Emulatoren über apprun: {sorted(mit)}"
+    assert ohne == {"xemu"}, f"ohne VirtualGL erwartet nur xemu, gefunden: {sorted(ohne)}"
+
+    kopf = agent[:agent.index("VGLDEV=")]
+    # BEIDE Hälften müssen dastehen: der Wrapper wird gesetzt, UND Vulkan geht daran
+    # vorbei. Nur eine davon zu nennen erzeugt genau die zwei Fehlschlüsse, die diese
+    # Datei heute schon zweimal enthalten hat.
+    assert "vglrun" in kopf and "apprun_ohne_vgl" in kopf, \
+        "der Kopf sagt nicht, dass der Präfix gesetzt wird"
+    assert "Vulkan" in kopf, "er verschweigt, dass Vulkan daran vorbeigeht"
+    assert "RUECKFALL" in kopf or "Rückfall" in kopf, "die Rolle bleibt unbenannt"
+    assert "Container-Umgebung" in kopf, \
+        "die Messfalle steht nicht dabei — sie hat schon zu einem falschen Schluss geführt"
+
+    vgl = open(os.path.join(basis, "10-virtualgl"), encoding="utf-8").read()
+    kopf2 = vgl[:vgl.index("# ---")]
+    assert "Vulkan" in kopf2 and "vorbei" in kopf2.lower(), \
+        "der Kopf trennt nicht zwischen gesetztem Wrapper und tatsächlichem Renderer"
+    assert "libvglfaker" in kopf2, "die zweite Messfalle fehlt"
+    for emu in ("dolphin", "pcsx2", "xemu"):
+        assert emu in kopf2, f"{emu} fehlt in der Aufstellung"

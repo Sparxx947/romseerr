@@ -1,17 +1,17 @@
 #!/bin/bash
 # Start-Dienst, den Romseerr aufruft. / Launch service Romseerr calls.
 #
-# BESCHLEUNIGUNG LÄUFT ÜBER DRI3, NICHT ÜBER VirtualGL (Stand 2026-08-15, gemessen).
-# `VGLDEV` ist leer, kein Prozess trägt `libvglfaker`, kein Emulator startet über
-# `vglrun`. Der Zweig unten bleibt als Rückfall stehen für den Fall, dass DRI3 wieder
-# verschwindet — er feuert im Regelbetrieb nie. Näheres in 10-virtualgl. (#628)
+# DER `vglrun`-PRAEFIX STEHT IM STARTBEFEHL, WIRKT ABER MEIST NICHT. Neun Emulatoren
+# starten ueber `apprun()` (mit Praefix), nur xemu ueber `apprun_ohne_vgl` (#498). Was
+# davon ankommt, entscheidet der Emulator: Vulkan geht an VirtualGL vorbei, denn es ist
+# die Bruecke fuer OpenGL. Im Regelbetrieb ist der Wrapper deshalb ein RUECKFALL, der
+# nichts tut — Jens' Entscheidung vom 2026-08-15: er bleibt genau dafuer installiert.
 #
-# Hier stand jahrelang „Alle Emulatoren laufen über VirtualGL". Das galt bis #167/#169
-# und liest sich seitdem wie der Ist-Zustand — genau daran ist am 2026-08-14 eine
-# Fehlersuche in die falsche Richtung gelaufen.
+# `VGLDEV` steht NICHT in der Container-Umgebung, es wird unten aus der Datei gelesen.
+# Wer es per `docker exec` misst, sieht leer und schliesst daraus falsch (so in #628).
 #
-# EN: acceleration goes through DRI3, not VirtualGL. The branch below is a fallback that
-# never fires in normal operation.
+# EN: nine emulators carry the vglrun prefix, xemu does not (#498). Vulkan bypasses
+# VirtualGL regardless, so in practice the wrapper is a fallback that does nothing.
 #
 # Das Token wird AUS EINER DATEI gelesen und nicht ins Skript geschrieben:
 # ein Geheimnis gehört an genau eine Stelle, sonst laufen die Kopien auseinander.

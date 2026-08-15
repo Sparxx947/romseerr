@@ -1,38 +1,42 @@
 #!/bin/bash
-# VirtualGL — installiert, aber DERZEIT UNBENUTZT. Rückfallweg, kein Regelweg.
-# VirtualGL — installed but currently UNUSED. A fallback, not the normal path.
+# VirtualGL — der Wrapper steht im Startbefehl, wirkt aber im Regelbetrieb NICHT.
+# VirtualGL — wrapped around the launch command, but bypassed in normal operation.
 #
-# STAND 2026-08-15, am laufenden Container gemessen:
+# ZWEI DINGE, DIE OFT VERWECHSELT WERDEN (Stand 2026-08-15):
 #
-#   VGLDEV                        leer      -> der Zweig in `30-agent` feuert nie
-#   DRINODE                       /dev/dri/renderD129
-#   DISABLE_DRI3                  false
-#   DRI3-Erweiterung              vorhanden (auf DISPLAY=:1, NICHT :0 — siehe unten)
-#   Prozesse mit `libvglfaker`    0
+# 1. WAS DER STARTBEFEHL TUT — gemessen:
+#      /config/.vgl-device        /dev/dri/card2   gesetzt, der Zweig in 30-agent feuert
+#      mit `vglrun` gestartet     azahar, cemu, dolphin, duckstation, flycast,
+#                                 pcsx2, rpcs3, switchemu, vita3k   (neun)
+#      ohne                       xemu, bewusst (#498)
 #
-# Seit #167/#169 (2026-08-10) läuft die Beschleunigung über DRI3: Dolphin nutzt Vulkan,
-# `libvglfaker` ist aus den Prozessen verschwunden, und der Video-Thread fiel von rund
-# 100 % eines Kerns auf 5,7 %. PS2, PS3, GameCube und Wii wurden je mit Bild, Ton und
-# Gamepad nachgeprüft. KEIN Emulator startet mehr über `vglrun`.
+# 2. WAS DER EMULATOR DANN WAEHLT: Vulkan — und Vulkan geht an VirtualGL VORBEI. Es ist
+#    die Bruecke fuer OpenGL; wer die Karte selbst findet, braucht sie nicht. Deshalb
+#    steht `libvglfaker` auch bei laufender Sitzung nicht im Prozess (#167/#169: Dolphin
+#    nach der Umstellung, Video-Thread von ~100 % auf 5,7 % eines Kerns).
 #
-# Der Text unten beschreibt, warum es das Paket gibt und wie es wirkt — er galt, als
-# DRI3 fehlte. Er beschreibt NICHT den heutigen Betrieb. Was hier stand, hat am
-# 2026-08-14 zu der falschen Folgerung „wir brauchen VirtualGL noch" geführt; ein
-# Kommentar, der einen früheren Zustand als gegenwärtigen ausgibt, ist schlimmer als
-# keiner, weil ihm geglaubt wird. (#628)
+# FOLGE: Der Wrapper ist da, tut aber nichts, solange Vulkan gewaehlt wird. Er ist ein
+# RUECKFALL — Jens' Entscheidung vom 2026-08-15: er bleibt genau dafuer installiert.
+# Greifen wuerde er, wenn ein Emulator auf OpenGL zurueckfaellt oder DRI3 verschwindet.
 #
-# WANN ES WIEDER EINSPRINGEN WÜRDE: wenn DRI3 verschwindet — dann fällt Mesa auf
-# `llvmpipe` zurück, Vulkan verweigert ganz, und `VGLDEV` müsste auf den CARD-Knoten
-# gesetzt werden. Die vier Zeilen oben beantworten in Sekunden, welcher Fall vorliegt.
+# ZWEI MESSFALLEN, beide haben heute zugeschlagen:
+#   * `docker exec ... echo $VGLDEV` zeigt IMMER leer. Die Variable steht nicht in der
+#     Container-Umgebung, `30-agent` liest die Datei erst beim Emulatorstart. Daraus
+#     „VirtualGL ist nicht eingerichtet" zu schliessen, ist falsch — so steht es in #628.
+#   * `grep libvglfaker /proc/*/maps` findet nichts, solange kein Emulator laeuft. Die
+#     Null beweist dann gar nichts; sie beweist erst etwas WAEHREND einer Sitzung.
 #
-# MESSFALLE: der X-Server läuft auf **:1**, nicht auf :0. `DISPLAY=:0 xdpyinfo` meldet
-# „antwortet nicht", und wer das als „kein DRI3" liest, kommt genau zur falschen
-# Schlussfolgerung. Richtig: `DISPLAY=:1 xdpyinfo | grep -i DRI3`.
+# OFFEN: ob wirklich alle neun Vulkan waehlen. Belegt ist es fuer Dolphin (#167/#169) und
+# fuer xemu (#498, dort mit der Messung der beschnittenen Flaeche). Fuer die uebrigen
+# sieben ist es angenommen, nicht gemessen — zu klaeren waehrend einer Sitzung mit
+# `grep libvglfaker /proc/<pid>/maps`.
 #
-# EN: installed but unused since #167/#169 — DRI3 carries the acceleration now and no
-# emulator launches through `vglrun`. The description below explains why the package
-# exists and how it works; it describes the past, not today's operation. It would matter
-# again only if DRI3 disappeared. Note the X server is on :1, not :0.
+# EN: the wrapper is in the launch command for nine emulators, but Vulkan bypasses
+# VirtualGL entirely — it is the bridge for OpenGL. So it is installed as a fallback
+# (Jens' decision, 2026-08-15) and does nothing while Vulkan is chosen. Two measuring
+# traps: VGLDEV is never in the container environment, and libvglfaker cannot appear
+# while no emulator runs. Whether all nine really choose Vulkan is measured for Dolphin
+# and xemu only.
 #
 # ---------------------------------------------------------------------------------
 # WARUM ÜBERHAUPT (historisch — siehe oben):
