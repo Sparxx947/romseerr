@@ -531,12 +531,17 @@ function sz(b){if(!b)return'';let u=['B','KB','MB','GB','TB'],i=0;while(b>=1024&
 // ZWEI Zustaende, nicht einer: „vorhanden" und „angefragt" sind verschieden, und beide
 // interessieren VOR dem Klick. Und nie nur Farbe — gruen auf dunklem Cover sagt einem
 // rot-gruen-blinden Menschen nichts, deshalb traegt das SYMBOL die Bedeutung.
+// Das Zeichen fuer „vorhanden" EINMAL, dann per `use` (#660). Es steht an drei Stellen:
+// auf der Suchkarte, auf den kleinen Entdecken-Covern und (kuenftig) ueberall sonst, wo
+// „habe ich" gesagt wird. Als drei Markup-Kopien liefen sie auseinander.
+function vorhandenZeichen(){
+ return '<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#rs-vorhanden"/></svg>';}
 function kartenZustand(it){
  // Die Textbausteine tragen selbst schon ein Symbol („✓ in Bibliothek", „✓ angefragt") —
  // es wird hier entfernt und durch ein UNTERSCHEIDENDES ersetzt. Sonst stünde zweimal
  // dasselbe Zeichen da, und die beiden Zustände wären wieder nur an der Farbe zu trennen.
  let ohne=x=>x.replace(/^[✓⏳⬇]\s*/,'');
- if(it.in_library)return{cls:'da',zeichen:'✓',text:ohne(t('in_library'))};
+ if(it.in_library)return{cls:'da',zeichen:vorhandenZeichen(),text:ohne(t('in_library'))};
  if(it.requested)return{cls:'req',zeichen:'⏳',text:ohne(t('requested'))};
  return null;}
 // Eine Karte je SPIEL, nicht je Fassung (#691).
@@ -972,7 +977,7 @@ async function loadDiscover(){let hint=document.getElementById('hint');hint.styl
    // als die EIGENE — und das wird falsch, sobald daneben eigene Bewertungen stehen.
    // Ohne Wert steht dort nichts; eine erfundene Null wäre schlimmer als eine Lücke.
    let ext=it.ext_rating?`<span class=extrate title="IGDB">★ ${it.ext_rating}</span>`:'';
-   c.innerHTML=`<div class=pcover style="${it.cover?`background-image:url('${it.cover}')`:''}">${it.in_library?'<span class=have2>✓</span>':''}${ext}</div><div class=pt>${it.title.replace(/</g,'&lt;')}</div>`;
+   c.innerHTML=`<div class=pcover style="${it.cover?`background-image:url('${it.cover}')`:''}">${it.in_library?'<span class=have2>'+vorhandenZeichen()+'</span>':''}${ext}</div><div class=pt>${it.title.replace(/</g,'&lt;')}</div>`;
    c.onclick=()=>{SELP=r.slug?new Set([r.slug]):new Set();
     localStorage.setItem('romp',JSON.stringify([...SELP]));updateFLabel();
     document.querySelectorAll('.chip').forEach(e=>e.classList.toggle('on',SELP.has(e.dataset.s)));

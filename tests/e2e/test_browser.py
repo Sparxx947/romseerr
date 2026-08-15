@@ -1473,3 +1473,99 @@ def test_die_sammelanfrage_holt_keine_vorhandenen_spiele(seite):
     assert sorted(geholt) == ["Habe ich auch nicht", "Habe ich gar nicht"], \
         ("die Sammelanfrage holte " + repr(geholt) + " — die freie Fassung eines Spiels, "
          "dessen Karte den Haken traegt, gehoert NICHT dazu")
+
+
+# --- #660: „vorhanden" in der Sprache der Marke ---
+
+def _kontrast_js():
+    """WCAG-Kontrast zweier CSS-Farben, im Browser gerechnet."""
+    return """(a,b)=>{const z=s=>s.match(/\\d+(\\.\\d+)?/g).slice(0,3).map(Number);
+      const l=c=>{const f=v=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4)};
+      const [r,g,bl]=c.map(f);return .2126*r+.7152*g+.0722*bl};
+      const la=l(z(a)),lb=l(z(b));return (Math.max(la,lb)+.05)/(Math.min(la,lb)+.05);}"""
+
+
+def test_jedes_design_setzt_sein_eigenes_gruen(seite):
+    """Die Ursache war ein Literal, keine Variable. (#660)
+
+    `--ok` stand einmal global und kein Design ueberschrieb es — alle vier bekamen
+    dasselbe Signalgruen. Drei weitere Stellen hatten die Farbe gar nicht als Variable,
+    sondern als `#1e5e3a` im Stylesheet stehen.
+    """
+    werte = seite.evaluate("""() => {
+      const merk = document.documentElement.dataset.design, out = {};
+      for (const d of ['', 'glass', 'clean', 'aurora']) {
+        if (d) document.documentElement.dataset.design = d;
+        else delete document.documentElement.dataset.design;
+        const cs = getComputedStyle(document.documentElement);
+        out[d || 'seerr'] = [cs.getPropertyValue('--ok').trim(),
+                             cs.getPropertyValue('--ok-bg').trim()];
+      }
+      if (merk) document.documentElement.dataset.design = merk;
+      else delete document.documentElement.dataset.design;
+      return out;
+    }""")
+    assert len(werte) == 4
+    for design, (ok, okbg) in werte.items():
+        assert ok and okbg, f"{design} setzt --ok/--ok-bg nicht: {werte[design]}"
+    # ... und sie muessen sich UNTERSCHEIDEN, sonst ist die Variable nur Zierde.
+    gruene = {v[0] for v in werte.values()}
+    assert len(gruene) == 4, f"nicht jedes Design hat ein eigenes Gruen: {werte}"
+
+
+def test_der_kontrast_ist_gemessen_und_reicht(seite):
+    """4,5:1 gegen den Kartengrund des jeweiligen Designs — im Browser gerechnet. (#660)
+
+    Die Abnahme des Issues verlangt ausdruecklich „gemessen, nicht geschaetzt". Ein Wert
+    aus einer Tabelle im Kopf des Entwicklers ist genau das Gegenteil.
+    """
+    werte = seite.evaluate("""(kontrast) => {
+      const k = eval(kontrast), merk = document.documentElement.dataset.design, out = {};
+      for (const d of ['', 'glass', 'clean', 'aurora']) {
+        if (d) document.documentElement.dataset.design = d;
+        else delete document.documentElement.dataset.design;
+        const cs = getComputedStyle(document.documentElement);
+        const probe = document.createElement('div');
+        probe.style.color = cs.getPropertyValue('--ok').trim();
+        probe.style.background = cs.getPropertyValue('--card').trim();
+        document.body.appendChild(probe);
+        const c = getComputedStyle(probe);
+        out[d || 'seerr'] = k(c.color, c.backgroundColor);
+        probe.remove();
+      }
+      if (merk) document.documentElement.dataset.design = merk;
+      else delete document.documentElement.dataset.design;
+      return out;
+    }""", _kontrast_js())
+    for design, wert in werte.items():
+        assert wert >= 4.5, f"{design}: Kontrast nur {wert:.2f}:1 gegen die Karte"
+
+
+def test_das_zeichen_ist_gezeichnet_und_kein_schriftzeichen(seite):
+    """Ein Textzeichen kommt aus der Schrift des Systems. (#660/#650)"""
+    quelle = seite.content()
+    assert 'id="rs-vorhanden"' in quelle, "die Zeichnung fehlt in der Vorlage"
+    # KEIN `<text>`, kein Emoji — dieselbe Regel wie bei der Marke.
+    definition = quelle.split('id="rs-vorhanden"', 1)[1].split("</g>", 1)[0]
+    assert "<text" not in definition, "die Zeichnung benutzt eine Schrift"
+    assert "fill-rule" in definition and "evenodd" in definition, \
+        "der Haken ist nicht ausgeschnitten — das ist die Bauart der Marke"
+
+
+def test_das_abzeichen_ist_gross_genug_fuer_die_modulform(seite):
+    """Der Einwand, der die Umsetzung geaendert hat. (#660)
+
+    Bei den alten 11 px war die Modulform nicht von einem gerundeten Quadrat zu
+    unterscheiden — die abgeschraegte Ecke ging unter. Am Entwurf gemessen, bevor es
+    gebaut wurde. Faellt das je unter 16 px zurueck, ist die Form wieder umsonst.
+    """
+    seite.evaluate("""() => {
+      const p = document.createElement('div'); p.className = 'pcover';
+      p.style.cssText = 'position:relative;width:80px;height:110px';
+      p.innerHTML = '<span class=have2><svg viewBox="0 0 64 64"><use href="#rs-vorhanden"/></svg></span>';
+      p.id = 'probe660'; document.body.appendChild(p);
+    }""")
+    kasten = seite.evaluate(
+        "() => document.querySelector('#probe660 .have2 svg').getBoundingClientRect().width")
+    seite.evaluate("() => document.getElementById('probe660').remove()")
+    assert kasten >= 16, f"das Zeichen misst nur {kasten:.0f} px — dafuer ist es zu fein"

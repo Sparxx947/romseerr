@@ -1171,6 +1171,27 @@ Archive und ROMhack-Pakete —, und für die stehen jetzt `mod archive`, `rom ha
 `anthology` und `trilogy` in `SET_RE`. **`archive` allein bewusst nicht**: Das Wort steht in
 jedem zweiten Archive.org-Titel.
 
+**„Vorhanden" trägt die Sprache der Marke (#660).** Das Grün stand an **fünf** Stellen, vier
+davon fest als `#1e5e3a` im Stylesheet — deshalb bekamen alle vier Designs dasselbe
+Signalgrün, egal wie sie sonst aussehen. Nur das Abzeichen auf dem Cover umzufärben hätte
+Anfrageliste und Abdeckung grün gelassen, während die Karten sich ändern; das wäre schlimmer
+gewesen als der Ausgangszustand. Jedes Design setzt jetzt `--ok` und `--ok-bg` selbst.
+
+Das Zeichen ist gezeichnet, nicht getippt: Der Haken ist aus der Modulsilhouette
+**herausgeschnitten** (`fill-rule="evenodd"`), dieselbe Bauart wie das R im Logo. Vorher
+stand dort das Textzeichen `✓`, das aus der Schrift des Systems kommt — die Schwäche, die
+die Marke in #650 gerade abgelegt hatte.
+
+Das Abzeichen ist dabei **größer** geworden, und das ist der Punkt: Am Entwurf gemessen war
+die Modulform bei 11 px nicht von einem gerundeten Quadrat zu unterscheiden, die abgeschrägte
+Ecke ging unter. Ohne diese Vergrößerung wäre die Form umsonst — ein Test hält 16 px als
+Untergrenze fest.
+
+Die Farben sind gerechnet, nicht geschätzt, und ein Browsertest misst den Kontrast im
+laufenden Aufbau statt ihn zu behaupten. Der einzige enge Fall ist **Glas**: Dessen Akzent
+ist Cyan `#22d3ee`, und Cyan liegt nah an Grün. Der Abstand dort war mit 126 der niedrigste
+im Bestand und steigt auf 140, indem das Grün ins Gelbgrüne geht statt ins Türkise.
+
 **Eine Karte je Spiel, nicht je Fassung (#691).** Über zehn Reihen-Suchen waren **6 bis
 36 %** der Karten Wiederholungen desselben Spiels — im schlimmsten Fall zehnmal
 `mario kart`, was neun andere Spiele von den ersten Seiten drückt. Die Oberfläche
@@ -1317,6 +1338,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 *EN: the platform filter states in the list what it is holding back (#688). Clicking a discover card sets the filter to that platform and persists it to `localStorage` — reasonable for the search the click triggers, and it then stays there across searches, reloads and days. With a stale `snes` filter, "Silent Hill Homecoming" returned 4 hits instead of 14. It does not look filtered because results without a recognised platform deliberately pass any filter, so something always remains. The button above reads "Plattformen: 1 gewählt", which says how many platforms are selected, not that ten hits are being withheld right now. `do_search()` therefore counts what the platform filter alone removed and `/api/search` returns it as an `X-Platform-Hidden` header — a header because the response is a bare list consumed in three places. Only the platform filter is counted: the notice offers "drop filter", and that click must actually bring the named hits back.*
 
 *EN: one card per game, not per release (#691). Across ten series searches, 6–36 % of the cards were repeats of the same game — ten `mario kart` entries at worst, pushing nine other games off the first screens. The interface contradicted itself: the bulk button counted `gkey` and offered "Alle anfragen (25)" while 47 cards sat next to it. Grouping happens in the frontend (`gruppiere()`), not in the response: the detail view builds its version list from `window.LASTRES`, and the region choice from #77 is the reason that view exists. Sorting therefore keys on the GROUP state (`grp_in_library`) rather than the individual hit — a game counts as owned once any release is in the library, which is the question asked before the click, and `varRow` resolves it per release afterwards. Without that step the card falls apart: for a game owned on one platform and missing on another, the missing release would rank first and the card would carry a download button beside a green tick. `in_library` remains as an inner rank so the representing release matches the badge.*
+
+*EN: "in library" now speaks the mark's language (#660). The green sat in five places, four of them hard-coded as `#1e5e3a`, so all four themes got the same signal green whatever else they looked like — and restyling only the cover badge would have left the request list and coverage view green while the cards changed, which is worse than the original state. Each theme now sets `--ok` and `--ok-bg` itself. The glyph is drawn, not typed: the tick is cut OUT of the cartridge silhouette (`fill-rule="evenodd"`), the same construction as the R in the mark; it used to be the text character `✓`, which comes from whatever font the system has. The badge grew, and that is the point — measured on the draft, the cartridge was indistinguishable from a rounded square at 11 px, so a test pins 16 px as the floor. Contrast is measured in a browser test rather than asserted; the only tight case is Glass, whose cyan accent sits close to green — distance there rises from 126 to 140 by going yellow-green rather than teal.*
 
 *EN: a card can no longer say "in library" and "platform unknown" at once (#685). `in_library()` falls back to a global check when the hit names no platform — correct, but it only answers whether. `library_slugs()` answers where, sorted by the platform's release year (oldest first), which for a title on several systems is almost always the one it appeared on first. Measured: 6.9% of titles sit on more than one platform. Deliberately the console's year, not the game's — IGDB gives one date per game and does not know the hacks and homebrew this concerns. The card marks the value as derived.*
 
