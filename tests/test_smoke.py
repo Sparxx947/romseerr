@@ -9780,3 +9780,39 @@ def test_clicking_a_request_title_says_something_immediately(appmod):
     ohne_kommentar = re.sub(r"^\s*//.*$", "", koerper, flags=re.M)
     assert "search?clean=1" in ohne_kommentar, "die Suche fordert die Kürzung nicht an"
     assert i18n_hat("job_searching"), "job_searching fehlt in einer Sprache"
+
+
+# --- #672: Sprache und Benutzermenü stehen unter Aurora in der Navigation ---------------
+
+def test_the_account_block_moves_only_under_aurora(appmod):
+    """Nur dort, wo die Navigation oben liegt. (#672)
+
+    In den drei anderen Designs ist `#side` eine Spalte am linken Rand — und aus genau
+    dieser Ecke hat #206 den Block geholt, weil sie niemand absucht. Der Wunsch aus #672
+    beschreibt Aurora; ihn überall umzusetzen hieße, #206 rückgängig zu machen.
+    """
+    js = _js()
+    # bis `;}` am Zeilenende — die Funktion schließt auf derselben Zeile, ein Regex auf
+    # `\n}` läuft in den nächsten Code hinein und prüft dann etwas anderes
+    m = re.search(r"function kopfrechtsPlatzieren\(dz\)\{(.*?;\})$", js, re.S | re.M)
+    assert m, "die Funktion fehlt"
+    koerper = m.group(1)
+    assert "'aurora'" in koerper, "sie unterscheidet die Designs nicht"
+    assert "'side'" in koerper and "'topbar'" in koerper, "sie kennt nicht beide Ziele"
+    assert "appendChild" in koerper, "der Block wird nicht verschoben, sondern anders erzeugt"
+    assert "innerHTML" not in koerper, "eine zweite Fassung läuft auseinander (#632)"
+    a = re.search(r"function applyDesign\(dz\)\{(.*?)\n(?=function |let |const )", js, re.S)
+    assert a and "kopfrechtsPlatzieren(dz)" in a.group(1), \
+        "beim Designwechsel wird nicht umgehängt"
+
+
+def test_the_default_markup_still_follows_206(appmod):
+    """Im Markup bleibt der Block in der Suchzeile — das Umhängen ist die Ausnahme. (#672)
+
+    Andernfalls stünde er beim ersten Rendern kurz an der falschen Stelle.
+    """
+    tpl = open(os.path.join(REPO, "templates/index.html"), encoding="utf-8").read()
+    topbar = tpl[tpl.index("<div id=topbar>"):tpl.index("</main>")]
+    assert "class=kopfrechts" in topbar, "der Block startet nicht in der Suchzeile"
+    side = tpl[tpl.index("<div id=side>"):tpl.index("<main>")]
+    assert "class=kopfrechts" not in side, "er steht schon im Markup in der Navigation"
