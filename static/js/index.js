@@ -795,8 +795,16 @@ async function loadPlay(it){let box=document.getElementById('mplay');if(!box)ret
   let notes=[];
   if(d.needs_bios)notes.push(t('play_bios'));
   if(d.caveat==='romset')notes.push(t('play_romset'));
-  box.innerHTML=`<a href="${d.url}" target=_blank rel=noopener class=badge
-    style="background:var(--ok-bg);color:#fff;text-decoration:none;padding:6px 12px;border-radius:8px">▶ ${t('play')}</a>`
+  // KEIN `class=badge` MEHR (#698). `.badge` ist die Klasse fuer das Plattform-Abzeichen
+  // AUF EINEM COVER und traegt `position:absolute;top:6px;left:6px`. Die Inline-Stile
+  // ueberschrieben Grund, Polsterung und Radius — aber nicht `position`. Weder `#mplay`
+  // noch `.box` sind positioniert, der Bezug war damit `#modal` (`fixed`,
+  // bildschirmfuellend), und der Knopf landete bei (6,6) auf der Navigationsleiste, 900 px
+  // links und 500 px ueber seinem eigenen Platz. Am laufenden Stand gemessen.
+  //
+  // Gebaut wie der Stream-Knopf daneben: Die beiden sind Geschwister — „hier spielen" und
+  // „auf dem Host spielen" — und gehoeren als Paar gelesen, mit ihren Hinweisen daneben.
+  box.innerHTML=`<a href="${d.url}" target=_blank rel=noopener class=spielknopf>▶ ${t('play')}</a>`
    +(notes.length?` <span class=meta style="color:#d29922">${notes.join(' · ')}</span>`:'');
  }else{
   const why={no_romm:'play_no_romm',no_core:'play_no_core',not_in_library:'play_not_in_lib',
