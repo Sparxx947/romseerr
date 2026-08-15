@@ -1070,6 +1070,32 @@ def save_index_to_db(per, allset, slugs, ts, namen=None):
     except Exception as e:
         log(f"Index-DB-Speichern-Fehler: {e}")
 
+def save_index_teil(slugs_neu, per, namen, gesamt_titel, gesamt_slugs):
+    """Nur den Anteil einzelner Plattformen in der DB ersetzen. (#655)
+
+    `DELETE … WHERE slug=?` je genannter Plattform, dann deren Zeilen neu — in EINER
+    Transaktion, damit zwischendrin niemand eine halb geloeschte Bibliothek liest.
+    Gezaehlt wird nicht hier: `gesamt_titel`/`gesamt_slugs` kommen aus dem RAM-Index,
+    der die Vereinigung ueber ALLE Plattformen kennt.
+
+    `index_ts` wird bewusst NICHT angefasst — siehe `index_aktualisieren`.
+
+    EN: replace only the named platforms' rows, in one transaction. The totals come from
+    the in-memory index because they span platforms this run never looked at.
+    """
+    namen = namen or {}
+    rows = [(slug, n, namen.get((slug, n))) for slug, s in per.items() for n in s]
+    try:
+        with DB_LOCK, closing(db_conn()) as c, c:
+            c.executemany("DELETE FROM library WHERE slug=?", [(s,) for s in sorted(slugs_neu)])
+            c.executemany("INSERT INTO library(slug,norm,name) VALUES(?,?,?)", rows)
+            c.executemany("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)",
+                          [("index_titles", str(gesamt_titel)),
+                           ("index_platforms", str(len(gesamt_slugs))),
+                           ("slugs", json.dumps(sorted(gesamt_slugs)))])
+    except Exception as e:
+        log(f"Index-DB-Teilspeichern-Fehler: {e}")
+
 def load_index_from_db():
     """RAM-Index aus SQLite füllen. Gibt den Zeitstempel zurück oder None."""
     try:
@@ -1284,7 +1310,45 @@ def _index_fehlertext(fehler):
 def build_index():
     """Bibliotheks-Index aus dem Dateisystem neu aufbauen (ROMS/<slug>/…, 2 Ebenen tief),
     in LIB (RAM) ablegen UND in SQLite persistieren. Läuft beim allerersten Start und
-    danach periodisch im Hintergrund (periodic_index) sowie nach jedem Import."""
+    danach periodisch im Hintergrund (periodic_index).
+
+    NICHT MEHR NACH JEDEM IMPORT (#655) — dafuer gibt es `index_aktualisieren`."""
+    _index_lauf(None)
+
+
+def index_aktualisieren(slugs):
+    """Nur diese Plattformen neu einlesen und in LIB/DB ersetzen. (#655)
+
+    ANLASS, am Bestand gemessen: Ein Import von zwei Dateien dauerte 6,5 Minuten, und
+    fast nichts davon war der Import. `build_index()` laeuft ueber 660.671 Dateien in
+    15.366 Ordnern und brauchte dafuer **260,7 s** — je Import, unabhaengig davon, ob
+    eine Datei ankam oder tausend. Solange er laeuft, steht der Job auf `importing`,
+    der einzige `worker_download`-Faden ist belegt, und alles dahinter wartet.
+
+    WARUM JE PLATTFORM UND NICHT JE DATEI: Ein Zusatz „diese Datei kommt hinzu" waere
+    schneller, koennte aber nur addieren. Ein Plattformordner wird hier VOLLSTAENDIG neu
+    gelesen und sein Anteil am Index ERSETZT — damit sind Umbenennungen, Loeschungen und
+    Aenderungen von aussen innerhalb dieser Plattform genauso abgedeckt wie beim vollen
+    Lauf. Das Ergebnis ist fuer die betroffenen Plattformen Zeichen fuer Zeichen dasselbe
+    (`test_index_aktualisieren_ergibt_dasselbe_wie_ein_voller_neubau`); es fehlt
+    ausschliesslich, was sich in den NICHT genannten Plattformen getan hat — und dafuer
+    laeuft `periodic_index` weiter alle 600 s ueber alles.
+
+    `LIB["ts"]` bleibt deshalb bewusst stehen: Der Wert beantwortet „wann wurde die
+    Bibliothek zuletzt VOLLSTAENDIG gelesen", und ein Teillauf beantwortet das nicht.
+
+    EN: re-read only the named platforms and REPLACE their share of the index. Because a
+    whole platform folder is re-read, renames and deletions inside it are covered exactly
+    as by a full rebuild; only the untouched platforms lag, and the periodic full run
+    every 600 s covers those. `LIB["ts"]` deliberately keeps meaning "last FULL run".
+    """
+    slugs = {s for s in slugs if s}
+    if not slugs: return
+    _index_lauf(slugs)
+
+
+def _index_lauf(nur):
+    """Gemeinsamer Rumpf. `nur` = None -> alles (voller Neuaufbau), sonst diese Slugs."""
     per, allset, slugs = {}, set(), set()
     # Anzeigename je (slug, norm) — der Dateiname ohne Endung (#293). Bei mehreren
     # Dateien desselben Titels gewinnt der KUERZESTE: `Turrican.d64` ist als
@@ -1309,6 +1373,10 @@ def build_index():
             if ordner.startswith("."): continue
             slug = folder_slug(ordner)
             if not slug: continue          # kein Plattformordner (#124)
+            # Teillauf: alles andere bleibt, wie es im Index steht (#655). Gefiltert wird
+            # am SLUG, nicht am Ordnernamen — `dc` und `dreamcast` sind dieselbe Plattform,
+            # und ein Import landet je nach Bestand im einen oder im anderen Ordner (#454).
+            if nur is not None and slug not in nur: continue
             slugs.add(slug)
             # Mehrere Ordner koennen auf denselben Slug zeigen (cps1, cps2 -> arcade).
             # setdefault statt Zuweisung, sonst ueberschreibt der zweite den ersten.
@@ -1386,12 +1454,29 @@ def build_index():
     except Exception as e:
         log(f"Index-Fehler: {e}")
     ts = time.time()
-    with LIB_LOCK:
-        LIB["per"], LIB["all"], LIB["slugs"], LIB["ts"] = per, allset, slugs, ts
-        LIB["failed"] = fehler
-    save_index_to_db(per, allset, slugs, ts, namen)   # persistieren -> schneller Neustart
-    log(f"Bibliotheks-Index: {len(slugs)} Plattformen, {len(allset)} Titel "
-        f"(in DB gesichert){_index_fehlertext(fehler)}")
+    if nur is None:
+        with LIB_LOCK:
+            LIB["per"], LIB["all"], LIB["slugs"], LIB["ts"] = per, allset, slugs, ts
+            LIB["failed"] = fehler
+        save_index_to_db(per, allset, slugs, ts, namen)   # persistieren -> schneller Neustart
+        log(f"Bibliotheks-Index: {len(slugs)} Plattformen, {len(allset)} Titel "
+            f"(in DB gesichert){_index_fehlertext(fehler)}")
+    else:
+        # ERST RAUS, DANN REIN — und zwar fuer JEDEN genannten Slug, nicht nur fuer die
+        # mit Treffern: Ist der Ordner der letzten Plattform leer geraeumt worden, kommt
+        # sie in `per` gar nicht mehr vor und muesste sonst ewig im Index stehenbleiben.
+        with LIB_LOCK:
+            for s in nur:
+                LIB["per"].pop(s, None); LIB["slugs"].discard(s); LIB["failed"].pop(s, None)
+            LIB["per"].update(per); LIB["slugs"].update(slugs); LIB["failed"].update(fehler)
+            # `all` ist die Vereinigung ueber alle Plattformen und laesst sich nicht
+            # fortschreiben: Ein Titel, der hier verschwindet, kann anderswo noch liegen.
+            LIB["all"] = set().union(*LIB["per"].values()) if LIB["per"] else set()
+            gesamt_titel, gesamt_slugs = len(LIB["all"]), set(LIB["slugs"])
+        save_index_teil(nur, per, namen, gesamt_titel, gesamt_slugs)
+        dazu = ", ".join(f"{s} ({len(per.get(s, ()))})" for s in sorted(nur))
+        log(f"Bibliotheks-Index aktualisiert: {dazu} — {len(gesamt_slugs)} Plattformen, "
+            f"{gesamt_titel} Titel (in DB gesichert){_index_fehlertext(fehler)}")
     refresh_coverage_counts()   # Abdeckung folgt der Bibliothek, wird nicht je Request gerechnet (#78)
 
 # ---------- Abdeckung je Plattform (#78) ----------
@@ -3572,10 +3657,15 @@ def import_folder(jid, folder):
     try:
         if folder.startswith(STAGING): subprocess.run(["rm","-rf",folder])
     except Exception: pass
-    build_index()
-    # NUR DIE BETROFFENEN PLATTFORMEN. Ein voller Lauf ueber 45.000 ROMs fuer eine
-    # Handvoll importierter Dateien dauert Stunden und blockiert dabei jeden weiteren
-    # Scan.
+    # NUR DIE BETROFFENEN PLATTFORMEN NEU EINLESEN (#655) — und gar keine, wenn nichts
+    # ankam. Der volle Lauf kostete hier gemessen 260,7 s je Import, auch bei null neuen
+    # Dateien; was sich ausserhalb dieser Plattformen getan hat, holt `periodic_index`.
+    # `.unsortiert` steht bewusst nicht dabei: Der Ordner beginnt mit einem Punkt und ist
+    # damit fuer den Index keine Plattform (#367) — ein Lauf dafuer taete nichts.
+    index_aktualisieren({sl for sl in by_plat if sl != UNSORTIERT})
+    # Und dasselbe fuer RomM: NUR DIE BETROFFENEN ORDNER scannen. Ein voller Lauf ueber
+    # 45.000 ROMs fuer eine Handvoll importierter Dateien dauert Stunden und blockiert
+    # dabei jeden weiteren Scan.
     #
     # UMRECHNEN, NICHT DURCHREICHEN: `by_plat` traegt Romseerr-SLUGS, RomM erwartet
     # ORDNERNAMEN (`platform_fs_slugs`). Die beiden weichen ab — `dreamcast` liegt in
@@ -8442,7 +8532,10 @@ def periodic_einwurf():
             beat("einwurf")
             fertig, _offen = einwurf_scannen()
             if fertig:
-                build_index()
+                # Dieselbe Rechnung wie beim Import (#655): Der Einwurf weiss, in welche
+                # Plattformen er gelegt hat — ein voller Lauf ueber alle 599 ist dafuer
+                # nicht noetig.
+                index_aktualisieren({e["slug"] for e in fertig})
         except Exception as e:
             log(f"Einwurf-Lauf-Fehler: {e}")
 

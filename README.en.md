@@ -467,7 +467,7 @@ Search ──► hit (Archive / Usenet)
              │  finished files
              ▼
    Unpack (unar) → ROM extensions only → dedup →
-   sort into /roms/<platform>/ → index/RomM scan →
+   sort into /roms/<platform>/ → index (that platform only)/RomM scan →
    "available" + notification  (download removed from SAB/JD)
 ```
 
@@ -554,6 +554,18 @@ workflows. That is why v1.1.0-beta.1 shipped without an image.
 > and `/health` carries it as `lib_failed` plus `lib_failed_platforms`. Anything above `0`
 > means **`lib_titles` is incomplete**. Check with
 > `docker exec romseerr ls /roms/<folder>`, fix with `chmod 755 /path/to/<folder>`.
+
+> **After an import the log carries a different line** (#655). A full run over the whole
+> library was measured here at 260.7 s — after every import, even one that added nothing.
+> An import now re-reads only the platforms it actually wrote to:
+>
+> ```
+> Bibliotheks-Index aktualisiert: switch (484) — 599 Plattformen, 293068 Titel (in DB gesichert)
+> ```
+>
+> Those platforms are re-read **in full**, so deletions and renames inside them are picked
+> up exactly as by a full rebuild. The full run stays and keeps running every 600 s in the
+> background.
 
 ---
 

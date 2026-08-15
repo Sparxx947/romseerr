@@ -492,7 +492,7 @@ Suche ──► Treffer (Archive / Usenet)
              │  fertige Dateien
              ▼
    Entpacken (unar) → nur ROM-Endungen → Dedup →
-   Einsortieren /roms/<plattform>/ → Index/RomM-Scan →
+   Einsortieren /roms/<plattform>/ → Index (nur diese Plattform)/RomM-Scan →
    „verfügbar" + Benachrichtigung  (Download aus SAB/JD entfernt)
 ```
 
@@ -575,6 +575,18 @@ Der Container läuft **non-root** und bringt einen **Healthcheck** auf `/health`
 > und `/health` führt es als `lib_failed` samt `lib_failed_platforms`. Ein Wert über `0`
 > heißt: **`lib_titles` ist unvollständig.** Prüfen mit
 > `docker exec romseerr ls /roms/<ordner>`, setzen mit `chmod 755 /pfad/zu/<ordner>`.
+
+> **Nach einem Import steht eine andere Zeile im Protokoll** (#655). Der volle Lauf über die
+> ganze Bibliothek kostete hier gemessen 260,7 s — je Import, auch bei null neuen Dateien.
+> Ein Import liest deshalb nur noch die Plattformen neu ein, in die er gelegt hat:
+>
+> ```
+> Bibliotheks-Index aktualisiert: switch (484) — 599 Plattformen, 293068 Titel (in DB gesichert)
+> ```
+>
+> Die genannten Plattformen werden dabei **vollständig** neu gelesen, Löschungen und
+> Umbenennungen darin also genauso erfasst wie beim vollen Lauf. Der volle Lauf bleibt
+> und läuft weiter alle 600 s im Hintergrund.
 
 ---
 

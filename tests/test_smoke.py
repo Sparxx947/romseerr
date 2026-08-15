@@ -9299,3 +9299,131 @@ def test_every_page_that_shows_the_mark_also_sizes_it(appmod):
             fehlt.append(f"{tpl} -> {blaetter}")
     assert not fehlt, ("die Marke wird gezeigt, aber nirgends bemaßt — sie erscheint dann "
                        f"in ihrer Standardgröße: {fehlt}")
+
+
+# --- Index nach dem Import: nur die betroffenen Plattformen (#655) -------------------
+
+def _index_schnappschuss(appmod):
+    """RAM-Index UND DB-Zeilen als vergleichbares Gebilde."""
+    from contextlib import closing as _closing
+    with appmod.LIB_LOCK:
+        ram = ({s: set(v) for s, v in appmod.LIB["per"].items()},
+               set(appmod.LIB["all"]), set(appmod.LIB["slugs"]))
+    with _closing(appmod.db_conn()) as c:
+        zeilen = sorted(c.execute("SELECT slug,norm,name FROM library"))
+        meta = dict(c.execute("SELECT key,value FROM meta WHERE key IN "
+                              "('index_titles','index_platforms','slugs')"))
+    return ram, zeilen, meta
+
+
+def test_index_aktualisieren_ergibt_dasselbe_wie_ein_voller_neubau(appmod, tmp_path):
+    """Ein Teillauf muss Zeichen für Zeichen liefern, was ein voller Neubau liefert. (#655)
+
+    Das ist die Bedingung aus dem Issue: „Ein schnellerer Import, der einen ANDEREN Index
+    erzeugt als der volle Neubau, ist keine Behebung." Deshalb wird hier nicht nur
+    hinzugefügt, sondern auch GELÖSCHT und UMBENANNT — genau die drei Fälle, bei denen
+    ein bloßes „diese Datei kommt hinzu" auseinanderliefe.
+
+    EN: a partial run must produce exactly what a full rebuild produces — additions,
+    deletions and renames alike, since those are what a pure add-only update would miss.
+    """
+    gb = os.path.join(appmod.ROMS, "gb")
+    nes = os.path.join(appmod.ROMS, "nes")
+    for d in (gb, nes):
+        os.makedirs(d, exist_ok=True)
+    fuer_test = []
+    try:
+        for p, n in ((gb, "Zzz Alpha.gb"), (gb, "Zzz Beta.gb"), (nes, "Zzz Gamma.nes")):
+            fuer_test.append(os.path.join(p, n))
+            open(fuer_test[-1], "w").close()
+        appmod.build_index()
+        # Drei Änderungen NUR in `gb`: eine neue Datei, eine gelöschte, eine umbenannte.
+        os.remove(os.path.join(gb, "Zzz Alpha.gb"))
+        os.rename(os.path.join(gb, "Zzz Beta.gb"), os.path.join(gb, "Zzz Delta.gb"))
+        neu = os.path.join(gb, "Zzz Epsilon.gb")
+        open(neu, "w").close()
+        fuer_test += [os.path.join(gb, "Zzz Delta.gb"), neu]
+
+        appmod.index_aktualisieren({"gb"})
+        teil = _index_schnappschuss(appmod)
+        appmod.build_index()
+        voll = _index_schnappschuss(appmod)
+        assert teil[0] == voll[0], "RAM-Index nach Teillauf weicht vom vollen Neubau ab"
+        assert teil[1] == voll[1], "DB-Zeilen nach Teillauf weichen vom vollen Neubau ab"
+        assert teil[2] == voll[2], "Zähler in `meta` weichen vom vollen Neubau ab"
+    finally:
+        for p in fuer_test:
+            if os.path.exists(p): os.remove(p)
+        appmod.build_index()
+
+
+def test_der_import_liest_nur_die_betroffene_plattform_neu(appmod):
+    """Nach einem Import darf NUR die Plattform neu gelesen werden, in die er gelegt hat.
+
+    Gemessen am Bestand: ein voller Lauf kostet 260,7 s — je Import, egal wie klein. (#655)
+
+    Geprüft wird das am Ergebnis, nicht an einem Aufrufzähler: In `nes` liegt eine Datei,
+    die NACH dem letzten Indexlauf entstanden ist. Wird sie durch den Import mitgelesen,
+    lief der volle Neubau.
+
+    EN: checked by result, not by counting calls — a file that appeared in another
+    platform after the last index run must still be absent afterwards.
+    """
+    nes = os.path.join(appmod.ROMS, "nes")
+    os.makedirs(nes, exist_ok=True)
+    appmod.build_index()
+    zeuge = os.path.join(nes, "Zzz Zeuge Fremde Plattform.nes")
+    open(zeuge, "w").close()
+    job = appmod.new_job({"title": "T655", "source": "archive", "ref": "r",
+                          "platform_slug": "gb", "size": 0}, user="", approved=False)
+    jid = job["id"]
+    folder = _staging(appmod, jid, {"Zzz Import 655.gb": b"\x00" * 32})
+    try:
+        appmod.import_folder(jid, folder)
+        assert appmod.get_job(jid)["state"] == "done"
+        assert appmod.in_library("Zzz Import 655.gb", "gb"), \
+            "die importierte Datei steht nicht im Index"
+        assert not appmod.in_library("Zzz Zeuge Fremde Plattform.nes", "nes"), \
+            "eine fremde Plattform wurde mitgelesen — es lief der volle Neubau"
+    finally:
+        for p in (zeuge, os.path.join(appmod.ROMS, "gb", "Zzz Import 655.gb")):
+            if os.path.exists(p): os.remove(p)
+        with appmod.JOBS_LOCK:
+            appmod.JOBS[:] = [x for x in appmod.JOBS if x["id"] != jid]; appmod.save_jobs()
+        appmod.build_index()
+
+
+def test_ein_import_ohne_neue_dateien_liest_den_index_gar_nicht(appmod):
+    """Kam nichts an, gibt es nichts einzulesen. (#655)
+
+    Der teuerste gemessene Fall im Issue war genau dieser: eine 1-MB-Datei, die sich als
+    Dublette herausstellte — und trotzdem lief danach ein voller Indexlauf über die ganze
+    Bibliothek.
+
+    EN: the most expensive case in the issue was a 1 MB duplicate that still triggered a
+    full rebuild over the entire library.
+    """
+    gb = os.path.join(appmod.ROMS, "gb")
+    os.makedirs(gb, exist_ok=True)
+    schon_da = os.path.join(gb, "Zzz Dublette 655.gb")
+    open(schon_da, "w").close()
+    appmod.build_index()
+    laeufe = []
+    job = appmod.new_job({"title": "T655b", "source": "archive", "ref": "r",
+                          "platform_slug": "gb", "size": 0}, user="", approved=False)
+    jid = job["id"]
+    folder = _staging(appmod, jid, {"Zzz Dublette 655.gb": b"\x00" * 32})
+    # Gezählt wird am ENDE jedes Indexlaufs, nicht am Aufruf: `refresh_coverage_counts`
+    # steht unter jedem Weg durch den Index — dem vollen wie dem teilweisen. Damit misst
+    # der Test dieselbe Sache vor und nach der Änderung.
+    echt = appmod.refresh_coverage_counts
+    try:
+        appmod.refresh_coverage_counts = lambda: laeufe.append(1)
+        appmod.import_folder(jid, folder)
+        assert laeufe == [], f"trotz Dublette lief {len(laeufe)}× der Index"
+    finally:
+        appmod.refresh_coverage_counts = echt
+        if os.path.exists(schon_da): os.remove(schon_da)
+        with appmod.JOBS_LOCK:
+            appmod.JOBS[:] = [x for x in appmod.JOBS if x["id"] != jid]; appmod.save_jobs()
+        appmod.build_index()
