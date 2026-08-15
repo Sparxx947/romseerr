@@ -653,3 +653,45 @@ def test_search_attaches_the_derived_platforms(appmod):
     assert 'if r["in_library"] and not r["platform_slug"]' in zweig, \
         "die Ableitung hängt nicht an beiden Bedingungen"
     assert 'library_slugs(r["title"])' in zweig, "library_slugs wird nicht benutzt"
+
+
+# --- #689: Größe ist nur in der Modul-Ära ein Hinweis auf eine Sammlung -----------------
+
+def test_size_only_marks_a_set_on_cartridge_era_platforms(appmod):
+    """4 GB sind auf dem SNES eine Sammlung und auf der PS3 ein normales Spiel. (#689)"""
+    gross = 5 * 1024**3
+    # Modul-Ära: die Schwelle greift
+    assert appmod.is_set("Irgendein Paket", gross, "snes") is True
+    assert appmod.is_set("Irgendein Paket", gross, "nes") is True
+    # CD-Ära und später: Größe sagt nichts mehr
+    assert appmod.is_set("Uncharted 2: Among Thieves PS3 (EUR)", 22 * 1024**3, "ps3") is False
+    assert appmod.is_set("Silent Hill Homecoming", 7 * 1024**3, "xbox360") is False
+    assert appmod.is_set("Mario Kart Wii", 7 * 1024**3, "wii") is False
+    # unbekannte Plattform: kein Urteil aus der Größe
+    assert appmod.is_set("The Last Of Us Review Build", 36 * 1024**3, None) is False
+    assert appmod.is_set("The Last Of Us Review Build", 36 * 1024**3, "") is False
+
+
+def test_the_name_still_marks_a_set_on_any_platform(appmod):
+    """Das Namensmuster gilt unabhängig von Plattform und Größe. (#689)"""
+    for titel in ("SNES Full Set", "Mega Pack 2020", "No-Intro Collection",
+                  "New Super Mario Bros Wii Mod Archive", "Pokémon ROMhacks CIAs",
+                  "Metroid Prime Trilogy", "Street Fighter Alpha Anthology"):
+        assert appmod.is_set(titel, 1, "ps3") is True, f"nicht als Sammlung erkannt: {titel}"
+
+
+def test_the_word_archive_alone_is_not_a_set(appmod):
+    """`Archive` steht in jedem zweiten Titel — es ist die Quelle. (#689)
+
+    Nur `mod archive` zählt, sonst gälte die halbe Archive.org-Ausbeute als Sammlung.
+    """
+    assert appmod.is_set("Silent Hill 2 Archive.org Upload", 1, "ps2") is False
+    assert appmod.is_set("Internet Archive Mirror", 1, "ps2") is False
+    assert appmod.is_set("Sonic Generations Mod Archive", 1, "pc") is True
+
+
+def test_search_passes_the_platform_to_is_set(appmod):
+    """Ohne den Slug fällt die Unterscheidung in sich zusammen. (#689)"""
+    quelle = open(os.path.join(REPO, "app.py"), encoding="utf-8").read()
+    assert 'is_set(r["title"], r["size"], r["platform_slug"])' in quelle, \
+        "die Suche übergibt die Plattform nicht"

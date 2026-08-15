@@ -2496,10 +2496,39 @@ def search_usenet(q, cats, limit=30):
     return out
 
 SET_RE = re.compile(r'\b(collection|fullset|full set|romset|rom set|no-?intro|redump|1g1r|'
-                    r'\bpack\b|\bsets?\b|megapack|goodset|good\w+ v\d|tosec|complete\s+set)\b', re.I)
-def is_set(title, size):
+                    r'\bpack\b|\bsets?\b|megapack|goodset|good\w+ v\d|tosec|complete\s+set|'
+                    # Ergaenzt nach der Messung zu #689: das sind die Sammlungen, die ohne
+                    # die pauschale Groessenregel durchgerutscht waeren — je einzeln
+                    # nachgesehen, nicht geraten. `mod archive` bewusst als Wortpaar:
+                    # „Archive" allein trifft die Quelle Archive.org in jedem zweiten Titel.
+                    r'mod archive|rom ?hacks|\bcias\b|anthology|trilogy)\b', re.I)
+
+# Ab wann ist Groesse ein Hinweis auf eine Sammlung? NUR in der Modul-Aera (#689).
+# Dort ist ein Einzelspiel hoechstens ein paar hundert MB, ein 4-GB-Paket also sicher eine
+# Sammlung. Ab der CD-Aera sind mehrere GB ein normales Einzelspiel — `Uncharted 2` hat
+# 21,9 GB, `The Last of Us` 29,5 GB.
+SET_GROESSE_BIS_JAHR = 1994
+
+def is_set(title, size, slug=None):
+    """Ist das eine Sammlung statt eines einzelnen Titels? (#689)
+
+    Die Groesse allein taugt nicht mehr als Hinweis. Gemessen ueber zwoelf Suchen: von 156
+    als Sammlung eingestuften Treffern waren **136 Einzelspiele**, die nur wegen der 4-GB-
+    Schwelle dort landeten — `Uncharted 2: Among Thieves` (21,9 GB), `Silent Hill
+    Homecoming` (6,7 GB), `Mario Kart Wii` (7,2 GB). Weil `is_set` im Sortierschluessel
+    steht, rutschten sie ans Listenende: Bei „Silent Hill" standen die drei Homecoming-
+    Fassungen auf Platz 33, 34 und 53 von 59 — was in einer Liste dieser Laenge dasselbe
+    ist wie nicht gefunden.
+
+    Die Schwelle gilt deshalb nur noch fuer Plattformen der Modul-Aera. Was dabei sonst
+    durchgerutscht waere — Mod-Archive, ROMhack-Sammlungen — faengt jetzt das Namensmuster;
+    die acht Grenzfaelle sind einzeln nachgesehen worden.
+    """
     if SET_RE.search(title or ""): return True
-    return (size or 0) > 4*1024**3      # >4 GB -> vermutlich Sammlung
+    jahr = PLAT_JAHR.get(slug or "")
+    if jahr is not None and jahr < SET_GROESSE_BIS_JAHR:
+        return (size or 0) > 4*1024**3
+    return False
 
 def is_blocked(title, bl=None):
     """True, wenn der Titel ein Sperrlisten-Stichwort als Teilstring enthält (case-insensitive).
@@ -2546,7 +2575,7 @@ def do_search(q, platforms=None):
         # dort „Plattform unbekannt" neben „in Bibliothek". (#685)
         if r["in_library"] and not r["platform_slug"]:
             r["lib_slugs"] = library_slugs(r["title"])
-        r["is_set"] = is_set(r["title"], r["size"])
+        r["is_set"] = is_set(r["title"], r["size"], r["platform_slug"])
         r["gkey"] = norm(r["title"])          # zum Gruppieren gleicher Titel (Versionen)
         # „angefragt" ist ein ANDERER Zustand als „vorhanden", und beide interessieren VOR
         # dem Klick. Ohne das trägt die Karte einen Download-Knopf für etwas, das längst
