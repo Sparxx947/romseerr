@@ -489,11 +489,11 @@ async function updateJobBadge(){
   let fehler=offen.some(o=>jobGruppe(o.state)==='fehler');
   el.textContent=offen.length?' '+offen.length+' ':'';
   el.style.cssText=offen.length
-   ?`background:${fehler?'#c0392b':'#2a6f4b'};color:#fff;border-radius:10px;padding:0 6px;font-size:11px;margin-left:6px`:'';
+   ?`background:${fehler?'var(--err-bg)':'var(--ok-bg)'};color:#fff;border-radius:10px;padding:0 6px;font-size:11px;margin-left:6px`:'';
   el.title=offen.length?(fehler?t('flt_failed'):t('flt_active')):'';
  }catch(e){}}
 async function updateMsgBadge(){try{let d=await(await fetch('/api/messages')).json();let el=document.getElementById('msgbadge');if(!el)return;
- el.textContent=d.unread?' '+d.unread+' ':'';el.style.cssText=d.unread?'background:#c0392b;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;margin-left:6px':'';}catch(e){}}
+ el.textContent=d.unread?' '+d.unread+' ':'';el.style.cssText=d.unread?'background:var(--err-bg);color:#fff;border-radius:10px;padding:0 6px;font-size:11px;margin-left:6px':'';}catch(e){}}
 async function loadIssues(pref){let box=document.getElementById('issues');
  let items=await(await fetch('/api/issues')).json();
  let types=['broken','wrong_region','wrong_platform','other'];
@@ -805,7 +805,7 @@ async function loadPlay(it){let box=document.getElementById('mplay');if(!box)ret
   // Gebaut wie der Stream-Knopf daneben: Die beiden sind Geschwister — „hier spielen" und
   // „auf dem Host spielen" — und gehoeren als Paar gelesen, mit ihren Hinweisen daneben.
   box.innerHTML=`<a href="${d.url}" target=_blank rel=noopener class=spielknopf>▶ ${t('play')}</a>`
-   +(notes.length?` <span class=meta style="color:#d29922">${notes.join(' · ')}</span>`:'');
+   +(notes.length?` <span class=meta style="color:var(--warn)">${notes.join(' · ')}</span>`:'');
  }else{
   const why={no_romm:'play_no_romm',no_core:'play_no_core',not_in_library:'play_not_in_lib',
              too_large:'play_too_large',no_title:'play_no_title'};
@@ -847,7 +847,7 @@ async function loadStream(it){let box=document.getElementById('mstream');if(!box
      ? t('stream_seats').replace('{f}',(d.seats_free==null?d.seats:d.seats_free)).replace('{n}',d.seats)
      : t('stream_single')}</span>`;
  }else if(d.reason==='busy'){
-  box.innerHTML=`<span class=meta style="color:#d29922">📺 ${t('stream_busy').replace('{u}',(d.busy_user||'?')).replace('{g}',(d.busy_with||'?'))}</span>
+  box.innerHTML=`<span class=meta style="color:var(--warn)">📺 ${t('stream_busy').replace('{u}',(d.busy_user||'?')).replace('{g}',(d.busy_with||'?'))}</span>
    <button onclick="stopStream()" style="margin-left:8px;background:#2a2f37;border:none;color:#e6e8ec;padding:4px 10px;border-radius:6px;cursor:pointer">${t('stream_stop')}</button>`;
  }else if(d.reason==='ambiguous_platform'&&(d.candidates||[]).length){
   // Der einzige Grund, den der Bedienende auflösen KANN — also fragen statt absagen.
@@ -871,7 +871,7 @@ async function startStream(btn,title,plat){btn.disabled=true;btn.textContent='�
  btn.textContent=d.launched?t('stream_running')
    :(d.launch_error?t('stream_failed'):t('stream_manual'));
  if(d.launch_error||d.launch_reason){let s=document.createElement('div');s.className='meta';
-  s.style.cssText='margin-top:6px;color:#d29922;font-size:11px';
+  s.style.cssText='margin-top:6px;color:var(--warn);font-size:11px';
   // Ein falsches Token ist etwas anderes als ein toter Host — beides sah gleich aus, und
   // der Betreiber suchte am falschen Ende. (#177)
   s.textContent=d.launch_reason==='bad_token'?t('stream_badtoken'):d.launch_error;
@@ -897,8 +897,8 @@ function closeModal(ausRoute){
  else routeSetzen(cur,null,true);
 }
 // --- Wunschlisten-Import: Vorschau ZUERST, geschrieben wird erst nach Bestaetigung (#80) ---
-const WLST={matched:['var(--ok)','wl_s_matched'],ambiguous:['#d29922','wl_s_ambiguous'],
- not_found:['#f85149','wl_s_notfound'],duplicate:['#8b929e','wl_s_duplicate'],
+const WLST={matched:['var(--ok)','wl_s_matched'],ambiguous:['var(--warn)','wl_s_ambiguous'],
+ not_found:['var(--bad)','wl_s_notfound'],duplicate:['#8b929e','wl_s_duplicate'],
  in_library:['#8b929e','wl_s_inlib'],unverified:['#58a6ff','wl_s_unverified']};
 function openWlImport(){let m=document.getElementById('modal');m.style.display='block';
  m.innerHTML=`<div class=box><button class=x onclick="closeModal()">×</button>
@@ -911,15 +911,15 @@ function openWlImport(){let m=document.getElementById('modal');m.style.display='
    <button onclick="wlPreview()">${t('wl_imp_preview')}</button></div>
   <div id=wlres style="margin-top:12px"></div></div>`;}
 function wlReadFile(inp){let f=inp.files&&inp.files[0];if(!f)return;
- if(f.size>200000){document.getElementById('wlres').innerHTML='<div class=meta style="color:#f85149">'+t('wl_imp_toobig')+'</div>';return;}
+ if(f.size>200000){document.getElementById('wlres').innerHTML='<div class=meta style="color:var(--bad)">'+t('wl_imp_toobig')+'</div>';return;}
  let rd=new FileReader();rd.onload=()=>{document.getElementById('wlta').value=rd.result||'';};rd.readAsText(f);}
 async function wlPreview(){let res=document.getElementById('wlres');res.innerHTML='<div class=meta>…</div>';
  let text=document.getElementById('wlta').value||'';
  let d=await(await fetch('/api/wishlist/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text})})).json();
- if(!d.ok){res.innerHTML='<div class=meta style="color:#f85149">'+((d.msg||t('st_error')).replace(/</g,'&lt;'))+'</div>';return;}
+ if(!d.ok){res.innerHTML='<div class=meta style="color:var(--bad)">'+((d.msg||t('st_error')).replace(/</g,'&lt;'))+'</div>';return;}
  window._wlprev=d.entries;
  let sum=Object.keys(d.counts||{}).map(k=>`${t(WLST[k]?WLST[k][1]:k)}: <b>${d.counts[k]}</b>`).join(' · ');
- let warn=d.truncated?`<div class=meta style="color:#d29922">${t('wl_imp_trunc').replace('{n}',d.max)}</div>`:'';
+ let warn=d.truncated?`<div class=meta style="color:var(--warn)">${t('wl_imp_trunc').replace('{n}',d.max)}</div>`:'';
  let nochk=d.checked?'':`<div class=meta style="color:#58a6ff">${t('wl_imp_nocheck')}</div>`;
  let rows=d.entries.map((e,i)=>{let st=WLST[e.status]||['#8b929e',e.status];
   let sel=e.status==='ambiguous'
@@ -1193,7 +1193,7 @@ async function loadJobs(){let r=await fetch('/api/jobs');let d=await r.json();le
   j.appendChild(h);return;}
  d.forEach(o=>{let e=document.createElement('div');e.className='job';let L=stlab(o.state);let right;
   if(o.state=='pending'&&canDo('manage_requests')){
-   right=`<button onclick="approveJob('${o.id}')" style="background:var(--ok-bg);border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;margin-right:6px">${t('approve')}</button><button onclick="denyJob('${o.id}')" style="background:#6e2a2a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer">${t('deny')}</button>`;
+   right=`<button onclick="approveJob('${o.id}')" style="background:var(--ok-bg);border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;margin-right:6px">${t('approve')}</button><button onclick="denyJob('${o.id}')" style="background:var(--err-bg);border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer">${t('deny')}</button>`;
   }else{right=`<span class="st ${L[1]}">${L[0]}</span>`;
    if((o.state=='error'||o.state=='denied')&&canDo('manage_requests'))
     {// Ab dem dritten Versuch wechselt der Server die Quelle. Das gehört auf den Knopf,
@@ -1395,7 +1395,7 @@ async function loadLists(){
   wl.forEach(e=>{let row=document.createElement('div');row.className='job';
    row.innerHTML=`<div><div>${(e.title||'').replace(/</g,'&lt;')}</div><div class=meta style="font-size:11px">${(SLUGNAME[e.platform]||e.platform||'—').replace(/</g,'&lt;')}</div></div>`;
    let b=document.createElement('button');b.textContent=t('wl_remove');
-   b.style.cssText='background:#6e2a2a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer';
+   b.style.cssText='background:var(--err-bg);border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer';
    b.onclick=async()=>{await fetch('/api/wishlist/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:e.title,platform:e.platform})});loadLists();};
    row.appendChild(b);c.appendChild(row);});
  }else{
@@ -1405,7 +1405,7 @@ async function loadLists(){
   fv.forEach(e=>{let row=document.createElement('div');row.className='job';
    row.innerHTML=`<div><div>${(e.title||'').replace(/</g,'&lt;')}</div><div class=meta style="font-size:11px">${(SLUGNAME[e.platform]||e.platform||'—').replace(/</g,'&lt;')}</div></div>`;
    let b=document.createElement('button');b.textContent=t('fav_remove');
-   b.style.cssText='background:#6e2a2a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer';
+   b.style.cssText='background:var(--err-bg);border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer';
    b.onclick=async()=>{await fetch('/api/favourites/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:e.title})});loadLists();};
    row.appendChild(b);c.appendChild(row);});
  }}
@@ -1644,7 +1644,7 @@ async function fwStatus(){let el=document.getElementById('fwstat');if(!el)return
  if(d.vendor&&d.vendor.running){el.innerHTML=t('fw_fetching');setTimeout(fwStatus,5000);return;}
  el.innerHTML=d.platforms.map(p=>{
    let fehlt=p.files.filter(f=>f.state!=='ok');
-   let farbe=p.ready?'#7ac57a':'#c9a227';
+   let farbe=p.ready?'var(--ok)':'var(--warn)';
    let zeile=`<b style="color:${farbe}">${p.name}</b> `;
    if(p.ready){zeile+=t('fw_ready');}
    // Datei da, aber der Emulator hat sie nicht eingespielt: `fehlt` ist dann LEER, und
@@ -1693,7 +1693,7 @@ async function emuStatus(){let el=document.getElementById('emustat');if(!el)retu
    // Wie weit zurueck? Frueher gab es genau eine Fassung und der Pfeil sagte nichts
    // darueber. `kept` ist die Zahl der aufgehobenen Fassungen.
    let n=e.kept||0;
-   let rb=e.can_rollback?` <a href="#" onclick="emuRollback('${e.dir}');return false" title="${t('emu_rb_title').replace('{n}',n).replace('{v}',(e.previous||'').replace(/"/g,''))}" style="color:#d29922">↩${n>1?'<span class=meta>'+n+'</span>':''}</a>`:'';
+   let rb=e.can_rollback?` <a href="#" onclick="emuRollback('${e.dir}');return false" title="${t('emu_rb_title').replace('{n}',n).replace('{v}',(e.previous||'').replace(/"/g,''))}" style="color:var(--warn)">↩${n>1?'<span class=meta>'+n+'</span>':''}</a>`:'';
    return '<b>'+e.name+'</b>'+v+up+rb;}).join(' · ')
   ||t('emu_none');
  return;}
@@ -1723,10 +1723,10 @@ async function catStatus(){let el=document.getElementById('catstat');if(!el)retu
  let d=await(await fetch('/api/catalog/status')).json();
  if(!d.configured){el.textContent=t('cat_none');return;}
  el.innerHTML=d.sources.map(s=>`${(s.name||s.url).replace(/</g,'&lt;')}: `
-  +(s.error?`<span style="color:#f85149">${s.error.replace(/</g,'&lt;')}</span>`
+  +(s.error?`<span style="color:var(--bad)">${s.error.replace(/</g,'&lt;')}</span>`
           :`${s.count||0} · ${t('cov_asof')} ${(s.fetched||'').slice(0,10)}`)).join('<br>')
   +`<br>${d.items} ${t('cat_items')}`
-  +(d.jd&&!d.jd.ok?`<br><span style="color:#d29922">JDownloader: ${d.jd.info.replace(/</g,'&lt;')}</span>`:'');}
+  +(d.jd&&!d.jd.ok?`<br><span style="color:var(--warn)">JDownloader: ${d.jd.info.replace(/</g,'&lt;')}</span>`:'');}
 async function catRefresh(){let el=document.getElementById('catstat');el.textContent='…';
  let d=await(await fetch('/api/catalog/refresh',{method:'POST'})).json();
  if(!d.ok){el.textContent=d.msg||t('st_error');return;}setTimeout(catStatus,4000);}
@@ -1750,7 +1750,7 @@ async function secTls(c){let d=await(await fetch('/api/settings/tls')).json();
    <label style="min-width:auto;margin-left:16px">Port <input id=tls_port type=number value="${d.port||8443}" style="flex:0 0 100px"></label></div>
   <div class=frow><textarea id=tls_cert placeholder="-----BEGIN CERTIFICATE-----" style="${ta}"></textarea></div>
   <div class=frow><textarea id=tls_key placeholder="-----BEGIN PRIVATE KEY-----   (${t('tls_key_note')})" style="${ta}"></textarea></div>
-  <div class=frow><button onclick="saveTls()">${t('save')}</button><button onclick="removeTls()" style="margin-left:8px;background:#6e2a2a">${t('del')}</button><span id=tmsg class=meta></span></div>`;}
+  <div class=frow><button onclick="saveTls()">${t('save')}</button><button onclick="removeTls()" style="margin-left:8px;background:var(--err-bg)">${t('del')}</button><span id=tmsg class=meta></span></div>`;}
 async function saveTls(){let body={enabled:document.getElementById('tls_en').checked,port:parseInt(document.getElementById('tls_port').value)||8443};
  let cert=document.getElementById('tls_cert').value.trim(),key=document.getElementById('tls_key').value.trim();
  if(cert||key){body.cert=cert;body.key=key;}
@@ -1807,7 +1807,7 @@ async function jdProbe(btn){
  if(btn)btn.disabled=false;
  if(!box)return;
  box.innerHTML=`<div class=meta>${d.ok?'✅':'❌'} ${(d.info||'').replace(/</g,'&lt;')}</div>`
-  +(d.fix?`<div class=meta style="margin-top:4px;color:#d29922">→ ${d.fix.replace(/</g,'&lt;')}</div>`:'');}
+  +(d.fix?`<div class=meta style="margin-top:4px;color:var(--warn)">→ ${d.fix.replace(/</g,'&lt;')}</div>`:'');}
 async function unCheck(){let b=document.getElementById('unres');b.textContent='…';
  let d={};try{d=await(await fetch('/api/usenet/check')).json();}catch(e){b.textContent=t('st_error');return;}
  b.innerHTML=((d||{}).steps||[]).map(x=>`<div class=meta>${x.ok?'✅':'❌'} <b>${x.step.startsWith('indexer:')?t('un_indexer')+' '+x.step.slice(8).replace(/</g,'&lt;'):t(UN_NAME[x.step]||x.step)}</b> — ${(x.info||'').replace(/</g,'&lt;')}</div>`).join('')||`<div class=meta>${t('st_error')}</div>`;}
@@ -1889,7 +1889,7 @@ async function secMaint(c){
    <input type=file id=impfile accept=".json,application/json" style="flex:1;min-width:180px;font-size:12px">
    <select id=impmode style="background:#1a1d23;color:#e6e8ec;border:1px solid #2a2f37;border-radius:6px;padding:5px 8px">
     <option value="merge">${t('exp_merge')}</option><option value="replace">${t('exp_replace')}</option></select>
-   <button onclick="doImport()" style="background:#6e2a2a">${t('imp_do')}</button></div>
+   <button onclick="doImport()" style="background:var(--err-bg)">${t('imp_do')}</button></div>
   <div id=impmsg class=meta></div>
   <h3 style="margin-top:16px">${t('logs')}</h3><pre id=logbox class=logbox>…</pre>`;
  loadMStats();loadLogs();loadLeftovers();loadUnsortiert();}
@@ -1899,7 +1899,7 @@ async function doExport(){let pw=(document.getElementById('exppw').value||'');
  let body=pw?{secrets:'encrypt',passphrase:pw}:{};
  let r=await fetch('/api/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  let d=await r.json();
- if(!r.ok||d.ok===false){msg.style.color='#f85149';msg.textContent=d.msg||t('st_error');return;}
+ if(!r.ok||d.ok===false){msg.style.color='var(--bad)';msg.textContent=d.msg||t('st_error');return;}
  let blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
  let a=document.createElement('a');a.href=URL.createObjectURL(blob);
  a.download='romseerr-export-'+(d.exported_at||'').replace(/[:]/g,'')+'.json';
@@ -1907,15 +1907,15 @@ async function doExport(){let pw=(document.getElementById('exppw').value||'');
  msg.textContent=pw?t('exp_done_enc'):t('exp_done_plain');}
 async function doImport(){let msg=document.getElementById('impmsg');msg.style.color='';
  let f=document.getElementById('impfile').files[0];
- if(!f){msg.style.color='#f85149';msg.textContent=t('imp_nofile');return;}
+ if(!f){msg.style.color='var(--bad)';msg.textContent=t('imp_nofile');return;}
  let mode=document.getElementById('impmode').value;
  if(!await bestaetigen(t(mode==='replace'?'imp_conf_replace':'imp_conf_merge')))return;
- let doc;try{doc=JSON.parse(await f.text());}catch(e){msg.style.color='#f85149';msg.textContent=t('imp_badjson');return;}
+ let doc;try{doc=JSON.parse(await f.text());}catch(e){msg.style.color='var(--bad)';msg.textContent=t('imp_badjson');return;}
  msg.textContent='…';
  let r=await fetch('/api/import',{method:'POST',headers:{'Content-Type':'application/json'},
   body:JSON.stringify({document:doc,mode:mode,passphrase:document.getElementById('exppw').value||''})});
  let d=await r.json();
- if(!d.ok){msg.style.color='#f85149';msg.textContent=d.msg||t('st_error');return;}
+ if(!d.ok){msg.style.color='var(--bad)';msg.textContent=d.msg||t('st_error');return;}
  msg.style.color='var(--ok)';
  msg.textContent=t('imp_done')+' '+Object.keys(d.counts||{}).map(k=>k+': '+d.counts[k]).join(' · ');}
 async function loadMStats(){let s=await(await fetch('/api/admin/stats')).json();
@@ -2078,7 +2078,7 @@ function orgDauer(s){
 function orgZahl(n){return (n==null)?'–':n.toLocaleString(LANG||'de');}
 function orgStand(art,s){
  let lbl={laeuft:t('org_running'),fertig:t('org_finished'),abgebrochen:t('org_aborted')}[s.zustand]||s.zustand;
- let farbe={laeuft:'#3b82f6',fertig:'#16a34a',abgebrochen:'#d97706'}[s.zustand]||'#888';
+ let farbe={laeuft:'var(--acc)',fertig:'var(--ok)',abgebrochen:'var(--warn)'}[s.zustand]||'var(--mut)';
  let p=(s.prozent==null)?null:Math.max(0,Math.min(100,s.prozent));
  // Der Balken traegt die Zahl auch als Text: eine Breite allein ist nicht ablesbar,
  // und Screenreader bekommen ueber role=progressbar denselben Wert.
@@ -2216,7 +2216,7 @@ async function loadDrop(){
   +ber.map(x=>dropZeile('→',x.datei,x.slug+' · '+(x.grund||''))).join('')
   +((d.bereit_gesamt||0)>ber.length?`<div class=meta>${t('drop_more').replace('{n}',(d.bereit_gesamt-ber.length))}</div>`:''));
  if(off.length)teile.push(`<div style="margin-top:10px"><b>${t('drop_stuck')}</b> (${d.offen_gesamt||off.length})</div>`
-  +off.map(x=>dropZeile('•',x.datei,x.grund,'#d29922')).join('')
+  +off.map(x=>dropZeile('•',x.datei,x.grund,'var(--warn)')).join('')
   +((d.offen_gesamt||0)>off.length?`<div class=meta>${t('drop_more').replace('{n}',(d.offen_gesamt-off.length))}</div>`:''));
  el.innerHTML=kopf+teile.join('');}
 async function dropScan(btn){
@@ -2246,7 +2246,7 @@ async function secAbout(c){
   <div class=frow><span style="min-width:150px">${t('version')}</span><span class=meta>${ver.version||window.VERSION||'—'}${upd}</span></div>
   ${build?`<div class=frow><span style="min-width:150px">${t('about_build')}</span><span class=meta>${build}</span></div>`:''}
   ${ver.provenance&&ver.provenance!=='build'?`<div class=frow><span style="min-width:150px"></span>
-    <span class=meta style="color:#d29922">⚠ ${t('about_no_build')}</span></div>`:''}
+    <span class=meta style="color:var(--warn)">⚠ ${t('about_no_build')}</span></div>`:''}
   <div class=frow><span style="min-width:150px">${t('about_lib')}</span><span class=meta>${(st.lib_titles||0).toLocaleString()} ${t('about_titles')} · ${st.lib_platforms||0} ${t('about_platforms')}</span></div>
   <div class=frow><span style="min-width:150px">${t('about_jobs')}</span><span class=meta>${st.jobs_total||0} (${st.jobs_active||0} ${t('about_active')})</span></div>
   <h3 style="font-size:13px;margin-top:16px">${t('about_links')}</h3>
@@ -2334,7 +2334,7 @@ function renderUsers(list){let ul=document.getElementById('ulist');ul.innerHTML=
  list.forEach(u=>{let row=document.createElement('div');row.style.cssText='background:#171a20;border-radius:8px;padding:10px;margin-bottom:8px';
   let head=document.createElement('div');head.style.cssText='display:flex;justify-content:space-between;align-items:center';
   head.innerHTML=`<b>${u.role=='admin'?'👑 ':'👤 '}${(''+u.username).replace(/</g,'&lt;')}</b>`;
-  let del=document.createElement('button');del.textContent=t('del');del.style.cssText='background:#6e2a2a;border:none;color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer';
+  let del=document.createElement('button');del.textContent=t('del');del.style.cssText='background:var(--err-bg);border:none;color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer';
   del.onclick=async()=>{let d=await(await fetch('/api/users/'+encodeURIComponent(u.username),{method:'DELETE'})).json();if(d.ok)setSection('users');else alert(d.msg||'Fehler');};
   head.appendChild(del);row.appendChild(head);
   if(u.role=='admin'){let a=document.createElement('div');a.className='meta';a.style.marginTop='6px';a.textContent='alle Rechte / all permissions';row.appendChild(a);}

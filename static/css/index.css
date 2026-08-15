@@ -1,4 +1,4 @@
-:root{--bg:#14161a;--card:#1e2229;--acc:#7c5cff;--acc2:#6c5ce7;--ok:#3ddc97;--ok-bg:#1d5c45;--txt:#e6e8ec;--mut:#8b929e;
+:root{--bg:#14161a;--card:#1e2229;--acc:#7c5cff;--acc2:#6c5ce7;--ok:#3ddc97;--ok-bg:#1d5c45;--warn:#e0a92e;--warn-bg:#5a4410;--bad:#ff7b72;--err-bg:#6e2a2a;--gefahr:#7a2b2b;--gefahr-b:#933838;--gefahr-h:#c05252;--txt:#e6e8ec;--mut:#8b929e;
  --side:#0f1114;--topbar:#0f1114;--border:#262b33;--hover:#1a1e25;--input:#0b0d10;
  --radius:12px;--shadow:0 1px 2px rgba(0,0,0,.25);--blur:0px;
  /* Der aktive Menuepunkt traegt WEISSE Schrift. Auf `--acc` (#7c5cff) ergibt das 4,34:1
@@ -35,7 +35,7 @@
 ::-webkit-scrollbar-corner{background:transparent}
 /* ---- Designs (per Nutzer/global wählbar über <html data-design=…>) ---- */
 /* seerr = Standard (die :root-Werte oben, dunkel & poliert). glass & clean unten. */
-[data-design=glass]{--bg:#0b0e1a;--card:rgba(32,37,58,.55);--acc:#22d3ee;--acc2:#6366f1;--ok:#7ee787;--ok-bg:#1e5c33;--txt:#eaf2ff;--mut:#93a0c0;
+[data-design=glass]{--bg:#0b0e1a;--card:rgba(32,37,58,.55);--acc:#22d3ee;--acc2:#6366f1;--ok:#7ee787;--ok-bg:#1e5c33;--warn:#f0c452;--warn-bg:#54431a;--bad:#ff8f8a;--err-bg:#69303a;--gefahr:#7a2b2b;--gefahr-b:#933838;--gefahr-h:#c05252;--txt:#eaf2ff;--mut:#93a0c0;
  --side:rgba(18,22,38,.55);--topbar:rgba(18,22,38,.45);--border:rgba(255,255,255,.10);--hover:rgba(255,255,255,.07);--input:rgba(10,13,24,.5);
  --radius:16px;--shadow:0 10px 34px rgba(0,0,0,.40);--blur:16px;--navon:linear-gradient(90deg,#22d3ee,#818cf8);--navtxt:#04121a}
 [data-design=glass] body{background:
@@ -46,7 +46,7 @@
 [data-design=glass] .pcover,[data-design=glass] .job,[data-design=glass] .fbtn,[data-design=glass] input,
 [data-design=glass] #setcontent .frow input,[data-design=glass] .badge{backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur))}
 [data-design=glass] #side .logo{background:linear-gradient(90deg,#22d3ee,#818cf8);-webkit-background-clip:text;background-clip:text}
-[data-design=clean]{--bg:#0c0e11;--card:#14171b;--acc:#5b8cff;--acc2:#5b8cff;--ok:#56d364;--ok-bg:#17532f;--txt:#e7eaef;--mut:#7d8695;
+[data-design=clean]{--bg:#0c0e11;--card:#14171b;--acc:#5b8cff;--acc2:#5b8cff;--ok:#56d364;--ok-bg:#17532f;--warn:#d29922;--warn-bg:#503c12;--bad:#f85149;--err-bg:#5f2626;--gefahr:#7a2b2b;--gefahr-b:#933838;--gefahr-h:#c05252;--txt:#e7eaef;--mut:#7d8695;
  --side:#0c0e11;--topbar:#0c0e11;--border:#1c2026;--hover:#161a1f;--input:#0c0e11;
  --radius:8px;--shadow:none;--blur:0px;--navon:transparent;--navtxt:var(--acc)}
 [data-design=clean] #side .logo{background:none;-webkit-text-fill-color:var(--txt);color:var(--txt)}
@@ -68,7 +68,8 @@
   --side:#100d16;--topbar:#100d16;--border:#241f2e;--hover:#1b1724;--input:#100d16;
   --radius:14px;--shadow:0 10px 26px rgba(0,0,0,.45);--blur:0px;
   --navon:#d63a19;--navtxt:#fff;
-  --gefahr:#b3204a;--gefahr-b:#d0345f;--gefahr-h:#e8547c;--bad:#ff8a80;
+  --gefahr:#b3204a;--gefahr-b:#d0345f;--gefahr-h:#e8547c;--bad:#ff8fa8;
+  --warn:#f2d55c;--warn-bg:#5a3f14;--err-bg:#6b2733;
 }
 /* Navigation nach oben. Derselbe Griff, den die Mobil-Abfrage weiter unten schon macht —
    die Technik ist in dieser Datei erprobt, nur ohne Bildschirmbreite als Bedingung. */
@@ -293,7 +294,7 @@ main{margin-left:210px}
 main{padding-bottom:52px}
 #fuss a{color:#5b8cff;text-decoration:none}
 #fuss a:hover{text-decoration:underline}
-#fuss .warn{color:#d29922}
+#fuss .warn{color:var(--warn)}
 /* Suchfeld mit Leeren-Knopf darin (#661). Der Knopf sitzt IM Feld, nicht daneben — sonst
    wandert er beim Umbrechen der Zeile weg von dem, was er leert. Aurora rundet das Feld
    auf 999px, deshalb haelt der Knopf Abstand zum Rand. */
@@ -354,12 +355,12 @@ button[disabled]{opacity:.5;cursor:not-allowed}
    Aufzaehlung hier bliebe `.gefahr` folgenlos: die Variable stimmte, die Regel stand da,
    und der Knopf war trotzdem orange wie alle anderen. (#647) */
 button.gefahr,#setcontent button.gefahr,#modal .row button.gefahr{
-  background:var(--gefahr,#7a2b2b);border:1px solid var(--gefahr-b,#933838);color:#fff}
+  background:var(--gefahr);border:1px solid var(--gefahr-b);color:#fff}
 button.gefahr:hover:not([disabled]),#setcontent button.gefahr:hover:not([disabled]),
-#modal .row button.gefahr:hover:not([disabled]){border-color:var(--gefahr-h,#c05252)}
+#modal .row button.gefahr:hover:not([disabled]){border-color:var(--gefahr-h)}
 /* Warum ein Fehlschlag nicht durchging, steht unter der Liste — dort, wo geklickt wurde. */
-.lofail{margin-top:10px;padding:8px 10px;border:1px solid var(--gefahr-b,#933838);
-  border-radius:10px;color:var(--bad,#f85149);font-size:13px;line-height:1.5}
+.lofail{margin-top:10px;padding:8px 10px;border:1px solid var(--gefahr-b);
+  border-radius:10px;color:var(--bad);font-size:13px;line-height:1.5}
 .lofail ul{margin:4px 0 0;padding-left:18px}
 textarea{cursor:text;min-height:64px;resize:vertical}
 button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{
@@ -449,7 +450,7 @@ img.glogo{height:26px;width:auto;max-width:90px;object-fit:contain}
    sichtbar anders als ein Slug, den der Treffer selbst mitbringt. */
 .plat-derived{display:block}
 .plat-more{display:block;font-size:11px;color:var(--mut);opacity:.85;margin-top:1px}
-.plat-unknown{color:#d29922;cursor:help;border-bottom:1px dotted currentColor}
+.plat-unknown{color:var(--warn);cursor:help;border-bottom:1px dotted currentColor}
 .dl{margin-top:auto;padding:8px;border:none;border-radius:8px;background:var(--acc);color:#fff;font-weight:600;cursor:pointer}
 .dl:disabled{background:#2a2f37;color:var(--mut);cursor:default}
 .have{color:var(--ok);font-size:12px;text-align:center;padding:8px}
@@ -460,7 +461,7 @@ img.glogo{height:26px;width:auto;max-width:90px;object-fit:contain}
  font-size:11px;font-weight:600;color:#fff;display:flex;align-items:center;gap:5px;
  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cover .zust.da{background:var(--ok-bg);border:1px solid var(--ok)}
-.cover .zust.req{background:#5a4410;border:1px solid #d29922}
+.cover .zust.req{background:var(--warn-bg);border:1px solid var(--warn)}
 /* Zurückhaltender Zweitknopf: „Details" und „angefragt" sind keine Handlungsaufforderung
    wie ein Download, sollen aber sichtbar bleiben. */
 .dl.zw{background:var(--card);border:1px solid var(--border);color:var(--txt)}
@@ -485,7 +486,7 @@ button.job{width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer}
 button.job:hover{border-color:#39404b}
 button.job:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .st{font-size:12px;padding:2px 8px;border-radius:6px;background:#2a2f37}
-.st.done{background:var(--ok-bg)}.st.error{background:#6e2a2a}.st.downloading,.st.importing{background:#5a4a1e}
+.st.done{background:var(--ok-bg)}.st.error{background:var(--err-bg)}.st.downloading,.st.importing{background:#5a4a1e}
 .hint{color:var(--mut);padding:0 18px 18px;font-size:12px}
 /* Zurueckgehaltene Treffer (#688). Die Farbe kommt aus --acc und nicht aus --gefahr:
    nichts ist kaputt, es ist eine Auskunft, und der Knopf daneben ist ein gewoehnlicher

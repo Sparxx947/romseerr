@@ -1863,3 +1863,81 @@ def test_loadplay_baut_den_knopf_wirklich_in_den_fluss(seite):
         f"der Knopf traegt wieder die Cover-Abzeichen-Klasse: {lage['klassen']!r}"
     assert lage["position"] != "absolute", "der Knopf ist absolut positioniert"
     assert lage["drin"], "der Knopf liegt ausserhalb seines Kastens"
+
+
+def test_warnung_und_fehler_haben_in_jedem_design_genug_kontrast(seite):
+    """Gemessen, nicht geschaetzt — wie bei --ok in #660. (#703)
+
+    Zwei Bedingungen zugleich: Der Ton muss gegen den Kartengrund lesbar sein (4,5:1),
+    UND er muss sich vom Akzent unterscheiden lassen. Der Akzent ist der Download-Knopf;
+    in Aurora ist er ein Orangerot, und dort lagen die naheliegenden Warn- und Fehlertoene
+    mit Abstand 89 bzw. 102 zu dicht daran. Deshalb steht dort ein Gelb statt eines
+    Bernsteins und ein Rosarot statt eines Orangerots.
+    """
+    werte = seite.evaluate("""(kontrast) => {
+      const k = eval(kontrast);
+      const abstand = (a, b) => { const z = s => s.match(/\\d+(\\.\\d+)?/g).slice(0,3).map(Number);
+        const [x,y,w] = z(a), [p,q,r] = z(b);
+        return Math.sqrt((x-p)**2 + (y-q)**2 + (w-r)**2); };
+      const merk = document.documentElement.dataset.design, out = {};
+      for (const d of ['', 'glass', 'clean', 'aurora']) {
+        if (d) document.documentElement.dataset.design = d;
+        else delete document.documentElement.dataset.design;
+        const probe = document.createElement('div');
+        document.body.appendChild(probe);
+        const lies = v => { probe.style.color = `var(${v})`; return getComputedStyle(probe).color; };
+        const cs = getComputedStyle(document.documentElement);
+        probe.style.color = cs.getPropertyValue('--card').trim();
+        const karte = getComputedStyle(probe).color;
+        probe.style.color = cs.getPropertyValue('--acc').trim();
+        const akzent = getComputedStyle(probe).color;
+        out[d || 'seerr'] = {
+          warn:   [k(lies('--warn'), karte),   abstand(lies('--warn'), akzent)],
+          bad:    [k(lies('--bad'), karte),    abstand(lies('--bad'), akzent)],
+          warnbg: k('rgb(255,255,255)', lies('--warn-bg')),
+          errbg:  k('rgb(255,255,255)', lies('--err-bg')),
+        };
+        probe.remove();
+      }
+      if (merk) document.documentElement.dataset.design = merk;
+      else delete document.documentElement.dataset.design;
+      return out;
+    }""", _kontrast_js())
+    for design, w in werte.items():
+        assert w["warn"][0] >= 4.5, f"{design}: --warn nur {w['warn'][0]:.2f}:1 gegen die Karte"
+        assert w["bad"][0] >= 4.5, f"{design}: --bad nur {w['bad'][0]:.2f}:1 gegen die Karte"
+        assert w["warnbg"] >= 4.5, f"{design}: weiss auf --warn-bg nur {w['warnbg']:.2f}:1"
+        assert w["errbg"] >= 4.5, f"{design}: weiss auf --err-bg nur {w['errbg']:.2f}:1"
+        assert w["warn"][1] >= 110, \
+            f"{design}: --warn liegt nur {w['warn'][1]:.0f} vom Akzent entfernt"
+        assert w["bad"][1] >= 110, \
+            f"{design}: --bad liegt nur {w['bad'][1]:.0f} vom Akzent entfernt"
+
+
+def test_der_auftragszaehler_faerbt_sich_bei_fehlern(seite):
+    """Ob zwei Variablen verschieden AUSSEHEN, sieht man nicht im Quelltext. (#703/#198)
+
+    Der Quelltexttest kann nur pruefen, dass die beiden Zweige verschieden geschrieben
+    sind. Ob `var(--err-bg)` und `var(--ok-bg)` im Aufbau auch verschiedene Farben ergeben
+    — und ob sie ueberhaupt gesetzt sind — entscheidet erst der Browser.
+    """
+    werte = seite.evaluate("""() => {
+      const merk = document.documentElement.dataset.design, out = {};
+      for (const d of ['', 'aurora']) {
+        if (d) document.documentElement.dataset.design = d;
+        else delete document.documentElement.dataset.design;
+        const p = document.createElement('span'); document.body.appendChild(p);
+        const lies = v => { p.style.background = `var(${v})`;
+                            return getComputedStyle(p).backgroundColor; };
+        out[d || 'seerr'] = {fehler: lies('--err-bg'), normal: lies('--ok-bg')};
+        p.remove();
+      }
+      if (merk) document.documentElement.dataset.design = merk;
+      else delete document.documentElement.dataset.design;
+      return out;
+    }""")
+    for design, w in werte.items():
+        assert "rgba(0, 0, 0, 0)" not in w["fehler"], f"{design}: --err-bg ist nicht gesetzt"
+        assert "rgba(0, 0, 0, 0)" not in w["normal"], f"{design}: --ok-bg ist nicht gesetzt"
+        assert w["fehler"] != w["normal"], \
+            f"{design}: Fehler und Normalfall haben dieselbe Farbe {w['fehler']}"
