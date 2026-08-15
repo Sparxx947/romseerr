@@ -1171,6 +1171,26 @@ Archive und ROMhack-Pakete —, und für die stehen jetzt `mod archive`, `rom ha
 `anthology` und `trilogy` in `SET_RE`. **`archive` allein bewusst nicht**: Das Wort steht in
 jedem zweiten Archive.org-Titel.
 
+**Die drei Knöpfe der Detailkarte teilen sich eine Klasse (#708).** Zwei trugen ihre
+Gestaltung **inline**, einer kam aus dem Stylesheet — in Aurora unterschieden sie sich damit
+in Grund, Schriftfarbe *und* Eckenradius. Der Befund ging dabei andersherum aus als erwartet:
+Aurora rundet jeden Knopf auf 12 px, und weil Inline jede Designregel schlägt, folgte
+ausgerechnet der Favoriten-Knopf dem Design, während die beiden anderen es ignorierten.
+
+Der Farbunterschied war eine Folge von #705: Dort wurde die Palette des **JavaScripts** auf
+Variablen umgestellt, `.favbtn` steht aber im **Stylesheet**. Zwei von drei wurden
+design-fähig, einer nicht — dieselbe Form der Lücke wie in #703, nur eine Datei weiter.
+
+**Zeichen und Text stehen in eigenen Knoten, und das ist keine Zier:** `toggleFav` und
+`addWishlist` setzen `textContent`, was jedes Kind löscht. Ein Zeichen im Knopf wäre beim
+ersten Klick verschwunden — lautlos, denn der Text stimmt danach. Das ist die Falle aus #337
+in ihrer dritten Form.
+
+Der Zustand des Favoriten hängt jetzt an der **Form** (gefülltes gegen offenes Herz), nicht
+an der Farbe. Für „Problem melden" und „Merken" entstand **kein** neues Zeichen: Das Modul
+mit Ausrufezeichen und das Lesezeichen meinen dasselbe wie die Menüpunkte, zu denen sie
+gehören.
+
 **Nur das Cover-Abzeichen ist absolut positioniert (#698).** Jens meldete, dass „Im Browser
 spielen" oben links über der Navigationsleiste stand. Gemessen bei offener Detailkarte: der
 Knopf bei **(6, 6)**, sein Platz `#mplay` bei **(892, 529)** — 900 px daneben.
@@ -1461,6 +1481,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 *EN: menu and tabs carry drawn icons (#658). The navigation ran on emoji, which come from whatever font the system has — `.navsym` even carried `font-variant-emoji:emoji` plus U+FE0F, two coercions to force a presentation out of a font. Jens chose the outline style from two drafts. The vocabulary comes from the mark without copying it: where the subject is a GAME the icon carries the cartridge silhouette with its chamfered corner; where it is not, a conventional shape stands instead — sliders, padlock, bell. Discover is a magnifier whose lens carries the chamfer, because a cartridge with a separate magnifier would be two too-small things at 21 px. The #337 path was live and worse than assumed: `applyI18n` sets `textContent` and deletes children, and for `profile` and `nav_lists` the symbol lived only in the template, so 👤 and ⭐ were never visible at all — not after a language switch, but from load. Only 🚪 survived because it sat inside the translated string, which is why it had to come out of all five language files. Settings sub-entries deliberately get no icons: they are product names.*
 
 *EN: only the cover badge is absolutely positioned (#698). Jens reported the play button sitting over the navigation bar. Measured with the detail card open: the button at (6, 6), its own slot `#mplay` at (892, 529) — 900 px away. The cause reached further than that one button: a second `.badge` rule further down restyles the detail badges with equal specificity and later position, winning for background, border, padding and font size — but it does not reset `position`. Only `position/top/left` survived from the first rule, and that applied everywhere: rating, year, developer, genres and the achievements row were all absolutely positioned. The rule is now scoped to `.cover` and contains nothing but the positioning; pulling the visual properties up with it would have silently restyled the cover badge, including its pill shape in Aurora.*
+
+*EN: the three detail-card buttons now share one class (#708). Two carried their styling inline and one came from the stylesheet, so in Aurora they differed in background, text colour AND corner radius. The finding ran the opposite way to expectation: Aurora rounds every button to 12 px, and because inline beats any theme rule, the favourite button was the one FOLLOWING the design while the other two ignored it. The colour difference was a consequence of #705, which mapped the JavaScript's palette onto variables while `.favbtn` lives in the stylesheet — the same shape of gap as #703, one file over. Icon and text live in separate nodes because `toggleFav` and `addWishlist` set `textContent`, which deletes every child: an icon inside the button would have vanished on the first click, silently, since the text still reads correctly. The favourite state now hangs on FORM — filled versus outline heart — not on colour. No new icon was drawn for "report" and "watch": the cartridge with an exclamation mark and the bookmark mean the same as the menu entries they belong to.*
 
 *EN: a card can no longer say "in library" and "platform unknown" at once (#685). `in_library()` falls back to a global check when the hit names no platform — correct, but it only answers whether. `library_slugs()` answers where, sorted by the platform's release year (oldest first), which for a title on several systems is almost always the one it appeared on first. Measured: 6.9% of titles sit on more than one platform. Deliberately the console's year, not the game's — IGDB gives one date per game and does not know the hacks and homebrew this concerns. The card marks the value as derived.*
 

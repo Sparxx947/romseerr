@@ -2045,3 +2045,102 @@ def test_die_verweisfarbe_traegt_auf_dem_dunkelsten_grund(seite):
             f"{design}: Verweis auf der Fusszeile nur {w['fuss']:.2f}:1"
         assert w["karte"] >= 4.5, \
             f"{design}: Verweis auf der Karte nur {w['karte']:.2f}:1"
+
+
+# --- #708: die drei Knoepfe auf der Detailkarte ---
+
+def _detailkarte_oeffnen(seite):
+    """Eine Detailkarte oeffnen, ohne von einer echten Suche abzuhaengen."""
+    seite.route("**/api/search*", lambda route: route.fulfill(
+        status=200, content_type="application/json",
+        headers={"X-Platform-Hidden": "0"},
+        body='[{"title":"Probe","platform":"snes","platform_slug":"snes","source":"archive",'
+             '"size":524288,"ref":"p708","cover":"","gkey":"probe","in_library":false,'
+             '"grp_in_library":false,"is_set":false,"variant":{},"variant_label":""}]'))
+    seite.evaluate("() => { SELP = new Set(); localStorage.setItem('romp','[]'); }")
+    seite.locator("#q").fill("Probe")
+    seite.press("#q", "Enter")
+    for _ in range(60):
+        if seite.locator("#grid .card").count(): break
+        seite.wait_for_timeout(200)
+    seite.locator("#grid .card .t").first.click()
+    seite.wait_for_timeout(1200)
+
+
+def test_die_drei_knoepfe_der_detailkarte_stimmen_ueberein(seite):
+    """Zwei trugen ihre Gestaltung inline, einer kam aus dem Stylesheet. (#708)
+
+    In Aurora unterschieden sie sich damit in Grund, Schriftfarbe UND Eckenradius.
+    Gemessen: `rgb(38,32,47)`/`#fff`/6px gegen `rgb(42,47,55)`/`rgb(230,232,236)`/12px.
+
+    Und der Befund ging andersherum aus als erwartet: Aurora rundet jeden Knopf auf 12 px;
+    weil INLINE jede Designregel schlaegt, folgte ausgerechnet der Favoriten-Knopf dem
+    Design und die beiden anderen ignorierten es.
+    """
+    _detailkarte_oeffnen(seite)
+    werte = seite.evaluate("""() => {
+      const merk = document.documentElement.dataset.design, out = {};
+      for (const d of ['', 'glass', 'clean', 'aurora']) {
+        if (d) document.documentElement.dataset.design = d;
+        else delete document.documentElement.dataset.design;
+        const k = [...document.querySelectorAll('#modal .kartenknopf')];
+        out[d || 'seerr'] = k.map(e => { const c = getComputedStyle(e);
+          return [c.backgroundColor, c.color, c.borderRadius]; });
+      }
+      if (merk) document.documentElement.dataset.design = merk;
+      else delete document.documentElement.dataset.design;
+      return out;
+    }""")
+    for design, knoepfe in werte.items():
+        assert len(knoepfe) == 3, f"{design}: {len(knoepfe)} Knoepfe statt 3"
+        einzig = {tuple(k) for k in knoepfe}
+        assert len(einzig) == 1, \
+            f"{design}: die drei Knoepfe sehen verschieden aus — {einzig}"
+    # ... und sie muessen sich JE DESIGN unterscheiden, sonst haengen sie wieder fest.
+    assert len({tuple(v[0]) for v in werte.values()}) == 4, \
+        f"die Knoepfe sehen in allen Designs gleich aus: {werte}"
+
+
+def test_der_favoriten_umschalter_behaelt_sein_zeichen(seite):
+    """DIE FALLE AUS #337, in ihrer dritten Form. (#708)
+
+    `toggleFav` setzte `btn.textContent` — das loescht jedes Kind. Ein Zeichen im Knopf
+    waere beim ersten Klick verschwunden, und zwar lautlos: Der Text stimmt danach, nur
+    das Zeichen fehlt. Genau so haben Abdeckung und Bibliothek 2024 ihre Symbole verloren.
+    """
+    _detailkarte_oeffnen(seite)
+    seite.route("**/api/favourites*", lambda route: route.fulfill(
+        status=200, content_type="application/json", body='{"ok":true}'))
+    vorher = seite.evaluate("""() => {
+      const b = document.getElementById('favbtn');
+      return {zeichen: b.querySelectorAll('svg').length,
+              kennung: (b.querySelector('use')||{}).getAttribute?.('href'),
+              text: (b.querySelector('span')||{}).textContent};
+    }""")
+    assert vorher["zeichen"] == 1, "der Knopf traegt schon vor dem Klick kein Zeichen"
+    seite.locator("#favbtn").click()
+    seite.wait_for_timeout(900)
+    nachher = seite.evaluate("""() => {
+      const b = document.getElementById('favbtn');
+      return {zeichen: b.querySelectorAll('svg').length,
+              kennung: (b.querySelector('use')||{}).getAttribute?.('href'),
+              text: (b.querySelector('span')||{}).textContent,
+              an: b.classList.contains('on')};
+    }""")
+    assert nachher["zeichen"] == 1, "nach dem Klick ist das Zeichen weg (textContent-Falle)"
+    assert nachher["text"] == vorher["text"], "die Beschriftung hat sich veraendert"
+    assert nachher["kennung"] != vorher["kennung"], \
+        f"das Zeichen wechselt nicht mit dem Zustand: bleibt {nachher['kennung']}"
+    assert nachher["an"], "der Knopf traegt den Zustand nicht"
+
+
+def test_kein_schriftzeichen_mehr_in_den_drei_knoepfen(seite):
+    """Zeichen aus der Systemschrift, wie in #658 abgeschafft. (#708)"""
+    import re
+    _detailkarte_oeffnen(seite)
+    texte = seite.evaluate(
+        "() => [...document.querySelectorAll('#modal .kartenknopf')].map(e => e.textContent)")
+    assert len(texte) == 3
+    for t in texte:
+        treffer = re.findall(r"[\U0001F300-\U0001FAFF♠-♧❤♡♥☆★]", t)
+        assert not treffer, f"Schriftzeichen {treffer} steht noch in {t.strip()!r}"

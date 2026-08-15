@@ -467,10 +467,23 @@ img.glogo{height:26px;width:auto;max-width:90px;object-fit:contain}
 .dl.zw{background:var(--card);border:1px solid var(--border);color:var(--txt)}
 /* Favorit (#207): im Detail ein Umschalter, auf der Karte nur ein kleines Zeichen am
    Titel — der Platz auf dem Cover gehoert dem Zustand (vorhanden/angefragt). */
-.favbtn{margin-top:8px;margin-left:6px;background:#2a2f37;border:none;color:#e6e8ec;
- padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px}
-.favbtn.on{background:#7a2540;color:#fff}
-.favmark{color:#ff6b8a}
+/* DIE DREI KNOEPFE AUF DER DETAILKARTE (#708). Vorher trugen zwei ihre Gestaltung
+   INLINE und einer kam von hier — in Aurora unterschieden sie sich damit in Grund,
+   Schriftfarbe UND Eckenradius. Inline schlaegt jede Designregel, weshalb ausgerechnet
+   der Favoriten-Knopf dem Design folgte und die beiden anderen es ignorierten.
+   Keine Werte mehr, die nur zum Standard-Design passen: `--btn2` und `--txt` gehen mit. */
+.kartenknopf{margin-top:8px;background:var(--btn2);border:none;color:var(--txt);
+ padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;
+ display:inline-flex;align-items:center;gap:.42em;vertical-align:top}
+.kartenknopf+.kartenknopf{margin-left:6px}
+.kartenknopf .navsym{width:1.15em;height:1.15em;margin-right:0;vertical-align:0}
+/* Zeichen in einer Ueberschrift: etwas groesser, mit Abstand zum Text. */
+.navsym.ueberschrift{width:1.05em;height:1.05em;margin-right:.35em;vertical-align:-.12em}
+/* Favorit (#207/#708): Der Zustand haengt an der FORM — gefuelltes gegen offenes Herz —,
+   die Farbe verstaerkt ihn nur. Ein Zustand, den allein die Farbe traegt, sagt einem
+   rot-gruen-blinden Menschen nichts; dieselbe Regel wie beim Zustand auf der Karte. */
+.favbtn.on{color:var(--acc)}
+.favmark{color:var(--acc)}
 .dl.zw:disabled{opacity:.6;cursor:default}
 #jobs{padding:18px;display:none}
 .card .cover{cursor:pointer}
