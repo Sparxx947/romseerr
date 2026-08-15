@@ -9427,3 +9427,42 @@ def test_ein_import_ohne_neue_dateien_liest_den_index_gar_nicht(appmod):
         with appmod.JOBS_LOCK:
             appmod.JOBS[:] = [x for x in appmod.JOBS if x["id"] != jid]; appmod.save_jobs()
         appmod.build_index()
+
+
+def test_ein_teillauf_liest_auch_den_alias_ordner_der_plattform(appmod):
+    """Der Teillauf filtert am SLUG — und muss den Alias-Ordner mitnehmen. (#655 × #454)
+
+    `dc` und `dreamcast` sind dieselbe Plattform, `gc` und `ngc` auch, und ein Import
+    landet in dem Ordner, in dem die Bibliothek **schon** liegt (`bibliothek_ordner`).
+    Filterte der Teillauf am Ordnernamen statt am Slug, träfe er den Alias-Ordner nicht:
+    `DELETE FROM library WHERE slug='dreamcast'` räumte die Plattform ab, und der Lauf
+    legte nichts zurück — die halbe Bibliothek wäre still verschwunden, bis 600 s später
+    der volle Lauf sie wiederfindet.
+
+    Genau diese Sorte Fehler ist #454, eine Schicht tiefer.
+
+    EN: the partial run filters by slug, and must therefore still pick up the alias folder
+    a library actually lives in — otherwise the DELETE empties the platform and the run
+    puts nothing back.
+    """
+    dc = os.path.join(appmod.ROMS, "dc")
+    os.makedirs(dc, exist_ok=True)
+    dateien = [os.path.join(dc, "Zzz Sonic Alias.cdi")]
+    open(dateien[0], "w").close()
+    try:
+        appmod.build_index()
+        assert appmod.in_library("Zzz Sonic Alias.cdi", "dreamcast"), \
+            "Vorbedingung: der volle Lauf ordnet `dc` schon dem Slug `dreamcast` zu"
+        dateien.append(os.path.join(dc, "Zzz Crazy Alias.gdi"))
+        open(dateien[-1], "w").close()
+
+        appmod.index_aktualisieren({"dreamcast"})
+        assert appmod.in_library("Zzz Crazy Alias.gdi", "dreamcast"), \
+            "der Teillauf hat den Alias-Ordner `dc` nicht gelesen"
+        assert appmod.in_library("Zzz Sonic Alias.cdi", "dreamcast"), \
+            "der Teillauf hat die Plattform geleert statt sie neu zu lesen"
+    finally:
+        for p in dateien:
+            if os.path.exists(p): os.remove(p)
+        os.rmdir(dc)
+        appmod.build_index()
