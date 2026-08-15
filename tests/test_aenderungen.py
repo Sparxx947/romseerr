@@ -1641,3 +1641,172 @@ def test_search_cache_ttl_zero_really_turns_it_off(appmod, monkeypatch):
     monkeypatch.setattr(appmod, "search_archive", tot)
     assert appmod.do_search("Mario", []) == [], \
         "trotz TTL 0 kam ein alter Stand zurueck"
+
+
+# ---------------------------------------------------------------------------
+# #731 — ein gemeinsames Gedaechtnis fuer archive.org-Metadaten
+# ---------------------------------------------------------------------------
+#
+# GEMESSEN (2026-08-16), nicht vermutet. Das Issue vermutete drei gleich grosse
+# externe Aufrufe in Reihe und einen Faden-Pool als Antwort. Beides stimmt nicht:
+# `ra_lookup` ist eine lokale SQLite-Abfrage, und von den verbleibenden zwei ist
+# archive.org 85–95 % der Zeit.
+#
+#   /metadata/<id>, 10 verschiedene Elemente:  8,44 – 10,59 s, Median ~9,4 s
+#   — unabhaengig von der Groesse (3 KB wie 30 KB), `connect` durchweg 0,17 s
+#   IGDB daneben:                              348 / 521 / 575 ms kalt, 7–9 ms warm
+#
+# Nebeneinander haette also ~0,5 s von ~11 s gespart und auf Karten OHNE
+# Archive-Ref (nur ein externer Aufruf) exakt nichts. Gemerkt spart es alles.
+
+def _archiv_antwort(namen):
+    return {"files": [{"name": n, "size": 100} for n in namen]}
+
+
+def test_the_same_archive_item_is_only_fetched_once(appmod, monkeypatch):
+    """Gemessen ~9,4 s je Abruf — denselben zweimal zu zahlen ist einmal zu viel. (#731)"""
+    appmod.ARCHIVE_META.clear()
+    rufe = []
+    monkeypatch.setattr(appmod, "_archive_metadata_holen",
+                        lambda ident, timeout: rufe.append(ident) or _archiv_antwort(["a.zip"]))
+    appmod.archive_metadata("ein-element")
+    appmod.archive_metadata("ein-element")
+    assert len(rufe) == 1, f"archive.org wurde {len(rufe)}-mal gefragt statt einmal"
+
+
+def test_a_different_archive_item_still_reaches_archive_org(appmod, monkeypatch):
+    """Der Schluessel ist das ELEMENT, nicht „irgendwas von archive.org". (#731)"""
+    appmod.ARCHIVE_META.clear()
+    rufe = []
+    monkeypatch.setattr(appmod, "_archive_metadata_holen",
+                        lambda ident, timeout: rufe.append(ident) or _archiv_antwort(["a.zip"]))
+    appmod.archive_metadata("element-eins")
+    appmod.archive_metadata("element-zwei")
+    assert rufe == ["element-eins", "element-zwei"], f"das zweite Element kam nicht durch: {rufe}"
+
+
+def test_the_detail_card_and_the_download_share_one_memory(appmod, monkeypatch):
+    """Beide Aufrufer holen dieselben Metadaten desselben Elements. (#731)
+
+    Ohne gemeinsames Gedaechtnis zahlt der Download-Start die gemessenen ~9,4 s ein
+    zweites Mal — unmittelbar nachdem die Karte sie gerade bezahlt hat.
+    """
+    appmod.ARCHIVE_META.clear()
+    rufe = []
+    monkeypatch.setattr(appmod, "_archive_metadata_holen",
+                        lambda ident, timeout: rufe.append(ident) or _archiv_antwort(["spiel.zip"]))
+    appmod.archive_metadata("geteiltes-element")
+    urls = appmod.archive_file_urls("geteiltes-element")
+    assert len(rufe) == 1, f"der Download-Start fragte erneut: {rufe}"
+    assert any("spiel.zip" in u for u in urls), f"aus dem Gedaechtnis kam nichts Brauchbares: {urls}"
+
+
+def test_a_failing_archive_lookup_falls_back_to_the_last_known_answer(appmod, monkeypatch):
+    """Der letzte bekannte Stand schlaegt „Fehler". (#731, Muster von #726)
+
+    Die Dateiliste eines veroeffentlichten archive.org-Elements ist im Wesentlichen
+    unveraenderlich — der alte Stand ist derselbe, den der Abruf vor einer Stunde gab.
+    Die Frist im Code liegt bei 15 s, und eine Messung lag bei 15,3 s: das trifft.
+    """
+    appmod.ARCHIVE_META.clear()
+    monkeypatch.setattr(appmod, "_archive_metadata_holen",
+                        lambda ident, timeout: _archiv_antwort(["gemerkt.zip"]))
+    appmod.archive_metadata("wackelig")
+    for k in list(appmod.ARCHIVE_META):
+        zeit, wert = appmod.ARCHIVE_META[k]
+        appmod.ARCHIVE_META[k] = (zeit - appmod.ARCHIVE_META_TTL - 1, wert)
+
+    def tot(ident, timeout):
+        raise RuntimeError("Zeitueberschreitung")
+    monkeypatch.setattr(appmod, "_archive_metadata_holen", tot)
+    m = appmod.archive_metadata("wackelig")
+    assert [f["name"] for f in m["files"]] == ["gemerkt.zip"], \
+        f"kein Rueckfall auf den letzten bekannten Stand: {m}"
+
+
+def test_a_failing_archive_lookup_without_a_known_answer_still_raises(appmod, monkeypatch):
+    """Ohne alten Stand bleibt der Fehler ein Fehler. (#731)
+
+    Sonst saehe ein Ausfall aus wie ein Element ohne Dateien — und der Download-Start
+    legte stillschweigend einen Auftrag ohne eine einzige URL an.
+    """
+    appmod.ARCHIVE_META.clear()
+
+    def tot(ident, timeout):
+        raise RuntimeError("Zeitueberschreitung")
+    monkeypatch.setattr(appmod, "_archive_metadata_holen", tot)
+    import pytest as _p
+    with _p.raises(Exception):
+        appmod.archive_metadata("nie-gesehen")
+
+
+def test_an_empty_archive_answer_is_not_remembered(appmod, monkeypatch):
+    """„Kenne ich nicht" eine Stunde lang festzuhalten waere eine Falle. (#731)
+
+    archive.org antwortet auf ein unbekanntes Element mit HTTP 200 und `{}`. Genau so
+    sieht ein Element aus, das gerade erst hochgeladen wurde.
+    """
+    appmod.ARCHIVE_META.clear()
+    monkeypatch.setattr(appmod, "_archive_metadata_holen", lambda ident, timeout: {})
+    appmod.archive_metadata("gibt-es-noch-nicht")
+    assert not appmod.ARCHIVE_META, f"eine leere Antwort wurde gemerkt: {list(appmod.ARCHIVE_META)}"
+
+
+def test_the_archive_metadata_cache_is_bounded(appmod, monkeypatch):
+    """Jede geoeffnete Karte legt einen Eintrag an, und nichts raeumt auf. (#731)"""
+    appmod.ARCHIVE_META.clear()
+    monkeypatch.setattr(appmod, "_archive_metadata_holen",
+                        lambda ident, timeout: _archiv_antwort([f"{ident}.zip"]))
+    for i in range(appmod.ARCHIVE_META_MAX + 25):
+        appmod.archive_metadata(f"element-{i}")
+    assert len(appmod.ARCHIVE_META) <= appmod.ARCHIVE_META_MAX, \
+        f"der Zwischenspeicher waechst unbegrenzt: {len(appmod.ARCHIVE_META)} Eintraege"
+
+
+def test_the_archive_memory_hands_out_copies(appmod, monkeypatch):
+    """Der Aufrufer sortiert und schneidet die Dateiliste zu. (#731)
+
+    `api_detail` baut aus `m["files"]` eine eigene Liste, `archive_file_urls` liest
+    dieselbe. Ohne Kopie beschrieben zwei parallele Anfragen dasselbe Objekt.
+    """
+    appmod.ARCHIVE_META.clear()
+    monkeypatch.setattr(appmod, "_archive_metadata_holen",
+                        lambda ident, timeout: _archiv_antwort(["a.zip", "b.zip"]))
+    erst = appmod.archive_metadata("kopie")
+    erst["files"].clear()
+    erst["marke"] = "verunreinigt"
+    zweit = appmod.archive_metadata("kopie")
+    assert len(zweit["files"]) == 2 and "marke" not in zweit, \
+        f"der Zwischenstand wurde vom Aufrufer verfaelscht: {zweit}"
+
+
+def test_archive_meta_ttl_zero_really_turns_it_off(appmod, monkeypatch):
+    """Ein Schalter, der nur die Haelfte abschaltet, ist schlimmer als keiner. (#731)"""
+    appmod.ARCHIVE_META.clear()
+    monkeypatch.setattr(appmod, "ARCHIVE_META_TTL", 0)
+    monkeypatch.setattr(appmod, "_archive_metadata_holen",
+                        lambda ident, timeout: _archiv_antwort(["a.zip"]))
+    appmod.archive_metadata("aus")
+    assert not appmod.ARCHIVE_META, f"trotz TTL 0 wurde gemerkt: {list(appmod.ARCHIVE_META)}"
+
+    def tot(ident, timeout):
+        raise RuntimeError("Zeitueberschreitung")
+    monkeypatch.setattr(appmod, "_archive_metadata_holen", tot)
+    import pytest as _p
+    with _p.raises(Exception):
+        appmod.archive_metadata("aus")
+
+
+def test_both_archive_call_sites_go_through_the_memory(appmod):
+    """Ein zweiter direkter `requests.get` auf /metadata/ umginge das Gedaechtnis. (#731)
+
+    Genau so entstand das Problem: derselbe Aufruf stand zweimal im Code, und der
+    zweite wusste nichts vom ersten.
+    """
+    import inspect
+    quelle = inspect.getsource(appmod)
+    direkt = [z.strip() for z in quelle.splitlines()
+              if "archive.org/metadata" in z and "requests.get" in z]
+    assert len(direkt) == 1, \
+        ("archive.org/metadata wird ausserhalb von `_archive_metadata_holen` geholt:\n  "
+         + "\n  ".join(direkt))

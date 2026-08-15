@@ -3567,8 +3567,89 @@ def jd_probe(wartezeit=30):
                    "(Einstellungen → Extension Modules) / install and enable the "
                    "FolderWatch extension in JDownloader"}
 
+# ---------- archive.org: Metadaten eines Elements, einmal geholt (#731) ----------
+#
+# GEMESSEN am 2026-08-16, zehn verschiedene Elemente, vom Desktop wie aus dem Container:
+# `https://archive.org/metadata/<id>` braucht **8,44–10,59 s, Median ~9,4 s** — und zwar
+# UNABHAENGIG von der Groesse der Antwort (3 KB wie 30 KB). Das ist feste Serverzeit
+# drueben, keine Bandbreite und nicht unsere Leitung: `connect` lag durchweg bei 0,17 s.
+# Der schmalere Pfad `/metadata/<id>/files` hilft nicht (8,65 / 8,48 / 7,63 s).
+#
+# Zum Vergleich: archive.orgs SUCHE (`advancedsearch.php`) lag bei 851 ms Median. Suche
+# schnell, Metadaten langsam — zwei verschiedene Dienste, und nur der zweite ist teuer.
+#
+# WARUM KEIN FADEN-POOL (das war der urspruengliche Vorschlag in #731): Auf einer Karte
+# ohne Archive-Ref gibt es nur EINEN externen Aufruf (IGDB, 348–575 ms kalt) — daneben
+# ist `ra_lookup` eine lokale SQLite-Abfrage. Nebeneinander gewinnt dort exakt nichts.
+# Auf der Karte MIT Archive-Ref sind es gemessen 10,3–12,3 s, davon 85–95 % archive.org;
+# der Pool haette die ~0,5 s IGDB gespart, also ein Zwanzigstel. Gemerkt spart es alles.
+#
+# DERSELBE AUFRUF STAND ZWEIMAL IM CODE: die Detailkarte und `archive_file_urls` beim
+# Download-Start holen dieselben Metadaten desselben Elements. Wer eine Karte oeffnet und
+# dann herunterlaedt, zahlte die ~9,4 s zweimal hintereinander.
+#
+# EN: archive.org's metadata endpoint costs a flat ~9.4 s per item regardless of payload
+# size, and the same call sat in the code twice — detail card and download start. One
+# shared memory, following the #726 pattern: bounded, empty answers are not remembered,
+# copies are handed out, and a failing lookup falls back to the last known answer.
+ARCHIVE_META_TTL = int(os.environ.get("ARCHIVE_META_TTL", "3600"))   # 1 h
+ARCHIVE_META_MAX = int(os.environ.get("ARCHIVE_META_MAX", "200"))
+ARCHIVE_META = {}
+ARCHIVE_META_LOCK = threading.Lock()
+
+def _archive_metadata_holen(ident, timeout):
+    """Der reine Abruf. Getrennt, damit das Gedaechtnis darueber testbar ist."""
+    return requests.get(f"https://archive.org/metadata/{ident}", timeout=timeout).json()
+
+def archive_metadata(ident, timeout=20):
+    """Metadaten eines archive.org-Elements — mit Gedaechtnis und Rueckfall. (#731)
+
+    EINE STUNDE ist hier vertretbar, anders als bei der Suche (10 min): Gemerkt wird die
+    Dateiliste eines VEROEFFENTLICHTEN Elements, nicht unser eigener Bestand. Sie aendert
+    sich nur, wenn der Hochladende drueben etwas nachlegt — unsere Importe beruehren sie
+    nicht. Der Fallstrick aus #730 („sonst versteckt es frisch importierte Dateien") gilt
+    hier also gerade nicht.
+
+    LEERE ANTWORTEN WERDEN NICHT GEMERKT: archive.org beantwortet ein unbekanntes Element
+    mit HTTP 200 und `{}`. Genau so sieht ein Element aus, das gerade erst hochgeladen
+    wurde — das eine Stunde lang festzuhalten waere eine Falle.
+
+    KOPIEN, KEINE VERWEISE: Beide Aufrufer arbeiten auf `m["files"]` weiter (sortieren,
+    zuschneiden, filtern). Ohne Kopie beschrieben zwei parallele Anfragen dasselbe Objekt.
+
+    OHNE ALTEN STAND BLEIBT DER FEHLER EIN FEHLER. Eine leere Dateiliste zurueckzugeben
+    saehe aus wie ein Element ohne Inhalt, und `archive_file_urls` legte dann
+    stillschweigend einen Download-Auftrag ohne eine einzige URL an.
+    """
+    # ARCHIVE_META_TTL=0 heisst WIRKLICH aus — auch kein Rueckfall. Ein Schalter, der nur
+    # die Haelfte abschaltet, ist schlimmer als keiner. (Lehre aus #726.)
+    if ARCHIVE_META_TTL <= 0:
+        return _archive_metadata_holen(ident, timeout)
+    jetzt = time.time()
+    with ARCHIVE_META_LOCK:
+        eintrag = ARCHIVE_META.get(ident)
+    if eintrag and jetzt - eintrag[0] < ARCHIVE_META_TTL:
+        return copy.deepcopy(eintrag[1])
+    try:
+        m = _archive_metadata_holen(ident, timeout)
+    except Exception as e:
+        if eintrag:
+            log(f"Archive-Metadaten {ident} fehlgeschlagen ({e}); letzter bekannter Stand "
+                f"({int(jetzt - eintrag[0])}s alt) wird benutzt")
+            return copy.deepcopy(eintrag[1])
+        raise
+    if m:
+        with ARCHIVE_META_LOCK:
+            # Erst raus, dann rein: Ueberschreiben behielte in einem dict die ALTE
+            # Position, und der Deckel unten verwuerfe dann den oft benutzten Eintrag.
+            ARCHIVE_META.pop(ident, None)
+            ARCHIVE_META[ident] = (jetzt, copy.deepcopy(m))
+            while len(ARCHIVE_META) > ARCHIVE_META_MAX:
+                ARCHIVE_META.pop(next(iter(ARCHIVE_META)))
+    return m
+
 def archive_file_urls(ident):
-    r = requests.get(f"https://archive.org/metadata/{ident}", timeout=20); m = r.json()
+    m = archive_metadata(ident, timeout=20)
     files = m.get("files",[]); urls=[]
     for fo in files:
         nm = fo.get("name","")
@@ -5889,7 +5970,7 @@ def api_detail():
             if prog: out["achievements"]["progress"] = prog
     if source == "archive" and ref:
         try:
-            m = requests.get(f"https://archive.org/metadata/{ref}", timeout=15).json()
+            m = archive_metadata(ref, timeout=15)
             fs = []
             for fo in m.get("files", []):
                 nm = fo.get("name","")
