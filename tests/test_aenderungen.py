@@ -1652,19 +1652,23 @@ def test_search_cache_ttl_zero_really_turns_it_off(appmod, monkeypatch):
 # `ra_lookup` ist eine lokale SQLite-Abfrage, und von den verbleibenden zwei ist
 # archive.org 85–95 % der Zeit.
 #
-#   /metadata/<id>, 10 verschiedene Elemente:  8,44 – 10,59 s, Median ~9,4 s
-#   — unabhaengig von der Groesse (3 KB wie 30 KB), `connect` durchweg 0,17 s
-#   IGDB daneben:                              348 / 521 / 575 ms kalt, 7–9 ms warm
+#   /metadata/<id>, 10 Elemente, 02:xx Uhr:    8,44 – 10,59 s, Median ~9,4 s
+#   DIESELBEN 10, ~90 min spaeter:              0,60 –  1,20 s
+#   — beide Male unabhaengig von der Groesse (3 KB wie 30 KB), `connect` 0,17 s
+#   IGDB daneben:                               348 / 521 / 575 ms kalt, 7–9 ms warm
 #
-# Nebeneinander haette also ~0,5 s von ~11 s gespart und auf Karten OHNE
-# Archive-Ref (nur ein externer Aufruf) exakt nichts. Gemerkt spart es alles.
+# DIE ZWEITE REIHE IST DER EIGENTLICHE BEFUND: ~9,4 s ist eine schlechte Phase,
+# nicht der Normalzustand — dieselbe Lehre, die #728 fuer archive.orgs Suche schon
+# aufgeschrieben hatte. Deshalb messen diese Tests KEINE Sekunden, sondern die
+# Anzahl der Abrufe: die ist von der Tagesform drueben unabhaengig, eine
+# Zeitschwelle waere hier ein wackeliger Test.
 
 def _archiv_antwort(namen):
     return {"files": [{"name": n, "size": 100} for n in namen]}
 
 
 def test_the_same_archive_item_is_only_fetched_once(appmod, monkeypatch):
-    """Gemessen ~9,4 s je Abruf — denselben zweimal zu zahlen ist einmal zu viel. (#731)"""
+    """Ein Abruf kostet gemessen 0,6–10,6 s — denselben zweimal ist einmal zu viel. (#731)"""
     appmod.ARCHIVE_META.clear()
     rufe = []
     monkeypatch.setattr(appmod, "_archive_metadata_holen",
@@ -1688,8 +1692,9 @@ def test_a_different_archive_item_still_reaches_archive_org(appmod, monkeypatch)
 def test_the_detail_card_and_the_download_share_one_memory(appmod, monkeypatch):
     """Beide Aufrufer holen dieselben Metadaten desselben Elements. (#731)
 
-    Ohne gemeinsames Gedaechtnis zahlt der Download-Start die gemessenen ~9,4 s ein
-    zweites Mal — unmittelbar nachdem die Karte sie gerade bezahlt hat.
+    Ohne gemeinsames Gedaechtnis zahlt der Download-Start den vollen Abruf ein zweites
+    Mal — unmittelbar nachdem die Karte ihn gerade bezahlt hat. Das ist bei 0,6 s
+    derselbe Fehler wie bei 9 s.
     """
     appmod.ARCHIVE_META.clear()
     rufe = []
