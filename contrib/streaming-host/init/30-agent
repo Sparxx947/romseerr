@@ -1,11 +1,17 @@
 #!/bin/bash
 # Start-Dienst, den Romseerr aufruft. / Launch service Romseerr calls.
 #
-# Alle Emulatoren laufen über VirtualGL — ohne das rendert Mesa auf der CPU
-# (siehe 10-virtualgl). Der Card-Knoten wird dort ermittelt und hier gelesen,
-# damit niemand raten muss, welcher es ist.
+# BESCHLEUNIGUNG LÄUFT ÜBER DRI3, NICHT ÜBER VirtualGL (Stand 2026-08-15, gemessen).
+# `VGLDEV` ist leer, kein Prozess trägt `libvglfaker`, kein Emulator startet über
+# `vglrun`. Der Zweig unten bleibt als Rückfall stehen für den Fall, dass DRI3 wieder
+# verschwindet — er feuert im Regelbetrieb nie. Näheres in 10-virtualgl. (#628)
 #
-# All emulators run through VirtualGL; the card node is detected in 10-virtualgl.
+# Hier stand jahrelang „Alle Emulatoren laufen über VirtualGL". Das galt bis #167/#169
+# und liest sich seitdem wie der Ist-Zustand — genau daran ist am 2026-08-14 eine
+# Fehlersuche in die falsche Richtung gelaufen.
+#
+# EN: acceleration goes through DRI3, not VirtualGL. The branch below is a fallback that
+# never fires in normal operation.
 #
 # Das Token wird AUS EINER DATEI gelesen und nicht ins Skript geschrieben:
 # ein Geheimnis gehört an genau eine Stelle, sonst laufen die Kopien auseinander.
@@ -29,8 +35,15 @@ if [ -n "$VGLDEV" ] && [ -x /opt/VirtualGL/bin/vglrun ]; then
   echo "[agent] GPU über VirtualGL auf ${VGLDEV} / GPU via VirtualGL"
 else
   VGL=""
-  echo "[agent] WARNUNG: ohne VirtualGL — es wird auf der CPU gerendert"
-  echo "[agent] WARNING: no VirtualGL — rendering will be on the CPU"
+  # KEINE WARNUNG MEHR, sondern eine Messung. „ohne VirtualGL heisst CPU" stimmt nur
+  # ohne DRI3 — mit DRI3 ist genau das der schnelle Weg. Die alte Zeile behauptete bei
+  # jedem Start das Gegenteil des Tatsaechlichen. (#628)
+  if DISPLAY="${DISPLAY:-:1}" xdpyinfo 2>/dev/null | grep -qi DRI3; then
+    echo "[agent] GPU über DRI3 (ohne VirtualGL) / GPU via DRI3, VirtualGL not needed"
+  else
+    echo "[agent] WARNUNG: weder VirtualGL noch DRI3 — es wird auf der CPU gerendert"
+    echo "[agent] WARNING: neither VirtualGL nor DRI3 — rendering will be on the CPU"
+  fi
 fi
 
 # --- Gamepad ------------------------------------------------------------------
