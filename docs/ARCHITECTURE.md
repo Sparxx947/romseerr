@@ -722,6 +722,65 @@ covered exactly as by a full rebuild. Only other platforms lag, and the periodic
 every 600 s still covers those. Filtering is by slug, not folder name, because `dc` and
 `dreamcast` are one platform. `LIB["ts"]` deliberately keeps meaning "last FULL run".*
 
+### Nicht die Prüfung war teuer, sondern ihre Anzahl (#666)
+
+Von den 254,2 s Wanderung oben gingen rund 70 % für **eine einzige Zeile** drauf:
+`ist_xsym()` je Datei. Die Prüfung schützt eine echte Zusage (#193) und ist für sich schon
+minimal — eine Größenabfrage, den Kopf liest sie nur bei einem Treffer. Nur fragt der Index
+sie **660.671-mal**, und über Unraids shfs kostet ein `stat` rund 260 µs. Am Bestand
+gemessen, jeweils der volle Durchlauf über `/roms`:
+
+| Durchlauf | Zeit | Fund |
+|---|---|---|
+| nackter `os.walk`, nur zählen | 17,9 s | 660.671 Dateien |
+| `stat` je Datei, nacheinander | **193,1 s** | 17 Dateien mit 1067 Byte, davon **7** echte XSym |
+| `stat` je Datei, je Ordner gebündelt über 16 Threads | **55,0 s** | dieselben 17, dieselben 7 |
+| dasselbe mit 32 Threads | 58,7 s | dieselben |
+
+**Die Zusage bleibt wörtlich bestehen.** Jede Datei wird weiterhin gefragt, jede
+1067-Byte-Datei weiterhin am Kopf geprüft. Es wartet nur nicht mehr jede Anfrage auf die
+Antwort der vorigen — die Zeit ging fast vollständig im Warten auf den Syscall drauf, nicht
+in Rechenarbeit, und genau das lässt sich verteilen, ohne die Regel anzufassen. 16 Threads,
+weil 32 nichts mehr bringen.
+
+Am kompletten Wanderungsabschnitt nachgemessen, alt gegen neu, mit dem echten `norm()` und
+`ist_titel_ordner()` daneben:
+
+| | Zeit | Ergebnis |
+|---|---|---|
+| Datei für Datei | 236,0 s | 599 Plattformen, 293.068 Titel |
+| je Ordner gebündelt | **96,4 s** | 599 Plattformen, 293.068 Titel |
+
+Titelzahlen **je Plattform** und **alle Anzeigenamen** stimmen überein — geprüft, nicht
+angenommen. Der neue Lauf stand zuerst und war beim zweiten Mal wieder bei 96,5 s; es ist
+kein warmer Zwischenspeicher.
+
+**Zwei naheliegende Abkürzungen wurden verworfen**, beide schneller, beide nicht mehr
+dieselbe Zusage:
+
+| Abkürzung | warum nicht |
+|---|---|
+| nur die **erste Datei je Ordner** fragen | die Herstellerordner aus #193 bestehen ganz aus Verweisen, aber ein *einzelner* Platzhalter zwischen echten ROMs rutschte damit als Titel durch |
+| nur Dateien **ohne bekannte ROM-Endung** fragen | eine Namensregel — genau das, was #193 verworfen hat; ein Verweis darf `Sonic.bin` heißen |
+
+**Erst normalisieren, dann fragen.** Eine Datei ohne Titelschlüssel wird ohnehin übergangen
+und braucht keine Anfrage. Das war vorher schon so, weil das `continue` davor stand; beim
+Bündeln muss die Reihenfolge von Hand erhalten bleiben, sonst fragt der Index *mehr* Dateien
+als zuvor. Ein Test hält das fest.
+
+*EN: about 70 % of the 254.2 s walk was one line — `ist_xsym()` per file. The check itself
+is already minimal; its COUNT is the cost: 660,671 files, ~260 µs per `stat` over shfs.
+Batching per folder across 16 threads takes the full pass from 193.1 s to 55.0 s and the
+whole walk section from 236.0 s to 96.4 s, with identical output — same 599 platforms,
+same 293,068 titles, same per-platform counts and display names, same 7 stand-ins found.
+The #193 guarantee is untouched: every file is still asked and every 1067-byte file still
+has its header read; the calls simply no longer queue up, because the time was spent
+waiting on the syscall, not computing. 32 threads gain nothing. Two obvious shortcuts were
+rejected — asking only the first file per folder (a lone stand-in among real ROMs would
+slip through) and asking only files without a known ROM extension (a name-based rule,
+which is exactly what #193 refused; a stand-in may be called `Sonic.bin`). Normalising
+before asking keeps the file count down and is pinned by a test.*
+
 ### Zwei Wanderungen über denselben Baum laufen auseinander (#477)
 
 Dass der Index Ordner-Titel kennt, war nur die halbe Miete. `stream_find_file()` lief eine

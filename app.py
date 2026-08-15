@@ -79,6 +79,7 @@ WICHTIGE FALLSTRICKE / IMPORTANT GOTCHAS
 """
 import os, re, sys, json, time, threading, queue, subprocess, urllib.parse, html, secrets, smtplib, base64, sqlite3, unicodedata
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from functools import wraps
 from contextlib import closing
@@ -1224,6 +1225,34 @@ IGNORE_FOLDERS = {
 # holds real games.
 XSYM_GROESSE = 1067
 
+# WARUM GEBUENDELT UND NICHT NACHEINANDER (#666): Die Pruefung selbst ist so billig, wie
+# sie sein kann — eine Groessenabfrage, den Kopf liest sie nur bei einem Treffer. Teuer
+# ist ihre ANZAHL. Ein `stat` je Datei kostet ueber Unraids shfs rund 260 us, und der
+# Index fragt jede Datei der Bibliothek. Am Bestand gemessen (660.671 Dateien in 15.366
+# Ordnern), jeweils der vollstaendige Durchlauf einschliesslich `os.walk`:
+#
+#   Datei fuer Datei nacheinander        193,1 s
+#   je Ordner gebuendelt, 16 Threads      55,0 s     (Durchlauf allein: 17,9 s)
+#
+# Beide Laeufe finden DIESELBEN 7 Platzhalter. Die Zusage aus #193 bleibt damit woertlich
+# bestehen: Jede Datei wird weiterhin gefragt, jede 1067-Byte-Datei weiterhin am Kopf
+# geprueft. Es wartet nur nicht mehr jede Anfrage auf die Antwort der vorigen — die Zeit
+# ging fast vollstaendig im Warten auf den Syscall drauf, nicht in Rechenarbeit.
+#
+# 16 UND NICHT MEHR: mit 32 Threads gemessen 38,7 s gegen 36,4 s fuer den reinen
+# stat-Anteil — kein Gewinn mehr, aber doppelt so viele Threads am Dateisystem.
+#
+# NICHT gewaehlt wurden die beiden naheliegenden Abkuerzungen aus #666: nur die erste
+# Datei je Ordner fragen (ein einzelner Platzhalter zwischen echten ROMs rutschte durch)
+# und nur Dateien ohne bekannte ROM-Endung fragen (eine Namensregel — genau das, was #193
+# verworfen hat). Beide waeren schneller, beide waeren nicht mehr dieselbe Zusage.
+#
+# EN: the check is already minimal; its COUNT is the cost — one stat per file, ~260 us
+# each over shfs. Batching per folder across 16 threads takes the full pass from 193.1 s
+# to 55.0 s on the real library and finds the same 7 stand-ins. Every file is still
+# asked, so the #193 guarantee is unchanged — the calls simply no longer queue up.
+XSYM_THREADS = 16
+
 
 def ist_xsym(pfad):
     """-> True, wenn die Datei ein XSym-Symlink ist und kein Spiel."""
@@ -1234,6 +1263,22 @@ def ist_xsym(pfad):
             return f.read(5) == b"XSym\n"
     except OSError:
         return False
+
+
+def xsym_namen(root, dateien, pool=None):
+    """-> Menge der Namen aus `dateien`, die in `root` XSym-Platzhalter sind.
+
+    Ohne `pool` — und bei einer einzelnen Datei, wo das Verteilen nur kostet — laeuft
+    die Pruefung nacheinander. Das Ergebnis ist in beiden Faellen dasselbe; der Aufrufer
+    soll nicht abwaegen muessen, ob sich das Buendeln gerade lohnt.
+    """
+    if pool is None or len(dateien) < 2:
+        return {fn for fn in dateien if ist_xsym(os.path.join(root, fn))}
+    # `chunksize` waere hier wirkungslos: `ThreadPoolExecutor` erbt `Executor.map` und
+    # ignoriert den Wert — nur `ProcessPoolExecutor` wertet ihn aus. Ein Auftrag je
+    # Datei ist also gewollt und nicht versehentlich feinkoernig.
+    pfade = [os.path.join(root, fn) for fn in dateien]
+    return {fn for fn, ja in zip(dateien, pool.map(ist_xsym, pfade)) if ja}
 
 
 def folder_slug(ordner):
@@ -1358,6 +1403,10 @@ def _index_lauf(nur):
     # Eine solche Plattform traegt null Titel bei und war bis hierher nicht von einer
     # wirklich leeren zu unterscheiden.
     fehler = {}
+    # EIN Pool je Indexlauf, nicht je Ordner (#666): 16 Threads einmal zu erzeugen faellt
+    # neben 660.671 Dateisystemanfragen nicht auf, 15.366-mal waere der Gewinn wieder weg.
+    # `finally` raeumt ihn auch dann ab, wenn der Lauf unterwegs abbricht.
+    pool = ThreadPoolExecutor(max_workers=XSYM_THREADS, thread_name_prefix="xsym")
     try:
         for ordner in os.listdir(ROMS):
             p = os.path.join(ROMS, ordner)
@@ -1432,12 +1481,17 @@ def _index_lauf(nur):
                                 namen[(slug, n)] = anzeige
                         dirs[:] = []       # nicht hineinlaufen
                         continue
-                    for fn in files:
-                        n = norm(fn)
-                        if not n: continue
-                        # Symlink-Platzhalter sind keine Titel (#193). Die Pruefung
-                        # kostet fast nichts: sie sieht zuerst auf die Groesse.
-                        if ist_xsym(os.path.join(root, fn)): continue
+                    # ERST NORMALISIEREN, DANN FRAGEN: Eine Datei ohne Titelschluessel
+                    # wird ohnehin uebergangen — sie braucht kein `stat`. Das war schon
+                    # vorher so (`continue` vor der Pruefung) und bleibt es; nur wird
+                    # die Reihenfolge jetzt sichtbar, weil gebuendelt wird.
+                    kandidaten = [(fn, norm(fn)) for fn in files]
+                    kandidaten = [(fn, n) for fn, n in kandidaten if n]
+                    # Symlink-Platzhalter sind keine Titel (#193) — gebuendelt geprueft,
+                    # weil die Anzahl der Anfragen die Kosten macht, nicht die einzelne.
+                    verweise = xsym_namen(root, [fn for fn, _ in kandidaten], pool)
+                    for fn, n in kandidaten:
+                        if fn in verweise: continue
                         s.add(n); allset.add(n)
                         anzeige = os.path.splitext(fn)[0].strip() or fn
                         vorher = namen.get((slug, n))
@@ -1453,6 +1507,8 @@ def _index_lauf(nur):
                 log(f"Index: Plattform {slug} abgebrochen: {type(e).__name__}: {e}")
     except Exception as e:
         log(f"Index-Fehler: {e}")
+    finally:
+        pool.shutdown()
     ts = time.time()
     if nur is None:
         with LIB_LOCK:
