@@ -214,6 +214,25 @@ window.addEventListener('hashchange',()=>{if(!ROUTE_STUMM)routeAnwenden();});
 // through show() because routeSetzen tracks how many history entries the app pushed, which
 // decides whether closing a dialog may use history.back().
 function navGeh(v){show(v);return false;}
+// DIE MARKE FUEHRT ZUR STARTSEITE (#662) — und „Startseite" heisst: die Entdecken-Ansicht
+// MIT LEEREM SUCHFELD. Deshalb nicht einfach `navGeh('s')`: `zeige()` blendet die Buehne
+// nur ein, solange das Feld leer ist (siehe `zeigeBuehne` weiter unten). Mit stehen-
+// gebliebenem Begriff landet ein Klick auf einer Trefferliste — sichtbar dasselbe, was
+// der Menuepunkt „Entdecken" schon tut, und damit waere der Weg ueberfluessig.
+//
+// Das Leeren steht als eigene Funktion da, weil der Zurueck-/Leeren-Knopf der Suche
+// (#661) dieselbe Stelle braucht. Zwei Fassungen davon liefen auseinander, sobald eine
+// von beiden noch etwas zuruecksetzt.
+//
+// `loadDiscover()` nur, wenn wirklich etwas im Feld stand: Sonst kostet jeder Klick auf
+// die Marke einen Abruf, obwohl schon die richtige Liste dasteht.
+//
+// EN: the start page is the discover view with an EMPTY search field — the stage only
+// shows while the field is empty. Clearing lives in its own function because the search
+// back/clear button (#661) needs exactly the same reset.
+function sucheLeeren(){let q=document.getElementById('q');if(!q||!q.value)return false;
+ q.value='';loadDiscover();return true;}
+function markeGeh(){sucheLeeren();show('s');return false;}
 function show(v){zeige(v);routeSetzen(v,null,false,v==='set'?SETSEC:'',v==='set'?SETSUB:'');}
 function zeige(v){cur=v;
  document.getElementById('discview').style.display=v=='s'?'':'none';
