@@ -1171,6 +1171,29 @@ Archive und ROMhack-Pakete —, und für die stehen jetzt `mod archive`, `rom ha
 `anthology` und `trilogy` in `SET_RE`. **`archive` allein bewusst nicht**: Das Wort steht in
 jedem zweiten Archive.org-Titel.
 
+**Die Suche fragt ihre drei Quellen nebeneinander (#722).** Ein Klick auf eine
+Entdecken-Karte brauchte **15,8 s** bis zur ersten Trefferkarte — und 15,8 davon waren
+`/api/search`. Die Quellen liefen in Reihe, die Wartezeit war also ihre **Summe**; bei
+Fristen von 15 s (Archive.org) und 25 s (Prowlarr) wäre der schlechteste Fall 40 s.
+Archive.org allein schwankte in zwei Messungen im Sekundenabstand zwischen **1,07 s und
+8,07 s**.
+
+Nebeneinander ist die Gesamtzeit das **Maximum**. Keine Quelle wird schneller — es wartet nur
+niemand mehr auf die andere. Zwei Bedingungen machen das gefahrlos: Keine der drei fasst den
+Anfragekontext an (in einem Faden wäre er auch nicht da), und eine tote Quelle darf die
+anderen nicht mitnehmen — ein unerwarteter Fehler im Faden hätte sonst die ganze Suche
+beendet, und der Nutzer sähe „keine Treffer" statt derer, die sehr wohl kamen.
+
+**Beim Öffnen einer Karte steht der Dialog nach 2 ms**, gefüllt war er nach ~1,94 s.
+`/api/play` (1330 ms), `/api/stream` und `/api/titlemeta` starteten erst, **nachdem**
+`/api/detail` (589 ms) geantwortet hatte — obwohl `play` und `stream` nur den angeklickten
+Treffer brauchen, der längst vorliegt. Sie laufen jetzt sofort los; der langsamste endet bei
+~1,33 s.
+
+`loadTitleMeta` bleibt bewusst hinten: Es nimmt `window._detname` aus genau dieser Antwort.
+Vorgezogen fiele es auf den Release-Namen zurück, und daran hängen die Bewertungen —
+**schneller und daneben ist nicht schneller.**
+
 **Cover werden erst geladen, wenn sie gebraucht werden (#719).** Jens: „es dauert immer
 eine ganze Weile, bis die Spiele angezeigt werden". Gemessen am laufenden Stand:
 
@@ -1582,6 +1605,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 *EN: notifications are selectable per event, on two levels (#714). Six events fire, and they reach DIFFERENT recipients: `notify_send()` writes to the instance's agents and has no user dimension at all, while push, personal webhook and personal mail belong to one user. A single switch for both would be wrong — whoever runs the instance wants the approval requests; a user wants their own titles. A missing key means ON, so nobody who changes nothing notices anything, and a later event is not silent for everyone who once saved the page; the server therefore stores only the keys actually sent. A source-reading test guards the call sites, because two of six initially went without an event and looked correct both times; mutation testing additionally showed the personal webhooks could lose their guard unnoticed — `nutzer_will` was covered, the places using it were not.*
 
 *EN: covers load only when needed (#719). Measured: the page is up after 141 ms and every API call is done by ~400 ms — the data was never the problem. The start page builds 22 rows of 20 titles, and because covers were CSS BACKGROUND IMAGES the browser could defer none of them: `loading="lazy"` applies to `<img>` only. 448 covers in the document, 48 on screen, 240 image requests totalling 95.6 s. A single IntersectionObserver now sets the image as a cover approaches — one per card would have meant 440 observers. The 400 px of lead time is not decoration: without it you watch grey boxes fill in, and a test asserts that visible covers carry an image, because deferring that leaves visible boxes empty is a defect, not a gain. The search path got the same treatment, including the `/api/cover` lookup — bypassing it would make the deferral useless for looked-up covers.*
+
+*EN: search queries its three sources side by side (#722). A card click took 15.8 s to the first result, essentially all of it `/api/search`, because the sources ran in sequence and the wait was their SUM — up to 40 s with the configured timeouts, and Archive.org alone varied between 1.07 s and 8.07 s a second apart. Side by side the total is the MAXIMUM. Two conditions make that safe: none of the three touches the request context, and a dead source must not take the others down — an unexpected error in a worker would otherwise end the whole search and show "no results" instead of the ones that did arrive. On a detail card the dialog is up after 2 ms but was filled after ~1.94 s: `play`, `stream` and `titlemeta` waited for `/api/detail` although the first two only need the clicked hit. They now start immediately, ending at ~1.33 s. `loadTitleMeta` deliberately stays behind — it uses the game name from that response, and pulled forward would fall back to the release name that the ratings hang off.*
 
 *EN: a card can no longer say "in library" and "platform unknown" at once (#685). `in_library()` falls back to a global check when the hit names no platform — correct, but it only answers whether. `library_slugs()` answers where, sorted by the platform's release year (oldest first), which for a title on several systems is almost always the one it appeared on first. Measured: 6.9% of titles sit on more than one platform. Deliberately the console's year, not the game's — IGDB gives one date per game and does not know the hacks and homebrew this concerns. The card marks the value as derived.*
 

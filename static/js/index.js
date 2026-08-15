@@ -765,11 +765,23 @@ async function openDetail(it,ausRoute){let m=document.getElementById('modal');m.
    let names=(Array.isArray(us)?us:[]).map(u=>u&&u.username).filter(Boolean).sort();
    if(names.length){let bar=document.getElementById('reqforbar');
     bar.innerHTML=`<div class=frow style="margin-bottom:8px"><label for=reqforsel style="min-width:auto;color:var(--mut);font-size:12px">${t('req_for')}</label><select id=reqforsel onchange="window.reqFor=this.value"><option value="">${t('req_self')}</option>${names.map(u=>`<option value="${u}">${u.replace(/</g,'&lt;')}</option>`).join('')}</select></div>`;}}catch(e){}}
+ // SPIELEN UND STREAMEN SOFORT ANSTOSSEN, nicht erst nach `/api/detail` (#721).
+ //
+ // GEMESSEN: Der Dialog steht nach 2 ms, gefuellt ist er nach ~1,94 s. `/api/detail`
+ // brauchte 589 ms — und `play` (1330 ms), `stream` und `titlemeta` starteten erst
+ // DANACH, obwohl `play` und `stream` nur `it` brauchen und das laengst vorliegt.
+ // Nebeneinander endet der langsamste bei ~1,33 s statt bei 1,94 s.
+ //
+ // `loadTitleMeta` bleibt UNTEN: Es nimmt `window._detname`, den Namen aus genau dieser
+ // Antwort. Vorgezogen fiele es auf `it.title` zurueck — den Release-Namen statt des
+ // Spielnamens —, und die Bewertungen haengen am Namen. Schneller und daneben ist nicht
+ // schneller.
+ loadPlay(it); loadStream(it);
  let r=await fetch('/api/detail?source='+encodeURIComponent(it.source)+'&ref='+encodeURIComponent(it.ref||'')+'&title='+encodeURIComponent(it.title)+'&platform='+encodeURIComponent(it.platform_slug||''));
  let d=await r.json();
  window._detname=d.name||'';
  // RetroAchievements: nur wenn ein Set zugeordnet ist. Kein Set / kein Dienst -> gar nichts. (#79)
- loadPlay(it);loadStream(it);loadTitleMeta(it);
+ loadTitleMeta(it);   // braucht `_detname` aus der Antwort oben (#721)
  let rabox=document.getElementById('mra');
  if(rabox){if(d.achievements){let a=d.achievements;
    let pr=a.progress?` · <b>${a.progress.earned}/${a.progress.total||a.achievements}</b> ${t('ra_earned')}`
