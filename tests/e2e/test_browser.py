@@ -1373,3 +1373,103 @@ def test_die_detailansicht_kennt_weiterhin_alle_fassungen(seite):
     assert "(3)" in kopf, f"die Detailansicht zaehlt nicht drei Fassungen: {kopf!r}"
     assert seite.locator("#mvar .row").count() == 3, \
         f"{seite.locator('#mvar .row').count()} Fassungszeilen statt 3"
+
+
+def test_der_sammelknopf_zaehlt_was_die_liste_anbietet(seite):
+    """25 angeboten, 24 Knoepfe sichtbar. (#691)
+
+    WARUM DAS AUFFIEL: Nach dem Zusammenfassen zeigt die Karte den Zustand der GRUPPE. Ein
+    Spiel, das auf einer Plattform daliegt und auf einer anderen frei ist, traegt damit den
+    Haken und keinen Download-Knopf. Der Sammelknopf zaehlte aber weiter je Einzelfassung
+    und bot es mit an — bei `Mario Kart` am laufenden System als 25 gegen 24 gemessen.
+
+    Eine Sammelanfrage, die etwas holt, das die Oberflaeche als vorhanden ausweist, ist
+    schlimmer als eine Zahl daneben: Sie laedt herunter, was schon da ist.
+    """
+    import json as _j
+    seite.evaluate("() => { SELP = new Set(); localStorage.setItem('romp','[]'); }")
+    # `mk` ist die gemischte Gruppe: eine Fassung vorhanden, eine frei.
+    koerper = _j.dumps([
+        {"title": "Mario Kart Wii", "platform": "wii", "platform_slug": "wii",
+         "source": "archive", "size": 1, "ref": "r1", "cover": "", "gkey": "mk",
+         "in_library": True, "grp_in_library": True, "is_set": False,
+         "variant": {}, "variant_label": ""},
+        {"title": "Mario Kart Wii (EUR)", "platform": "wii", "platform_slug": "wii",
+         "source": "archive", "size": 1, "ref": "r2", "cover": "", "gkey": "mk",
+         "in_library": False, "grp_in_library": True, "is_set": False,
+         "variant": {}, "variant_label": ""},
+        {"title": "Mario Kart 8", "platform": "wiiu", "platform_slug": "wiiu",
+         "source": "archive", "size": 1, "ref": "r3", "cover": "", "gkey": "mk8",
+         "in_library": False, "grp_in_library": False, "is_set": False,
+         "variant": {}, "variant_label": ""},
+        {"title": "Mario Kart DS", "platform": "nds", "platform_slug": "nds",
+         "source": "archive", "size": 1, "ref": "r4", "cover": "", "gkey": "mkds",
+         "in_library": False, "grp_in_library": False, "is_set": False,
+         "variant": {}, "variant_label": ""},
+    ])
+    seite.route("**/api/search*", lambda route: route.fulfill(
+        status=200, content_type="application/json",
+        headers={"X-Platform-Hidden": "0"}, body=koerper))
+    seite.locator("#q").fill("Mario Kart")
+    seite.keyboard.press("Enter")
+    seite.wait_for_timeout(900)
+
+    # NUR die Download-Knoepfe. `.dl.zw` ist „Details" bzw. „angefragt" — ein
+    # aktiver Knopf, der nichts herunterlaedt, und er zaehlte hier faelschlich mit.
+    knoepfe = seite.locator("#grid .card .act button.dl:not(.zw)").count()
+    knopf = seite.locator("#bulkbtn")
+    assert knopf.count() == 1, "kein Sammelknopf — der Test prueft dann nichts"
+    import re as _re
+    zahl = int(_re.search(r"\((\d+)\)", knopf.inner_text()).group(1))
+    assert zahl == 2, f"der Sammelknopf bietet {zahl} an; anfragbar sind 2 Spiele"
+    assert zahl == knoepfe, \
+        f"der Sammelknopf bietet {zahl} an, die Liste zeigt {knoepfe} Download-Knoepfe"
+
+
+def test_die_sammelanfrage_holt_keine_vorhandenen_spiele(seite):
+    """Die Zahl daneben ist das kleinere Uebel — das hier laedt herunter. (#691)
+
+    Ein Test auf die Beschriftung des Knopfes beweist NICHT, was der Klick tut: Ein
+    Mutationstest liess die Zaehlung richtig und die Anfrage falsch, und alles blieb
+    gruen. Geprueft wird deshalb, was wirklich an `/api/download` geht.
+    """
+    import json as _j
+    seite.evaluate("() => { SELP = new Set(); localStorage.setItem('romp','[]'); }")
+    koerper = _j.dumps([
+        {"title": "Habe ich (Wii)", "platform": "wii", "platform_slug": "wii",
+         "source": "archive", "size": 1, "ref": "r1", "cover": "", "gkey": "mk",
+         "in_library": True, "grp_in_library": True, "is_set": False,
+         "variant": {}, "variant_label": ""},
+        {"title": "Dieselbe Reihe, freie Fassung", "platform": "wii", "platform_slug": "wii",
+         "source": "archive", "size": 1, "ref": "r2", "cover": "", "gkey": "mk",
+         "in_library": False, "grp_in_library": True, "is_set": False,
+         "variant": {}, "variant_label": ""},
+        {"title": "Habe ich gar nicht", "platform": "wiiu", "platform_slug": "wiiu",
+         "source": "archive", "size": 1, "ref": "r3", "cover": "", "gkey": "mk8",
+         "in_library": False, "grp_in_library": False, "is_set": False,
+         "variant": {}, "variant_label": ""},
+        # ZWEI freie Spiele sind noetig: Der Sammelknopf erscheint erst ab zwei. Mit nur
+        # einem gaebe es nichts zu klicken, und der Test bewiese nichts.
+        {"title": "Habe ich auch nicht", "platform": "nds", "platform_slug": "nds",
+         "source": "archive", "size": 1, "ref": "r4", "cover": "", "gkey": "mkds",
+         "in_library": False, "grp_in_library": False, "is_set": False,
+         "variant": {}, "variant_label": ""},
+    ])
+    seite.route("**/api/search*", lambda route: route.fulfill(
+        status=200, content_type="application/json",
+        headers={"X-Platform-Hidden": "0"}, body=koerper))
+    geholt = []
+    seite.route("**/api/download", lambda route: (
+        geholt.append(_j.loads(route.request.post_data or "{}").get("title")),
+        route.fulfill(status=200, content_type="application/json", body='{"ok":true}'),
+    ) and None)
+
+    seite.locator("#q").fill("Mario Kart")
+    seite.keyboard.press("Enter")
+    seite.wait_for_timeout(900)
+    seite.locator("#bulkbtn").click()
+    seite.wait_for_timeout(1500)
+
+    assert sorted(geholt) == ["Habe ich auch nicht", "Habe ich gar nicht"], \
+        ("die Sammelanfrage holte " + repr(geholt) + " — die freie Fassung eines Spiels, "
+         "dessen Karte den Haken traegt, gehoert NICHT dazu")
