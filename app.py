@@ -6849,6 +6849,14 @@ def api_admin_reindex():
     log("Bibliotheks-Reindex angestoßen (Admin)")
     return jsonify({"ok": True})
 
+@app.route("/api/unsortiert")
+@perm_required("manage_settings")
+def api_unsortiert():
+    """Was beim Import keiner Plattform zugeordnet werden konnte. (#656)"""
+    e = unsortiert_eintraege()
+    return jsonify({"items": e, "total": sum(x["size"] for x in e),
+                    "count": len(e), "folder": os.path.join(ROMS, UNSORTIERT)})
+
 @app.route("/api/leftovers")
 @perm_required("manage_settings")
 def api_leftovers():
@@ -8174,6 +8182,9 @@ OPENAPI = {
             responses={**_R_PERM, "200": {"description": "angestossen"},
                        "400": {"description": "falscher Zustand"},
                        "404": {"description": "unbekannt oder Dateien weg"}})},
+        "/api/unsortiert": {"get": _op("Auflisten, was beim Import keiner Plattform "
+            "zugeordnet werden konnte (Name, Groesse, Alter)", "Admin",
+            responses={**_R_PERM, "200": {"description": "OK"}})},
         "/api/leftovers": {"get": _op("Downloads auflisten, die ein fehlgeschlagener Import "
             "liegen gelassen hat (Ordner, Groesse, Alter, zugehoeriger Auftrag)", "Admin",
             responses={**_R_PERM, "200": {"description": "OK"}})},
@@ -8367,6 +8378,48 @@ def leftover_dirs():
             aus.append({"jid": jid, "path": e.path, "name": e.name,
                         "size": groesse, "age_days": round(alter, 1),
                         "title": job.get("title", ""), "state": job.get("state", "")})
+    return sorted(aus, key=lambda x: -x["age_days"])
+
+def unsortiert_eintraege():
+    """Was in `.unsortiert` liegt — Name, Groesse, Alter. (#656)
+
+    Der Ordner nimmt auf, was sich beim Import keiner Plattform zuordnen liess. Die
+    Oberflaeche WARNT an drei Stellen davor, dass etwas dort landen kann, hat den Ordner
+    aber nie geoeffnet: `UNSORTIERT` kam im Code ausschliesslich als Ziel vor. Am
+    2026-08-14 lagen dort Bruchstuecke seit dem 11. August, ohne dass es irgendwo stand.
+
+    Das ist dieselbe Klasse wie #645: Der Fehlschlag ist real, das Programm weiss davon,
+    der Mensch nicht.
+
+    Bewusst NUR lesen. Was hier liegt, konnte niemand zuordnen — eine Plattform dafuer zu
+    raten ist genau das, wovor dieser Ordner bewahrt. Verschieben und Loeschen bleiben
+    Handarbeit, bis jemand entscheidet, was richtig waere.
+    """
+    wurzel = os.path.join(ROMS, UNSORTIERT)
+    if not os.path.isdir(wurzel):
+        return []
+    aus = []
+    try:
+        with os.scandir(wurzel) as it:        # `with`, sonst bleibt der Deskriptor offen (#589)
+            eintraege = list(it)
+    except OSError:
+        return []
+    for e in eintraege:
+        groesse, dateien, alter = 0, 0, 0.0
+        try:
+            if e.is_dir():
+                for w, _, dd in os.walk(e.path):
+                    for d in dd:
+                        dateien += 1
+                        try: groesse += os.path.getsize(os.path.join(w, d))
+                        except OSError: pass
+            else:
+                dateien, groesse = 1, e.stat().st_size
+            alter = (time.time() - os.path.getmtime(e.path)) / 86400
+        except OSError:
+            pass
+        aus.append({"name": e.name, "is_dir": bool(e.is_dir()),
+                    "size": groesse, "files": dateien, "age_days": round(alter, 1)})
     return sorted(aus, key=lambda x: -x["age_days"])
 
 RM_GRUENDE = (

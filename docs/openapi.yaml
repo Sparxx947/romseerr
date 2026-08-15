@@ -1248,6 +1248,17 @@ paths:
         required: true
         schema:
           type: string
+  /api/unsortiert:
+    get:
+      summary: Auflisten, was beim Import keiner Plattform zugeordnet werden konnte (Name, Groesse, Alter)
+      tags:
+      - Admin
+      responses:
+        '200':
+          description: OK
+        '403': *id004
+        '401': *id002
+      security: *id003
   /api/leftovers:
     get:
       summary: Downloads auflisten, die ein fehlgeschlagener Import liegen gelassen hat (Ordner, Groesse,
