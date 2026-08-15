@@ -388,6 +388,7 @@
  "needs_ia_login": "compte requis",
  "ia_hint": "Certains éléments d'Archive.org sont dans la collection `loggedin` et exigent un compte — sans compte, le téléchargement répond HTTP 401. Ici ne va pas un mot de passe mais la paire de clés d'archive.org/account/s3.php.",
  "job_open_card": "Ouvrir la fiche du jeu",
+ "job_searching": "Recherche de la fiche …",
  "job_no_card": "Aucune fiche pour ce titre.",
  "job_lookup_failed": "Impossible de charger la fiche.",
  "sec_drop": "Dépôt",

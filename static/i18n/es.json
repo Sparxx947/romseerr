@@ -388,6 +388,7 @@
  "needs_ia_login": "requiere cuenta",
  "ia_hint": "Algunos elementos de Archive.org están en la colección `loggedin` y requieren una cuenta — sin ella la descarga responde HTTP 401. Aquí no va una contraseña sino el par de claves de archive.org/account/s3.php.",
  "job_open_card": "Abrir la ficha del juego",
+ "job_searching": "Buscando la ficha …",
  "job_no_card": "No hay ficha para este título.",
  "job_lookup_failed": "No se pudo cargar la ficha.",
  "sec_drop": "Buzón",

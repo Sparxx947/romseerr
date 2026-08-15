@@ -5273,6 +5273,19 @@ def api_search():
     if not q: return jsonify([])
     plats = [p for p in request.args.get("platforms","").split(",") if p]
     res = do_search(q, plats)
+    # `clean=1`: findet der rohe Titel nichts, noch einmal mit dem gekuerzten versuchen.
+    # ROH ZUERST, denn ein exakter Release-Treffer ist der bessere — `Crime OClock
+    # NSW-SUXXORS` liefert heute 6 Treffer und muss das weiter tun. Erst wenn nichts
+    # kommt, sind Plattform- und Regionsmarken das Problem: `Resident Evil 2 PS1
+    # (Europe) (Disc 1&2)` ergab 0 Treffer, `Resident Evil 2` deren 89. (#638)
+    #
+    # Die Kuerzung bleibt hier und wandert NICHT ins JavaScript: `clean_query` ist die
+    # eine Quelle dafuer, und eine zweite Fassung im Frontend laeuft auseinander — genau
+    # so ist es der Zeilenbeschriftung in #632 ergangen.
+    if not res and request.args.get("clean") == "1":
+        kurz = clean_query(q)
+        if kurz and kurz.lower() != q.lower():
+            res = do_search(kurz, plats)
     if request.args.get("achievements") == "1":
         res = [r for r in res if ra_has_set(r.get("title", ""), r.get("platform", ""))]
     return jsonify(res)
