@@ -967,6 +967,18 @@ Stellen auseinanderlaufen. Angeboten wird der Knopf nur, wenn die Dateien wirkli
 da sind: `/api/jobs` meldet das je fehlgeschlagenem Auftrag als `reimportable`, denn ein
 Knopf, der beim Drücken scheitert, ist schlechter als keiner.
 
+**`.unsortiert` wird angezeigt, nicht sortiert.** Was sich beim Import keiner Plattform
+zuordnen liess, landet dort statt geraten zu werden — die Oberfläche warnte an drei Stellen
+davor, dass das passieren *kann*, hat den Ordner aber nie geöffnet: `UNSORTIERT` kam im Code
+ausschliesslich als Ziel vor. Am 2026-08-14 lagen dort Bruchstücke seit dem 11. August, ohne
+dass es irgendwo stand. `unsortiert_eintraege()` und `GET /api/unsortiert` liefern Name,
+Grösse, Dateizahl und Alter, die Wartungsansicht zeigt sie unter den liegengebliebenen
+Downloads (#656).
+
+Dass diese Ansicht **nur liest**, ist keine Sparsamkeit, sondern der Zweck des Ordners: Was
+hier liegt, konnte niemand zuordnen, und eine Plattform dafür zu raten ist genau das, wovor
+er bewahrt. Es gibt deshalb bewusst keinen schreibenden Endpunkt — ein Test hält das fest.
+
 Zwei Sperren sitzen bewusst tief im Code, nicht in der Oberfläche: `leftover_dirs()` zeigt
 Ordner **laufender** Aufträge gar nicht erst an (Alter allein wäre untauglich — ein großer
 Download kann Stunden brauchen und sieht dabei alt aus), und `leftover_remove()` löscht
@@ -1005,6 +1017,9 @@ the client's history entry (`del_files=1`), leaving nothing to diagnose. Leftove
 are listed under Settings → Logs & maintenance with size, age and owning request, can be
 removed individually or in bulk, and expire after `leftover_days` (default 14, 0 = off).
 `retry` counts attempts (`tries`) and remembers failed sources (`tried_sources`); from the third attempt it switches source via `alternative_quelle()`, matching titles through `norm()` strictly — switching to a different game would be worse than the failure it fixes. With no match left it returns `409 exhausted` and does **not** re-queue. A successful import resets the counter. `DELETE /api/jobs/{jid}` removes a finished request (`done`, `error`, `denied`; active ones are refused). Failed requests count toward the badge forever otherwise. If a kept download belongs to it, the call either deletes it too (`files: true`) or reports `files_left` — silently orphaning it is the one outcome not allowed, since the request is the only thing mapping that folder to a title. `clear-finished` accepts `states` to limit the sweep to one group. `POST /api/jobs/{jid}/reimport` re-runs the import against the kept folder — as opposed to `/retry`, which re-downloads everything. Both end in `einsortieren()` so import and cleanup cannot drift apart, and the button only appears when the files are actually still there (`reimportable` per failed job). Two guards live in the code rather than the UI: folders belonging to a **running** job are
+`.unsortiert` is now shown rather than sorted: whatever the import could not match to a platform lands there instead of being guessed, and the interface warned about that in three places while never once opening the folder — `UNSORTIERT` appeared in the code only as a destination. `unsortiert_eintraege()` and `GET /api/unsortiert` report name, size, file count and age. The view is deliberately read-only, and there is no writing endpoint: what sits there is precisely what nobody could classify, so guessing a platform for it is the thing the folder exists to prevent (#656). 
+
+folders belonging to a running job are
 never listed, and removal only accepts paths that resolve inside a collect directory and
 carry the `romseerr_` prefix. Success is decided by the state at the target, not by the
 return code of `rm` — the folder has to be gone. The reason for a failure now reaches both

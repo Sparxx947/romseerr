@@ -9627,3 +9627,71 @@ def test_the_replacement_actually_fixes_the_dedup_key(appmod):
     sauber = appmod.norm("Portal 2 (Switch).nsp")
     assert vorher != sauber, f"Ausgangslage stimmt nicht mehr: {vorher!r} == {sauber!r}"
     assert nachher == sauber, f"der Schlüssel passt immer noch nicht: {nachher!r} != {sauber!r}"
+
+
+# --- #656: was in `.unsortiert` liegt, wird sichtbar -----------------------------------
+
+def test_unsortiert_lists_what_the_import_could_not_place(appmod, tmp_path, monkeypatch):
+    """Ordner UND Einzeldateien, mit Größe, Anzahl und Alter. (#656)"""
+    roms = tmp_path / "roms"; (roms / ".unsortiert").mkdir(parents=True)
+    monkeypatch.setattr(appmod, "ROMS", str(roms))
+    ordner = roms / ".unsortiert" / "mario-kart-8-bruchstuecke"; ordner.mkdir()
+    (ordner / "Audio.bin").write_bytes(b"x" * 400)
+    (ordner / "Course.bin").write_bytes(b"y" * 600)
+    (roms / ".unsortiert" / "einzeln.bin").write_bytes(b"z" * 100)
+
+    e = {x["name"]: x for x in appmod.unsortiert_eintraege()}
+    assert set(e) == {"mario-kart-8-bruchstuecke", "einzeln.bin"}, e
+    assert e["mario-kart-8-bruchstuecke"]["is_dir"] is True
+    assert e["mario-kart-8-bruchstuecke"]["size"] == 1000
+    assert e["mario-kart-8-bruchstuecke"]["files"] == 2
+    assert e["einzeln.bin"]["is_dir"] is False and e["einzeln.bin"]["size"] == 100
+
+
+def test_unsortiert_is_read_only(appmod, tmp_path, monkeypatch):
+    """Anschauen, nicht anfassen. (#656)
+
+    Was hier liegt, konnte niemand zuordnen — eine Plattform dafür zu raten ist genau das,
+    wovor dieser Ordner bewahrt. Die Ansicht darf deshalb nichts verschieben und nichts
+    löschen, und es darf auch keinen Endpunkt dafür geben.
+    """
+    roms = tmp_path / "roms"; (roms / ".unsortiert").mkdir(parents=True)
+    monkeypatch.setattr(appmod, "ROMS", str(roms))
+    datei = roms / ".unsortiert" / "bleibt.bin"; datei.write_bytes(b"x" * 10)
+    appmod.unsortiert_eintraege()
+    assert datei.exists() and datei.read_bytes() == b"x" * 10, "das Auflisten hat angefasst"
+
+    pfade = {str(r) for r in appmod.app.url_map.iter_rules()}
+    schreibend = [p for p in pfade if "unsortiert" in p and p != "/api/unsortiert"]
+    assert not schreibend, f"es gibt schreibende Endpunkte dafür: {schreibend}"
+    regel = next(r for r in appmod.app.url_map.iter_rules() if str(r) == "/api/unsortiert")
+    assert set(regel.methods) <= {"GET", "HEAD", "OPTIONS"}, f"nicht nur lesend: {regel.methods}"
+
+
+def test_unsortiert_endpoint_needs_permission(appmod, client):
+    """Der Ordner nennt Pfade und Dateinamen. (#656)"""
+    appmod.save_users({**ADMIN_FIX, "g": {"pw": "x", "role": "user", "perms": ["request"]}})
+    with client.session_transaction() as sess:
+        sess["user"] = "g"; sess["role"] = "user"
+    assert client.get("/api/unsortiert").status_code == 403
+    appmod.save_users({})
+
+
+def test_unsortiert_survives_a_missing_folder(appmod, tmp_path, monkeypatch):
+    """Ohne den Ordner eine leere Liste, kein Fehler. (#656)"""
+    monkeypatch.setattr(appmod, "ROMS", str(tmp_path / "gibtsnicht"))
+    assert appmod.unsortiert_eintraege() == []
+
+
+def test_the_maintenance_view_actually_shows_it(appmod):
+    """Die Funktion muss auch aufgerufen und eingebaut werden. (#656)"""
+    js = _js()
+    m = re.search(r"async function secMaint\(c\)\{(.*?)\n(?=async function |function )", js, re.S)
+    assert m, "secMaint nicht gefunden"
+    koerper = m.group(1)
+    assert "id=unslist" in koerper, "der Abschnitt fehlt in der Wartungsansicht"
+    assert "loadUnsortiert()" in koerper, "die Liste wird nie geladen"
+    lade = re.search(r"async function loadUnsortiert\(\)\{(.*?)\n\}", js, re.S)
+    assert lade and "/api/unsortiert" in lade.group(1), "die Funktion fragt den Endpunkt nicht"
+    for schluessel in ("uns_title", "uns_hint", "uns_none", "uns_count"):
+        assert i18n_hat(schluessel), f"{schluessel} fehlt in einer Sprache"
