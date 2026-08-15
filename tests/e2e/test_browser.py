@@ -894,11 +894,29 @@ def test_der_schleier_erzeugt_keinen_waagerechten_bildlauf(seite):
     the sticky search bar from sticking.
     """
     seite.evaluate("document.documentElement.dataset.design='aurora'")
-    # Eine Suche, damit die Seite ueberhaupt laenger wird als das Fenster — ohne Inhalt
-    # gaebe es nichts zu rollen, und die Haelfte dieser Pruefung liefe ins Leere.
-    seite.fill("#q", "mario")
+    # Inhalt, damit die Seite laenger wird als das Fenster — ohne den gaebe es nichts zu
+    # rollen, und die Haelfte dieser Pruefung liefe ins Leere.
+    #
+    # FEST VERDRAHTET, NICHT ECHT GESUCHT: Hier stand eine echte Suche nach „mario". Damit
+    # hing der Ausgang daran, ob Archive.org gerade antwortet — und wenn nicht, scheiterte
+    # der Test an seiner EIGENEN Voraussetzung („die Seite ist gar nicht laenger als das
+    # Fenster"), nicht an dem, was er prueft. Dieselbe Lehre steht in dieser Datei weiter
+    # oben schon einmal; hier war sie noch nicht angewandt.
+    import json as _j
+    seite.route("**/api/search*", lambda route: route.fulfill(
+        status=200, content_type="application/json",
+        headers={"X-Platform-Hidden": "0"},
+        body=_j.dumps([{"title": f"Titel {i}", "platform": "snes", "platform_slug": "snes",
+                        "source": "archive", "size": 524288, "ref": f"r{i}", "cover": "",
+                        "gkey": f"g{i}", "in_library": False, "grp_in_library": False,
+                        "is_set": False, "variant": {}, "variant_label": ""}
+                       for i in range(30)])))
+    seite.fill("#q", "Probe")
     seite.press("#q", "Enter")
-    seite.wait_for_timeout(1500)
+    for _ in range(60):
+        if seite.locator("#grid .card").count(): break
+        seite.wait_for_timeout(200)
+    seite.wait_for_timeout(800)
     for breite, hoehe in ((390, 844), (1280, 900)):
         seite.set_viewport_size({"width": breite, "height": hoehe})
         seite.wait_for_timeout(600)
@@ -2241,3 +2259,87 @@ def test_die_ereignisauswahl_steht_im_profil_und_liest_sich_zurueck(seite):
     assert gelesen["message"] is False, "das Abwaehlen kommt nicht an"
     assert gelesen["available"] is True, "ein anderes Ereignis wurde mitgenommen"
     seite.evaluate("() => closeModal()")
+
+
+# --- #719: Cover erst laden, wenn sie gebraucht werden ---
+
+# Ein winziges eingebettetes Bild: Die Testinstanz hat keine IGDB-Zugangsdaten, und ein
+# Test, der dafuer ins Netz greift, misst das Netz. Fuer die Frage „wird das Cover
+# gesetzt?" reicht ein Pixel.
+_PIXEL = ("data:image/gif;base64,"
+          "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")
+
+
+def _entdecken_verdrahten(seite, reihen=20, je_reihe=20):
+    import json as _j
+    daten = [{"slug": f"p{r}", "key": f"c:p{r}", "console": f"Konsole {r}",
+              "games": [{"title": f"Spiel {r}-{g}", "cover": _PIXEL,
+                         "in_library": False, "ext_rating": None}
+                        for g in range(je_reihe)]}
+             for r in range(reihen)]
+    seite.route("**/api/discover/rows*", lambda route: route.fulfill(
+        status=200, content_type="application/json", body=_j.dumps(daten)))
+
+
+def _entdecken_aufbauen(seite):
+    # `loadDiscover()` DIREKT rufen, nicht ueber `show('s')`: Die Ansicht baut sich beim
+    # Anmelden schon einmal auf, und zwar bevor die Attrappe steht. Ein zweiter Aufruf
+    # holt die Reihen neu — jetzt aus der Attrappe.
+    seite.evaluate("() => loadDiscover()")
+    for _ in range(100):
+        if seite.locator(".pcover").count(): break
+        seite.wait_for_timeout(200)
+    seite.wait_for_timeout(1500)
+
+
+def test_die_startseite_laedt_nur_sichtbare_cover(seite):
+    """440 Cover im Dokument, 48 auf dem Bildschirm. (#719)
+
+    GEMESSEN AM LAUFENDEN STAND: Die Startseite baut 22 Reihen mit je 20 Titeln. Weil die
+    Cover als CSS-HINTERGRUNDBILD eingebunden waren, konnte der Browser nichts aufschieben
+    — `loading="lazy"` wirkt nur auf `<img>`. 240 Bilder zu je rund 400 ms wurden geholt,
+    neun von zehn davon fuer niemanden; die Seite selbst stand nach 141 ms.
+
+    Geprueft wird die Zusage, nicht die Zahl: Deutlich weniger Cover tragen beim Aufbau
+    ein Bild, als im Dokument stehen — und die im sichtbaren Bereich tragen eines.
+    """
+    _entdecken_verdrahten(seite)
+    _entdecken_aufbauen(seite)
+    zahlen = seite.evaluate("""() => {
+      const alle = [...document.querySelectorAll('.pcover')];
+      const hat = e => !!e.style.backgroundImage && e.style.backgroundImage !== 'none';
+      const sichtbar = alle.filter(e => { const r = e.getBoundingClientRect();
+        return r.top < innerHeight && r.bottom > 0 && r.left < innerWidth && r.right > 0; });
+      return {gesamt: alle.length, mit_bild: alle.filter(hat).length,
+              sichtbar: sichtbar.length, sichtbar_mit_bild: sichtbar.filter(hat).length};
+    }""")
+    assert zahlen["gesamt"] > 100, f"nur {zahlen['gesamt']} Cover — der Test prueft nichts"
+    assert zahlen["mit_bild"] < zahlen["gesamt"], \
+        f"alle {zahlen['gesamt']} Cover tragen ein Bild — es wird nichts aufgeschoben"
+    # Was man sieht, muss auch da sein. Ein Aufschub, der sichtbare Kaesten leer laesst,
+    # ist keine Verbesserung, sondern ein Fehler.
+    assert zahlen["sichtbar"] > 0, "nichts im Blick — der Test prueft nichts"
+    assert zahlen["sichtbar_mit_bild"] >= zahlen["sichtbar"] * 0.8, \
+        (f"nur {zahlen['sichtbar_mit_bild']} von {zahlen['sichtbar']} sichtbaren Covern "
+         "tragen ein Bild — der Vorlauf reicht nicht")
+
+
+def test_ein_cover_erscheint_beim_scrollen(seite):
+    """Aufgeschoben heisst nicht weggelassen. (#719)"""
+    _entdecken_verdrahten(seite)
+    _entdecken_aufbauen(seite)
+    ohne = seite.evaluate("""() => {
+      const e = [...document.querySelectorAll('.pcover')].find(
+        x => !x.style.backgroundImage || x.style.backgroundImage === 'none');
+      if (!e) return null;
+      e.id = 'probe719';
+      return true;
+    }""")
+    assert ohne, "alle Cover trugen sofort ein Bild — dann schiebt nichts auf"
+    seite.evaluate("() => document.getElementById('probe719').scrollIntoView()")
+    seite.wait_for_timeout(2000)
+    danach = seite.evaluate("""() => {
+      const e = document.getElementById('probe719');
+      return !!e.style.backgroundImage && e.style.backgroundImage !== 'none';
+    }""")
+    assert danach, "ein Cover blieb nach dem Scrollen leer — aufgeschoben statt geladen"
