@@ -242,19 +242,30 @@
    input` — ein `a` steht dort bewusst nicht, sonst traegt jeder Menuepunkt zwei Ringe. */
 #side .logo:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:8px}
 .nav{display:block;padding:10px 12px;border-radius:10px;color:var(--mut);font-size:14px;cursor:pointer;text-decoration:none;margin-bottom:4px}
-/* Die Symbole der Menuepunkte auf EINE Groesse und EINE Spaltenbreite zwingen (#337).
-   Ohne das sitzen die Beschriftungen unterschiedlich weit eingerueckt, weil jedes Emoji
-   anders breit ist — in einer schmalen Spalte untereinander faellt genau das auf.
-   `font-variant-emoji:emoji` erzwingt die farbige Darstellung; ohne sie rendert ein
-   Zeichen wie U+2709 einfarbig und sichtbar kleiner als der Rest. Das Zeichen traegt
-   zusaetzlich den Variantenselektor U+FE0F, fuer Engines, die die CSS-Eigenschaft noch
-   nicht kennen — Guertel und Hosentraeger, weil sich das Ergebnis je Plattform
-   unterscheidet und hier nicht auf allen geprueft werden kann.
-   One size and one column width for the icons: every emoji has its own advance width, so
-   without this the labels sit at different indents. font-variant-emoji forces the colour
-   presentation; U+FE0F covers engines that do not know the property yet. */
-.navsym{display:inline-block;width:1.4em;margin-right:.55em;text-align:center;
-  font-size:15px;line-height:1;font-variant-emoji:emoji;font-style:normal}
+/* Die Zeichen der Menuepunkte auf EINE Groesse und EINE Spaltenbreite (urspruenglich
+   #337, gezeichnet seit #658).
+
+   DIE SPALTENBREITE bleibt noetig und ist der aeltere Teil: Ohne sie sitzen die
+   Beschriftungen unterschiedlich weit eingerueckt, und in einer schmalen Spalte
+   untereinander faellt genau das auf.
+
+   WAS WEGGEFALLEN IST: Hier stand `font-variant-emoji:emoji` samt Variantenselektor
+   U+FE0F — zwei Kunstgriffe, um einer Schriftart eine bestimmte Darstellung
+   abzuringen, mit einem Ergebnis, das sich je Plattform unterschied und hier nicht auf
+   allen geprueft werden konnte. Genau diese Fragilitaet war der Anlass fuer #658. Ein
+   gezeichneter Pfad braucht nichts davon.
+
+   `currentColor` erbt die Textfarbe, also gehen die Zeichen durch Ueberfahren, aktiven
+   Punkt und alle vier Designs mit, ohne eine einzige Regel je Design.
+
+   EN: the column width is still needed so labels line up; the emoji coercion is gone —
+   a drawn path needs no font hints. */
+.navsym{display:inline-block;width:1.4em;height:1.4em;margin-right:.55em;
+  vertical-align:-.28em;color:inherit;flex:0 0 auto}
+/* Benutzermenue und Einstellungsreiter tragen dieselben Zeichen — eine Reihe, eine
+   Groesse. `.mitem`/`.snav` sind Textzeilen, deshalb flex statt Blocksatz. */
+.mitem,.snav{display:flex;align-items:center;gap:.5em}
+.mitem .navsym,.snav .navsym{margin-right:0;width:1.25em;height:1.25em;vertical-align:0}
 .nav:hover{background:var(--hover);color:var(--txt)}
 .nav.on{background:var(--navon);color:var(--navtxt)}
 #side .grow{flex:1}

@@ -1171,6 +1171,29 @@ Archive und ROMhack-Pakete —, und für die stehen jetzt `mod archive`, `rom ha
 `anthology` und `trilogy` in `SET_RE`. **`archive` allein bewusst nicht**: Das Wort steht in
 jedem zweiten Archive.org-Titel.
 
+**Menü und Reiter tragen gezeichnete Zeichen (#658).** Die Navigation lief auf Emoji — die
+kommen aus der Schriftart, die das System gerade hat. Dass `.navsym` ein
+`font-variant-emoji:emoji` und die Zeichen den Variantenselektor U+FE0F trugen, sagte es
+deutlich: Zwei Kunstgriffe, um einer Schrift eine Darstellung abzuringen, mit einem Ergebnis,
+das sich je Plattform unterschied. Jens hat aus zwei Entwürfen den **Konturstil** gewählt.
+
+Die Formensprache stammt aus der Marke, aber nicht als Kopie: Wo es um ein **Spiel** geht,
+trägt das Zeichen die Modulsilhouette mit ihrer abgeschrägten Ecke. Wo nicht, steht bewusst
+eine gewöhnliche Form — Regler, Schloss, Glocke. Jede Idee in die Modulform zu zwingen macht
+die Reihe schlechter, nicht geschlossener. Entdecken ist deshalb eine **Lupe mit
+Modulglas**: Ein Modul mit einer Lupe daneben wären bei 21 px zwei zu kleine Dinge.
+
+**Der #337-Weg war live, und zwar schlimmer als gedacht.** `applyI18n` setzt `textContent`
+des Elements mit `data-i18n` und löscht damit jedes Kind. Bei `profile` und `nav_lists` stand
+das Symbol nur in der Vorlage, nicht in der Übersetzung — am laufenden Stand gemessen waren
+👤 und ⭐ deshalb **nie** zu sehen, nicht erst nach einem Sprachwechsel, sondern schon beim
+Laden. Nur 🚪 überlebte, weil es im Übersetzungstext saß; genau deshalb musste es beim Umbau
+aus allen fünf Sprachdateien heraus.
+
+Die Untereinträge der Einstellungen (Discord, SMTP, Telegram …) bekommen **keine** Zeichen:
+Dort stehen Produktnamen, ein erfundenes Zeichen sagt weniger als der Name, und ein
+Produktlogo gehört nicht in unsere Formensprache.
+
 **„Vorhanden" trägt die Sprache der Marke (#660).** Das Grün stand an **fünf** Stellen, vier
 davon fest als `#1e5e3a` im Stylesheet — deshalb bekamen alle vier Designs dasselbe
 Signalgrün, egal wie sie sonst aussehen. Nur das Abzeichen auf dem Cover umzufärben hätte
@@ -1340,6 +1363,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 *EN: one card per game, not per release (#691). Across ten series searches, 6–36 % of the cards were repeats of the same game — ten `mario kart` entries at worst, pushing nine other games off the first screens. The interface contradicted itself: the bulk button counted `gkey` and offered "Alle anfragen (25)" while 47 cards sat next to it. Grouping happens in the frontend (`gruppiere()`), not in the response: the detail view builds its version list from `window.LASTRES`, and the region choice from #77 is the reason that view exists. Sorting therefore keys on the GROUP state (`grp_in_library`) rather than the individual hit — a game counts as owned once any release is in the library, which is the question asked before the click, and `varRow` resolves it per release afterwards. Without that step the card falls apart: for a game owned on one platform and missing on another, the missing release would rank first and the card would carry a download button beside a green tick. `in_library` remains as an inner rank so the representing release matches the badge.*
 
 *EN: "in library" now speaks the mark's language (#660). The green sat in five places, four of them hard-coded as `#1e5e3a`, so all four themes got the same signal green whatever else they looked like — and restyling only the cover badge would have left the request list and coverage view green while the cards changed, which is worse than the original state. Each theme now sets `--ok` and `--ok-bg` itself. The glyph is drawn, not typed: the tick is cut OUT of the cartridge silhouette (`fill-rule="evenodd"`), the same construction as the R in the mark; it used to be the text character `✓`, which comes from whatever font the system has. The badge grew, and that is the point — measured on the draft, the cartridge was indistinguishable from a rounded square at 11 px, so a test pins 16 px as the floor. Contrast is measured in a browser test rather than asserted; the only tight case is Glass, whose cyan accent sits close to green — distance there rises from 126 to 140 by going yellow-green rather than teal.*
+
+*EN: menu and tabs carry drawn icons (#658). The navigation ran on emoji, which come from whatever font the system has — `.navsym` even carried `font-variant-emoji:emoji` plus U+FE0F, two coercions to force a presentation out of a font. Jens chose the outline style from two drafts. The vocabulary comes from the mark without copying it: where the subject is a GAME the icon carries the cartridge silhouette with its chamfered corner; where it is not, a conventional shape stands instead — sliders, padlock, bell. Discover is a magnifier whose lens carries the chamfer, because a cartridge with a separate magnifier would be two too-small things at 21 px. The #337 path was live and worse than assumed: `applyI18n` sets `textContent` and deletes children, and for `profile` and `nav_lists` the symbol lived only in the template, so 👤 and ⭐ were never visible at all — not after a language switch, but from load. Only 🚪 survived because it sat inside the translated string, which is why it had to come out of all five language files. Settings sub-entries deliberately get no icons: they are product names.*
 
 *EN: a card can no longer say "in library" and "platform unknown" at once (#685). `in_library()` falls back to a global check when the hit names no platform — correct, but it only answers whether. `library_slugs()` answers where, sorted by the platform's release year (oldest first), which for a title on several systems is almost always the one it appeared on first. Measured: 6.9% of titles sit on more than one platform. Deliberately the console's year, not the game's — IGDB gives one date per game and does not know the hacks and homebrew this concerns. The card marks the value as derived.*
 
