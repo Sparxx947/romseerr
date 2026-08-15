@@ -1569,3 +1569,22 @@ def test_das_abzeichen_ist_gross_genug_fuer_die_modulform(seite):
         "() => document.querySelector('#probe660 .have2 svg').getBoundingClientRect().width")
     seite.evaluate("() => document.getElementById('probe660').remove()")
     assert kasten >= 16, f"das Zeichen misst nur {kasten:.0f} px — dafuer ist es zu fein"
+
+
+def test_die_zeichnung_fuellt_ihr_feld_aus(seite):
+    """Sonst bleibt von der Modulform nichts uebrig. (#660)
+
+    Die erste Fassung mass nur 30 von 64 Einheiten — bei 18 px gerendert waren das 2,2 px
+    Schraege, und das Abzeichen sah aus wie ein gerundetes Quadrat mit Haken. Die Form war
+    da und trotzdem nicht zu sehen. Wer die Zeichnung spaeter verkleinert, macht denselben
+    Fehler noch einmal; deshalb steht die Untergrenze hier und nicht nur im Kommentar.
+    """
+    breite = seite.evaluate("""() => {
+      const g = document.getElementById('rs-vorhanden');
+      const p = g.querySelector('path');
+      const b = p.getBBox();
+      return {w: b.width, h: b.height};
+    }""")
+    assert breite["w"] >= 48, \
+        f"die Zeichnung ist nur {breite['w']:.0f} von 64 Einheiten breit — zu klein fuer die Schraege"
+    assert breite["h"] >= 48, f"die Zeichnung ist nur {breite['h']:.0f} von 64 Einheiten hoch"
