@@ -1588,3 +1588,135 @@ def test_die_zeichnung_fuellt_ihr_feld_aus(seite):
     assert breite["w"] >= 48, \
         f"die Zeichnung ist nur {breite['w']:.0f} von 64 Einheiten breit — zu klein fuer die Schraege"
     assert breite["h"] >= 48, f"die Zeichnung ist nur {breite['h']:.0f} von 64 Einheiten hoch"
+
+
+# --- #658: gezeichnete Zeichen statt Emoji ---
+
+EMOJI_MUSTER = r"[\U0001F300-\U0001FAFF←-➿️]"
+
+
+def test_kein_emoji_mehr_in_navigation_und_benutzermenue(seite):
+    """Emoji kommen aus der Schrift, die das System gerade hat. (#658/#650)"""
+    import re
+    texte = seite.evaluate("""() => {
+      const raus = [];
+      document.querySelectorAll('#side .nav, #usermenu .mitem').forEach(e => raus.push(e.textContent));
+      return raus;
+    }""")
+    assert len(texte) >= 9, f"nur {len(texte)} Menuepunkte gefunden — der Test sieht zu wenig an"
+    for t in texte:
+        treffer = re.findall(EMOJI_MUSTER, t)
+        assert not treffer, f"Emoji {treffer} steht noch in {t.strip()!r}"
+
+
+def test_jedes_zeichen_zeigt_auf_eine_vorhandene_definition(seite):
+    """Ein `use` ins Leere rendert NICHTS — lautlos. (#658)
+
+    Das ist die gefaehrlichste Stelle an dieser Bauart: Ein Tippfehler in der Kennung
+    erzeugt keinen Fehler, keine Warnung und keine Luecke im Aufbau — nur ein unsichtbares
+    Zeichen. Geprueft wird deshalb beides: dass die Kennung existiert UND dass wirklich
+    etwas gezeichnet wird.
+    """
+    # DAS BENUTZERMENUE AUFKLAPPEN. Zugeklappt steht es auf `display:none`, und dort gibt
+    # `getBBox()` immer 0 zurueck — der Test haette drei Zeichen als „rendert nichts"
+    # gemeldet, die voellig in Ordnung sind. Erst messen, wenn es etwas zu messen gibt.
+    seite.evaluate("() => document.getElementById('usermenu').style.display = 'block'")
+    seite.wait_for_timeout(200)
+    ergebnis = seite.evaluate("""() => {
+      const raus = [];
+      document.querySelectorAll('svg.navsym use').forEach(u => {
+        const id = (u.getAttribute('href') || '').slice(1);
+        const ziel = document.getElementById(id);
+        let flaeche = 0;
+        try { const b = u.ownerSVGElement.getBBox(); flaeche = b.width * b.height; } catch (e) {}
+        raus.push({id, da: !!ziel, flaeche});
+      });
+      return raus;
+    }""")
+    seite.evaluate("() => document.getElementById('usermenu').style.display = ''")
+    assert ergebnis, "keine Zeichen gefunden — der Test sieht nichts an"
+    fehlend = [e["id"] for e in ergebnis if not e["da"]]
+    assert not fehlend, f"diese Kennungen gibt es nicht: {fehlend}"
+    leer = [e["id"] for e in ergebnis if e["flaeche"] < 1]
+    assert not leer, f"diese Zeichen rendern nichts: {leer}"
+
+
+def test_ein_sprachwechsel_loescht_kein_zeichen(seite):
+    """DER RUECKFALLWEG AUS #337, und er war live. (#658)
+
+    `applyI18n` setzt `textContent` des Elements mit `data-i18n` — und loescht damit jedes
+    Kind. Am laufenden Stand gemessen waren 👤 (Profil) und ⭐ (Meine Listen) deshalb NIE
+    zu sehen: Das Symbol stand nur in der Vorlage, nicht in der Uebersetzung, und wurde
+    schon beim Laden weggeschrieben. Nur 🚪 ueberlebte, weil es im Uebersetzungstext sass.
+
+    Deshalb sitzt das Zeichen jetzt in einem EIGENEN Knoten neben dem uebersetzten Text.
+    """
+    zaehle = "() => document.querySelectorAll('#side .nav svg.navsym, #usermenu .mitem svg.navsym').length"
+    # GENAU ZEHN, nicht „mindestens neun". Ein Mutationstest hat gezeigt, wozu eine
+    # weiche Untergrenze taugt: Wird ein Zeichen zurueck INS uebersetzte Element gelegt,
+    # ist es schon beim LADEN weg (applyI18n laeuft sofort) — der Zaehler stand dann von
+    # Anfang an auf 9 und blieb es, und ein Vorher-Nachher-Vergleich merkte nichts.
+    # 7 Menuepunkte + 3 im Benutzermenue.
+    erwartet = seite.evaluate("() => document.querySelectorAll('#side .nav').length"
+                              " + document.querySelectorAll('#usermenu .mitem').length")
+    vorher = seite.evaluate(zaehle)
+    assert vorher == erwartet, \
+        (f"{vorher} Zeichen bei {erwartet} Menuepunkten — eines fehlt schon beim Laden. "
+         "Das ist der #337-Weg: ein Zeichen im uebersetzten Element wird sofort geloescht.")
+    for sprache in ("en", "fr", "de"):
+        seite.evaluate("s => setLang(s)", sprache)
+        seite.wait_for_timeout(700)
+        jetzt = seite.evaluate(zaehle)
+        assert jetzt == vorher, \
+            f"nach dem Wechsel auf {sprache} sind es {jetzt} statt {vorher} Zeichen"
+    # ... und der Text muss trotzdem uebersetzt worden sein, sonst prueft das nichts.
+    seite.evaluate("() => setLang('en')")
+    seite.wait_for_timeout(700)
+    text = seite.evaluate("() => document.querySelector('#usermenu .mitem:last-child').textContent.trim()")
+    seite.evaluate("() => setLang('de')")
+    seite.wait_for_timeout(700)
+    assert text == "Sign out", f"der Text wurde nicht uebersetzt: {text!r}"
+
+
+def test_die_zeichen_wirken_in_allen_vier_designs(seite):
+    """21 px ist die Groesse, in der sie wirklich stehen. (#658)"""
+    werte = seite.evaluate("""() => {
+      const merk = document.documentElement.dataset.design, out = {};
+      for (const d of ['', 'glass', 'clean', 'aurora']) {
+        if (d) document.documentElement.dataset.design = d;
+        else delete document.documentElement.dataset.design;
+        const s = document.querySelector('#side .nav svg.navsym');
+        const r = s.getBoundingClientRect(), cs = getComputedStyle(s);
+        out[d || 'seerr'] = {breite: Math.round(r.width), farbe: cs.color};
+      }
+      if (merk) document.documentElement.dataset.design = merk;
+      else delete document.documentElement.dataset.design;
+      return out;
+    }""")
+    for design, w in werte.items():
+        assert 17 <= w["breite"] <= 26, f"{design}: Zeichen ist {w['breite']} px breit"
+    # Die Farbe MUSS sich je Design unterscheiden — sonst erbt sie nicht, sondern steht fest.
+    farben = {w["farbe"] for w in werte.values()}
+    assert len(farben) > 1, f"die Zeichen tragen ueberall dieselbe Farbe: {farben}"
+
+
+def test_die_einstellungsreiter_tragen_zeichen_die_untereintraege_nicht(seite):
+    """Zwei Entscheidungen in einem Test. (#658)
+
+    Die elf Reiter bekommen Zeichen. Die Untereintraege bewusst NICHT: Dort stehen
+    Produktnamen (Discord, SMTP, Telegram), und ein erfundenes Zeichen sagt dort weniger
+    als der Name — ein Produktlogo wiederum gehoert nicht in unsere Formensprache.
+    """
+    seite.evaluate("() => show('set')")
+    seite.wait_for_timeout(900)
+    reiter = seite.evaluate("() => document.querySelectorAll('.snav').length")
+    mit = seite.evaluate("() => document.querySelectorAll('.snav svg.navsym').length")
+    assert reiter == 11, f"{reiter} Reiter statt 11"
+    assert mit == 11, f"nur {mit} von {reiter} Reitern tragen ein Zeichen"
+    # Untereintraege: der Benachrichtigungsreiter hat welche
+    seite.evaluate("() => setSection('notif')")
+    seite.wait_for_timeout(700)
+    unter = seite.evaluate("() => document.querySelectorAll('#setsub .ssub').length")
+    unter_mit = seite.evaluate("() => document.querySelectorAll('#setsub svg.navsym').length")
+    assert unter > 0, "keine Untereintraege sichtbar — der Test prueft dann nichts"
+    assert unter_mit == 0, f"{unter_mit} Untereintraege tragen ein Zeichen, erwartet 0"

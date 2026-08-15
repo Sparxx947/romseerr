@@ -909,3 +909,34 @@ def test_no_hard_coded_green_is_left_in_the_stylesheet(appmod):
         f"--ok ist {css.count('--ok:')}x gesetzt, erwartet 4 (ein Wert je Design)"
     assert css.count("--ok-bg:") == 4, \
         f"--ok-bg ist {css.count('--ok-bg:')}x gesetzt, erwartet 4"
+
+
+def test_no_emoji_left_in_the_navigation_translations(appmod):
+    """Ein Symbol im Uebersetzungstext ueberlebt und steht dann NEBEN dem Zeichen. (#658)
+
+    `logout` trug „🚪 Abmelden" in allen fuenf Dateien — deshalb war es das einzige der drei
+    Benutzermenue-Symbole, das ueberhaupt sichtbar war (die anderen beiden loeschte
+    `applyI18n` schon beim Laden, siehe #337). Bleibt es stehen, sieht man kuenftig Zeichen
+    UND Emoji nebeneinander.
+    """
+    import re
+    emoji = re.compile("[\U0001F300-\U0001FAFF]")
+    schluessel = ("nav_discover", "nav_requests", "nav_issues", "nav_coverage",
+                  "nav_library", "nav_messages", "nav_settings", "nav_users",
+                  "nav_lists", "profile", "logout")
+    for lang in ("de", "en", "fr", "es", "it"):
+        p = os.path.join(REPO, "static", "i18n", f"{lang}.json")
+        d = json.load(open(p, encoding="utf-8"))
+        for k in schluessel:
+            wert = d.get(k, "")
+            assert not emoji.search(wert), f"{lang}.json: {k} traegt noch ein Emoji: {wert!r}"
+    # ... und in der deutschen Tabelle, die INLINE im JavaScript steht — die sechste Stelle,
+    # die genau deshalb regelmaessig vergessen wird.
+    js = open(os.path.join(REPO, "static", "js", "index.js"), encoding="utf-8").read()
+    tabelle = js[js.index("const I18N={de:{"):]
+    tabelle = tabelle[:tabelle.index("}};") + 3]
+    for k in schluessel:
+        m = re.search(r'"' + k + r'":"([^"]*)"', tabelle)
+        if m:
+            assert not emoji.search(m.group(1)), \
+                f"inline-Tabelle: {k} traegt noch ein Emoji: {m.group(1)!r}"

@@ -47,7 +47,156 @@
   <path fill="currentColor" fill-rule="evenodd"
     d="M12 4h32l14 14v36a6 6 0 0 1-6 6H12a6 6 0 0 1-6-6V10a6 6 0 0 1 6-6z
        M27 47.5 13.5 34l6.4-6.4L27 34.7l19.1-19.1 6.4 6.4z"/>
- </g></defs></svg>
+ </g>
+ <!-- DIE ZEICHEN FUER MENUE UND REITER (#658). Jens hat aus zwei Entwuerfen den
+      KONTURSTIL gewaehlt: dieselbe Geometrie wie die massive Fassung, nur als Umriss.
+      Vorher standen hier Emoji — die kommen aus der Schrift, die das System gerade hat,
+      und `.navsym` trug ein `font-variant-emoji:emoji`, weil jemand die Darstellung
+      erzwingen musste. Genau die Schwaeche hat die Marke in #650 abgelegt.
+
+      DIE FORMENSPRACHE: Wo es um ein SPIEL geht, traegt das Zeichen die Modulsilhouette
+      mit ihrer abgeschraegten Ecke. Wo nicht, steht bewusst eine gewoehnliche Form —
+      Regler, Schloss, Glocke. Jede Idee in die Modulform zu zwingen macht die Reihe
+      schlechter, nicht geschlossener.
+
+      `currentColor` und KEIN Verlauf: Die Navigation faerbt sich beim Ueberfahren und
+      beim aktiven Punkt um (`--navon`, `--navtxt`). Ein fester Verlauf ignorierte das;
+      so folgen die Zeichen der Textfarbe und wirken in allen vier Designs.
+
+      EN: outline set, drawn paths only — no font, no emoji. Cartridge silhouette where
+      the subject is a game, conventional shapes elsewhere; currentColor throughout. -->
+ <g id="rs-i-entdecken" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- Lupe, deren Glas die abgeschraegte Modulecke traegt — ein Modul MIT Lupe daneben waeren bei 21 px zwei zu kleine Dinge -->
+  <path d="M4.9 4.6a1.3 1.3 0 0 1 1.3-1.3h5.4L14.9 7v6.2a1.3 1.3 0 0 1-1.3 1.3H6.2a1.3 1.3 0 0 1-1.3-1.3Z"/>
+  <path d="m14.8 14.6 5 5"/>
+ </g>
+ <g id="rs-i-anfragen" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- Modul mit Pfeil hinein -->
+  <path d="M6.5 3.2h7.9L18.8 7.6v10.9a1.3 1.3 0 0 1-1.3 1.3H6.5a1.3 1.3 0 0 1-1.3-1.3V4.5a1.3 1.3 0 0 1 1.3-1.3Z"/>
+  <path d="M12 7.4v7.2m0 0-2.6-2.9M12 14.6l2.6-2.9"/>
+ </g>
+ <g id="rs-i-probleme" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- Modul mit Ausrufezeichen -->
+  <path d="M6.5 3.2h7.9L18.8 7.6v10.9a1.3 1.3 0 0 1-1.3 1.3H6.5a1.3 1.3 0 0 1-1.3-1.3V4.5a1.3 1.3 0 0 1 1.3-1.3Z"/>
+  <path d="M12 7.2v5.2"/>
+  <path d="M12 15.6h.01"/>
+ </g>
+ <g id="rs-i-abdeckung" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- Modul mit Saeulen -->
+  <path d="M6.5 3.2h7.9L18.8 7.6v10.9a1.3 1.3 0 0 1-1.3 1.3H6.5a1.3 1.3 0 0 1-1.3-1.3V4.5a1.3 1.3 0 0 1 1.3-1.3Z"/>
+  <path d="M8.4 16.2v-3.3M12 16.2V9.9m3.6 6.3V8.4"/>
+ </g>
+ <g id="rs-i-bibliothek" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- zwei Module nebeneinander -->
+  <path d="M4.4 9.3a1.2 1.2 0 0 1 1.2-1.2h3.4l1.6 1.6v9.2a1.2 1.2 0 0 1-1.2 1.2H5.6a1.2 1.2 0 0 1-1.2-1.2Z"/>
+  <path d="M13.4 5.6a1.2 1.2 0 0 1 1.2-1.2h3.3l1.7 1.7v12.8a1.2 1.2 0 0 1-1.2 1.2h-3.8a1.2 1.2 0 0 1-1.2-1.2Z"/>
+ </g>
+ <g id="rs-i-nachrichten" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- Sprechblase mit der Modulschraege -->
+  <path d="M4.6 5.5a1.3 1.3 0 0 1 1.3-1.3h8.3L18.9 8.5v4.6a1.3 1.3 0 0 1-1.3 1.3h-7.2l-4.1 3.3v-3.3h-.4a1.3 1.3 0 0 1-1.3-1.3Z"/>
+ </g>
+ <g id="rs-i-einstellungen" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- Regler — BEWUSST kein Modul: eine sofort gelesene Form schlaegt eine geschlossene Reihe, in die alles hineingezwungen wurde -->
+  <path d="M3.9 7.2h16.2M3.9 12h16.2M3.9 16.8h16.2"/>
+  <path d="M15.4 7.2m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0"/>
+  <path d="M8.2 12m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0"/>
+  <path d="M16.6 16.8m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0"/>
+ </g>
+ <g id="rs-i-profil" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- eine Person -->
+  <path d="M12 12.4a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Z"/>
+  <path d="M5.4 19.8a6.6 6.6 0 0 1 13.2 0"/>
+ </g>
+ <g id="rs-i-listen" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- Lesezeichen — Wunschliste und Favoriten sind Gemerktes -->
+  <path d="M7 3.6h10a.9.9 0 0 1 .9.9v15.4L12 16.2l-5.9 3.7V4.5a.9.9 0 0 1 .9-.9Z"/>
+ </g>
+ <g id="rs-i-abmelden" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- Tuer mit Pfeil hinaus -->
+  <path d="M13.4 3.7H6.3a1.4 1.4 0 0 0-1.4 1.4v13.8a1.4 1.4 0 0 0 1.4 1.4h7.1"/>
+  <path d="m15.8 8.2 3.8 3.8-3.8 3.8M19.2 12H9.6"/>
+ </g>
+ <g id="rs-i-set-general" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- Regelkreis -->
+  <path d="M12 8.4a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2Z"/>
+  <path d="M12 3.4v2.2M12 18.4v2.2M3.4 12h2.2M18.4 12h2.2"/>
+ </g>
+ <g id="rs-i-set-notif" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- Glocke -->
+  <path d="M12 3.8a5 5 0 0 0-5 5v3.4L5.7 15h12.6L17 12.2V8.8a5 5 0 0 0-5-5Z"/>
+  <path d="M10.2 17.9a1.9 1.9 0 0 0 3.6 0"/>
+ </g>
+ <g id="rs-i-set-conn" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- zwei Kettenglieder -->
+  <path d="M10.4 13.6 13.6 10.4"/>
+  <path d="M10.9 7.6 12.6 5.9a3.3 3.3 0 0 1 4.7 4.7l-1.7 1.7"/>
+  <path d="M13.1 16.4l-1.7 1.7a3.3 3.3 0 0 1-4.7-4.7l1.7-1.7"/>
+ </g>
+ <g id="rs-i-set-users" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- zwei Personen -->
+  <path d="M9.4 11.6a3.1 3.1 0 1 0 0-6.2 3.1 3.1 0 0 0 0 6.2Z"/>
+  <path d="M3.6 19.4a5.8 5.8 0 0 1 11.6 0"/>
+  <path d="M16.3 6.1a3 3 0 0 1 0 5.8M17.6 14.4a5.2 5.2 0 0 1 3 4.8"/>
+ </g>
+ <g id="rs-i-set-blocklist" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- durchgestrichener Kreis -->
+  <path d="M12 3.9a8.1 8.1 0 1 0 0 16.2 8.1 8.1 0 0 0 0-16.2Z"/>
+  <path d="m6.3 6.3 11.4 11.4"/>
+ </g>
+ <g id="rs-i-set-services" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- gestapelte Dienste -->
+  <path d="M4.6 4.6h14.8a1 1 0 0 1 1 1v3.6a1 1 0 0 1-1 1H4.6a1 1 0 0 1-1-1V5.6a1 1 0 0 1 1-1Z"/>
+  <path d="M4.6 13.8h14.8a1 1 0 0 1 1 1v3.6a1 1 0 0 1-1 1H4.6a1 1 0 0 1-1-1v-3.6a1 1 0 0 1 1-1Z"/>
+  <path d="M6.9 7.4h.01M6.9 16.6h.01"/>
+ </g>
+ <g id="rs-i-set-drop" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- Ablage mit Pfeil hinein -->
+  <path d="M3.9 13.4h4.3l1.2 2.1h5.2l1.2-2.1h4.3v4.7a1.3 1.3 0 0 1-1.3 1.3H5.2a1.3 1.3 0 0 1-1.3-1.3Z"/>
+  <path d="M12 3.6v6.9m0 0-2.5-2.7M12 10.5l2.5-2.7"/>
+ </g>
+ <g id="rs-i-set-organize" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- Ordner mit Sortierpfeilen -->
+  <path d="M3.7 7.4a1.3 1.3 0 0 1 1.3-1.3h4.4l1.6 2h8a1.3 1.3 0 0 1 1.3 1.3v8.5a1.3 1.3 0 0 1-1.3 1.3H5a1.3 1.3 0 0 1-1.3-1.3Z"/>
+  <path d="M9.4 12.4v4.2m0 0-1.5-1.6M9.4 16.6l1.5-1.6M14.6 16.6v-4.2m0 0-1.5 1.6M14.6 12.4l1.5 1.6"/>
+ </g>
+ <g id="rs-i-set-maint" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- Protokollblatt -->
+  <path d="M6.4 3.7h11.2a1.3 1.3 0 0 1 1.3 1.3v14a1.3 1.3 0 0 1-1.3 1.3H6.4a1.3 1.3 0 0 1-1.3-1.3V5a1.3 1.3 0 0 1 1.3-1.3Z"/>
+  <path d="M8.4 8.2h7.2M8.4 12h7.2M8.4 15.8h4.3"/>
+ </g>
+ <g id="rs-i-set-tls" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- Schloss -->
+  <path d="M6.9 10.4h10.2a1.3 1.3 0 0 1 1.3 1.3v7.1a1.3 1.3 0 0 1-1.3 1.3H6.9a1.3 1.3 0 0 1-1.3-1.3v-7.1a1.3 1.3 0 0 1 1.3-1.3Z"/>
+  <path d="M8.8 10.4V7.9a3.2 3.2 0 0 1 6.4 0v2.5"/>
+ </g>
+ <g id="rs-i-set-about" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round">
+  <!-- Auskunft -->
+  <path d="M12 3.9a8.1 8.1 0 1 0 0 16.2 8.1 8.1 0 0 0 0-16.2Z"/>
+  <path d="M12 11.2v5"/>
+  <path d="M12 7.8h.01"/>
+ </g>
+</defs></svg>
 <div id=side>
  <!-- EIN VERWEIS, KEIN `div` MIT `onclick` (#662). Nur der Verweis steht in der
       Tab-Reihenfolge, traegt eine Rolle, laesst sich in einem neuen Tab oeffnen und
@@ -65,17 +214,17 @@
       der Name steht; sonst liest ein Vorleser „Bücher Bibliothek".
       The icon lives in its own span: applyI18n overwrites textContent, which silently
       deleted icons that the translations did not repeat. -->
- <a class="nav on" id=nS href="#/discover" onclick="return navGeh('s')"><span class=navsym aria-hidden=true>🔍</span><span data-i18n=nav_discover>Entdecken</span></a>
+ <a class="nav on" id=nS href="#/discover" onclick="return navGeh('s')"><svg class=navsym aria-hidden=true focusable=false viewBox="0 0 24 24"><use href="#rs-i-entdecken"/></svg><span data-i18n=nav_discover>Entdecken</span></a>
  <!-- Kein Symbol davor: `nav_requests` bringt sein eigenes mit ("📥 Anfragen"). Sonst
       steht es zweimal da — derselbe Fallstrick wie beim Zustandsabzeichen in #205. -->
- <a class=nav id=nJ href="#/requests" onclick="return navGeh('j')"><span class=navsym aria-hidden=true>📥</span><span data-i18n=nav_requests>Anfragen</span><span id=jobbadge></span></a>
- <a class=nav id=nI href="#/issues" onclick="return navGeh('issues')"><span class=navsym aria-hidden=true>🐞</span><span data-i18n=nav_issues>Probleme</span></a>
- <a class=nav id=nC href="#/coverage" onclick="return navGeh('cov')"><span class=navsym aria-hidden=true>📊</span><span data-i18n=nav_coverage>Abdeckung</span></a>
+ <a class=nav id=nJ href="#/requests" onclick="return navGeh('j')"><svg class=navsym aria-hidden=true focusable=false viewBox="0 0 24 24"><use href="#rs-i-anfragen"/></svg><span data-i18n=nav_requests>Anfragen</span><span id=jobbadge></span></a>
+ <a class=nav id=nI href="#/issues" onclick="return navGeh('issues')"><svg class=navsym aria-hidden=true focusable=false viewBox="0 0 24 24"><use href="#rs-i-probleme"/></svg><span data-i18n=nav_issues>Probleme</span></a>
+ <a class=nav id=nC href="#/coverage" onclick="return navGeh('cov')"><svg class=navsym aria-hidden=true focusable=false viewBox="0 0 24 24"><use href="#rs-i-abdeckung"/></svg><span data-i18n=nav_coverage>Abdeckung</span></a>
  <!-- Abdeckung beantwortet „was fehlt", die Bibliothek „was habe ich". Vor dem Regal
       ist Letzteres die häufigere Frage, deshalb steht sie gleich daneben. (#293) -->
- <a class=nav id=nL href="#/library" onclick="return navGeh('lib')"><span class=navsym aria-hidden=true>📚</span><span data-i18n=nav_library>Bibliothek</span></a>
- <a class=nav id=nM href="#/messages" onclick="return navGeh('msg')"><span class=navsym aria-hidden=true>✉️</span><span data-i18n=nav_messages>Nachrichten</span><span id=msgbadge></span></a>
- <a class=nav id=nSet href="#/settings" onclick="return navGeh('set')" style="display:none"><span class=navsym aria-hidden=true>⚙️</span><span data-i18n=nav_settings>Einstellungen</span></a>
+ <a class=nav id=nL href="#/library" onclick="return navGeh('lib')"><svg class=navsym aria-hidden=true focusable=false viewBox="0 0 24 24"><use href="#rs-i-bibliothek"/></svg><span data-i18n=nav_library>Bibliothek</span></a>
+ <a class=nav id=nM href="#/messages" onclick="return navGeh('msg')"><svg class=navsym aria-hidden=true focusable=false viewBox="0 0 24 24"><use href="#rs-i-nachrichten"/></svg><span data-i18n=nav_messages>Nachrichten</span><span id=msgbadge></span></a>
+ <a class=nav id=nSet href="#/settings" onclick="return navGeh('set')" style="display:none"><svg class=navsym aria-hidden=true focusable=false viewBox="0 0 24 24"><use href="#rs-i-einstellungen"/></svg><span data-i18n=nav_settings>Einstellungen</span></a>
 </div>
 <!-- Eigener Bestaetigungsdialog statt `confirm()` (#641). Ein nativer Dialog wird vom
      BROWSER gezeichnet, ist mit keiner Regel erreichbar und friert ausserdem die Seite
@@ -126,10 +275,10 @@
    <div class=aufklapp id=userbox>
     <button class=fbtn id=userbtn onclick="toggleMenu('usermenu',event)" aria-haspopup=true aria-expanded=false></button>
     <div class=menu id=usermenu>
-     <a class=mitem data-i18n=profile onclick="closeMenus();openProfile()">👤 Profil</a>
+     <a class=mitem onclick="closeMenus();openProfile()"><svg class=navsym aria-hidden=true focusable=false viewBox="0 0 24 24"><use href="#rs-i-profil"/></svg><span data-i18n=profile>Profil</span></a>
      <!-- Wunschliste und Favoriten gehören zur Person, nicht zu den Anfragen (#195/#207) -->
-     <a class=mitem data-i18n=nav_lists onclick="closeMenus();show('lists')">⭐ Meine Listen</a>
-     <a class=mitem data-i18n=logout onclick="closeMenus();logout()">🚪 Abmelden</a>
+     <a class=mitem onclick="closeMenus();show('lists')"><svg class=navsym aria-hidden=true focusable=false viewBox="0 0 24 24"><use href="#rs-i-listen"/></svg><span data-i18n=nav_lists>Meine Listen</span></a>
+     <a class=mitem onclick="closeMenus();logout()"><svg class=navsym aria-hidden=true focusable=false viewBox="0 0 24 24"><use href="#rs-i-abmelden"/></svg><span data-i18n=logout>Abmelden</span></a>
     </div>
    </div>
   </div>
