@@ -5,8 +5,7 @@
 ## Was dieses Projekt ist — und was das für dich bedeutet
 
 Romseerr ist ein selbstgehostetes Einzelprojekt eines Betreibers, kein Produkt mit
-Bereitschaftsdienst. Es hat **keinen stabilen Release**; alles bisher Veröffentlichte ist eine
-Vorabversion. Das ist keine Ausrede, sondern eine Angabe, mit der du rechnen können sollst:
+Bereitschaftsdienst. Es hat seit **v1.4.0** stabile Releases; davor war alles eine Vorabversion. Das ist keine Ausrede, sondern eine Angabe, mit der du rechnen können sollst:
 Meldungen werden gelesen und ernst genommen, aber es gibt keine zugesagte Reaktionszeit.
 
 ## Was gemeldet werden sollte
@@ -31,8 +30,9 @@ etwas anderes tut, als er glaubt:
 
 ## Wie melden
 
-Über **GitHub Security Advisories** am Repository (*Security → Report a vulnerability*). Das
-hält den Fund nicht öffentlich, bis er behoben ist. Ein normales Issue geht auch — dann ist er
+Über **GitHub Security Advisories** am Repository — direkt hier:
+<https://github.com/Sparxx947/romseerr/security/advisories/new> (*Security → Report a
+vulnerability*). Das hält den Fund nicht öffentlich, bis er behoben ist. Ein normales Issue geht auch — dann ist er
 allerdings sofort für alle sichtbar, und das ist deine Entscheidung, nicht meine.
 
 **Bitte keine Zugangsdaten, Token oder Adressen aus deiner Installation mitschicken.** Ein
@@ -54,7 +54,7 @@ den Test benennt — „false positive" allein gilt nicht.
 ## What this project is
 
 Romseerr is a self-hosted single-maintainer project, not a product with an on-call rota. There
-is **no stable release**; everything published so far is a pre-release. That is not an excuse
+have been stable releases since **v1.4.0**; everything before that was a pre-release. That is not an excuse
 but a figure to plan with: reports are read and taken seriously, and there is no promised
 response time.
 
@@ -79,7 +79,8 @@ something other than what they believe:
 
 ## How to report
 
-Through **GitHub Security Advisories** on the repository (*Security → Report a
+Through **GitHub Security Advisories** on the repository — directly here:
+<https://github.com/Sparxx947/romseerr/security/advisories/new> (*Security → Report a
 vulnerability*), which keeps the finding private until it is fixed. A normal issue works too,
 but then it is public immediately — your call, not mine.
 
