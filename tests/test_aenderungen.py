@@ -1006,18 +1006,27 @@ def test_every_css_variable_used_actually_exists(appmod):
          + "\n  ".join(sorted(fehlend)))
 
 
-# Was heute noch als feste Farbe im JavaScript steht, Ton -> Anzahl. Das ist eine
-# BESTANDSAUFNAHME, keine Erlaubnisliste: Der grosse Rest sind die Werte des
-# Standard-Designs, fest ins JavaScript geschrieben, und damit in den drei anderen
-# Designs falsch (`#2a2f37` ist ein Knopfgrund, `#8b929e` gedaempfter Text, `#e6e8ec`
-# Textfarbe). Sie gehoeren in Variablen — ein eigenes, groesseres Stueck Arbeit, als
-# eigenes Issue erfasst. Bis dahin haelt diese Liste den Stand fest.
+# Was noch als feste Farbe im JavaScript steht, Ton -> Anzahl, JE TON MIT GRUND (#705).
+#
+# Aus 153 Vorkommen wurden 29, und der Rest ist kein Rueckstand, sondern Absicht. Deshalb
+# steht hier eine Begruendung statt einer nackten Zahl: Wer den naechsten Eintrag
+# hinzufuegt, muss einen schreiben koennen — sonst gehoert die Farbe in eine Variable.
 JS_FESTE_FARBEN = {
-    "#0003": 1, "#0b0d10": 9, "#171a20": 2, "#1a1d23": 5, "#1e2229": 1,
-    "#2a2f37": 33, "#2a4a35": 1, "#2a4d8f": 2, "#2c323b": 11, "#3a2b2b": 2,
-    "#4bb7c6": 1, "#58a6ff": 3, "#5b8cff": 10, "#5bbf8a": 1, "#6c5ce7": 2,
-    "#7aa2f7": 2, "#8b929e": 23, "#8b93a1": 1, "#9b6dd6": 1, "#b9c0cc": 1,
-    "#d9a441": 1, "#e0679a": 1, "#e6e8ec": 19, "#ff6b6b": 2, "#fff": 18,
+    # Weisse Schrift auf farbigem Grund. Sie folgt keinem Design, sondern dem Grund unter
+    # ihr, und der ist bereits eine Variable.
+    "#fff": 18,
+    # Avatar-Palette: Diese fuenf muessen sich VONEINANDER unterscheiden, damit zwei
+    # Nutzer nicht dieselbe Farbe bekommen. Mit dem Design mitzuwandern wuerde genau das
+    # zerstoeren.
+    "#e0679a": 1, "#5bbf8a": 1, "#d9a441": 1, "#9b6dd6": 1, "#4bb7c6": 1,
+    # Der Streamen-Knopf. Ein eigenes Blau, weil er neben dem Spielen-Knopf steht und sich
+    # von ihm unterscheiden muss; eine benannte Rolle dafuer gibt es noch nicht.
+    "#2a4d8f": 2,
+    # Zustand `unverified` beim Wunschlisten-Import — ein Hinweisblau. Es gibt kein
+    # --info; die uebrigen Zustaende der Tabelle nutzen bereits Variablen.
+    "#58a6ff": 3,
+    # Durchscheinendes Schwarz als Fortschrittsspur. Wirkt ueber jedem Grund gleich.
+    "#0003": 1,
 }
 
 
@@ -1083,6 +1092,6 @@ def test_every_theme_defines_the_full_status_set(appmod):
     # Kommentare raus, sonst zaehlt ein `--gefahr:` im Fliesstext mit.
     ohne = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     for name in ("--ok", "--ok-bg", "--warn", "--warn-bg", "--bad", "--err-bg",
-                 "--gefahr", "--gefahr-b", "--gefahr-h"):
+                 "--gefahr", "--gefahr-b", "--gefahr-h", "--btn2"):
         n = len(re.findall(re.escape(name) + r"\s*:", ohne))
         assert n == 4, f"{name} ist {n}x gesetzt, erwartet 4 — ein Wert je Design"

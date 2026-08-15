@@ -325,8 +325,8 @@ async function loadCoverage(){let box=document.getElementById('coverage');
 function covZeile(p){
  if(p.known==null)return `<div class=job><div><b>${p.name}</b><div class=meta style="font-size:11px">`
    +(p.catalog?t('cov_nosnap'):t('cov_nosource'))+` · ${p.files} ${t('cov_files')}</div></div></div>`;
- let bar=`<div style="background:#2a2f37;border-radius:4px;height:6px;width:120px;overflow:hidden">`
-  +`<div style="background:#6c5ce7;height:6px;width:${Math.min(100,p.pct||0)}%"></div></div>`;
+ let bar=`<div style="background:var(--btn2);border-radius:4px;height:6px;width:120px;overflow:hidden">`
+  +`<div style="background:var(--acc2);height:6px;width:${Math.min(100,p.pct||0)}%"></div></div>`;
  return `<div class=job style="cursor:pointer" onclick="openMissing('${p.slug}','${p.name.replace(/'/g,"")}')">
   <div><b>${p.name}</b><div class=meta style="font-size:11px">${p.owned} ${t('cov_of')} ${p.known}`
   +(p.capped?' +':'')+` · ${p.pct}% · ${t('cov_src')}: ${p.source} · ${t('cov_asof')} ${(p.snapshot||'').slice(0,10)}</div></div>
@@ -340,8 +340,8 @@ function covGruppe(name,plats){
  let auf=COVOFFEN.has(name);
  let logo=LOGOS.has(name.toLowerCase())
   ?`<img class=glogo src="/logo/${encodeURIComponent(name.toLowerCase())}" alt="${name}">`:'';
- let bar=pct==null?'':`<div style="background:#2a2f37;border-radius:4px;height:6px;width:120px;overflow:hidden">`
-  +`<div style="background:#6c5ce7;height:6px;width:${Math.min(100,pct)}%"></div></div>`;
+ let bar=pct==null?'':`<div style="background:var(--btn2);border-radius:4px;height:6px;width:120px;overflow:hidden">`
+  +`<div style="background:var(--acc2);height:6px;width:${Math.min(100,pct)}%"></div></div>`;
  let zahl=pct==null?t('cov_nosnap')
   :`${owned} ${t('cov_of')} ${known} · ${pct}% · <span title="${t('cov_method')}">Σ</span>`;
  return `<div class=covgrp>
@@ -413,7 +413,7 @@ async function renderOwned(){let m=document.getElementById('modal');m.style.disp
  let rows=(d.titles||[]).map(tt=>`<div class=job>
    <span style="flex:1">${String(tt).replace(/</g,'&lt;')}</span>
    <button onclick="missSearch('${String(tt).replace(/'/g,"\\'").replace(/"/g,'&quot;')}')"
-    style="background:#2a2f37">${t('cov_search')}</button></div>`).join('')
+    style="background:var(--btn2)">${t('cov_search')}</button></div>`).join('')
   ||`<div class=meta>${t('lib_none')}</div>`;
  let pages=`<div class=frow style="gap:8px">
    <button ${_own.offset<=0?'disabled':''} onclick="_own.offset=Math.max(0,_own.offset-100);renderOwned()">‹</button>
@@ -433,7 +433,7 @@ async function renderMissing(){let m=document.getElementById('modal');m.style.di
  let d=await(await fetch(u)).json();
  let rows=(d.titles||[]).map((tt,i)=>`<div class=job><label style="display:flex;align-items:center;gap:8px;flex:1">
    <input type=checkbox class=misschk data-title="${tt.replace(/"/g,'&quot;')}"> <span>${tt.replace(/</g,'&lt;')}</span></label>
-  <button onclick="missSearch('${tt.replace(/'/g,"\'").replace(/"/g,'&quot;')}')" style="background:#2a2f37">${t('cov_search')}</button></div>`).join('')
+  <button onclick="missSearch('${tt.replace(/'/g,"\'").replace(/"/g,'&quot;')}')" style="background:var(--btn2)">${t('cov_search')}</button></div>`).join('')
   ||`<div class=meta>${t('cov_none')}</div>`;
  let pages=`<div class=frow style="gap:8px">
    <button ${_miss.offset<=0?'disabled':''} onclick="_miss.offset=Math.max(0,_miss.offset-100);renderMissing()">‹</button>
@@ -463,10 +463,10 @@ async function loadMessages(){let box=document.getElementById('messages');let d=
  let opts=users.map(u=>`<option value="${u}" ${u==msgWith?'selected':''}>${u.replace(/</g,'&lt;')}${unreadBy[u]?' ('+unreadBy[u]+')':''}</option>`).join('');
  let thread=(d.messages||[]).filter(m=>(m.from==msgWith&&m.to==me)||(m.from==me&&m.to==msgWith))
    .map(m=>`<div class=cmt style="max-width:80%;margin-left:${m.from==me?'auto':'0'}"><span class="cu${m.from==me?' staff':''}">${m.from.replace(/</g,'&lt;')}</span> <span class=meta style="font-size:10px">${new Date(m.ts*1000).toLocaleString()}</span><div>${m.body.replace(/</g,'&lt;')}</div></div>`).join('');
- box.innerHTML=`<div style="padding:18px;max-width:680px"><h3 style="text-transform:uppercase;color:#8b929e;font-size:12px">✉ ${t('nav_messages')}</h3>`+
+ box.innerHTML=`<div style="padding:18px;max-width:680px"><h3 style="text-transform:uppercase;color:var(--mut);font-size:12px">✉ ${t('nav_messages')}</h3>`+
   (users.length?`<div class=frow><label for=msgsel style="min-width:auto">${t('msg_to')}</label><select id=msgsel onchange="msgWith=this.value;loadMessages()">${opts}</select></div>
    <div class=cmts id=msgthread style="max-height:50vh;overflow:auto">${thread||('<div class=meta>'+t('msg_none')+'</div>')}</div>
-   <div class=frow><textarea id=msgbody placeholder="${t('msg_ph')}" style="flex:1;min-height:60px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px" onkeydown="if(event.key=='Enter'&&event.ctrlKey)sendMsg()"></textarea></div>
+   <div class=frow><textarea id=msgbody placeholder="${t('msg_ph')}" style="flex:1;min-height:60px;background:var(--input);border:1px solid var(--border);color:var(--txt);padding:8px;border-radius:6px" onkeydown="if(event.key=='Enter'&&event.ctrlKey)sendMsg()"></textarea></div>
    <div class=frow><button onclick="sendMsg()">${t('msg_send')}</button><span class=meta>${t('msg_hint')}</span></div>`:`<div class=meta>${t('msg_nousers')}</div>`)+`</div>`;
  if(msgWith&&unreadBy[msgWith]){await fetch('/api/messages/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:msgWith})});updateMsgBadge();}
  let mt=document.getElementById('msgthread');if(mt)mt.scrollTop=mt.scrollHeight;}
@@ -498,12 +498,12 @@ async function loadIssues(pref){let box=document.getElementById('issues');
  let items=await(await fetch('/api/issues')).json();
  let types=['broken','wrong_region','wrong_platform','other'];
  box.innerHTML=`<div style="padding:18px;max-width:640px">
-  <h3 style="text-transform:uppercase;color:#8b929e;font-size:12px">${t('report_issue')}</h3>
+  <h3 style="text-transform:uppercase;color:var(--mut);font-size:12px">${t('report_issue')}</h3>
   <div class=frow><input id=itit placeholder="Titel / title" value="${((pref&&pref.title)||'').replace(/"/g,'&quot;')}"></div>
   <div class=frow><input id=iplat placeholder="Plattform" style="flex:0 0 140px" value="${((pref&&pref.platform)||'').replace(/"/g,'&quot;')}"><select id=ityp aria-label="Art / type">${types.map(x=>'<option>'+x+'</option>').join('')}</select></div>
-  <div class=frow><textarea id=imsg placeholder="${t('issue_msg')}" style="flex:1;min-height:60px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px"></textarea></div>
+  <div class=frow><textarea id=imsg placeholder="${t('issue_msg')}" style="flex:1;min-height:60px;background:var(--input);border:1px solid var(--border);color:var(--txt);padding:8px;border-radius:6px"></textarea></div>
   <div class=frow><button onclick="submitIssue()">${t('submit')}</button><span id=imm class=meta></span></div>
-  <h3 style="text-transform:uppercase;color:#8b929e;font-size:12px;margin-top:20px">${t('issues')}</h3><div id=ilist></div></div>`;
+  <h3 style="text-transform:uppercase;color:var(--mut);font-size:12px;margin-top:20px">${t('issues')}</h3><div id=ilist></div></div>`;
  renderIssues(items);}
 function renderIssues(items){let d=document.getElementById('ilist');d.innerHTML=items.length?'':'<div class=meta>—</div>';
  items.forEach(i=>{let e=document.createElement('div');e.className='job';e.style.flexDirection='column';e.style.alignItems='stretch';
@@ -666,7 +666,7 @@ async function search(){let q=document.getElementById('q').value.trim();if(!q){l
  hint.innerHTML=(karten.length+' '+t('results')).replace(/</g,'&lt;');
  platHinweis(hint,versteckt);
  if(n>1&&canDo('request')){let b=document.createElement('button');b.id='bulkbtn';
-  b.style.cssText='margin-left:12px;background:#2a2f37;border:none;color:#e6e8ec;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px';
+  b.style.cssText='margin-left:12px;background:var(--btn2);border:none;color:var(--txt);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px';
   b.textContent='⬇ '+t('req_all')+' ('+n+')';b.onclick=bulkRequest;hint.appendChild(b);}
  karten.forEach(k=>g.appendChild(renderCard(k.it,k.n)));}
 async function bulkRequest(){let b=document.getElementById('bulkbtn');if(b)b.disabled=true;
@@ -690,8 +690,8 @@ async function openDetail(it,ausRoute){let m=document.getElementById('modal');m.
    <div><h2>${it.title.replace(/</g,'&lt;')}</h2>
     <div class=meta>${SLUGNAME[it.platform_slug]||it.platform_slug||`<span class=plat-unknown title="${t('plat_unknown_hint').replace(/"/g,'&quot;')}">⚠ ${t('plat_unknown')}</span>`} · ${it.source=='usenet'?'📡 Usenet':'🗄 Archive'} · ${sz(it.size)}${it.is_set?' · 📦 Sammlung':''}</div>
     <div class=meta2 id=mrich></div>
-    <button onclick="reportFromDetail()" style="margin-top:8px;background:#2a2f37;border:none;color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px">🐞 ${t('report_issue')}</button>
-    <button id=wlbtn onclick="addWishlist(this)" style="margin-top:8px;margin-left:6px;background:#2a2f37;border:none;color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px">${t('add_wishlist')}</button>
+    <button onclick="reportFromDetail()" style="margin-top:8px;background:var(--btn2);border:none;color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px">🐞 ${t('report_issue')}</button>
+    <button id=wlbtn onclick="addWishlist(this)" style="margin-top:8px;margin-left:6px;background:var(--btn2);border:none;color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px">${t('add_wishlist')}</button>
     <button id=favbtn class="favbtn${FAVS.has(norm(it.title||''))?' on':''}" onclick="toggleFav(window._detit,this)">${(FAVS.has(norm(it.title||''))?'♥ ':'♡ ')+t('favourite')}</button>
     <div class=desc id=mdesc>…</div></div></div>
   <div class=sec id=mrate></div>
@@ -723,7 +723,7 @@ async function openDetail(it,ausRoute){let m=document.getElementById('modal');m.
  if(canDo('manage_requests')){try{let us=await(await fetch('/api/users')).json();
    let names=(Array.isArray(us)?us:[]).map(u=>u&&u.username).filter(Boolean).sort();
    if(names.length){let bar=document.getElementById('reqforbar');
-    bar.innerHTML=`<div class=frow style="margin-bottom:8px"><label for=reqforsel style="min-width:auto;color:#8b929e;font-size:12px">${t('req_for')}</label><select id=reqforsel onchange="window.reqFor=this.value"><option value="">${t('req_self')}</option>${names.map(u=>`<option value="${u}">${u.replace(/</g,'&lt;')}</option>`).join('')}</select></div>`;}}catch(e){}}
+    bar.innerHTML=`<div class=frow style="margin-bottom:8px"><label for=reqforsel style="min-width:auto;color:var(--mut);font-size:12px">${t('req_for')}</label><select id=reqforsel onchange="window.reqFor=this.value"><option value="">${t('req_self')}</option>${names.map(u=>`<option value="${u}">${u.replace(/</g,'&lt;')}</option>`).join('')}</select></div>`;}}catch(e){}}
  let r=await fetch('/api/detail?source='+encodeURIComponent(it.source)+'&ref='+encodeURIComponent(it.ref||'')+'&title='+encodeURIComponent(it.title)+'&platform='+encodeURIComponent(it.platform_slug||''));
  let d=await r.json();
  window._detname=d.name||'';
@@ -736,7 +736,7 @@ async function openDetail(it,ausRoute){let m=document.getElementById('modal');m.
    rabox.style.display='';
    rabox.innerHTML=`<span class=badge>🏆 ${a.achievements} ${t('ra_achievements')}</span> `
     +`<span class=meta>${a.points} ${t('ra_points')}${pr} · `
-    +`<a href="${a.url}" target=_blank rel=noopener style="color:#5b8cff">RetroAchievements</a></span>`;}
+    +`<a href="${a.url}" target=_blank rel=noopener style="color:var(--link)">RetroAchievements</a></span>`;}
   else rabox.style.display='none';}
  document.getElementById('mdesc').textContent=d.description||t('no_desc');
  let rb=[];
@@ -770,13 +770,13 @@ function varPrefFields(pfx,v,regions){
  let order=(v.regions||[]);let rest=(regions||[]).filter(r=>order.indexOf(r)<0);
  let opts=(sel)=>['',...order,...rest].filter((x,i,a)=>a.indexOf(x)===i)
    .map(r=>`<option value="${r}" ${r===sel?'selected':''}>${r||'—'}</option>`).join('');
- let sels=[0,1,2,3].map(i=>`<select id="${pfx}vr${i}" style="background:#1a1d23;color:#e6e8ec;border:1px solid #2a2f37;border-radius:6px;padding:4px 6px;margin-right:4px">${opts(order[i]||'')}</select>`).join('');
+ let sels=[0,1,2,3].map(i=>`<select id="${pfx}vr${i}" style="background:var(--card);color:var(--txt);border:1px solid var(--btn2);border-radius:6px;padding:4px 6px;margin-right:4px">${opts(order[i]||'')}</select>`).join('');
  let langs=['','en','de','fr','es','it','ja','pt','nl','sv','pl','ru'];
  return `<div class=meta style="font-size:11px;margin-bottom:4px">${t('var_region_order')}</div>${sels}
   <div class=meta style="font-size:11px;margin:6px 0 4px">${t('var_lang')}</div>
-  <select id="${pfx}vl" style="background:#1a1d23;color:#e6e8ec;border:1px solid #2a2f37;border-radius:6px;padding:4px 6px">
+  <select id="${pfx}vl" style="background:var(--card);color:var(--txt);border:1px solid var(--btn2);border-radius:6px;padding:4px 6px">
    ${langs.map(l=>`<option value="${l}" ${l===(v.lang||'')?'selected':''}>${l?l.toUpperCase():'—'}</option>`).join('')}</select>
-  <label style="display:block;margin-top:6px;font-size:12px;color:#8b929e">
+  <label style="display:block;margin-top:6px;font-size:12px;color:var(--mut)">
    <input type=checkbox id="${pfx}vp" ${v.prerelease?'checked':''}> ${t('var_prerelease')}</label>`;}
 function readVarPrefs(pfx){let regions=[];
  [0,1,2,3].forEach(i=>{let e=document.getElementById(pfx+'vr'+i);
@@ -848,7 +848,7 @@ async function loadStream(it){let box=document.getElementById('mstream');if(!box
      : t('stream_single')}</span>`;
  }else if(d.reason==='busy'){
   box.innerHTML=`<span class=meta style="color:var(--warn)">📺 ${t('stream_busy').replace('{u}',(d.busy_user||'?')).replace('{g}',(d.busy_with||'?'))}</span>
-   <button onclick="stopStream()" style="margin-left:8px;background:#2a2f37;border:none;color:#e6e8ec;padding:4px 10px;border-radius:6px;cursor:pointer">${t('stream_stop')}</button>`;
+   <button onclick="stopStream()" style="margin-left:8px;background:var(--btn2);border:none;color:var(--txt);padding:4px 10px;border-radius:6px;cursor:pointer">${t('stream_stop')}</button>`;
  }else if(d.reason==='ambiguous_platform'&&(d.candidates||[]).length){
   // Der einzige Grund, den der Bedienende auflösen KANN — also fragen statt absagen.
   // Der Resolver kennt die Kandidaten ohnehin; eine Sackgasse wäre hier Verschwendung. (#175)
@@ -898,14 +898,14 @@ function closeModal(ausRoute){
 }
 // --- Wunschlisten-Import: Vorschau ZUERST, geschrieben wird erst nach Bestaetigung (#80) ---
 const WLST={matched:['var(--ok)','wl_s_matched'],ambiguous:['var(--warn)','wl_s_ambiguous'],
- not_found:['var(--bad)','wl_s_notfound'],duplicate:['#8b929e','wl_s_duplicate'],
- in_library:['#8b929e','wl_s_inlib'],unverified:['#58a6ff','wl_s_unverified']};
+ not_found:['var(--bad)','wl_s_notfound'],duplicate:['var(--mut)','wl_s_duplicate'],
+ in_library:['var(--mut)','wl_s_inlib'],unverified:['#58a6ff','wl_s_unverified']};
 function openWlImport(){let m=document.getElementById('modal');m.style.display='block';
  m.innerHTML=`<div class=box><button class=x onclick="closeModal()">×</button>
   <h2>⭐ ${t('wl_import')}</h2>
   <div class=meta style="line-height:1.6;margin-bottom:10px">${t('wl_imp_hint')}
-   · <a href="/api/wishlist/example.csv" download style="color:#5b8cff">${t('wl_imp_example')}</a></div>
-  <textarea id=wlta placeholder="${t('wl_imp_ph')}" style="width:100%;min-height:150px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:8px;font-family:ui-monospace,monospace;font-size:12px"></textarea>
+   · <a href="/api/wishlist/example.csv" download style="color:var(--link)">${t('wl_imp_example')}</a></div>
+  <textarea id=wlta placeholder="${t('wl_imp_ph')}" style="width:100%;min-height:150px;background:var(--input);border:1px solid var(--border);color:var(--txt);padding:8px;border-radius:8px;font-family:ui-monospace,monospace;font-size:12px"></textarea>
   <div class=frow style="gap:8px;flex-wrap:wrap">
    <input type=file id=wlfile accept=".txt,.csv,text/plain,text/csv" onchange="wlReadFile(this)" style="flex:1;min-width:200px;font-size:12px">
    <button onclick="wlPreview()">${t('wl_imp_preview')}</button></div>
@@ -921,9 +921,9 @@ async function wlPreview(){let res=document.getElementById('wlres');res.innerHTM
  let sum=Object.keys(d.counts||{}).map(k=>`${t(WLST[k]?WLST[k][1]:k)}: <b>${d.counts[k]}</b>`).join(' · ');
  let warn=d.truncated?`<div class=meta style="color:var(--warn)">${t('wl_imp_trunc').replace('{n}',d.max)}</div>`:'';
  let nochk=d.checked?'':`<div class=meta style="color:#58a6ff">${t('wl_imp_nocheck')}</div>`;
- let rows=d.entries.map((e,i)=>{let st=WLST[e.status]||['#8b929e',e.status];
+ let rows=d.entries.map((e,i)=>{let st=WLST[e.status]||['var(--mut)',e.status];
   let sel=e.status==='ambiguous'
-   ?`<select id="wlc${i}" style="background:#1a1d23;color:#e6e8ec;border:1px solid #2a2f37;border-radius:6px;padding:3px 6px;font-size:12px">`
+   ?`<select id="wlc${i}" style="background:var(--card);color:var(--txt);border:1px solid var(--btn2);border-radius:6px;padding:3px 6px;font-size:12px">`
     +e.candidates.map(c=>`<option>${c.replace(/</g,'&lt;')}</option>`).join('')+'</select>'
    :`<span>${(e.title||'').replace(/</g,'&lt;')}</span>`;
   let skip=(e.status==='duplicate'||e.status==='in_library');
@@ -971,10 +971,10 @@ async function loadDiscover(){let hint=document.getElementById('hint');hint.styl
  }catch(e){}
  let hid=new Set(JSON.parse(localStorage.getItem('dischide')||'[]'));
  let bar=document.createElement('div');bar.style.cssText='display:flex;justify-content:flex-end;margin-bottom:6px';
- bar.innerHTML='<button onclick="toggleDiscCust()" style="background:#1e2229;border:1px solid #2c323b;color:#8b929e;padding:5px 10px;border-radius:8px;cursor:pointer;font-size:12px">⚙ anpassen / customize</button>';
+ bar.innerHTML='<button onclick="toggleDiscCust()" style="background:var(--card);border:1px solid var(--border);color:var(--mut);padding:5px 10px;border-radius:8px;cursor:pointer;font-size:12px">⚙ anpassen / customize</button>';
  g.appendChild(bar);
- let cust=document.createElement('div');cust.id='disccust';cust.style.cssText='display:none;background:#171a20;border-radius:8px;padding:10px;margin-bottom:12px';
- rows.forEach(r=>{let lbl=document.createElement('label');lbl.style.cssText='font-size:12px;color:#8b929e;display:inline-flex;gap:5px;align-items:center;margin:0 12px 6px 0';
+ let cust=document.createElement('div');cust.id='disccust';cust.style.cssText='display:none;background:var(--hover);border-radius:8px;padding:10px;margin-bottom:12px';
+ rows.forEach(r=>{let lbl=document.createElement('label');lbl.style.cssText='font-size:12px;color:var(--mut);display:inline-flex;gap:5px;align-items:center;margin:0 12px 6px 0';
   let cb=document.createElement('input');cb.type='checkbox';cb.checked=!hid.has(r.key);
   cb.onchange=()=>{let h=new Set(JSON.parse(localStorage.getItem('dischide')||'[]'));cb.checked?h.delete(r.key):h.add(r.key);localStorage.setItem('dischide',JSON.stringify([...h]));loadDiscover();};
   lbl.appendChild(cb);lbl.appendChild(document.createTextNode(reihenName(r)));cust.appendChild(lbl);});
@@ -1177,12 +1177,12 @@ async function loadJobs(){let r=await fetch('/api/jobs');let d=await r.json();le
  // der Wartung, wo ihn niemand sucht, der die Zahl loswerden will. Nur für Endzustände. (#246)
  const GRP2ST={erledigt:['done'],abgelehnt:['denied'],fehler:['error']};
  if(canDo('manage_requests')&&GRP2ST[JOBGRP]&&zahl(JOBGRP))
-  leiste.innerHTML+=`<button onclick="bestaetigen(t('del_confirm')).then(j=>{if(j)admClearJobs(${JSON.stringify(GRP2ST[JOBGRP])})})" style="margin-left:8px;background:#3a2b2b;border:none;color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:13px">${t('clear_group')}</button>`;
+  leiste.innerHTML+=`<button onclick="bestaetigen(t('del_confirm')).then(j=>{if(j)admClearJobs(${JSON.stringify(GRP2ST[JOBGRP])})})" style="margin-left:8px;background:var(--err-bg);border:none;color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:13px">${t('clear_group')}</button>`;
  if(canDo('manage_requests')){let users=[...new Set(alle.map(o=>o.user||'—'))].sort();
   if(users.length>1){
    let opts='<option value="">'+t('flt_all')+'</option>'+users.map(u=>`<option${window.jobFilter===u?' selected':''}>${u.replace(/</g,'&lt;')}</option>`).join('');
    leiste.innerHTML+=`<span style="margin-left:8px;color:var(--mut);font-size:13px">${t('flt_user')}:</span>`+
-    `<select id=jobflt onchange="window.jobFilter=this.value;loadJobs()" style="background:#1a1d23;color:#e6e8ec;border:1px solid #2a2f37;border-radius:6px;padding:4px 8px">${opts}</select>`;}}
+    `<select id=jobflt onchange="window.jobFilter=this.value;loadJobs()" style="background:var(--card);color:var(--txt);border:1px solid var(--btn2);border-radius:6px;padding:4px 8px">${opts}</select>`;}}
  j.appendChild(leiste);
  if(window.jobFilter)d=d.filter(o=>(o.user||'—')===window.jobFilter);
  if(JOBGRP)d=d.filter(o=>jobGruppe(o.state)===JOBGRP);
@@ -1199,21 +1199,21 @@ async function loadJobs(){let r=await fetch('/api/jobs');let d=await r.json();le
     {// Ab dem dritten Versuch wechselt der Server die Quelle. Das gehört auf den Knopf,
      // sonst ist ein plötzlich anderes Ergebnis nicht erklärbar. (#200)
      let naechster=(o.tries||1)+1, wechsel=naechster>=3;
-     right+=`<button onclick="retryJob('${o.id}')" style="background:#2a2f37;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;margin-left:8px" title="${wechsel?t('retry_other_hint'):t('retry')}">↻ ${wechsel?t('retry_other'):t('retry')}</button>`;}
+     right+=`<button onclick="retryJob('${o.id}')" style="background:var(--btn2);border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;margin-left:8px" title="${wechsel?t('retry_other_hint'):t('retry')}">↻ ${wechsel?t('retry_other'):t('retry')}</button>`;}
    // „Erneut einlesen" nur, wenn die Dateien wirklich noch liegen — ein Knopf, der beim
    // Drücken scheitert, ist schlimmer als keiner. Der Server sagt es je Auftrag. (#245)
    if(o.state=='error'&&o.reimportable&&canDo('manage_requests'))
-    right+=`<button onclick="reimportJob('${o.id}')" style="background:#2a4a35;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;margin-left:6px" title="${t('reimp_hint')}">⤵ ${t('reimp')}</button>`;
+    right+=`<button onclick="reimportJob('${o.id}')" style="background:var(--ok-bg);border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;margin-left:6px" title="${t('reimp_hint')}">⤵ ${t('reimp')}</button>`;
    // Entfernen nur in Endzuständen — eine laufende Anfrage darf nicht aus Versehen
    // verschwinden, während im Hintergrund noch geladen wird. (#246)
    if(['done','error','denied'].includes(o.state)&&canDo('manage_requests'))
-    right+=`<button onclick="deleteJob('${o.id}',${o.reimportable?'true':'false'})" style="background:#3a2b2b;border:none;color:#fff;padding:5px 9px;border-radius:6px;cursor:pointer;margin-left:6px" title="${t('del_job')}">🗑</button>`;}
+    right+=`<button onclick="deleteJob('${o.id}',${o.reimportable?'true':'false'})" style="background:var(--err-bg);border:none;color:#fff;padding:5px 9px;border-radius:6px;cursor:pointer;margin-left:6px" title="${t('del_job')}">🗑</button>`;}
   // „fehlgeschlagen, 3. Versuch" sagt etwas anderes als „fehlgeschlagen". (#200)
   let vs=(o.tries||0)>1?` · ${o.tries}. ${t('try_n')}`:'';
   let dt=o.created?new Date(o.created*1000).toLocaleString():'';
   // Gelieferte Fassung im Verlauf zeigen — damit eine Falschlieferung belegbar ist. (#77)
   let vl=o.variant_label?` · 🏷 ${o.variant_label.replace(/</g,'&lt;')}`:'';
-  e.innerHTML=`<div><div class=jobt style="cursor:pointer" title="${t('job_open_card')}">${o.title.replace(/</g,'&lt;')}</div><span class=jobmsg style="color:#8b929e;font-size:11px"></span><div class=meta style="color:#8b929e;font-size:11px">👤 <b style="color:#b9c0cc">${(o.user||'—').replace(/</g,'&lt;')}</b> · ${(o.platform||t('plat_unknown')).replace(/</g,'&lt;')} · ${o.source}${vs}${vl}${dt?' · '+dt:''} · ${o.msg||''}</div></div><div>${right}</div>`;
+  e.innerHTML=`<div><div class=jobt style="cursor:pointer" title="${t('job_open_card')}">${o.title.replace(/</g,'&lt;')}</div><span class=jobmsg style="color:var(--mut);font-size:11px"></span><div class=meta style="color:var(--mut);font-size:11px">👤 <b style="color:var(--txt)">${(o.user||'—').replace(/</g,'&lt;')}</b> · ${(o.platform||t('plat_unknown')).replace(/</g,'&lt;')} · ${o.source}${vs}${vl}${dt?' · '+dt:''} · ${o.msg||''}</div></div><div>${right}</div>`;
   // KEINE Bindung je Zeile mehr — der Titel traegt seine Daten, geklickt wird oben. (#449)
   e.dataset.titel=o.title; e.dataset.plattform=o.platform||'';
   e.dataset.jid=o.id;   // damit eine Kurzmeldung ihre Zeile wiederfindet (#459)
@@ -1317,7 +1317,7 @@ function toggleFilter(){let f=document.getElementById('filter');f.style.display=
 // --- Benutzerverwaltung ---
 function canDo(perm){return window.ROLE=='admin'||(window.PERMS||[]).includes(perm);}
 function defAvatar(name){let n=(name||'?').trim()||'?';let ini=(n[0]||'?').toUpperCase();
- let cols=['#5b8cff','#e0679a','#5bbf8a','#d9a441','#9b6dd6','#4bb7c6'];let c=cols[(n.charCodeAt(0)||0)%cols.length];
+ let cols=['var(--acc)','#e0679a','#5bbf8a','#d9a441','#9b6dd6','#4bb7c6'];let c=cols[(n.charCodeAt(0)||0)%cols.length];
  let svg='<svg xmlns="http://www.w3.org/2000/svg" width="66" height="66"><rect width="66" height="66" rx="33" fill="'+c+'"/><text x="33" y="45" font-size="34" text-anchor="middle" fill="#fff" font-family="sans-serif">'+ini+'</text></svg>';
  return 'data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(svg)));}
 async function loadAuth(){let d=await(await fetch('/api/auth/status')).json();
@@ -1353,7 +1353,7 @@ async function loadTitleMeta(it){
  box.innerHTML=`<h3>${t('rate_title')}</h3>
   <div class=frow><span style="min-width:150px">${t('rate_mine')}</span>
    <span id=mystars>${sterne(d.mine||0)}</span>
-   ${d.mine?`<button onclick="setRating(0)" style="margin-left:10px;background:#2a2f37;border:none;color:#8b929e;padding:4px 9px;border-radius:6px;cursor:pointer;font-size:12px">${t('rate_clear')}</button>`:''}</div>
+   ${d.mine?`<button onclick="setRating(0)" style="margin-left:10px;background:var(--btn2);border:none;color:var(--mut);padding:4px 9px;border-radius:6px;cursor:pointer;font-size:12px">${t('rate_clear')}</button>`:''}</div>
   ${andere?`<div class=frow><span style="min-width:150px">${t('rate_others')}</span><span>${andere}</span></div>`:''}
   <h3 style="font-size:13px;margin-top:14px">${t('comments')}</h3>
   ${komm||`<div class=meta>${t('comments_none')}</div>`}
@@ -1390,7 +1390,7 @@ async function loadLists(){
  if(LISTE==='wish'){
   let wl=[];try{wl=await(await fetch('/api/wishlist')).json();}catch(e){}
   c.innerHTML=`<div class=rowh style="margin-bottom:8px;display:flex;align-items:center;gap:8px"><b>${t('wl_hint_head')}</b>`+
-   `<button onclick="openWlImport()" style="margin-left:auto;background:#2a2f37;border:none;color:#e6e8ec;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px">${t('wl_import')}</button></div>`;
+   `<button onclick="openWlImport()" style="margin-left:auto;background:var(--btn2);border:none;color:var(--txt);padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px">${t('wl_import')}</button></div>`;
   if(!wl.length){c.innerHTML+=`<div class=meta>${t('wl_empty')}</div>`;return;}
   wl.forEach(e=>{let row=document.createElement('div');row.className='job';
    row.innerHTML=`<div><div>${(e.title||'').replace(/</g,'&lt;')}</div><div class=meta style="font-size:11px">${(SLUGNAME[e.platform]||e.platform||'—').replace(/</g,'&lt;')}</div></div>`;
@@ -1450,18 +1450,18 @@ async function cfgWarn(){let el=document.getElementById('cfgwarn');if(!el)return
 let PAV='';
 async function openProfile(){let m=document.getElementById('modal');m.style.display='block';PAV='';
  let p=await(await fetch('/api/profile')).json();
- let inp='style="flex:1;min-width:120px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px"';
+ let inp='style="flex:1;min-width:120px;background:var(--input);border:1px solid var(--border);color:var(--txt);padding:8px;border-radius:6px"';
  m.innerHTML=`<div class=box><button class=x onclick="closeModal()">×</button>
   <div class=sec><h3>${t('profile')} — ${(p.username||'').replace(/</g,'&lt;')}</h3>
-   <div class=row><div id=pav style="width:66px;flex:0 0 66px;height:66px;border-radius:50%;background:#0b0d10 center/cover no-repeat;border:1px solid #2c323b;background-image:url('${p.avatar||defAvatar(p.display_name||p.username)}')"></div>
-    <label style="flex:1;font-size:12px;color:#8b929e">${t('avatar')}<br><input type=file accept="image/*" onchange="pickAvatar(event)"></label></div>
+   <div class=row><div id=pav style="width:66px;flex:0 0 66px;height:66px;border-radius:50%;background:var(--input) center/cover no-repeat;border:1px solid var(--border);background-image:url('${p.avatar||defAvatar(p.display_name||p.username)}')"></div>
+    <label style="flex:1;font-size:12px;color:var(--mut)">${t('avatar')}<br><input type=file accept="image/*" onchange="pickAvatar(event)"></label></div>
    <div class=row><input id=pdn ${inp} placeholder="${t('display_name')}" value="${(p.display_name||'').replace(/"/g,'&quot;')}"></div>
    <div class=row><input id=pmail ${inp} placeholder="${t('email')}" value="${(p.email||'').replace(/"/g,'&quot;')}"></div>
-   <div class=row><label style="color:#8b929e;font-size:13px">${t('language')}</label><select id=plang ${inp}><option value="">—</option><option value=de ${p.lang=='de'?'selected':''}>Deutsch</option><option value=en ${p.lang=='en'?'selected':''}>English</option><option value=fr ${p.lang=='fr'?'selected':''}>Français</option><option value=es ${p.lang=='es'?'selected':''}>Español</option><option value=it ${p.lang=='it'?'selected':''}>Italiano</option></select></div>
-   <div class=row><label style="color:#8b929e;font-size:13px">${t('design')}</label><div style="display:flex;gap:8px;flex-wrap:wrap">${DESIGNS.map(dz=>`<button class="dpick${(p.design||'')==dz?' on':''}" data-d="${dz}" onclick="pickDesign('${dz}')">${t('d_'+dz)}</button>`).join('')}</div></div>
+   <div class=row><label style="color:var(--mut);font-size:13px">${t('language')}</label><select id=plang ${inp}><option value="">—</option><option value=de ${p.lang=='de'?'selected':''}>Deutsch</option><option value=en ${p.lang=='en'?'selected':''}>English</option><option value=fr ${p.lang=='fr'?'selected':''}>Français</option><option value=es ${p.lang=='es'?'selected':''}>Español</option><option value=it ${p.lang=='it'?'selected':''}>Italiano</option></select></div>
+   <div class=row><label style="color:var(--mut);font-size:13px">${t('design')}</label><div style="display:flex;gap:8px;flex-wrap:wrap">${DESIGNS.map(dz=>`<button class="dpick${(p.design||'')==dz?' on':''}" data-d="${dz}" onclick="pickDesign('${dz}')">${t('d_'+dz)}</button>`).join('')}</div></div>
    <div class=row><input id=pwh ${inp} placeholder="${t('pwebhook')}" value="${(p.webhook||'').replace(/"/g,'&quot;')}"><button onclick="testPWebhook()">${t('test')}</button></div>
    <div class=row><input id=pra ${inp} placeholder="${t('ra_user')}" value="${(p.ra_user||'').replace(/"/g,'&quot;')}"></div>
-   <div class=row><label style="color:#8b929e;font-size:13px;min-width:150px">${t('var_prefs')}</label>
+   <div class=row><label style="color:var(--mut);font-size:13px;min-width:150px">${t('var_prefs')}</label>
     <div style="flex:1">${varPrefFields('p',p.variant||{},p.variant_regions||[])}</div></div>
    <div class=row><button onclick="saveProfile()">${t('save')}</button><span id=pmsg class=meta></span></div>
    <div class=row><button onclick="togglePush()" id=pushbtn>${t('push_enable')}</button>
@@ -1590,13 +1590,13 @@ async function subZustand(sec,unter){
 async function secConn(c){
  let vals=await(await fetch('/api/settings/connections/reveal')).json();
  function fld(k,label,secret){let v=(vals[k]||'');
-  let eye=secret?`<button type=button onclick="togEye('c_${k}',this)" title="${t('reveal')}" style="background:#2a2f37;border:none;color:#8b929e;padding:6px 9px;border-radius:6px;cursor:pointer;margin-left:6px">👁</button>`:'';
+  let eye=secret?`<button type=button onclick="togEye('c_${k}',this)" title="${t('reveal')}" style="background:var(--btn2);border:none;color:var(--mut);padding:6px 9px;border-radius:6px;cursor:pointer;margin-left:6px">👁</button>`:'';
   return `<div class=frow><label style="min-width:150px">${label}</label><input id="c_${k}" ${secret?'type=password':''} value="${(''+v).replace(/"/g,'&quot;')}" style="flex:1">${eye}</div>`;}
- let fuss=`<div class=frow><button onclick="saveConn()">${t('save')}</button><button onclick="testConn()" style="margin-left:8px;background:#2a2f37">${t('test')}</button><span id=cmsg class=meta></span></div><div id=csvc style="margin-top:10px"></div>`;
+ let fuss=`<div class=frow><button onclick="saveConn()">${t('save')}</button><button onclick="testConn()" style="margin-left:8px;background:var(--btn2)">${t('test')}</button><span id=cmsg class=meta></span></div><div id=csvc style="margin-top:10px"></div>`;
  let seiten={
   sab:()=>`<h3>SABnzbd</h3>${fld('sab_url','URL')}${fld('sab_apikey','API-Key',1)}${fld('sab_cat','Kategorie / category')}${fuss}
   <div class=meta style="margin-top:14px;line-height:1.5">${t('un_hint')}<br>${t('un_grab')}</div>
-  <div class=frow style="margin-top:6px"><button onclick="unCheck()" style="background:#2a2f37">${t('un_check')}</button></div>
+  <div class=frow style="margin-top:6px"><button onclick="unCheck()" style="background:var(--btn2)">${t('un_check')}</button></div>
   <div id=unres style="margin-top:8px"></div>`,
   prow:()=>`<h3>Prowlarr</h3>${fld('prow_url','URL')}${fld('prow_apikey','API-Key',1)}${fld('prow_cats','Kategorien / categories')}${fuss}`,
   igdb:()=>`<h3>IGDB</h3>${fld('igdb_id','Client-ID')}${fld('igdb_secret','Client-Secret',1)}${fuss}`,
@@ -1607,23 +1607,23 @@ async function secConn(c){
   romm:()=>`<h3>RomM</h3>${fld('romm_url','URL')}${fld('romm_user','User')}${fld('romm_pass','Passwort / password',1)}${fuss}`,
   ra:()=>`<h3>RetroAchievements</h3>${fld('ra_key','API-Key',1)}
    <div class=frow><span class=meta id=rastat style="flex:1">…</span>
-    <button type=button onclick="raRefresh()" style="background:#2a2f37">${t('ra_refresh')}</button></div>${fuss}`,
+    <button type=button onclick="raRefresh()" style="background:var(--btn2)">${t('ra_refresh')}</button></div>${fuss}`,
   jd:()=>`<h3>JDownloader</h3><div class=meta style="font-size:11px;margin-bottom:4px">${t('jd_hint')}</div>
    ${fld('jd_watch',t('jd_watch'))}${fld('jd_out',t('jd_out'))}${fld('jd_dl_base',t('jd_base'))}${fuss}
    <div class=meta style="margin-top:14px;line-height:1.5">${t('jd_probe_hint')}</div>
-   <div class=frow style="margin-top:6px"><button onclick="jdProbe(this)" style="background:#2a2f37">${t('jd_probe')}</button></div>
+   <div class=frow style="margin-top:6px"><button onclick="jdProbe(this)" style="background:var(--btn2)">${t('jd_probe')}</button></div>
    <div id=jdprobe style="margin-top:8px"></div>`,
   catalog:()=>`<h3>${t('cat_title')}</h3><div class=meta style="font-size:11px;margin-bottom:4px">${t('cat_hint')}</div>
    <div class=frow><label style="min-width:150px">${t('cat_urls')}</label>
-    <textarea id=c_catalog_urls style="flex:1;min-height:60px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:6px;border-radius:6px;font-family:ui-monospace,monospace;font-size:11px">${(vals['catalog_urls']||'').replace(/</g,'&lt;')}</textarea></div>
+    <textarea id=c_catalog_urls style="flex:1;min-height:60px;background:var(--input);border:1px solid var(--border);color:var(--txt);padding:6px;border-radius:6px;font-family:ui-monospace,monospace;font-size:11px">${(vals['catalog_urls']||'').replace(/</g,'&lt;')}</textarea></div>
    <div class=frow><span class=meta id=catstat style="flex:1">…</span>
-    <button type=button onclick="catRefresh()" style="background:#2a2f37">${t('cat_refresh')}</button></div>${fuss}`,
+    <button type=button onclick="catRefresh()" style="background:var(--btn2)">${t('cat_refresh')}</button></div>${fuss}`,
   stream:()=>`<h3>${t('stream_title')}</h3><div class=meta style="font-size:11px;margin-bottom:4px">${t('stream_hint')}</div>
    ${fld('stream_url',t('stream_url_l'))}${fld('stream_launch',t('stream_launch_l'),1)}
    <div class=meta style="font-size:11px;margin:8px 0 2px">${t('stream_seat2_hint')}</div>
    ${fld('stream_url_2',t('stream_url2_l'))}${fld('stream_launch_2',t('stream_launch2_l'),1)}
    <div class=frow><span class=meta id=emustat style="flex:1">…</span>
-    <button type=button onclick="emuUpdate()" style="background:#2a2f37">${t('emu_update')}</button></div>
+    <button type=button onclick="emuUpdate()" style="background:var(--btn2)">${t('emu_update')}</button></div>
    <div class=meta style="font-size:11px;margin:6px 0 2px">${t('fw_hint')}</div>
    <div id=fwstat class=meta style="font-size:11px">…</div>
    <input type=file id=fwfile style="display:none">${fuss}`};
@@ -1654,9 +1654,9 @@ async function fwStatus(){let el=document.getElementById('fwstat');if(!el)return
    else if(fehlt.length){zeile+=fehlt.map(f=>`${f.name}: ${f.state==='fehlt'?t('fw_missing'):t('fw_badsize')}`).join(', ');}
    else if(p.needs_install&&!p.installed){zeile+=t('fw_notinstalled');}
    else{zeile+=t('fw_missing');}
-   zeile+=` · <a href="#" onclick="fwUpload('${p.platform}');return false" style="color:#7aa2f7">${t('fw_upload')}</a>`;
-   if(p.vendor_fetch)zeile+=` · <a href="#" onclick="fwVendor('${p.platform}');return false" style="color:#7aa2f7">${t('fw_vendor')}</a>`;
-   if(p.docs)zeile+=` · <a href="${p.docs}" target=_blank rel="noopener noreferrer" style="color:#8b93a1">${t('fw_docs')}</a>`;
+   zeile+=` · <a href="#" onclick="fwUpload('${p.platform}');return false" style="color:var(--link)">${t('fw_upload')}</a>`;
+   if(p.vendor_fetch)zeile+=` · <a href="#" onclick="fwVendor('${p.platform}');return false" style="color:var(--link)">${t('fw_vendor')}</a>`;
+   if(p.docs)zeile+=` · <a href="${p.docs}" target=_blank rel="noopener noreferrer" style="color:var(--mut)">${t('fw_docs')}</a>`;
    return zeile;}).join('<br>');}
 
 async function fwUpload(plattform){let inp=document.getElementById('fwfile');if(!inp)return;
@@ -1740,9 +1740,9 @@ async function raStatus(){let el=document.getElementById('rastat');if(!el)return
 async function raRefresh(){let el=document.getElementById('rastat');el.textContent='…';
  let d=await(await fetch('/api/ra/refresh',{method:'POST'})).json();
  if(!d.ok){el.textContent=d.msg||t('st_error');return;}setTimeout(raStatus,1500);}
-function togEye(id,btn){let el=document.getElementById(id);if(!el)return;el.type=el.type=='password'?'text':'password';btn.style.color=el.type=='text'?'#e6e8ec':'#8b929e';}
+function togEye(id,btn){let el=document.getElementById(id);if(!el)return;el.type=el.type=='password'?'text':'password';btn.style.color=el.type=='text'?'var(--txt)':'var(--mut)';}
 async function secTls(c){let d=await(await fetch('/api/settings/tls')).json();
- let ta='flex:1;min-height:110px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px;font-family:ui-monospace,monospace;font-size:11px';
+ let ta='flex:1;min-height:110px;background:var(--input);border:1px solid var(--border);color:var(--txt);padding:8px;border-radius:6px;font-family:ui-monospace,monospace;font-size:11px';
  let status=d.has_cert?`✅ ${(d.cn||'').replace(/</g,'&lt;')} · ${t('tls_expires')} ${d.expires||'?'}`:`⬜ ${t('tls_none')}`;
  c.innerHTML=`<h3>HTTPS / TLS</h3><div class=meta style="margin-bottom:8px">${t('tls_hint')}</div>
   <div class=frow><span class=meta>${status}</span></div>
@@ -1767,15 +1767,15 @@ const WIZ=[{svc:null},
 let wizIdx=0,wizVals={};
 async function startWizard(){wizIdx=0;try{wizVals=await(await fetch('/api/settings/connections/reveal')).json();}catch(e){wizVals={};}renderWiz();}
 function renderWiz(){let m=document.getElementById('modal');m.style.display='block';let s=WIZ[wizIdx];let total=WIZ.length-2;let body,btns;
- let bA='background:var(--acc);border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer',bG='background:#2a2f37;border:none;color:#e6e8ec;padding:8px 14px;border-radius:6px;cursor:pointer';
+ let bA='background:var(--acc);border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer',bG='background:var(--btn2);border:none;color:var(--txt);padding:8px 14px;border-radius:6px;cursor:pointer';
  if(s.svc===null){body=`<h2>👋 ${t('wiz_welcome')}</h2><p class=meta style="line-height:1.6">${t('wiz_welcome_txt')}</p>`;
    btns=`<button onclick="wizFinish()" style="${bG}">${t('wiz_skip')}</button><button onclick="wizGo(1)" style="${bA};margin-left:8px">${t('wiz_next')} →</button>`;}
  else if(s.svc==='done'){body=`<h2>✅ ${t('wiz_done')}</h2><p class=meta style="line-height:1.6">${t('wiz_done_txt')}</p>`;
    btns=`<button onclick="wizFinish()" style="${bA}">${t('wiz_finish')}</button>`;}
- else{let inp='style="flex:1;min-width:120px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px"';
+ else{let inp='style="flex:1;min-width:120px;background:var(--input);border:1px solid var(--border);color:var(--txt);padding:8px;border-radius:6px"';
    let fl=s.fields.map(f=>`<div class=frow><label style="min-width:130px">${f[1]}</label><input id="w_${f[0]}" ${f[2]?'type=password':''} value="${(''+(wizVals[f[0]]||'')).replace(/"/g,'&quot;')}" ${inp}></div>`).join('');
    body=`<div class=meta>${t('wiz_step')} ${wizIdx}/${total}</div><h2>${s.svc}</h2>${fl}<div class=frow><button onclick="wizTest('${s.svc}')" style="${bG};padding:6px 12px">${t('test')}</button><span id=wtest class=meta></span></div>`;
-   btns=`<button onclick="wizGo(-1)" style="${bG}">← ${t('wiz_back')}</button><button onclick="wizSaveNext()" style="${bA};margin-left:8px">${t('wiz_next')} →</button><button onclick="wizGo(1)" style="background:transparent;border:1px solid #2c323b;color:#8b929e;padding:8px 14px;border-radius:6px;cursor:pointer;margin-left:8px">${t('wiz_skip')}</button>`;}
+   btns=`<button onclick="wizGo(-1)" style="${bG}">← ${t('wiz_back')}</button><button onclick="wizSaveNext()" style="${bA};margin-left:8px">${t('wiz_next')} →</button><button onclick="wizGo(1)" style="background:transparent;border:1px solid var(--border);color:var(--mut);padding:8px 14px;border-radius:6px;cursor:pointer;margin-left:8px">${t('wiz_skip')}</button>`;}
  m.innerHTML=`<div class=box><button class=x onclick="closeModal()">×</button><div class=sec>${body}</div><div class=sec style="display:flex;justify-content:flex-end">${btns}</div></div>`;}
 function wizGo(dir){wizCollect();wizIdx=Math.max(0,Math.min(WIZ.length-1,wizIdx+dir));renderWiz();}
 function wizCollect(){let s=WIZ[wizIdx];if(!s||!s.fields)return;s.fields.forEach(f=>{let el=document.getElementById('w_'+f[0]);if(el)wizVals[f[0]]=el.value;});}
@@ -1819,7 +1819,7 @@ async function loadLeftovers(){
  let d={};try{d=await(await fetch('/api/leftovers')).json();}catch(e){el.textContent=t('st_error');return;}
  let it=d.items||[];
  if(!it.length){el.innerHTML=`<div class=meta>${t('lo_none')}</div>${loFehlerFeld()}${loDaysFeld(d.days)}`;return;}
- el.innerHTML=it.map(x=>`<div class=frow style="gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid #2a2f37">
+ el.innerHTML=it.map(x=>`<div class=frow style="gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--btn2)">
    <span style="flex:1;min-width:180px">${(x.title||x.name).replace(/</g,'&lt;')}</span>
    <span class=meta>${mbFormat(x.size)} · ${x.age_days} ${t('lo_age')}${x.state?' · '+t('st_'+x.state):''}</span>
    <button onclick="loRemove('${x.jid}')">${t('lo_remove')}</button></div>`).join('')
@@ -1836,7 +1836,7 @@ async function loadUnsortiert(){
  if(!it.length){el.innerHTML=`<div class=meta>${t('uns_none')}</div>`;return;}
  el.innerHTML=`<div class=meta style="margin-bottom:6px">${t('uns_count')
    .replace('{n}',it.length).replace('{s}',mbFormat(d.total||0))}</div>`
-  +it.map(x=>`<div class=frow style="gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid #2a2f37">
+  +it.map(x=>`<div class=frow style="gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--btn2)">
    <span style="flex:1;min-width:180px">${x.is_dir?'📁 ':''}${x.name.replace(/</g,'&lt;')}</span>
    <span class=meta>${mbFormat(x.size)}${x.files>1?' · '+x.files+' '+t('cov_files'):''} · ${x.age_days} ${t('lo_age')}</span>
    </div>`).join('')
@@ -1887,7 +1887,7 @@ async function secMaint(c){
    <button onclick="doExport()">${t('exp_do')}</button></div>
   <div class=frow style="gap:8px;flex-wrap:wrap">
    <input type=file id=impfile accept=".json,application/json" style="flex:1;min-width:180px;font-size:12px">
-   <select id=impmode style="background:#1a1d23;color:#e6e8ec;border:1px solid #2a2f37;border-radius:6px;padding:5px 8px">
+   <select id=impmode style="background:var(--card);color:var(--txt);border:1px solid var(--btn2);border-radius:6px;padding:5px 8px">
     <option value="merge">${t('exp_merge')}</option><option value="replace">${t('exp_replace')}</option></select>
    <button onclick="doImport()" style="background:var(--err-bg)">${t('imp_do')}</button></div>
   <div id=impmsg class=meta></div>
@@ -1941,7 +1941,7 @@ async function secGeneral(c){let s=await(await fetch('/api/settings')).json();le
   <button onclick="saveQuota()">${t('save')}</button> <span id=qmsg class=meta></span>
   <h3 style="margin-top:20px">${t('sec_outbound')}</h3>
   <div class=meta style="margin-bottom:6px;line-height:1.6">${t('outbound_hint')}</div>
-  <label style="display:block;font-size:13px;color:#8b929e"><input type=checkbox id=gpriv ${s.allow_private_webhooks?'checked':''}
+  <label style="display:block;font-size:13px;color:var(--mut)"><input type=checkbox id=gpriv ${s.allow_private_webhooks?'checked':''}
    onchange="savePrivate(this.checked)"> ${t('outbound_allow')}</label>
   <span id=privmsg class=meta></span>
   <h3 style="margin-top:20px">${t('var_prefs')}</h3>
@@ -1995,23 +1995,23 @@ async function secNotif(c){
   telegram:()=>`<h3>Telegram</h3>
    <div class=frow><label style="min-width:auto"><input type=checkbox id=agtgen ${(ag.telegram||{}).enabled?'checked':''}> ${t('active')}</label><span></span></div>
    <div class=frow><input id=agtgtok type=password placeholder="${(ag.telegram||{}).has_token?'•••• Token gesetzt':'Bot-Token'}"><input id=agtgchat placeholder="Chat-ID" value="${q((ag.telegram||{}).chat)}"></div>
-   ${speichern('saveAgents()','agmsg')}<div class=frow><button onclick="testAgents()" style="background:#2a2f37">${t('test')}</button></div>`,
+   ${speichern('saveAgents()','agmsg')}<div class=frow><button onclick="testAgents()" style="background:var(--btn2)">${t('test')}</button></div>`,
   webhook:()=>`<h3>Webhook</h3><div class=meta style="margin-bottom:6px">generisch / Slack-kompatibel</div>
    <div class=frow><label style="min-width:auto"><input type=checkbox id=agwhen ${(ag.webhook||{}).enabled?'checked':''}> ${t('active')}</label><span></span></div>
    <div class=frow><input id=agwhurl placeholder="Webhook-URL" value="${q((ag.webhook||{}).url)}"></div>
-   ${speichern('saveAgents()','agmsg')}<div class=frow><button onclick="testAgents()" style="background:#2a2f37">${t('test')}</button></div>`,
+   ${speichern('saveAgents()','agmsg')}<div class=frow><button onclick="testAgents()" style="background:var(--btn2)">${t('test')}</button></div>`,
   gotify:()=>`<h3>Gotify</h3>
    <div class=frow><label style="min-width:auto"><input type=checkbox id=aggoen ${(ag.gotify||{}).enabled?'checked':''}> ${t('active')}</label><span></span></div>
    <div class=frow><input id=aggourl placeholder="Gotify-URL (https://gotify.host)" value="${q((ag.gotify||{}).url)}"><input id=aggotok type=password placeholder="${(ag.gotify||{}).has_token?'•••• App-Token gesetzt':'App-Token'}"></div>
-   ${speichern('saveAgents()','agmsg')}<div class=frow><button onclick="testAgents()" style="background:#2a2f37">${t('test')}</button></div>`,
+   ${speichern('saveAgents()','agmsg')}<div class=frow><button onclick="testAgents()" style="background:var(--btn2)">${t('test')}</button></div>`,
   ntfy:()=>`<h3>ntfy</h3>
    <div class=frow><label style="min-width:auto"><input type=checkbox id=agnten ${(ag.ntfy||{}).enabled?'checked':''}> ${t('active')}</label><span></span></div>
    <div class=frow><input id=agnturl placeholder="ntfy-URL (Standard https://ntfy.sh)" value="${q((ag.ntfy||{}).url)}"><input id=agnttopic placeholder="Topic" style="flex:0 0 160px" value="${q((ag.ntfy||{}).topic)}"><input id=agnttok type=password placeholder="${(ag.ntfy||{}).has_token?'•••• Token':'Token (optional)'}"></div>
-   ${speichern('saveAgents()','agmsg')}<div class=frow><button onclick="testAgents()" style="background:#2a2f37">${t('test')}</button></div>`,
+   ${speichern('saveAgents()','agmsg')}<div class=frow><button onclick="testAgents()" style="background:var(--btn2)">${t('test')}</button></div>`,
   pushover:()=>`<h3>Pushover</h3>
    <div class=frow><label style="min-width:auto"><input type=checkbox id=agpoen ${(ag.pushover||{}).enabled?'checked':''}> ${t('active')}</label><span></span></div>
    <div class=frow><input id=agpouser placeholder="User-Key" value="${q((ag.pushover||{}).user)}"><input id=agpotok type=password placeholder="${(ag.pushover||{}).has_token?'•••• App-Token gesetzt':'App-Token'}"></div>
-   ${speichern('saveAgents()','agmsg')}<div class=frow><button onclick="testAgents()" style="background:#2a2f37">${t('test')}</button></div>`,
+   ${speichern('saveAgents()','agmsg')}<div class=frow><button onclick="testAgents()" style="background:var(--btn2)">${t('test')}</button></div>`,
   maillog:()=>`<h3>${t('notif_maillog')}</h3><div id=mlog class=meta>…</div>`};
  c.innerHTML=(seiten[SETSUB]||seiten.discord)();
  if(SETSUB==='maillog'){
@@ -2055,7 +2055,7 @@ async function secUsers(c){let list=await(await fetch('/api/users')).json();
   <div class=frow><input id=nu placeholder="${t('username')}"><input id=np type=password placeholder="${t('password')}">
    <select id=nr><option value=user>${t('role_user')}</option><option value=admin>${t('role_admin')}</option></select>
    <button onclick="addUser()">${t('create')}</button></div>
-  <div id=uerr class=meta style="color:#ff6b6b"></div>`;
+  <div id=uerr class=meta style="color:var(--bad)"></div>`;
  renderUsers(list);}
 async function secServices(c){c.innerHTML=`<h3>${t('sec_services')}</h3><button onclick="setSection('services')">${t('refresh')}</button><div id=svc style="margin-top:12px">…</div>`;
  let list=await(await fetch('/api/services/status')).json();
@@ -2194,7 +2194,7 @@ async function secDrop(c){
   <div id=droplist class=meta>…</div>`;
  loadDrop();}
 function dropZeile(sym,datei,text,farbe){
- return `<div class=frow style="gap:8px;align-items:flex-start;padding:3px 0;border-bottom:1px solid #2a2f37">
+ return `<div class=frow style="gap:8px;align-items:flex-start;padding:3px 0;border-bottom:1px solid var(--btn2)">
    <span style="flex:1;min-width:180px">${sym} ${datei.replace(/</g,'&lt;')}</span>
    <span class=meta${farbe?` style="color:${farbe}"`:''}>${(text||'').replace(/</g,'&lt;')}</span></div>`;}
 async function loadDrop(){
@@ -2239,7 +2239,7 @@ async function secAbout(c){
  // Klick fuehrte zu einer anderen. `ver.latest` kommt ohne fuehrendes v (der Server
  // schneidet es ab), das Tag traegt es — wie in der Fusszeile. (#577)
  let updUrl=ver.latest?`${repo}/releases/tag/v${encodeURIComponent(ver.latest)}`:`${repo}/releases`;
- let upd=ver.update_available?` <a href="${updUrl}" target=_blank rel="noopener noreferrer" style="color:#5b8cff">${t('upd_avail')} ${ver.latest}</a>`
+ let upd=ver.update_available?` <a href="${updUrl}" target=_blank rel="noopener noreferrer" style="color:var(--link)">${t('upd_avail')} ${ver.latest}</a>`
         :(ver.latest?` <span style="color:var(--ok)">${t('upd_current')}</span>`:'');
  c.innerHTML=`<h3><svg class=marke viewBox="0 0 64 64" aria-hidden=true focusable=false><use href="#rs-marke"/></svg>Romseerr — ${t('sec_about')}</h3>
   <p class=meta style="margin:2px 0 12px">${t('about_txt')}</p>
@@ -2251,15 +2251,15 @@ async function secAbout(c){
   <div class=frow><span style="min-width:150px">${t('about_jobs')}</span><span class=meta>${st.jobs_total||0} (${st.jobs_active||0} ${t('about_active')})</span></div>
   <h3 style="font-size:13px;margin-top:16px">${t('about_links')}</h3>
   <div class=meta style="line-height:1.9">
-   🔗 <a href="${repo}" target=_blank rel="noopener noreferrer" style="color:#5b8cff">GitHub-Repo</a><br>
-   📖 <a href="${repo}/wiki" target=_blank rel="noopener noreferrer" style="color:#5b8cff">Wiki</a> · <a href="/api/docs" target=_blank rel="noopener noreferrer" style="color:#5b8cff">API-Doku</a> · <a href="${repo}/blob/main/CHANGELOG.md" target=_blank rel="noopener noreferrer" style="color:#5b8cff">Changelog</a><br>
-   🐞 <a href="${repo}/issues" target=_blank rel="noopener noreferrer" style="color:#5b8cff">Issues melden</a> · 🔒 <a href="${repo}/security/advisories/new" target=_blank rel="noopener noreferrer" style="color:#5b8cff">Sicherheitslücke melden</a>
+   🔗 <a href="${repo}" target=_blank rel="noopener noreferrer" style="color:var(--link)">GitHub-Repo</a><br>
+   📖 <a href="${repo}/wiki" target=_blank rel="noopener noreferrer" style="color:var(--link)">Wiki</a> · <a href="/api/docs" target=_blank rel="noopener noreferrer" style="color:var(--link)">API-Doku</a> · <a href="${repo}/blob/main/CHANGELOG.md" target=_blank rel="noopener noreferrer" style="color:var(--link)">Changelog</a><br>
+   🐞 <a href="${repo}/issues" target=_blank rel="noopener noreferrer" style="color:var(--link)">Issues melden</a> · 🔒 <a href="${repo}/security/advisories/new" target=_blank rel="noopener noreferrer" style="color:var(--link)">Sicherheitslücke melden</a>
   </div>
   <h3 style="font-size:13px;margin-top:16px">${t('about_feat')}</h3>
   <div class=meta style="line-height:1.7">${t('about_feat_txt')}</div>
   <h3 style="font-size:13px;margin-top:16px">${t('about_stack')}</h3>
   <div class=meta style="line-height:1.7">${t('about_stack_txt')}</div>
-  <p class=meta style="margin-top:16px">${t('about_license')} · <button onclick="startWizard()" style="background:#2a2f37;border:none;color:#e6e8ec;padding:5px 10px;border-radius:6px;cursor:pointer">${t('wiz_reopen')}</button></p>`;}
+  <p class=meta style="margin-top:16px">${t('about_license')} · <button onclick="startWizard()" style="background:var(--btn2);border:none;color:var(--txt);padding:5px 10px;border-radius:6px;cursor:pointer">${t('wiz_reopen')}</button></p>`;}
 async function secBlocklist(c){let list=await(await fetch('/api/blocklist')).json();
  // Am Code nachgelesen, nicht vermutet (#203): `is_blocked` prüft `p in t` über
  // kleingeschriebene Zeichenketten — also Teilstring, keine Regex, ohne Rücksicht auf
@@ -2317,21 +2317,21 @@ async function reimportJob(id){
  setTimeout(loadJobs,600);}
 async function openUsers(){let m=document.getElementById('modal');m.style.display='block';
  let list=await(await fetch('/api/users')).json();
- let inp='style="flex:1;min-width:90px;background:#0b0d10;border:1px solid #2c323b;color:#e6e8ec;padding:8px;border-radius:6px"';
+ let inp='style="flex:1;min-width:90px;background:var(--input);border:1px solid var(--border);color:var(--txt);padding:8px;border-radius:6px"';
  m.innerHTML=`<div class=box><button class=x onclick="closeModal()">×</button>
   <div class=sec><h3>${t('users')}</h3><div id=ulist></div></div>
   <div class=sec><h3>${t('new_user')}</h3>
    <div class=row><input id=nu placeholder="${t('username')}" ${inp}>
     <input id=np type=password placeholder="${t('password')}" ${inp}>
     <select id=nr ${inp}><option value=user>${t('role_user')}</option><option value=admin>${t('role_admin')}</option></select>
-    <label style="font-size:12px;color:#8b929e;display:flex;gap:5px;align-items:center"><input type=checkbox id=naa> ${t('autoapprove')}</label>
+    <label style="font-size:12px;color:var(--mut);display:flex;gap:5px;align-items:center"><input type=checkbox id=naa> ${t('autoapprove')}</label>
     <button onclick="addUser()">${t('create')}</button></div>
-   <div id=uerr style="color:#ff6b6b;font-size:12px;margin-top:6px"></div></div></div>`;
+   <div id=uerr style="color:var(--bad);font-size:12px;margin-top:6px"></div></div></div>`;
  renderUsers(list);}
 const PERM_KEYS=['request','autoapprove','manage_requests','manage_users','manage_issues','manage_settings','quota_exempt'];
 const PERM_LBL={request:'Anfragen',autoapprove:'Auto-Freigabe',manage_requests:'Anfr. verwalten',manage_users:'Benutzer',manage_issues:'Probleme',manage_settings:'Einstellungen',quota_exempt:'kein Limit'};
 function renderUsers(list){let ul=document.getElementById('ulist');ul.innerHTML='';
- list.forEach(u=>{let row=document.createElement('div');row.style.cssText='background:#171a20;border-radius:8px;padding:10px;margin-bottom:8px';
+ list.forEach(u=>{let row=document.createElement('div');row.style.cssText='background:var(--hover);border-radius:8px;padding:10px;margin-bottom:8px';
   let head=document.createElement('div');head.style.cssText='display:flex;justify-content:space-between;align-items:center';
   head.innerHTML=`<b>${u.role=='admin'?'👑 ':'👤 '}${(''+u.username).replace(/</g,'&lt;')}</b>`;
   let del=document.createElement('button');del.textContent=t('del');del.style.cssText='background:var(--err-bg);border:none;color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer';
@@ -2339,7 +2339,7 @@ function renderUsers(list){let ul=document.getElementById('ulist');ul.innerHTML=
   head.appendChild(del);row.appendChild(head);
   if(u.role=='admin'){let a=document.createElement('div');a.className='meta';a.style.marginTop='6px';a.textContent='alle Rechte / all permissions';row.appendChild(a);}
   else{let pg=document.createElement('div');pg.style.cssText='display:flex;flex-wrap:wrap;gap:10px;margin-top:8px';
-   PERM_KEYS.forEach(pk=>{let lbl=document.createElement('label');lbl.style.cssText='font-size:11px;color:#8b929e;display:flex;gap:4px;align-items:center';
+   PERM_KEYS.forEach(pk=>{let lbl=document.createElement('label');lbl.style.cssText='font-size:11px;color:var(--mut);display:flex;gap:4px;align-items:center';
     let cb=document.createElement('input');cb.type='checkbox';cb.checked=(u.perms||[]).includes(pk);
     cb.onchange=()=>{let np=(u.perms||[]).filter(x=>x!=pk);if(cb.checked)np.push(pk);u.perms=np;
      fetch('/api/users/'+encodeURIComponent(u.username),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({perms:np})});};

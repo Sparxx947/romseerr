@@ -1941,3 +1941,107 @@ def test_der_auftragszaehler_faerbt_sich_bei_fehlern(seite):
         assert "rgba(0, 0, 0, 0)" not in w["normal"], f"{design}: --ok-bg ist nicht gesetzt"
         assert w["fehler"] != w["normal"], \
             f"{design}: Fehler und Normalfall haben dieselbe Farbe {w['fehler']}"
+
+
+def test_der_zurueckhaltende_knopf_hebt_sich_von_der_karte_ab(seite):
+    """`--btn2` ist eine neue Rolle, und sie muss sichtbar sein. (#705)
+
+    Dialoge und Karten liegen selbst auf `--card`. Ein Knopf mit demselben Grund waere
+    dort unsichtbar — genau deshalb stand im JavaScript ueberall ein helleres `#2a2f37`.
+    Die Rolle gab es also schon, nur ohne Namen und nur in den Werten des Standard-
+    Designs. Geprueft wird beides: Der Knopf muss sich vom Kartengrund abheben UND seine
+    Schrift tragen.
+    """
+    werte = seite.evaluate("""() => {
+      const merk = document.documentElement.dataset.design, out = {};
+      const zahl = s => s.match(/\\d+(\\.\\d+)?/g).slice(0,3).map(Number);
+      for (const d of ['', 'glass', 'clean', 'aurora']) {
+        if (d) document.documentElement.dataset.design = d;
+        else delete document.documentElement.dataset.design;
+        const p = document.createElement('span'); document.body.appendChild(p);
+        const lies = v => { p.style.background = `var(${v})`;
+                            return getComputedStyle(p).backgroundColor; };
+        const btn2 = lies('--btn2'), card = lies('--card');
+        p.style.color = 'var(--txt)'; const txt = getComputedStyle(p).color;
+        out[d || 'seerr'] = {btn2, card, txt,
+          abstand: Math.hypot(...zahl(btn2).map((v,i) => v - zahl(card)[i]))};
+        p.remove();
+      }
+      if (merk) document.documentElement.dataset.design = merk;
+      else delete document.documentElement.dataset.design;
+      return out;
+    }""")
+    for design, w in werte.items():
+        assert "rgba(0, 0, 0, 0)" not in w["btn2"], f"{design}: --btn2 ist nicht gesetzt"
+        assert w["btn2"] != w["card"], \
+            f"{design}: der Knopf hat denselben Grund wie die Karte — er ist unsichtbar"
+        assert w["abstand"] >= 8, \
+            f"{design}: Knopf und Karte liegen nur {w['abstand']:.0f} auseinander"
+    # UND JE DESIGN EIN EIGENER WERT. Ein Mutationstest hat gezeigt, dass „ist gesetzt"
+    # hier nichts beweist: CSS-Variablen fallen auf `:root` zurueck. Faellt `--btn2` aus
+    # einem Design heraus, ist sie weiterhin gesetzt — nur mit dem Wert des
+    # Standard-Designs, und genau das war der Zustand, den #705 beseitigt hat.
+    werte_je_design = {w["btn2"] for w in werte.values()}
+    assert len(werte_je_design) == 4, \
+        f"nicht jedes Design hat einen eigenen Knopfgrund: {werte_je_design}"
+
+
+def test_alle_designs_setzen_die_neutralen_rollen(seite):
+    """Was das JavaScript benutzt, muss jedes Design auch liefern. (#705)
+
+    111 Vorkommen wurden auf `--txt`, `--mut`, `--input`, `--card`, `--btn2`, `--border`
+    und `--acc` umgestellt. Fehlt eine davon in einem Design, faellt die Farbe still auf
+    den Erbwert zurueck — und niemand sieht es, weil heute alle vier Designs dunkel sind.
+    """
+    fehlend = seite.evaluate("""() => {
+      const merk = document.documentElement.dataset.design, raus = [];
+      for (const d of ['', 'glass', 'clean', 'aurora']) {
+        if (d) document.documentElement.dataset.design = d;
+        else delete document.documentElement.dataset.design;
+        const cs = getComputedStyle(document.documentElement);
+        for (const n of ['--txt','--mut','--input','--card','--btn2','--border','--acc',
+                         '--acc2','--hover'])
+          if (!cs.getPropertyValue(n).trim()) raus.push(`${d || 'seerr'}: ${n}`);
+      }
+      if (merk) document.documentElement.dataset.design = merk;
+      else delete document.documentElement.dataset.design;
+      return raus;
+    }""")
+    assert not fehlend, "diese Variablen fehlen: " + ", ".join(fehlend)
+
+
+def test_die_verweisfarbe_traegt_auf_dem_dunkelsten_grund(seite):
+    """Der Akzent ist eine KNOPFFARBE, keine Schriftfarbe. (#705)
+
+    Beim Umstellen legte ich die Verweise auf `--acc` — naheliegend, und in drei von vier
+    Designs auch richtig. In Seerr ergab das `#7c5cff` auf `#0f1114` und damit **4,35:1**
+    gegen die geforderten 4,5. Gefunden hat es die Barrierefreiheitspruefung, nicht ich;
+    dieser Test macht die Bedingung ausdruecklich, damit sie nicht wieder still verrutscht.
+
+    Geprueft wird gegen den DUNKELSTEN Grund, auf dem Verweise vorkommen — die Fusszeile —
+    und zusaetzlich gegen die Karte.
+    """
+    werte = seite.evaluate("""(kontrast) => {
+      const k = eval(kontrast);
+      const merk = document.documentElement.dataset.design, out = {};
+      for (const d of ['', 'glass', 'clean', 'aurora']) {
+        if (d) document.documentElement.dataset.design = d;
+        else delete document.documentElement.dataset.design;
+        const p = document.createElement('span'); document.body.appendChild(p);
+        const lies = (eig, v) => { p.style[eig] = `var(${v})`;
+          return getComputedStyle(p)[eig === 'color' ? 'color' : 'backgroundColor']; };
+        out[d || 'seerr'] = {
+          fuss:  k(lies('color', '--link'), lies('background', '--topbar')),
+          karte: k(lies('color', '--link'), lies('background', '--card')),
+        };
+        p.remove();
+      }
+      if (merk) document.documentElement.dataset.design = merk;
+      else delete document.documentElement.dataset.design;
+      return out;
+    }""", _kontrast_js())
+    for design, w in werte.items():
+        assert w["fuss"] >= 4.5, \
+            f"{design}: Verweis auf der Fusszeile nur {w['fuss']:.2f}:1"
+        assert w["karte"] >= 4.5, \
+            f"{design}: Verweis auf der Karte nur {w['karte']:.2f}:1"
