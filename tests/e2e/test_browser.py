@@ -1754,3 +1754,112 @@ def test_die_gruenen_stellen_im_javascript_ziehen_mit_dem_design_mit(seite):
         assert "rgba(0, 0, 0, 0)" not in grund, f"{design}: --ok-bg ist nicht gesetzt"
     assert werte["seerr"] != werte["aurora"], \
         f"beide Designs bekommen dieselbe Farbe — die Variable wirkt nicht: {werte}"
+
+
+# --- #698: der Spielen-Knopf gehoert in die Karte ---
+
+def test_ein_abzeichen_ausserhalb_eines_covers_bleibt_im_fluss(seite):
+    """Die eigentliche Ursache, und sie reichte weiter als der eine Knopf. (#698)
+
+    `.badge` war absolut positioniert, und die zweite `.badge`-Regel weiter unten setzte
+    `position` nicht zurueck — sie gewann nur fuer Grund, Rahmen, Polsterung und
+    Schriftgroesse. Gemessen: ein Abzeichen in einem Kasten bei (40,582) landete bei
+    (6,6), also in der Bildschirmecke. Betroffen waren Bewertung, Jahr, Entwickler,
+    Genres und die Achievements-Zeile — nicht nur der Knopf, ueber den es auffiel.
+    """
+    werte = seite.evaluate("""() => {
+      const h = document.createElement('div');
+      h.style.cssText = 'margin:40px;padding:20px';
+      h.innerHTML = 'davor <span class=badge id=p698>★ 8.4</span> danach';
+      document.body.appendChild(h);
+      const b = document.getElementById('p698');
+      const r = b.getBoundingClientRect(), e = h.getBoundingClientRect();
+      const out = {position: getComputedStyle(b).position,
+                   dx: Math.abs(r.x - e.x), dy: Math.abs(r.y - e.y)};
+      h.remove();
+      return out;
+    }""")
+    assert werte["position"] != "absolute", \
+        "ein Abzeichen ausserhalb eines Covers ist absolut positioniert"
+    assert werte["dx"] < 200 and werte["dy"] < 200, \
+        f"das Abzeichen sitzt {werte['dx']:.0f}/{werte['dy']:.0f} px neben seinem Kasten"
+
+
+def test_das_cover_abzeichen_bleibt_dagegen_absolut(seite):
+    """Die Gegenprobe: dort ist die absolute Lage GEWOLLT. (#698)
+
+    Ohne sie laege die Plattformmarke nicht mehr oben links auf dem Cover, sondern
+    schoebe das Bild auseinander. Eine Reparatur, die das mitnimmt, waere keine.
+    """
+    werte = seite.evaluate("""() => {
+      const c = document.createElement('div');
+      c.className = 'cover'; c.style.cssText = 'position:relative;width:120px;height:160px';
+      c.innerHTML = '<span class=badge id=p698c>SNES</span>';
+      document.body.appendChild(c);
+      const b = document.getElementById('p698c');
+      const out = {position: getComputedStyle(b).position,
+                   oben: b.getBoundingClientRect().y - c.getBoundingClientRect().y};
+      c.remove();
+      return out;
+    }""")
+    assert werte["position"] == "absolute", "die Plattformmarke liegt nicht mehr auf dem Cover"
+    assert abs(werte["oben"] - 6) < 2, f"sie sitzt {werte['oben']:.0f} px von oben statt 6"
+
+
+def test_der_spielen_knopf_liegt_in_der_karte(seite):
+    """Jens: „oben links steht ‚Im Browser spielen'". (#698)
+
+    Gemessen war der Knopf bei (6,6), sein Platz `#mplay` bei (892,529) — 900 px daneben,
+    quer ueber der Navigationsleiste. Geprueft wird deshalb die LAGE, nicht das Markup:
+    Der Knopf muss innerhalb der Karte liegen, sonst ist es egal, welche Klasse er traegt.
+    """
+    lage = seite.evaluate("""() => {
+      const box = document.createElement('div');
+      box.className = 'box'; box.style.cssText = 'margin:60px;padding:20px';
+      box.innerHTML = '<div id=mplay698><a class=spielknopf href="#">▶ spielen</a></div>';
+      document.body.appendChild(box);
+      const k = box.querySelector('.spielknopf');
+      const r = k.getBoundingClientRect(), b = box.getBoundingClientRect();
+      const out = {position: getComputedStyle(k).position,
+                   drin: r.x >= b.x - 1 && r.y >= b.y - 1
+                         && r.right <= b.right + 1 && r.bottom <= b.bottom + 1};
+      box.remove();
+      return out;
+    }""")
+    assert lage["position"] != "absolute", "der Knopf ist wieder absolut positioniert"
+    assert lage["drin"], "der Knopf liegt ausserhalb der Karte"
+
+
+def test_loadplay_baut_den_knopf_wirklich_in_den_fluss(seite):
+    """Ein nachgebautes Element beweist nichts ueber die echte Stelle. (#698)
+
+    Ein Mutationstest hat es gezeigt: `class=badge` zurueck an den Spielen-Knopf gelegt,
+    und die drei Lagepruefungen blieben gruen — sie bauten sich ihr Element selbst.
+    Hier laeuft `loadPlay` wirklich, mit verdrahteter Antwort, und geprueft wird, was
+    danach im Dokument steht.
+    """
+    seite.route("**/api/play*", lambda route: route.fulfill(
+        status=200, content_type="application/json",
+        body='{"playable":true,"url":"http://example.invalid/spielen"}'))
+    lage = seite.evaluate("""async () => {
+      // Der Kasten, in den loadPlay schreibt, samt Umgebung wie in der Detailkarte.
+      const box = document.createElement('div');
+      box.className = 'box'; box.style.cssText = 'margin:60px;padding:20px';
+      box.innerHTML = '<div id=mplay></div>';
+      document.body.appendChild(box);
+      await loadPlay({title: 'Probe', platform_slug: 'snes'});
+      const k = box.querySelector('#mplay a');
+      const out = k ? {
+        klassen: k.className,
+        position: getComputedStyle(k).position,
+        drin: (() => { const r = k.getBoundingClientRect(), b = box.getBoundingClientRect();
+               return r.x >= b.x - 1 && r.y >= b.y - 1; })(),
+      } : null;
+      box.remove();
+      return out;
+    }""")
+    assert lage, "loadPlay hat keinen Knopf gebaut — die Attrappe greift nicht"
+    assert "badge" not in lage["klassen"], \
+        f"der Knopf traegt wieder die Cover-Abzeichen-Klasse: {lage['klassen']!r}"
+    assert lage["position"] != "absolute", "der Knopf ist absolut positioniert"
+    assert lage["drin"], "der Knopf liegt ausserhalb seines Kastens"

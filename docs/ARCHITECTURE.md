@@ -1171,6 +1171,26 @@ Archive und ROMhack-Pakete —, und für die stehen jetzt `mod archive`, `rom ha
 `anthology` und `trilogy` in `SET_RE`. **`archive` allein bewusst nicht**: Das Wort steht in
 jedem zweiten Archive.org-Titel.
 
+**Nur das Cover-Abzeichen ist absolut positioniert (#698).** Jens meldete, dass „Im Browser
+spielen" oben links über der Navigationsleiste stand. Gemessen bei offener Detailkarte: der
+Knopf bei **(6, 6)**, sein Platz `#mplay` bei **(892, 529)** — 900 px daneben.
+
+Die Ursache reichte weiter als der eine Knopf. `.badge` war absolut positioniert; weiter
+unten im Blatt steht eine **zweite** `.badge`-Regel für die Abzeichen der Detailansicht, mit
+gleicher Spezifität und später. Sie gewann für alles, was sie selbst deklariert — Grund,
+Rahmen, Polsterung, Schriftgröße — **aber sie setzt `position` nicht zurück**. Von der ersten
+Regel wirkte also nur noch `position/top/left`, und die wirkte überall: Ein Abzeichen in
+einem Kasten bei (40, 582) landete bei (6, 6). Betroffen waren Bewertung, Jahr, Entwickler,
+Genres und die Achievements-Zeile.
+
+Die Regel ist deshalb an `.cover` gebunden und enthält **ausschließlich** die Positionierung.
+Alles Sichtbare kommt weiter aus der Regel darunter — hätte man es mit hochgezogen, hätte
+sich das Aussehen des Cover-Abzeichens still geändert, in Aurora sogar seine runde Form.
+
+Der Spielen-Knopf trägt jetzt eine eigene Klasse und wird gebaut wie der Stream-Knopf daneben:
+Die beiden sind Geschwister — „hier spielen" und „auf dem Host spielen" — und gehören als
+Paar gelesen.
+
 **Menü und Reiter tragen gezeichnete Zeichen (#658).** Die Navigation lief auf Emoji — die
 kommen aus der Schriftart, die das System gerade hat. Dass `.navsym` ein
 `font-variant-emoji:emoji` und die Zeichen den Variantenselektor U+FE0F trugen, sagte es
@@ -1380,6 +1400,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 *EN: "in library" now speaks the mark's language (#660). The green sat in five places, four of them hard-coded as `#1e5e3a`, so all four themes got the same signal green whatever else they looked like — and restyling only the cover badge would have left the request list and coverage view green while the cards changed, which is worse than the original state. Each theme now sets `--ok` and `--ok-bg` itself. The glyph is drawn, not typed: the tick is cut OUT of the cartridge silhouette (`fill-rule="evenodd"`), the same construction as the R in the mark; it used to be the text character `✓`, which comes from whatever font the system has. The badge grew, and that is the point — measured on the draft, the cartridge was indistinguishable from a rounded square at 11 px, so a test pins 16 px as the floor. Contrast is measured in a browser test rather than asserted; the only tight case is Glass, whose cyan accent sits close to green — distance there rises from 126 to 140 by going yellow-green rather than teal.*
 
 *EN: menu and tabs carry drawn icons (#658). The navigation ran on emoji, which come from whatever font the system has — `.navsym` even carried `font-variant-emoji:emoji` plus U+FE0F, two coercions to force a presentation out of a font. Jens chose the outline style from two drafts. The vocabulary comes from the mark without copying it: where the subject is a GAME the icon carries the cartridge silhouette with its chamfered corner; where it is not, a conventional shape stands instead — sliders, padlock, bell. Discover is a magnifier whose lens carries the chamfer, because a cartridge with a separate magnifier would be two too-small things at 21 px. The #337 path was live and worse than assumed: `applyI18n` sets `textContent` and deletes children, and for `profile` and `nav_lists` the symbol lived only in the template, so 👤 and ⭐ were never visible at all — not after a language switch, but from load. Only 🚪 survived because it sat inside the translated string, which is why it had to come out of all five language files. Settings sub-entries deliberately get no icons: they are product names.*
+
+*EN: only the cover badge is absolutely positioned (#698). Jens reported the play button sitting over the navigation bar. Measured with the detail card open: the button at (6, 6), its own slot `#mplay` at (892, 529) — 900 px away. The cause reached further than that one button: a second `.badge` rule further down restyles the detail badges with equal specificity and later position, winning for background, border, padding and font size — but it does not reset `position`. Only `position/top/left` survived from the first rule, and that applied everywhere: rating, year, developer, genres and the achievements row were all absolutely positioned. The rule is now scoped to `.cover` and contains nothing but the positioning; pulling the visual properties up with it would have silently restyled the cover badge, including its pill shape in Aurora.*
 
 *EN: a card can no longer say "in library" and "platform unknown" at once (#685). `in_library()` falls back to a global check when the hit names no platform — correct, but it only answers whether. `library_slugs()` answers where, sorted by the platform's release year (oldest first), which for a title on several systems is almost always the one it appeared on first. Measured: 6.9% of titles sit on more than one platform. Deliberately the console's year, not the game's — IGDB gives one date per game and does not know the hacks and homebrew this concerns. The card marks the value as derived.*
 
