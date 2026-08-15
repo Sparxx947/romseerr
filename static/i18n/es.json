@@ -45,6 +45,7 @@
  "nav_library": "Biblioteca",
  "lib_hint": "Lo que realmente hay — por fabricante y sistema. La cobertura al lado responde a la pregunta contraria: lo que falta.",
  "lib_titles": "títulos",
+ "lib_entries": "entradas",
  "lib_owned": "títulos en propiedad",
  "lib_none": "No se encontraron títulos.",
  "lib_empty": "La biblioteca está vacía o aún no indexada.",

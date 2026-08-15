@@ -1153,6 +1153,25 @@ Fensterrands und ist unerreichbar; in der Spalte muss es nach oben öffnen. Der 
 misst beides je Design, weil eine Regel im Stylesheet nichts darüber beweist, wohin der
 Flex-Container sie tatsächlich legt.
 
+**Vier Zahlen, die gern verwechselt werden (#654).** Am gemessenen Bestand vom
+2026-08-15:
+
+| Zahl | was sie ist | Wert |
+|---|---|---|
+| Ordner | jeder Plattformordner unter `ROMS`, auch leere (`LIB["slugs"]`) | 599 |
+| Plattformen | die mit Inhalt (`LIB["per"]`, nicht leer) | 64 |
+| Einträge | Summe je Plattform — derselbe Titel auf zwei Systemen zählt zweimal | 323.776 |
+| Titel | eindeutige `norm()`-Schlüssel über alles (`LIB["all"]`) | 293.067 |
+
+Die Startseite nannte Einträge „Titel" und die Logzeile Ordner „Plattformen" — dadurch
+widersprachen sich zwei Anzeigen, obwohl **jede Zahl für sich stimmte**. Dazwischen liegen
+noch die 310.004 eindeutigen *Anzeigenamen*; die Differenz zu den Titeln sind Namen, die
+denselben `norm()`-Schlüssel teilen, also erkannte Dubletten.
+
+Merksatz: `slugs` sind Ordner, `per` sind Plattformen, die Summe ihrer Längen sind Einträge,
+und `all` sind Titel. Wer eine dieser Mengen als eine andere beschriftet, erzeugt genau
+diesen Widerspruch wieder.
+
 **Die Suchzeile trägt Zurück und Leeren (#661).** Beide erscheinen nur, wenn sie etwas
 bewirken: der Zurück-Knopf, wenn `EIGENE_SCHRITTE > 0` — ohne diese Frage führte ein
 `history.back()` aus der Anwendung heraus, sobald jemand direkt auf einer Such-Adresse
@@ -1201,6 +1220,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
   `html` ein `overflow-x` trägt (jede Regel allein lässt 97 bzw. 101 px Bildlauf stehen);
   und dort gehört `clip` hin, nicht `hidden` — `hidden` macht `body` zum Rollbereich und
   die klebende Suchleiste hört auf zu kleben.
+
+*EN: four counts that get confused (#654), measured on 2026-08-15: **folders** — every platform directory including empty ones (`LIB["slugs"]`, 599); **platforms** — those with content (64); **entries** — the per-platform sum, where a title on two systems counts twice (323,776); **titles** — unique `norm()` keys (`LIB["all"]`, 293,067). The home page called entries "titles" and the log called folders "platforms", so two displays contradicted each other while every number was correct. Rule of thumb: `slugs` are folders, `per` are platforms, the sum of its lengths are entries, `all` are titles.*
 
 *EN: the search row carries back and clear buttons (#661). Both appear only when they do something — back when `EIGENE_SCHRITTE > 0`, clear when the field holds text; a button that does nothing is indistinguishable from a broken one (#638). Clearing happens in exactly one function, `sucheLeeren(fokus)`, shared by the mark click (#662), the button and Escape: a second function of the same name briefly existed while building this, and the later definition wins silently. Escape has a fixed order — menu, dialog, then the field.*
 

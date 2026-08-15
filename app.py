@@ -1515,7 +1515,13 @@ def _index_lauf(nur):
             LIB["per"], LIB["all"], LIB["slugs"], LIB["ts"] = per, allset, slugs, ts
             LIB["failed"] = fehler
         save_index_to_db(per, allset, slugs, ts, namen)   # persistieren -> schneller Neustart
-        log(f"Bibliotheks-Index: {len(slugs)} Plattformen, {len(allset)} Titel "
+        # ORDNER UND PLATTFORMEN SIND NICHT DASSELBE (#654): `slugs` sammelt jeden
+        # Plattformordner, auch leere — am 2026-08-15 waren das 599, von denen 64 Inhalt
+        # hatten. Beides „Plattformen" zu nennen liess die Startseite (64) und diese Zeile
+        # (599) einander widersprechen, obwohl beide Zahlen stimmten.
+        mit_inhalt = sum(1 for v in per.values() if v)
+        log(f"Bibliotheks-Index: {mit_inhalt} Plattformen mit Inhalt "
+            f"({len(slugs)} Ordner), {len(allset)} Titel "
             f"(in DB gesichert){_index_fehlertext(fehler)}")
     else:
         # ERST RAUS, DANN REIN — und zwar fuer JEDEN genannten Slug, nicht nur fuer die
@@ -6813,11 +6819,17 @@ def api_logs():
 @admin_required
 def api_admin_stats():
     with JOBS_LOCK: js = list(JOBS)
-    with LIB_LOCK: plat, titles = len(LIB["slugs"]), len(LIB["all"])
+    with LIB_LOCK:
+        # `slugs` sind ORDNER — auch leere. Was hier „Plattformen" heisst, muss die
+        # Zahl derer sein, in denen etwas liegt; die Ordnerzahl steht daneben. (#654)
+        plat = sum(1 for v in (LIB["per"] or {}).values() if v)
+        ordner, titles = len(LIB["slugs"]), len(LIB["all"])
+        eintraege = sum(len(v) for v in (LIB["per"] or {}).values())
     return jsonify({"jobs_total": len(js),
         "jobs_active": sum(1 for j in js if j.get("state") not in JOB_FINISHED),
         "jobs_finished": sum(1 for j in js if j.get("state") in JOB_FINISHED),
-        "lib_platforms": plat, "lib_titles": titles, "igdb_cache": len(IGDB["cache"]),
+        "lib_platforms": plat, "lib_folders": ordner, "lib_titles": titles,
+        "lib_entries": eintraege, "igdb_cache": len(IGDB["cache"]),
         "discover_age": int(time.time()-DISCOVER_CACHE["ts"]) if DISCOVER_CACHE["ts"] else None})
 
 @app.route("/api/admin/cache/clear", methods=["POST"])

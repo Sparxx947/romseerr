@@ -9897,3 +9897,49 @@ def test_the_search_buttons_are_drawn_not_typed(appmod):
         "aria-label wird nirgends übersetzt"
     for s in ("such_back", "such_clear"):
         assert i18n_hat(s), f"{s} fehlt in einer Sprache"
+
+
+# --- #654: Ordner, Plattformen, Einträge und Titel sind vier verschiedene Zahlen --------
+
+def test_the_index_log_separates_folders_from_platforms(appmod, tmp_path, monkeypatch, capsys):
+    """599 Ordner, 64 davon mit Inhalt — beides „Plattformen" zu nennen ergab zwei
+    Zahlen, die einander widersprachen, obwohl jede für sich stimmte. (#654)"""
+    quelle = open(os.path.join(REPO, "app.py"), encoding="utf-8").read()
+    m = re.search(r'log\(f"Bibliotheks-Index: (.*?)\)\n', quelle, re.S)
+    assert m, "die Logzeile ist nicht auffindbar"
+    zeile = m.group(1)
+    assert "mit_inhalt" in zeile, "die Zeile nennt weiterhin die Ordnerzahl als Plattformen"
+    assert "Ordner" in zeile, "die Ordnerzahl fehlt ganz"
+    assert "len(slugs)} Ordner" in zeile, "`slugs` wird nicht als Ordnerzahl ausgewiesen"
+
+
+def test_admin_stats_reports_all_four_numbers(appmod, client, monkeypatch):
+    """Ordner, Plattformen mit Inhalt, Einträge und Titel. (#654)
+
+    Die vier hängen zusammen und werden verwechselt: `LIB["slugs"]` sind Ordner,
+    `LIB["per"]` die Plattformen mit Inhalt, die Summe ihrer Längen die Einträge und
+    `LIB["all"]` die eindeutigen Titel.
+    """
+    _admin(appmod, client, "stat1")
+    monkeypatch.setitem(appmod.LIB, "slugs", {"snes", "nes", "leer1", "leer2"})
+    monkeypatch.setitem(appmod.LIB, "per", {"snes": {"a", "b"}, "nes": {"b", "c"}, "leer1": set()})
+    monkeypatch.setitem(appmod.LIB, "all", {"a", "b", "c"})
+
+    d = client.get("/api/admin/stats").get_json()
+    assert d["lib_folders"] == 4, f"Ordnerzahl falsch: {d}"
+    assert d["lib_platforms"] == 2, f"leere Plattformen mitgezählt: {d}"
+    assert d["lib_entries"] == 4, f"Einträge falsch (2+2 erwartet): {d}"
+    assert d["lib_titles"] == 3, f"Titel falsch (a,b,c erwartet): {d}"
+    appmod.save_users({})
+
+
+def test_the_library_view_counts_entries_not_titles(appmod):
+    """Was je Plattform steht, sind Einträge — derselbe Titel auf zwei Systemen zählt
+    zweimal. Ihn „Titel" zu nennen ergab 323.776 gegen 293.067. (#654)"""
+    js = _js()
+    for stelle in ("(d.total||0).toLocaleString()", "p.owned.toLocaleString()",
+                   "Number(st.total).toLocaleString()"):
+        i = js.index(stelle)
+        umfeld = js[i:i + 120]
+        assert "lib_entries" in umfeld, f"noch als Titel beschriftet: {umfeld[:80]}"
+    assert i18n_hat("lib_entries"), "lib_entries fehlt in einer Sprache"
