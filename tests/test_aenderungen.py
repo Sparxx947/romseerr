@@ -1394,3 +1394,110 @@ def test_one_dead_source_does_not_take_the_search_down(appmod, monkeypatch):
     res = appmod.do_search("egal", [])
     assert [r["title"] for r in res] == ["Aus Usenet"], \
         f"die lebende Quelle ging mit unter: {res}"
+
+
+# ---------------------------------------------------------------------------
+# #724 — eine RomM-Sitzung, nicht eine je Nachschlagen
+# ---------------------------------------------------------------------------
+
+class _RommAntwort:
+    def __init__(self, code=200, daten=None):
+        self.status_code = code
+        self._daten = daten if daten is not None else {"items": []}
+    @property
+    def ok(self):
+        return 200 <= self.status_code < 300
+    def json(self):
+        return self._daten
+
+
+class _RommSitzung:
+    """Zaehlt Anmeldungen und Abfragen. Die Antwort auf die Suche ist steuerbar."""
+    def __init__(self, zaehler, suchcodes):
+        self._z, self._codes = zaehler, suchcodes
+    def post(self, url, **k):
+        self._z["login"] += 1
+        return _RommAntwort(200)
+    def get(self, url, **k):
+        self._z["suche"] += 1
+        code = self._codes.pop(0) if self._codes else 200
+        return _RommAntwort(code, {"items": [{"name": "Chrono Trigger", "id": 7,
+                                              "platform_slug": "snes",
+                                              "fs_size_bytes": 1024}]})
+
+
+def _romm_stub(appmod, monkeypatch, suchcodes=None):
+    zaehler = {"login": 0, "suche": 0}
+    codes = list(suchcodes or [])
+    class _Req:
+        @staticmethod
+        def Session():
+            return _RommSitzung(zaehler, codes)
+    monkeypatch.setattr(appmod, "requests", _Req)
+    appmod._ROMM_SITZUNG.update(s=None, schluessel=None, bis=0.0)
+    return zaehler
+
+
+def _romm_cfg(appmod, monkeypatch, passwort="geheim"):
+    werte = {"romm_url": "http://romm", "romm_user": "u", "romm_pass": passwort}
+    monkeypatch.setattr(appmod, "cfg", lambda k: werte.get(k, ""))
+    return werte
+
+
+def test_romm_does_not_log_in_again_for_every_lookup(appmod, monkeypatch):
+    """Die Anmeldung kostet rund eine Sekunde. (#724)
+
+    Im Container gegen das laufende RomM gemessen:
+
+        login 926 ms   suche 1486 ms
+        login 993 ms   suche 1574 ms
+
+    Sie wurde bei JEDEM `romm_find` erneut bezahlt, also bei jeder geoeffneten Karte.
+    """
+    z = _romm_stub(appmod, monkeypatch)
+    _romm_cfg(appmod, monkeypatch)
+    appmod.romm_find("Chrono Trigger", "snes")
+    appmod.romm_find("Chrono Trigger", "snes")
+    appmod.romm_find("Chrono Trigger", "snes")
+    assert z["suche"] == 3, f"es wurde nicht dreimal gesucht: {z}"
+    assert z["login"] == 1, \
+        f"es wurde {z['login']}-mal angemeldet statt einmal — die Sitzung wird nicht wiederverwendet"
+
+
+def test_changed_credentials_invalidate_the_cached_romm_session(appmod, monkeypatch):
+    """Sonst redet eine geaenderte Konfiguration weiter ueber das alte Plaetzchen. (#724)"""
+    z = _romm_stub(appmod, monkeypatch)
+    _romm_cfg(appmod, monkeypatch, passwort="alt")
+    appmod.romm_find("Chrono Trigger", "snes")
+    _romm_cfg(appmod, monkeypatch, passwort="neu")
+    appmod.romm_find("Chrono Trigger", "snes")
+    assert z["login"] == 2, \
+        (f"nach dem Passwortwechsel wurde {z['login']}-mal angemeldet — die alte Sitzung "
+         "wird weiterbenutzt")
+
+
+def test_an_expired_romm_session_logs_in_once_more_and_retries(appmod, monkeypatch):
+    """Sonst wird aus der wiederverwendeten Sitzung ein Feature mit Verfallsdatum. (#724)
+
+    Die erste Suche antwortet mit 401, die zweite mit 200 — das Ergebnis muss trotzdem
+    ankommen, und es darf GENAU EINE zusaetzliche Anmeldung geben.
+    """
+    z = _romm_stub(appmod, monkeypatch, suchcodes=[401, 200])
+    _romm_cfg(appmod, monkeypatch)
+    treffer = appmod.romm_find("Chrono Trigger", "snes")
+    assert treffer and treffer["id"] == 7, \
+        f"die abgelaufene Sitzung liess das Nachschlagen scheitern: {treffer}"
+    assert z["login"] == 2, f"nicht genau eine Neuanmeldung: {z}"
+    assert z["suche"] == 2, f"die Abfrage wurde nicht genau einmal wiederholt: {z}"
+
+
+def test_the_romm_session_is_built_under_a_lock(appmod):
+    """Seit #722 laufen Aufrufer nebeneinander. (#724)
+
+    Ohne Schloss melden sich mehrere Faeden gleichzeitig an und ueberschreiben einander —
+    genau die Sekunde, die hier eingespart werden soll, faellt dann mehrfach an.
+    """
+    import inspect
+    quelle = inspect.getsource(appmod.romm_session)
+    assert "_ROMM_LOCK" in quelle, \
+        "romm_session legt die Sitzung ohne Schloss an — parallele Aufrufer melden sich doppelt an"

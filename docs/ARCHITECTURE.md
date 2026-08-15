@@ -1171,6 +1171,34 @@ Archive und ROMhack-Pakete —, und für die stehen jetzt `mod archive`, `rom ha
 `anthology` und `trilogy` in `SET_RE`. **`archive` allein bewusst nicht**: Das Wort steht in
 jedem zweiten Archive.org-Titel.
 
+**Eine RomM-Sitzung statt einer je Nachschlagen (#724).** Nachdem `play` und `stream` nicht
+mehr auf `/api/detail` warten, blieb `/api/play` selbst mit **2,5–2,8 s** der Rest. Die
+Aufteilung, im Container gegen das laufende RomM gemessen:
+
+```
+/api/play?platform=ps2      5 ms     (kein Kern — antwortet vor RomM)
+/api/play?platform=snes  1,11 s      (Unsinns-Titel)
+login 926 ms  suche 1486 ms
+login 993 ms  suche 1574 ms
+   nur suche, gleiche Sitzung   1673 / 1681 / 1326 ms
+```
+
+`romm_session()` legte bei **jedem** Aufruf eine neue Sitzung an und meldete sich neu an —
+rund **eine Sekunde**, bei jeder geöffneten Karte aufs Neue. Die Sitzung wird jetzt
+wiederverwendet. Die Suche selbst (1,2–1,7 s) ist RomMs eigene Geschwindigkeit und hier
+nicht zu beheben.
+
+Drei Dinge machen das gefahrlos: Der Schlüssel enthält **URL, Benutzer und Passwort**, sonst
+redet eine geänderte Konfiguration weiter über das alte Plätzchen; auf **401/403** wird
+**genau einmal** neu angemeldet und wiederholt, sonst wäre die Wiederverwendung ein Feature
+mit Verfallsdatum; und das Anlegen steht unter einem **Schloss**, weil seit #722 Aufrufer
+nebeneinander laufen.
+
+**Gemessen und bewusst NICHT geändert:** Das `await fetch('/api/users')` am Anfang von
+`openDetail` blockiert alles danach — es sah nach einer zweiten Reihenschaltung aus. Gemessen
+sind es **13–24 ms** (die einzelne 351-ms-Messung war der erste Aufruf auf einer frisch
+geladenen Seite, also der Verbindungsaufbau). Das ist keine Änderung wert.
+
 **Die Suche fragt ihre drei Quellen nebeneinander (#722).** Ein Klick auf eine
 Entdecken-Karte brauchte **15,8 s** bis zur ersten Trefferkarte — und 15,8 davon waren
 `/api/search`. Die Quellen liefen in Reihe, die Wartezeit war also ihre **Summe**; bei
@@ -1607,6 +1635,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 *EN: covers load only when needed (#719). Measured: the page is up after 141 ms and every API call is done by ~400 ms — the data was never the problem. The start page builds 22 rows of 20 titles, and because covers were CSS BACKGROUND IMAGES the browser could defer none of them: `loading="lazy"` applies to `<img>` only. 448 covers in the document, 48 on screen, 240 image requests totalling 95.6 s. A single IntersectionObserver now sets the image as a cover approaches — one per card would have meant 440 observers. The 400 px of lead time is not decoration: without it you watch grey boxes fill in, and a test asserts that visible covers carry an image, because deferring that leaves visible boxes empty is a defect, not a gain. The search path got the same treatment, including the `/api/cover` lookup — bypassing it would make the deferral useless for looked-up covers.*
 
 *EN: search queries its three sources side by side (#722). A card click took 15.8 s to the first result, essentially all of it `/api/search`, because the sources ran in sequence and the wait was their SUM — up to 40 s with the configured timeouts, and Archive.org alone varied between 1.07 s and 8.07 s a second apart. Side by side the total is the MAXIMUM. Two conditions make that safe: none of the three touches the request context, and a dead source must not take the others down — an unexpected error in a worker would otherwise end the whole search and show "no results" instead of the ones that did arrive. On a detail card the dialog is up after 2 ms but was filled after ~1.94 s: `play`, `stream` and `titlemeta` waited for `/api/detail` although the first two only need the clicked hit. They now start immediately, ending at ~1.33 s. `loadTitleMeta` deliberately stays behind — it uses the game name from that response, and pulled forward would fall back to the release name that the ratings hang off.*
+
+*EN: one reused RomM session instead of one per lookup (#724). With play and stream no longer waiting for `/api/detail`, `/api/play` itself was the remaining 2.5–2.8 s. Measured inside the container: the login alone costs ~1 s and was paid on every single lookup, i.e. every card opened; the search itself (1.2–1.7 s) is RomM's own speed. The session is now reused, keyed on url+user+password so changed credentials invalidate it, with exactly one silent re-login and retry on 401/403, and built under a lock because callers have run concurrently since #722. Measured and deliberately left alone: the `await fetch('/api/users')` at the top of `openDetail` is 13–24 ms, not the second serialization it looked like.*
 
 *EN: a card can no longer say "in library" and "platform unknown" at once (#685). `in_library()` falls back to a global check when the hit names no platform — correct, but it only answers whether. `library_slugs()` answers where, sorted by the platform's release year (oldest first), which for a title on several systems is almost always the one it appeared on first. Measured: 6.9% of titles sit on more than one platform. Deliberately the console's year, not the game's — IGDB gives one date per game and does not know the hacks and homebrew this concerns. The card marks the value as derived.*
 
