@@ -1,4 +1,4 @@
-:root{--bg:#14161a;--card:#1e2229;--acc:#7c5cff;--acc2:#6c5ce7;--ok:#2ecc71;--txt:#e6e8ec;--mut:#8b929e;
+:root{--bg:#14161a;--card:#1e2229;--acc:#7c5cff;--acc2:#6c5ce7;--ok:#3ddc97;--ok-bg:#1d5c45;--txt:#e6e8ec;--mut:#8b929e;
  --side:#0f1114;--topbar:#0f1114;--border:#262b33;--hover:#1a1e25;--input:#0b0d10;
  --radius:12px;--shadow:0 1px 2px rgba(0,0,0,.25);--blur:0px;
  /* Der aktive Menuepunkt traegt WEISSE Schrift. Auf `--acc` (#7c5cff) ergibt das 4,34:1
@@ -35,7 +35,7 @@
 ::-webkit-scrollbar-corner{background:transparent}
 /* ---- Designs (per Nutzer/global wählbar über <html data-design=…>) ---- */
 /* seerr = Standard (die :root-Werte oben, dunkel & poliert). glass & clean unten. */
-[data-design=glass]{--bg:#0b0e1a;--card:rgba(32,37,58,.55);--acc:#22d3ee;--acc2:#6366f1;--txt:#eaf2ff;--mut:#93a0c0;
+[data-design=glass]{--bg:#0b0e1a;--card:rgba(32,37,58,.55);--acc:#22d3ee;--acc2:#6366f1;--ok:#7ee787;--ok-bg:#1e5c33;--txt:#eaf2ff;--mut:#93a0c0;
  --side:rgba(18,22,38,.55);--topbar:rgba(18,22,38,.45);--border:rgba(255,255,255,.10);--hover:rgba(255,255,255,.07);--input:rgba(10,13,24,.5);
  --radius:16px;--shadow:0 10px 34px rgba(0,0,0,.40);--blur:16px;--navon:linear-gradient(90deg,#22d3ee,#818cf8);--navtxt:#04121a}
 [data-design=glass] body{background:
@@ -46,7 +46,7 @@
 [data-design=glass] .pcover,[data-design=glass] .job,[data-design=glass] .fbtn,[data-design=glass] input,
 [data-design=glass] #setcontent .frow input,[data-design=glass] .badge{backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur))}
 [data-design=glass] #side .logo{background:linear-gradient(90deg,#22d3ee,#818cf8);-webkit-background-clip:text;background-clip:text}
-[data-design=clean]{--bg:#0c0e11;--card:#14171b;--acc:#5b8cff;--acc2:#5b8cff;--txt:#e7eaef;--mut:#7d8695;
+[data-design=clean]{--bg:#0c0e11;--card:#14171b;--acc:#5b8cff;--acc2:#5b8cff;--ok:#56d364;--ok-bg:#17532f;--txt:#e7eaef;--mut:#7d8695;
  --side:#0c0e11;--topbar:#0c0e11;--border:#1c2026;--hover:#161a1f;--input:#0c0e11;
  --radius:8px;--shadow:none;--blur:0px;--navon:transparent;--navtxt:var(--acc)}
 [data-design=clean] #side .logo{background:none;-webkit-text-fill-color:var(--txt);color:var(--txt)}
@@ -64,7 +64,7 @@
    derselbe Ton nur 3,31:1. Fuer Flaechen deshalb `--navon` mit 4,69:1. Nachgerechnet,
    nicht geschaetzt. */
 [data-design=aurora]{
-  --bg:#0b0910;--card:#16121d;--acc:#ff4d2e;--acc2:#7c5cff;--txt:#f3f0f7;--mut:#9990a6;
+  --bg:#0b0910;--card:#16121d;--acc:#ff4d2e;--acc2:#7c5cff;--ok:#4fd39a;--ok-bg:#1c5a45;--txt:#f3f0f7;--mut:#9990a6;
   --side:#100d16;--topbar:#100d16;--border:#241f2e;--hover:#1b1724;--input:#100d16;
   --radius:14px;--shadow:0 10px 26px rgba(0,0,0,.45);--blur:0px;
   --navon:#d63a19;--navtxt:#fff;
@@ -422,7 +422,7 @@ img.glogo{height:26px;width:auto;max-width:90px;object-fit:contain}
 .cover .zust{position:absolute;left:6px;bottom:6px;right:6px;border-radius:8px;padding:3px 7px;
  font-size:11px;font-weight:600;color:#fff;display:flex;align-items:center;gap:5px;
  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cover .zust.da{background:#1e5e3a;border:1px solid #2ecc71}
+.cover .zust.da{background:var(--ok-bg);border:1px solid var(--ok)}
 .cover .zust.req{background:#5a4410;border:1px solid #d29922}
 /* Zurückhaltender Zweitknopf: „Details" und „angefragt" sind keine Handlungsaufforderung
    wie ein Download, sollen aber sichtbar bleiben. */
@@ -448,7 +448,7 @@ button.job{width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer}
 button.job:hover{border-color:#39404b}
 button.job:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .st{font-size:12px;padding:2px 8px;border-radius:6px;background:#2a2f37}
-.st.done{background:#1e5e3a}.st.error{background:#6e2a2a}.st.downloading,.st.importing{background:#5a4a1e}
+.st.done{background:var(--ok-bg)}.st.error{background:#6e2a2a}.st.downloading,.st.importing{background:#5a4a1e}
 .hint{color:var(--mut);padding:0 18px 18px;font-size:12px}
 /* Zurueckgehaltene Treffer (#688). Die Farbe kommt aus --acc und nicht aus --gefahr:
    nichts ist kaputt, es ist eine Auskunft, und der Knopf daneben ist ein gewoehnlicher
@@ -519,7 +519,13 @@ button.job:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .pcard{flex:0 0 128px;cursor:pointer}
 .pcover{aspect-ratio:3/4;border-radius:var(--radius);background:#0b0d10 center/cover no-repeat;position:relative;border:1px solid var(--border);box-shadow:var(--shadow);transition:border-color .15s,transform .15s}
 .pcard:hover .pcover{border-color:var(--acc);transform:translateY(-3px)}
-.pcover .have2{position:absolute;top:6px;right:6px;background:#1e5e3a;color:#fff;border-radius:10px;padding:1px 7px;font-size:12px}
+/* DAS ABZEICHEN IST GROESSER ALS FRUEHER, und das ist der Punkt (#660): Bei den alten
+   11 px war die Modulform nicht von einem gerundeten Quadrat zu unterscheiden — die
+   abgeschraegte Ecke ging unter. Am Entwurf gemessen, bevor es hier stand. */
+.pcover .have2{position:absolute;top:6px;right:6px;background:var(--ok-bg);color:#fff;
+ border-radius:9px;padding:4px;display:flex;line-height:0}
+.pcover .have2 svg{width:18px;height:18px;display:block}
+.cover .zust.da svg{width:13px;height:13px;flex:0 0 13px;display:block}
 /* Fremde Bewertung (#210): unten links, damit sie dem Häkchen oben rechts nicht ins
    Gehege kommt. Deckender Grund, weil sie auf beliebiger Cover-Kunst liegt. */
 .pcover .extrate{position:absolute;left:6px;bottom:6px;background:#000c;color:#ffd166;
@@ -545,7 +551,7 @@ button.job:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 /* Zustand am Eintrag: gefüllt = aktiv, offen = eingerichtet aber aus, nichts = leer.
    Ein Menü, das nur länger wird, hilft niemandem; eines, das den Stand zeigt, schon. */
 .ssub .dot{width:7px;height:7px;border-radius:50%;flex:0 0 7px}
-.ssub .dot.an{background:#3fb950}
+.ssub .dot.an{background:var(--ok)}
 .ssub .dot.aus{border:1px solid var(--mut)}
 #setcontent{flex:1;max-width:620px}
 #setcontent h3{font-size:12px;text-transform:uppercase;color:var(--mut);letter-spacing:.05em;margin:0 0 10px}

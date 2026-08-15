@@ -887,3 +887,25 @@ def test_every_result_carries_the_group_state(appmod, monkeypatch):
     res = appmod.do_search("egal", [])
     assert res and all("grp_in_library" in r for r in res), \
         "nicht jeder Treffer traegt `grp_in_library`"
+
+
+def test_no_hard_coded_green_is_left_in_the_stylesheet(appmod):
+    """Die Ursache war das Literal, nicht der Farbton. (#660)
+
+    Das Gruen stand an fuenf Stellen, vier davon fest im Stylesheet — deshalb bekamen alle
+    vier Designs dasselbe Signalgruen, egal wie sie sonst aussahen. Nur EINE Stelle
+    umzufaerben haette Anfrageliste und Abdeckung gruen gelassen, waehrend die Karten sich
+    aendern; das waere schlimmer gewesen als der Ausgangszustand.
+
+    Dieser Waechter faengt den Rueckfall: Wer die naechste „vorhanden"-Stelle wieder mit
+    einer festen Farbe baut, faellt hier auf.
+    """
+    css = open(os.path.join(REPO, "static", "css", "index.css"), encoding="utf-8").read()
+    for ton in ("#1e5e3a", "#2ecc71", "#3fb950"):
+        assert ton not in css, \
+            f"{ton} steht wieder fest im Stylesheet statt in --ok/--ok-bg"
+    # Und die Variablen muessen wirklich JE DESIGN gesetzt sein, nicht nur einmal global.
+    assert css.count("--ok:") == 4, \
+        f"--ok ist {css.count('--ok:')}x gesetzt, erwartet 4 (ein Wert je Design)"
+    assert css.count("--ok-bg:") == 4, \
+        f"--ok-bg ist {css.count('--ok-bg:')}x gesetzt, erwartet 4"

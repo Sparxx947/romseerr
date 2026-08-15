@@ -3264,10 +3264,32 @@ def test_the_card_shows_state_by_symbol_not_by_colour_alone():
     Das Symbol trägt die Bedeutung, die Farbe verstärkt sie nur — und der Text steht
     zusätzlich im `title`, damit auch ein Screenreader ihn findet. (#205)"""
     js = open(os.path.join(REPO, "static/js/index.js"), encoding="utf-8").read()
-    fn = js[js.index("function kartenZustand("):]
-    fn = fn[:fn.index("\nfunction ", 1)]
-    assert "'✓'" in fn and "'⏳'" in fn, "die Zustände unterscheiden sich nicht im Symbol"
+    fn = js[js.index("function vorhandenZeichen("):]
+    fn = fn[:fn.index("\n// Eine Karte je SPIEL", 1)]
     assert "in_library" in fn and "requested" in fn
+
+    # AUSGEFÜHRT, NICHT GESUCHT. Vorher stand hier `assert "'✓'" in fn` — das prüfte ein
+    # ZEICHEN, nicht die Zusage. Als das Häkchen in #660 zu einer Zeichnung wurde, schlug
+    # der Test an, obwohl die Zusage („die Zustände unterscheiden sich im Symbol")
+    # unverändert eingehalten war. Umgekehrt hätte er nichts gemerkt, wenn beide Zustände
+    # dasselbe Zeichen bekommen hätten, solange die zwei Zeichen irgendwo im Text standen.
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node nicht verfügbar")
+    prog = fn + """
+      const t = k => k, vorhanden = kartenZustand({in_library: true});
+      const angefragt = kartenZustand({requested: true});
+      const keins = kartenZustand({});
+      if (!vorhanden || !angefragt) throw new Error('ein Zustand fehlt');
+      if (vorhanden.zeichen === angefragt.zeichen)
+        throw new Error('beide Zustände tragen dasselbe Symbol: ' + vorhanden.zeichen);
+      if (!vorhanden.zeichen || !angefragt.zeichen) throw new Error('ein Symbol ist leer');
+      if (keins !== null) throw new Error('ohne Zustand darf kein Abzeichen entstehen');
+      console.log(JSON.stringify([vorhanden.cls, angefragt.cls]));
+    """
+    r = subprocess.run([node, "-e", prog], capture_output=True, text=True)
+    assert r.returncode == 0, f"kartenZustand: {r.stderr.strip()}"
+    assert json.loads(r.stdout)[0:2] == ["da", "req"], r.stdout
     karte = js[js.index("function renderCard("):]
     karte = karte[:karte.index("\nlet RAONLY", 1)]
     assert 'title="${z.text}"' in karte, "der Zustand steht nirgends als Text"
