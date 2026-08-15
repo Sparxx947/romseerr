@@ -1171,6 +1171,30 @@ Archive und ROMhack-Pakete —, und für die stehen jetzt `mod archive`, `rom ha
 `anthology` und `trilogy` in `SET_RE`. **`archive` allein bewusst nicht**: Das Wort steht in
 jedem zweiten Archive.org-Titel.
 
+**Cover werden erst geladen, wenn sie gebraucht werden (#719).** Jens: „es dauert immer
+eine ganze Weile, bis die Spiele angezeigt werden". Gemessen am laufenden Stand:
+
+```
+Seite geladen           141 ms
+alle API-Aufrufe fertig ~400 ms
+Cover im Dokument       448        davon im Blick: 48
+Bildanfragen            240        Summe: 95,6 s, je ~398 ms
+```
+
+**Die Daten waren nie das Problem.** `/api/discover/rows` antwortet in 30–50 ms; die
+Startseite baut 22 Reihen mit je 20 Titeln, und weil die Cover als **CSS-Hintergrundbild**
+eingebunden waren, konnte der Browser nichts davon aufschieben — `loading="lazy"` wirkt
+ausschließlich auf `<img>`. Neun von zehn Bildern wurden für niemanden geholt.
+
+Ein **einziger** `IntersectionObserver` setzt das Bild jetzt, sobald ein Cover in die Nähe
+kommt. Einer je Karte wäre einer je Cover gewesen, also 440 Stück. Der Vorlauf von 400 px ist
+kein Zierwert: Ohne ihn sieht man graue Kästen, mit ihm ist das Bild da, bevor man hinsieht —
+ein Test prüft genau das, denn ein Aufschub, der sichtbare Kästen leer lässt, ist kein
+Gewinn, sondern ein Fehler.
+
+Der Suchpfad bekam dieselbe Behandlung, samt des Nachschlags über `/api/cover`: Ginge der an
+der Verzögerung vorbei, wäre sie für nachgeladene Cover wirkungslos.
+
 **Benachrichtigungen sind je Ereignis wählbar — auf zwei Ebenen (#714).** Sechs Anlässe
 melden sich, und sie erreichen **verschiedene** Empfänger:
 
@@ -1556,6 +1580,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 *EN: the quota measures volume, not only count, and applies per user (#712/#713). Comparable projects limit by number of requests; here that bounds nothing that runs out — a SNES cartridge is ~4 MB and a PS3 title ~30 GB, a factor of 7,500, so ten requests can mean 40 MB or 300 GB. Both limits can be switched off individually because each has its own hole: a count alone lets 300 GB through, a volume alone lets a hundred tiny requests through. Enforcement checks the size of THIS request, not just consumption. `denied` and `error` do not spend the quota; `pending` does, or the limit could be walked past by requesting faster than the queue drains. A user may carry an own limit, falling back to the global one — an empty value means "global", not "zero", so the server removes the key rather than storing 0. Two holes surfaced only under mutation testing, one of them older than this change: neither the volume nor the COUNT enforcement had ever been covered — `if qi.get("remaining") <= 0` could be replaced by `if False` with the whole suite staying green.*
 
 *EN: notifications are selectable per event, on two levels (#714). Six events fire, and they reach DIFFERENT recipients: `notify_send()` writes to the instance's agents and has no user dimension at all, while push, personal webhook and personal mail belong to one user. A single switch for both would be wrong — whoever runs the instance wants the approval requests; a user wants their own titles. A missing key means ON, so nobody who changes nothing notices anything, and a later event is not silent for everyone who once saved the page; the server therefore stores only the keys actually sent. A source-reading test guards the call sites, because two of six initially went without an event and looked correct both times; mutation testing additionally showed the personal webhooks could lose their guard unnoticed — `nutzer_will` was covered, the places using it were not.*
+
+*EN: covers load only when needed (#719). Measured: the page is up after 141 ms and every API call is done by ~400 ms — the data was never the problem. The start page builds 22 rows of 20 titles, and because covers were CSS BACKGROUND IMAGES the browser could defer none of them: `loading="lazy"` applies to `<img>` only. 448 covers in the document, 48 on screen, 240 image requests totalling 95.6 s. A single IntersectionObserver now sets the image as a cover approaches — one per card would have meant 440 observers. The 400 px of lead time is not decoration: without it you watch grey boxes fill in, and a test asserts that visible covers carry an image, because deferring that leaves visible boxes empty is a defect, not a gain. The search path got the same treatment, including the `/api/cover` lookup — bypassing it would make the deferral useless for looked-up covers.*
 
 *EN: a card can no longer say "in library" and "platform unknown" at once (#685). `in_library()` falls back to a global check when the hit names no platform — correct, but it only answers whether. `library_slugs()` answers where, sorted by the platform's release year (oldest first), which for a title on several systems is almost always the one it appeared on first. Measured: 6.9% of titles sit on more than one platform. Deliberately the console's year, not the game's — IGDB gives one date per game and does not know the hacks and homebrew this concerns. The card marks the value as derived.*
 

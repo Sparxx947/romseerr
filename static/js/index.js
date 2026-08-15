@@ -570,8 +570,37 @@ function gruppiere(d){let wo={},out=[];
   if(wo[k]===undefined){wo[k]=out.length;out.push({it:it,n:1});}
   else out[wo[k]].n++;});
  return out;}
+// COVER ERST LADEN, WENN SIE GEBRAUCHT WERDEN (#719).
+//
+// GEMESSEN, nicht vermutet: Die Startseite baut 22 Reihen mit je 20 Titeln — 440 Cover im
+// Dokument, davon 48 im sichtbaren Bereich. Weil sie als CSS-HINTERGRUNDBILD eingebunden
+// waren, konnte der Browser nichts davon aufschieben: `loading="lazy"` wirkt nur auf
+// `<img>`. Also wurden 240 Bilder zu je rund 400 ms geholt, neun von zehn davon fuer
+// niemanden. Die Seite selbst stand nach 141 ms.
+//
+// WARUM EIN EINZIGER BEOBACHTER: Einer je Karte waere ein Beobachter je Cover, also 440
+// Stueck. Ein gemeinsamer bekommt alle Ziele und meldet nur die, die auftauchen.
+//
+// WARUM `rootMargin`: Erst zu laden, wenn ein Cover den Rand beruehrt, zeigt sichtbar
+// graue Kaesten. 400 px Vorlauf heisst: Es ist da, bevor man es sieht.
+//
+// EN: covers were CSS background images, which the browser cannot defer — `loading=lazy`
+// is for `<img>` only. 440 in the document, 48 on screen. One shared observer with 400 px
+// of lead time loads them just before they are needed.
+const COVER_BEOBACHTER = ("IntersectionObserver" in window)
+ ? new IntersectionObserver((eintraege,b)=>{eintraege.forEach(e=>{
+     if(!e.isIntersecting) return;
+     let el=e.target, url=el.dataset.cover;
+     if(url){el.style.backgroundImage="url('"+url.replace(/'/g,"\\'")+"')"; delete el.dataset.cover;}
+     b.unobserve(el);});}, {rootMargin:"400px"})
+ : null;
+function coverSpaeter(el,url){
+ if(!el||!url) return;
+ // Ohne Beobachter (sehr alte Browser) sofort setzen — lieber langsam als leer.
+ if(!COVER_BEOBACHTER){el.style.backgroundImage="url('"+url.replace(/'/g,"\\'")+"')"; return;}
+ el.dataset.cover=url; COVER_BEOBACHTER.observe(el);}
 function renderCard(it,fassungen){let c=document.createElement('div');c.className='card';
- let cov=it.cover?`background-image:url('${it.cover}')`:'';
+ let cov='';   // wird per coverSpaeter() gesetzt, sobald sichtbar (#719)
  let src=it.source=='usenet'?'📡 Usenet':'🗄 Archive';
  let settag=it.is_set?' · 📦 '+t('collection'):'';
  // Zugangsbeschraenkt heisst: Der Download braucht ein Archive.org-Konto und scheitert
@@ -599,8 +628,12 @@ function renderCard(it,fassungen){let c=document.createElement('div');c.classNam
  else if(it.requested){let b=document.createElement('button');b.className='dl zw';
   b.textContent=t('requested');b.disabled=true;act.appendChild(b);}
  else{let b=document.createElement('button');b.className='dl';b.textContent=t('download');b.onclick=()=>dl(b,it);act.appendChild(b);}
+ // Vorhandenes Cover erst beim Auftauchen laden (#719).
+ coverSpaeter(c.querySelector('.cover'), it.cover);
+ // Fehlendes Cover nachschlagen — auch das Ergebnis geht durch denselben Weg, sonst
+ // umginge der Nachschlag genau die Verzoegerung, um die es hier geht.
  if(!it.cover)fetch('/api/cover?title='+encodeURIComponent(it.title)).then(r=>r.json()).then(d=>{
-  if(d.cover){it.cover=d.cover;c.querySelector('.cover').style.backgroundImage="url('"+d.cover+"')";}});
+  if(d.cover){it.cover=d.cover;coverSpaeter(c.querySelector('.cover'), d.cover);}});
  return c;}
 
 let RAONLY=false;
@@ -1001,11 +1034,12 @@ async function loadDiscover(){let hint=document.getElementById('hint');hint.styl
    // als die EIGENE — und das wird falsch, sobald daneben eigene Bewertungen stehen.
    // Ohne Wert steht dort nichts; eine erfundene Null wäre schlimmer als eine Lücke.
    let ext=it.ext_rating?`<span class=extrate title="IGDB">★ ${it.ext_rating}</span>`:'';
-   c.innerHTML=`<div class=pcover style="${it.cover?`background-image:url('${it.cover}')`:''}">${it.in_library?'<span class=have2>'+vorhandenZeichen()+'</span>':''}${ext}</div><div class=pt>${it.title.replace(/</g,'&lt;')}</div>`;
+   c.innerHTML=`<div class=pcover>${it.in_library?'<span class=have2>'+vorhandenZeichen()+'</span>':''}${ext}</div><div class=pt>${it.title.replace(/</g,'&lt;')}</div>`;
    c.onclick=()=>{SELP=r.slug?new Set([r.slug]):new Set();
     localStorage.setItem('romp',JSON.stringify([...SELP]));updateFLabel();
     document.querySelectorAll('.chip').forEach(e=>e.classList.toggle('on',SELP.has(e.dataset.s)));
     document.getElementById('q').value=it.title;search();};
+   coverSpaeter(c.querySelector('.pcover'), it.cover);
    strip.appendChild(c);});
   g.appendChild(sec);});}
 function toggleDiscCust(){let e=document.getElementById('disccust');e.style.display=e.style.display=='none'?'block':'none';}
