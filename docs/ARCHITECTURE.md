@@ -1171,6 +1171,21 @@ Archive und ROMhack-Pakete —, und für die stehen jetzt `mod archive`, `rom ha
 `anthology` und `trilogy` in `SET_RE`. **`archive` allein bewusst nicht**: Das Wort steht in
 jedem zweiten Archive.org-Titel.
 
+**Die Breite der Navigationsspalte steht einmal, nicht dreimal (#710).** `210px` stand in
+`#side`, `main` und `#fuss`. Zwei Zustände lösen die linke Spalte auf — **Aurora** (#629,
+Navigation nach oben) und schmale Fenster unter 680 px — und beide müssen dann alle drei
+Stellen nachziehen. Die Mobilregel tat das, der Aurora-Block vergaß die Fußzeile: Sie hielt
+ihren Abstand von 210 px ein, obwohl links keine Spalte mehr stand, und der Inhalt scrollte
+durch den freien Streifen.
+
+Aus den drei Kopien ist `--navspalte` geworden. Wer die Spalte auflöst, setzt die Größe auf
+`0` und ist fertig — dieselbe Bewegung wie bei den Farben in #705: nicht die Instanz
+reparieren, sondern die Klasse von Fehler.
+
+Ein Mutationstest zeigte dabei, dass die dritte Stelle gar nicht geprüft war: Bricht der
+Abstand von `main` weg, verschwindet der Inhalt unter der Seitenleiste, und kein Test hätte
+es gemerkt.
+
 **Die drei Knöpfe der Detailkarte teilen sich eine Klasse (#708).** Zwei trugen ihre
 Gestaltung **inline**, einer kam aus dem Stylesheet — in Aurora unterschieden sie sich damit
 in Grund, Schriftfarbe *und* Eckenradius. Der Befund ging dabei andersherum aus als erwartet:
@@ -1483,6 +1498,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 *EN: only the cover badge is absolutely positioned (#698). Jens reported the play button sitting over the navigation bar. Measured with the detail card open: the button at (6, 6), its own slot `#mplay` at (892, 529) — 900 px away. The cause reached further than that one button: a second `.badge` rule further down restyles the detail badges with equal specificity and later position, winning for background, border, padding and font size — but it does not reset `position`. Only `position/top/left` survived from the first rule, and that applied everywhere: rating, year, developer, genres and the achievements row were all absolutely positioned. The rule is now scoped to `.cover` and contains nothing but the positioning; pulling the visual properties up with it would have silently restyled the cover badge, including its pill shape in Aurora.*
 
 *EN: the three detail-card buttons now share one class (#708). Two carried their styling inline and one came from the stylesheet, so in Aurora they differed in background, text colour AND corner radius. The finding ran the opposite way to expectation: Aurora rounds every button to 12 px, and because inline beats any theme rule, the favourite button was the one FOLLOWING the design while the other two ignored it. The colour difference was a consequence of #705, which mapped the JavaScript's palette onto variables while `.favbtn` lives in the stylesheet — the same shape of gap as #703, one file over. Icon and text live in separate nodes because `toggleFav` and `addWishlist` set `textContent`, which deletes every child: an icon inside the button would have vanished on the first click, silently, since the text still reads correctly. The favourite state now hangs on FORM — filled versus outline heart — not on colour. No new icon was drawn for "report" and "watch": the cartridge with an exclamation mark and the bookmark mean the same as the menu entries they belong to.*
+
+*EN: the navigation column's width exists once, not three times (#710). `210px` sat in `#side`, `main` and `#fuss`. Two states dissolve the left column — Aurora (navigation on top) and windows below 680 px — and both must then follow through in all three places. The media query did; the Aurora block forgot the footer, which kept its 210 px offset although no column stood there any more, leaving a strip the content scrolled through. The three copies became `--navspalte`: whoever dissolves the column sets it to 0 and is done — the same move as the colours in #705, fixing the class of mistake rather than the instance. A mutation test also showed the third use was untested: break `main`'s offset and the content slides under the sidebar with nothing noticing.*
 
 *EN: a card can no longer say "in library" and "platform unknown" at once (#685). `in_library()` falls back to a global check when the hit names no platform — correct, but it only answers whether. `library_slugs()` answers where, sorted by the platform's release year (oldest first), which for a title on several systems is almost always the one it appeared on first. Measured: 6.9% of titles sit on more than one platform. Deliberately the console's year, not the game's — IGDB gives one date per game and does not know the hacks and homebrew this concerns. The card marks the value as derived.*
 

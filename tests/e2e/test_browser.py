@@ -2144,3 +2144,71 @@ def test_kein_schriftzeichen_mehr_in_den_drei_knoepfen(seite):
     for t in texte:
         treffer = re.findall(r"[\U0001F300-\U0001FAFF♠-♧❤♡♥☆★]", t)
         assert not treffer, f"Schriftzeichen {treffer} steht noch in {t.strip()!r}"
+
+
+# --- #710: die Fusszeile in Aurora ---
+
+def test_die_fusszeile_laesst_in_keinem_design_einen_streifen_frei(seite):
+    """Jens: die Fussleiste ist nicht durchgehend, sondern abgeschnitten. (#710)
+
+    Gemessen bei 1611 px: In Seerr, Glas und Klar beginnt sie bei 210 — genau dort, wo die
+    Seitenleiste endet, also richtig. In Aurora ist die Navigation eine Zeile OBEN, es gibt
+    gar keine linke Spalte — und die Fusszeile hielt trotzdem ihren Abstand von 210 px ein.
+    Links blieb ein Streifen frei, durch den der Inhalt scrollte.
+
+    Geprueft wird die Zusage, nicht die Zahl: Die Leiste beginnt entweder am Fensterrand
+    oder genau dort, wo die Seitenleiste endet. Einen dritten Fall darf es nicht geben.
+    """
+    werte = seite.evaluate("""() => {
+      const merk = document.documentElement.dataset.design, out = {};
+      for (const d of ['', 'glass', 'clean', 'aurora']) {
+        if (d) document.documentElement.dataset.design = d;
+        else delete document.documentElement.dataset.design;
+        const f = document.getElementById('fuss').getBoundingClientRect();
+        const s = document.getElementById('side').getBoundingClientRect();
+        out[d || 'seerr'] = {fuss: Math.round(f.left), rechts: Math.round(f.right),
+                             spalte: Math.round(s.right), fenster: Math.round(window.innerWidth),
+                             // Eine SPALTE ist sie nur, wenn sie nicht die ganze Breite fuellt
+                             ist_spalte: Math.round(s.width) < Math.round(window.innerWidth) - 40};
+      }
+      if (merk) document.documentElement.dataset.design = merk;
+      else delete document.documentElement.dataset.design;
+      return out;
+    }""")
+    for design, w in werte.items():
+        soll = w["spalte"] if w["ist_spalte"] else 0
+        assert w["fuss"] == soll, (
+            f"{design}: die Fusszeile beginnt bei {w['fuss']}, erwartet {soll} "
+            f"({'neben der Spalte' if w['ist_spalte'] else 'am Fensterrand'}) — "
+            f"{w['fuss'] - soll} px bleiben frei")
+        assert w["rechts"] == w["fenster"], \
+            f"{design}: die Fusszeile endet bei {w['rechts']}, das Fenster bei {w['fenster']}"
+
+
+def test_der_inhalt_beginnt_wo_die_navigation_endet(seite):
+    """Die dritte Stelle, die dieselbe Breite annimmt. (#710)
+
+    `--navspalte` steht an drei Stellen: `#side`, `main` und `#fuss`. Der Fehler aus #710
+    war, dass eine davon beim Umbau vergessen wurde. Ein Mutationstest hat gezeigt, dass
+    `main` gar nicht geprueft war — bricht dort der Abstand weg, verschwindet der Inhalt
+    unter der Seitenleiste, und kein Test haette es gemerkt.
+    """
+    werte = seite.evaluate("""() => {
+      const merk = document.documentElement.dataset.design, out = {};
+      for (const d of ['', 'glass', 'clean', 'aurora']) {
+        if (d) document.documentElement.dataset.design = d;
+        else delete document.documentElement.dataset.design;
+        const m = document.querySelector('main').getBoundingClientRect();
+        const s = document.getElementById('side').getBoundingClientRect();
+        out[d || 'seerr'] = {inhalt: Math.round(m.left), spalte: Math.round(s.right),
+                             ist_spalte: Math.round(s.width) < Math.round(window.innerWidth) - 40};
+      }
+      if (merk) document.documentElement.dataset.design = merk;
+      else delete document.documentElement.dataset.design;
+      return out;
+    }""")
+    for design, w in werte.items():
+        soll = w["spalte"] if w["ist_spalte"] else 0
+        assert w["inhalt"] == soll, (
+            f"{design}: der Inhalt beginnt bei {w['inhalt']}, erwartet {soll} — "
+            f"er liegt {'unter der Seitenleiste' if w['inhalt'] < soll else 'zu weit rechts'}")

@@ -1,6 +1,6 @@
 :root{--bg:#14161a;--card:#1e2229;--acc:#7c5cff;--acc2:#6c5ce7;--btn2:#2a2f37;--link:#9b85ff;--ok:#3ddc97;--ok-bg:#1d5c45;--warn:#e0a92e;--warn-bg:#5a4410;--bad:#ff7b72;--err-bg:#6e2a2a;--gefahr:#7a2b2b;--gefahr-b:#933838;--gefahr-h:#c05252;--txt:#e6e8ec;--mut:#8b929e;
  --side:#0f1114;--topbar:#0f1114;--border:#262b33;--hover:#1a1e25;--input:#0b0d10;
- --radius:12px;--shadow:0 1px 2px rgba(0,0,0,.25);--blur:0px;
+ --radius:12px;--shadow:0 1px 2px rgba(0,0,0,.25);--blur:0px;--navspalte:210px;
  /* Der aktive Menuepunkt traegt WEISSE Schrift. Auf `--acc` (#7c5cff) ergibt das 4,34:1
     und verfehlt die geforderten 4,5:1 knapp (#330). `--acc` selbst bleibt unveraendert:
     Es dient an sechs Stellen als TEXTfarbe auf dunklem Grund, und dort wuerde ein
@@ -84,6 +84,12 @@
    aktiven Menuepunkts (`.nav.on{box-shadow:0 5px 16px}`), und zwar an derselben Kante:
    nachgemessen blieb dort ein Farbsprung von 22 stehen, wo sonst 0 steht; ohne die Regel
    sind es 10. Derselbe Fehler wie der Verlauf, nur eine Zeile tiefer. */
+/* NAVIGATION NACH OBEN heisst: es gibt keine linke Spalte mehr. Frueher stand die
+   Breite 210 px an DREI Stellen (`#side`, `main`, `#fuss`), und dieser Block zog nur
+   zwei davon nach — die Fusszeile behielt ihren Abstand und liess links einen 210 px
+   breiten Streifen frei, durch den der Inhalt scrollte (#710). Jetzt gibt es die Zahl
+   einmal; wer die Spalte aufloest, setzt sie auf 0 und ist fertig. */
+[data-design=aurora]{--navspalte:0px}
 [data-design=aurora] #side{
   position:static;width:auto;flex-direction:row;flex-wrap:wrap;align-items:center;
   gap:2px;padding:10px 16px;border-right:0;border-bottom:1px solid var(--border);
@@ -224,7 +230,7 @@
   margin:0 auto;max-width:600px;color:var(--mut);font-size:16px;line-height:1.6;
 }
 [data-design=clean] .pcard:hover .pcover{transform:none;border-color:var(--acc)}
-#side{position:fixed;top:0;left:0;bottom:0;width:210px;background:var(--side);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:16px 12px;z-index:6}
+#side{position:fixed;top:0;left:0;bottom:0;width:var(--navspalte);background:var(--side);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:16px 12px;z-index:6}
 /* Die Marke laeuft mit der Schriftgroesse mit, statt eine feste Pixelzahl zu haben —
    sie steht in der Kopfzeile, in der Fusszeile und auf der Ueber-Seite, und jede davon
    hat ihre eigene Groesse. `.logo` faerbt seinen Text ueber `background-clip`, was das
@@ -279,11 +285,11 @@
 #side .grow{flex:1}
 #side .ubox{border-top:1px solid var(--border);padding-top:10px}
 #side .ubox #who{padding:4px 12px 8px;font-size:12px;color:var(--mut)}
-main{margin-left:210px}
+main{margin-left:var(--navspalte)}
 /* Fußzeile (#208): unten am Fenster angeheftet und mittig. Sie bleibt damit immer
    sichtbar — der Preis ist eine dauerhaft belegte Zeile, deshalb ist sie schmal und der
    Inhalt bekommt unten genau so viel Luft, dass nichts darunter verschwindet. */
-#fuss{position:fixed;left:210px;right:0;bottom:0;z-index:4;
+#fuss{position:fixed;left:var(--navspalte);right:0;bottom:0;z-index:4;
  padding:8px 18px;border-top:1px solid var(--border);background:#0f1114;
  color:var(--mut);font-size:12px;
  display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;justify-content:center}
@@ -399,7 +405,7 @@ button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-vis
 #modal .dpick.on{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
 #who{font-size:12px;color:var(--mut);display:flex;align-items:center;padding:4px 12px}
 #who img{width:30px;height:30px;border-radius:50%;object-fit:cover;margin-right:7px;border:1px solid #2c323b}
-@media(max-width:680px){#side{position:static;width:auto;flex-direction:row;flex-wrap:wrap;align-items:center;padding:10px}#side .logo{margin:0 12px 0 4px}main{margin-left:0}.nav{padding:8px 10px;margin:0}
+@media(max-width:680px){:root{--navspalte:0px}#side{position:static;width:auto;flex-direction:row;flex-wrap:wrap;align-items:center;padding:10px}#side .logo{margin:0 12px 0 4px}main{margin-left:0}.nav{padding:8px 10px;margin:0}
  /* Die Kopfleiste wird auf dem Telefon schnell eng: Suche, Filter, Sprache, Person.
     Deshalb umbrechen statt quetschen, und die Suche behält eine brauchbare Breite. */
  #topbar{flex-wrap:wrap;padding:10px 12px;gap:8px}#topbar .suchbox{min-width:60%}
