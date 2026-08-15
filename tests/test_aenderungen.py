@@ -900,10 +900,43 @@ def test_no_hard_coded_green_is_left_in_the_stylesheet(appmod):
     Dieser Waechter faengt den Rueckfall: Wer die naechste „vorhanden"-Stelle wieder mit
     einer festen Farbe baut, faellt hier auf.
     """
+    # DER GANZE BAUM, KEINE HANDGEPFLEGTE LISTE (#699). Dieser Waechter sah zuerst nur ins
+    # Stylesheet — und uebersah SIEBEN Literale, die als Inline-Stile im JavaScript standen.
+    # Auf Aurora hiess das: das neue gedaempfte Gruen auf den Karten, das alte Signalgruen
+    # auf dem Freigabeknopf. Genau die Spaltung, die #660 beseitigen sollte, eine Datei
+    # weiter.
+    #
+    # Eine Liste zu pflegen haette denselben Fehler nur verschoben: Ein Mutationstest hat
+    # gezeigt, dass niemand merkt, wenn eine Datei wieder herausfaellt. Deshalb wird
+    # GESUCHT statt aufgezaehlt — eine neue Datei ist damit von selbst mit abgedeckt.
+    gefunden, gesehen = [], []
+    for wurzel in ("static", "templates"):
+        for pfad, _, dateien in os.walk(os.path.join(REPO, wurzel)):
+            for name in dateien:
+                if not name.endswith((".css", ".js", ".html", ".json", ".svg")):
+                    continue
+                voll = os.path.join(pfad, name)
+                gesehen.append(os.path.relpath(voll, REPO).replace(os.sep, "/"))
+                inhalt = open(voll, encoding="utf-8", errors="replace").read()
+                for ton in ("#1e5e3a", "#2ecc71", "#3fb950"):
+                    if ton in inhalt:
+                        gefunden.append(f"{os.path.relpath(voll, REPO)}: {ton}")
+
+    # DER WAECHTER MUSS SEINE EIGENE REICHWEITE BELEGEN. Ein Mutationstest hat gezeigt,
+    # dass er sich lautlos verengen laesst: Suchwurzel auf `static/css` zurueckgestellt,
+    # Literal ins JavaScript zurueckgelegt — und alles blieb gruen. Das ist derselbe
+    # Fehler wie der, den dieser Test verhindern soll, nur eine Ebene hoeher.
+    #
+    # Diese drei Dateien tragen den Zustand „vorhanden" heute. Faellt eine aus der Suche,
+    # scheitert der Test hier und nicht erst, wenn jemand die Farben nachmisst.
+    for pflicht in ("static/css/index.css", "static/js/index.js", "templates/index.html"):
+        assert pflicht in gesehen, \
+            f"die Suche hat {pflicht} nicht angesehen — der Waechter wurde verengt"
+    assert len(gesehen) >= 8, f"nur {len(gesehen)} Dateien durchsucht, das ist zu wenig"
+
+    assert not gefunden, \
+        "festes Gruen statt --ok/--ok-bg:\n  " + "\n  ".join(gefunden)
     css = open(os.path.join(REPO, "static", "css", "index.css"), encoding="utf-8").read()
-    for ton in ("#1e5e3a", "#2ecc71", "#3fb950"):
-        assert ton not in css, \
-            f"{ton} steht wieder fest im Stylesheet statt in --ok/--ok-bg"
     # Und die Variablen muessen wirklich JE DESIGN gesetzt sein, nicht nur einmal global.
     assert css.count("--ok:") == 4, \
         f"--ok ist {css.count('--ok:')}x gesetzt, erwartet 4 (ein Wert je Design)"
@@ -940,3 +973,34 @@ def test_no_emoji_left_in_the_navigation_translations(appmod):
         if m:
             assert not emoji.search(m.group(1)), \
                 f"inline-Tabelle: {k} traegt noch ein Emoji: {m.group(1)!r}"
+
+
+def test_every_css_variable_used_actually_exists(appmod):
+    """Ein Tippfehler in einer Variablen ist LAUTLOS. (#699)
+
+    CSS wirft dafuer nichts: `var(--okk)` ist kein Fehler, die Eigenschaft bleibt einfach
+    ungesetzt, und die Farbe faellt auf den Erbwert zurueck. Ein Mutationstest hat genau
+    das gezeigt — `var(--ok)` zu `var(--okk)` verbogen, und weder der Quelltextwaechter
+    noch der Browsertest merkten es. Der eine sah nur nach Literalen, der andere pruefte
+    eine nachgebaute Probe statt der echten Stelle.
+
+    Geprueft wird deshalb der Bezug selbst: Jede benutzte Variable muss irgendwo definiert
+    sein. Das faengt den Tippfehler an JEDER Stelle, nicht nur bei den gruenen.
+    """
+    import re
+    css = open(os.path.join(REPO, "static", "css", "index.css"), encoding="utf-8").read()
+    js = open(os.path.join(REPO, "static", "js", "index.js"), encoding="utf-8").read()
+    html = open(os.path.join(REPO, "templates", "index.html"), encoding="utf-8").read()
+
+    # Definiert wird ausschliesslich im Stylesheet (`--name:`), benutzt ueberall.
+    definiert = set(re.findall(r"(--[a-z0-9-]+)\s*:", css))
+    assert len(definiert) > 15, f"nur {len(definiert)} Variablen gefunden — Muster stimmt nicht"
+
+    fehlend = []
+    for datei, inhalt in (("index.css", css), ("index.js", js), ("index.html", html)):
+        for name in set(re.findall(r"var\(\s*(--[a-z0-9-]+)", inhalt)):
+            if name not in definiert:
+                fehlend.append(f"{datei}: var({name})")
+    assert not fehlend, \
+        ("diese Variablen werden benutzt, aber nirgends gesetzt — CSS meldet das nicht:\n  "
+         + "\n  ".join(sorted(fehlend)))

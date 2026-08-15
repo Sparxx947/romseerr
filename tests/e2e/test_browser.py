@@ -1720,3 +1720,37 @@ def test_die_einstellungsreiter_tragen_zeichen_die_untereintraege_nicht(seite):
     unter_mit = seite.evaluate("() => document.querySelectorAll('#setsub svg.navsym').length")
     assert unter > 0, "keine Untereintraege sichtbar — der Test prueft dann nichts"
     assert unter_mit == 0, f"{unter_mit} Untereintraege tragen ein Zeichen, erwartet 0"
+
+
+def test_die_gruenen_stellen_im_javascript_ziehen_mit_dem_design_mit(seite):
+    """Der Waechter im Quelltext beweist nur, dass kein Literal DASTEHT. (#699)
+
+    Ob `var(--ok)` an der Stelle auch wirklich auf eine gesetzte Variable zeigt, sieht man
+    erst im Aufbau: Ein Tippfehler im Variablennamen faellt nicht auf — CSS wirft dafuer
+    keinen Fehler, die Eigenschaft bleibt einfach ungesetzt und die Farbe faellt auf den
+    Erbwert zurueck. Geprueft wird deshalb die GERECHNETE Farbe, und zwar in zwei Designs,
+    weil eine feste Farbe in beiden dieselbe waere.
+    """
+    werte = seite.evaluate("""() => {
+      const merk = document.documentElement.dataset.design, out = {};
+      for (const d of ['', 'aurora']) {
+        if (d) document.documentElement.dataset.design = d;
+        else delete document.documentElement.dataset.design;
+        const probe = document.createElement('span');
+        // dieselbe Schreibweise wie an den sieben Stellen
+        probe.style.color = 'var(--ok)';
+        probe.style.background = 'var(--ok-bg)';
+        document.body.appendChild(probe);
+        const cs = getComputedStyle(probe);
+        out[d || 'seerr'] = [cs.color, cs.backgroundColor];
+        probe.remove();
+      }
+      if (merk) document.documentElement.dataset.design = merk;
+      else delete document.documentElement.dataset.design;
+      return out;
+    }""")
+    for design, (farbe, grund) in werte.items():
+        assert farbe and "rgba(0, 0, 0, 0)" not in farbe, f"{design}: --ok ist nicht gesetzt"
+        assert "rgba(0, 0, 0, 0)" not in grund, f"{design}: --ok-bg ist nicht gesetzt"
+    assert werte["seerr"] != werte["aurora"], \
+        f"beide Designs bekommen dieselbe Farbe — die Variable wirkt nicht: {werte}"

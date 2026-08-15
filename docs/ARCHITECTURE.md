@@ -1210,6 +1210,21 @@ die Modulform bei 11 px nicht von einem gerundeten Quadrat zu unterscheiden, die
 Ecke ging unter. Ohne diese Vergrößerung wäre die Form umsonst — ein Test hält 16 px als
 Untergrenze fest.
 
+**Der Wächter dazu sucht den ganzen Baum ab, statt eine Liste zu pflegen (#699).** Die
+erste Fassung sah nur ins Stylesheet — und übersah **sieben** Literale, die als Inline-Stile
+im JavaScript standen. Auf Aurora hieß das: das neue gedämpfte Grün auf den Karten, das alte
+Signalgrün auf dem Freigabeknopf. Genau die Spaltung, die #660 beseitigen sollte, nur eine
+Datei weiter.
+
+Eine handgepflegte Dateiliste hätte den Fehler bloß verschoben: Ein Mutationstest zeigte,
+dass niemand merkt, wenn eine Datei wieder herausfällt. Deshalb wird gesucht statt
+aufgezählt, **und der Wächter belegt seine eigene Reichweite** — fehlt eine der drei
+tragenden Dateien in der Suche, scheitert er dort und nicht erst beim Nachmessen der Farben.
+
+Dazu kommt ein zweiter Wächter: Jede benutzte `var(--…)` muss irgendwo definiert sein. Ein
+Tippfehler ist sonst lautlos — CSS wirft dafür nichts, die Eigenschaft bleibt ungesetzt und
+die Farbe fällt auf den Erbwert zurück.
+
 Die Farben sind gerechnet, nicht geschätzt, und ein Browsertest misst den Kontrast im
 laufenden Aufbau statt ihn zu behaupten. Der einzige enge Fall ist **Glas**: Dessen Akzent
 ist Cyan `#22d3ee`, und Cyan liegt nah an Grün. Der Abstand dort war mit 126 der niedrigste

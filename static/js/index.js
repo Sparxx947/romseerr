@@ -508,7 +508,7 @@ async function loadIssues(pref){let box=document.getElementById('issues');
 function renderIssues(items){let d=document.getElementById('ilist');d.innerHTML=items.length?'':'<div class=meta>—</div>';
  items.forEach(i=>{let e=document.createElement('div');e.className='job';e.style.flexDirection='column';e.style.alignItems='stretch';
   let st=i.status=='closed'?t('st_closed'):t('st_open');
-  let right=(canDo('manage_issues')&&i.status!='closed')?`<button onclick="closeIssue('${i.id}')" style="background:#1e5e3a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer">${t('close_btn')}</button>`:`<span class="st ${i.status=='closed'?'done':''}">${st}</span>`;
+  let right=(canDo('manage_issues')&&i.status!='closed')?`<button onclick="closeIssue('${i.id}')" style="background:var(--ok-bg);border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer">${t('close_btn')}</button>`:`<span class="st ${i.status=='closed'?'done':''}">${st}</span>`;
   let cs=(i.comments||[]).map(c=>`<div class=cmt><span class="cu${c.staff?' staff':''}">${(''+(c.user||'')).replace(/</g,'&lt;')}${c.staff?' 🛠':''}</span> <span class=meta style="font-size:10px">${c.ts||''}</span><div>${(''+(c.text||'')).replace(/</g,'&lt;')}</div></div>`).join('');
   e.innerHTML=`<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start"><div><div>${(''+(i.title||'')).replace(/</g,'&lt;')} <span class=meta>(${i.type})</span></div><div class=meta style="font-size:11px">👤 ${(''+(i.user||'')).replace(/</g,'&lt;')} · ${i.platform||''} · ${i.ts||''} · ${(''+(i.message||'')).replace(/</g,'&lt;').slice(0,90)}</div></div><div>${right}</div></div>
    <div class=cmts>${cs}</div>
@@ -796,7 +796,7 @@ async function loadPlay(it){let box=document.getElementById('mplay');if(!box)ret
   if(d.needs_bios)notes.push(t('play_bios'));
   if(d.caveat==='romset')notes.push(t('play_romset'));
   box.innerHTML=`<a href="${d.url}" target=_blank rel=noopener class=badge
-    style="background:#1e5e3a;color:#fff;text-decoration:none;padding:6px 12px;border-radius:8px">▶ ${t('play')}</a>`
+    style="background:var(--ok-bg);color:#fff;text-decoration:none;padding:6px 12px;border-radius:8px">▶ ${t('play')}</a>`
    +(notes.length?` <span class=meta style="color:#d29922">${notes.join(' · ')}</span>`:'');
  }else{
   const why={no_romm:'play_no_romm',no_core:'play_no_core',not_in_library:'play_not_in_lib',
@@ -889,7 +889,7 @@ function closeModal(ausRoute){
  else routeSetzen(cur,null,true);
 }
 // --- Wunschlisten-Import: Vorschau ZUERST, geschrieben wird erst nach Bestaetigung (#80) ---
-const WLST={matched:['#3fb950','wl_s_matched'],ambiguous:['#d29922','wl_s_ambiguous'],
+const WLST={matched:['var(--ok)','wl_s_matched'],ambiguous:['#d29922','wl_s_ambiguous'],
  not_found:['#f85149','wl_s_notfound'],duplicate:['#8b929e','wl_s_duplicate'],
  in_library:['#8b929e','wl_s_inlib'],unverified:['#58a6ff','wl_s_unverified']};
 function openWlImport(){let m=document.getElementById('modal');m.style.display='block';
@@ -1185,7 +1185,7 @@ async function loadJobs(){let r=await fetch('/api/jobs');let d=await r.json();le
   j.appendChild(h);return;}
  d.forEach(o=>{let e=document.createElement('div');e.className='job';let L=stlab(o.state);let right;
   if(o.state=='pending'&&canDo('manage_requests')){
-   right=`<button onclick="approveJob('${o.id}')" style="background:#1e5e3a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;margin-right:6px">${t('approve')}</button><button onclick="denyJob('${o.id}')" style="background:#6e2a2a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer">${t('deny')}</button>`;
+   right=`<button onclick="approveJob('${o.id}')" style="background:var(--ok-bg);border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;margin-right:6px">${t('approve')}</button><button onclick="denyJob('${o.id}')" style="background:#6e2a2a;border:none;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer">${t('deny')}</button>`;
   }else{right=`<span class="st ${L[1]}">${L[0]}</span>`;
    if((o.state=='error'||o.state=='denied')&&canDo('manage_requests'))
     {// Ab dem dritten Versuch wechselt der Server die Quelle. Das gehört auf den Knopf,
@@ -1675,7 +1675,7 @@ async function emuStatus(){let el=document.getElementById('emustat');if(!el)retu
  el.innerHTML=(c.catalog||[]).map(e=>{
    if(!e.installed){
      if(e.needs_url)return `<span class=meta title="${t('emu_needs_url')}">${e.name} <span style="opacity:.6">— ${t('emu_needs_url_kurz')}</span></span>`;
-     return `${e.name} <a href="#" onclick="emuInstall('${e.dir}');return false" style="color:#3fb950">+ ${t('emu_install')}</a>`;
+     return `${e.name} <a href="#" onclick="emuInstall('${e.dir}');return false" style="color:var(--ok)">+ ${t('emu_install')}</a>`;
    }
    let v=e.version?' <span class=meta>('+e.version.replace(/</g,'&lt;')+')</span>':'';
    // Aktualisieren je Emulator (#338): Ein Sammellauf laedt hunderte Megabyte fuer
@@ -1908,7 +1908,7 @@ async function doImport(){let msg=document.getElementById('impmsg');msg.style.co
   body:JSON.stringify({document:doc,mode:mode,passphrase:document.getElementById('exppw').value||''})});
  let d=await r.json();
  if(!d.ok){msg.style.color='#f85149';msg.textContent=d.msg||t('st_error');return;}
- msg.style.color='#3fb950';
+ msg.style.color='var(--ok)';
  msg.textContent=t('imp_done')+' '+Object.keys(d.counts||{}).map(k=>k+': '+d.counts[k]).join(' · ');}
 async function loadMStats(){let s=await(await fetch('/api/admin/stats')).json();
  document.getElementById('mstats').textContent=`${t('lbl_jobs')}: ${s.jobs_total} (${s.jobs_active} / ${s.jobs_finished}) · ${t('lbl_lib')}: ${s.lib_titles} (${s.lib_platforms}) · IGDB-Cache: ${s.igdb_cache}`;}
@@ -2232,7 +2232,7 @@ async function secAbout(c){
  // schneidet es ab), das Tag traegt es — wie in der Fusszeile. (#577)
  let updUrl=ver.latest?`${repo}/releases/tag/v${encodeURIComponent(ver.latest)}`:`${repo}/releases`;
  let upd=ver.update_available?` <a href="${updUrl}" target=_blank rel="noopener noreferrer" style="color:#5b8cff">${t('upd_avail')} ${ver.latest}</a>`
-        :(ver.latest?` <span style="color:#3fb950">${t('upd_current')}</span>`:'');
+        :(ver.latest?` <span style="color:var(--ok)">${t('upd_current')}</span>`:'');
  c.innerHTML=`<h3><svg class=marke viewBox="0 0 64 64" aria-hidden=true focusable=false><use href="#rs-marke"/></svg>Romseerr — ${t('sec_about')}</h3>
   <p class=meta style="margin:2px 0 12px">${t('about_txt')}</p>
   <div class=frow><span style="min-width:150px">${t('version')}</span><span class=meta>${ver.version||window.VERSION||'—'}${upd}</span></div>
