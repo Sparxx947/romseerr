@@ -2343,3 +2343,58 @@ def test_ein_cover_erscheint_beim_scrollen(seite):
       return !!e.style.backgroundImage && e.style.backgroundImage !== 'none';
     }""")
     assert danach, "ein Cover blieb nach dem Scrollen leer — aufgeschoben statt geladen"
+
+
+def test_spielen_und_streamen_warten_nicht_auf_die_detailabfrage(seite):
+    """Sie brauchen nichts aus ihr. (#721)
+
+    Gemessen am laufenden Stand: Der Dialog steht nach 2 ms, gefuellt ist er nach ~1,94 s.
+    `/api/detail` brauchte 589 ms — und `play` (1330 ms), `stream` und `titlemeta`
+    starteten erst DANACH, obwohl `play` und `stream` nur den angeklickten Treffer
+    brauchen, der laengst vorliegt.
+
+    `loadTitleMeta` bleibt bewusst hinten: Es nimmt `window._detname` aus genau dieser
+    Antwort. Vorgezogen fiele es auf den Release-Namen zurueck, und daran haengen die
+    Bewertungen — schneller und daneben ist nicht schneller.
+    """
+    reihenfolge = []
+
+    # EINE FABRIK, KEIN `lambda route, w=weg`: Playwright sieht sich die Stelligkeit des
+    # Handlers an und uebergibt einem zweiparametrigen `(route, request)` — der
+    # Vorgabewert wurde dabei ueberschrieben, und in der Liste landeten Request-Objekte
+    # statt der Namen.
+    def horcher(name):
+        def handler(route):
+            reihenfolge.append(name)
+            route.fulfill(status=200, content_type="application/json",
+                          body='{"playable":false,"reason":"no_core","streamable":false,'
+                               '"files":[],"name":"Probe"}')
+        return handler
+    for weg in ("detail", "play", "stream"):
+        seite.route(f"**/api/{weg}?**", horcher(weg))
+    seite.route("**/api/search*", lambda route: route.fulfill(
+        status=200, content_type="application/json", headers={"X-Platform-Hidden": "0"},
+        body='[{"title":"Probe","platform":"snes","platform_slug":"snes","source":"archive",'
+             '"size":524288,"ref":"p721","cover":"","gkey":"p","in_library":false,'
+             '"grp_in_library":false,"is_set":false,"variant":{},"variant_label":""}]'))
+    seite.evaluate("() => { SELP = new Set(); localStorage.setItem('romp','[]'); }")
+    seite.locator("#q").fill("Probe")
+    seite.press("#q", "Enter")
+    for _ in range(60):
+        if seite.locator("#grid .card").count(): break
+        seite.wait_for_timeout(200)
+    reihenfolge.clear()
+    seite.locator("#grid .card .t").first.click()
+    seite.wait_for_timeout(2500)
+
+    assert "play" in reihenfolge and "stream" in reihenfolge, \
+        f"play/stream wurden gar nicht gerufen: {reihenfolge}"
+    # STRENG: play muss VOR detail losgelaufen sein, nicht „ungefaehr gleichzeitig".
+    # Ein Mutationstest hat gezeigt, wozu die weiche Fassung taugte: Mit sofort
+    # antwortenden Attrappen sieht [detail, play, stream] genauso aus wie
+    # [play, stream, detail], solange man nur „hoechstens eine Position spaeter" fordert.
+    assert reihenfolge.index("play") < reihenfolge.index("detail"), \
+        (f"play startete erst nach detail: {reihenfolge} — dann wartet es auf eine "
+         "Antwort, aus der es nichts braucht")
+    assert reihenfolge.index("stream") < reihenfolge.index("detail"), \
+        f"stream startete erst nach detail: {reihenfolge}"

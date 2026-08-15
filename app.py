@@ -2597,8 +2597,38 @@ def do_search(q, platforms=None, stats=None):
     usenet_cats = cfg("prow_cats")
     res = []
     bl = [str(p).strip().lower() for p in load_settings().get("blocklist", []) if str(p).strip()]
-    ar = search_archive(q); us = search_usenet(q, usenet_cats)
-    fh = search_filehoster(q) if catalog_urls() else []
+    # DIE DREI QUELLEN NEBENEINANDER, NICHT NACHEINANDER (#721).
+    #
+    # GEMESSEN, nicht vermutet: Ein Klick auf eine Entdecken-Karte brauchte 15,8 s bis zur
+    # ersten Trefferkarte, und 15,8 davon waren `/api/search`. Die Quellen liefen in Reihe,
+    # die Gesamtzeit war also die SUMME — bei Fristen von 15 s (Archive.org) und 25 s
+    # (Prowlarr) im schlechtesten Fall 40 s. Archive.org allein schwankte in zwei Messungen
+    # zwischen 1,1 s und 8,1 s.
+    #
+    # Nebeneinander ist die Gesamtzeit das MAXIMUM. Keine Quelle wird schneller — es wartet
+    # nur niemand mehr auf die andere.
+    #
+    # WARUM DAS HIER GEFAHRLOS IST: Keine der drei fasst den Anfragekontext an (kein
+    # `session`, kein `request`) — in einem Faden waere er auch nicht da. Jede faengt ihre
+    # Fehler selbst ab und liefert im Zweifel eine leere Liste; eine tote Quelle darf die
+    # Suche nicht mitnehmen, und `_quelle_ruhig` sorgt dafuer, dass auch ein unerwarteter
+    # Fehler nur DIESE Quelle kostet.
+    #
+    # EN: the three sources ran in sequence, so the total was their SUM — up to 40 s with
+    # the configured timeouts. Run side by side the total is the MAXIMUM. None of them
+    # touches the request context, and a dead source must not take the search down with it.
+    def _quelle_ruhig(fn, *a):
+        try:
+            return fn(*a)
+        except Exception as e:
+            log(f"Suchquelle {getattr(fn, '__name__', '?')} fehlgeschlagen: {e}")
+            return []
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        f_ar = pool.submit(_quelle_ruhig, search_archive, q)
+        f_us = pool.submit(_quelle_ruhig, search_usenet, q, usenet_cats)
+        f_fh = pool.submit(_quelle_ruhig, search_filehoster, q) if catalog_urls() else None
+        ar, us = f_ar.result(), f_us.result()
+        fh = f_fh.result() if f_fh else []
     offen = angefragte_titel()   # einmal, nicht je Treffer
     verdeckt = 0        # was allein der Plattformfilter weggenommen hat (#688)
     for idx, r in enumerate(ar+us+fh):

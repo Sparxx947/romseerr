@@ -1342,3 +1342,55 @@ def test_every_notifying_call_site_names_its_event(appmod):
     for zeile in persoenlich:
         assert "nutzer_will" in zeile, \
             f"ein persoenlicher Webhook sendet ungefiltert: {zeile.strip()}"
+
+
+# ---------------------------------------------------------------------------
+# #721 — die Suchquellen laufen nebeneinander
+# ---------------------------------------------------------------------------
+
+def test_the_three_search_sources_run_side_by_side(appmod, monkeypatch):
+    """In Reihe war die Gesamtzeit die SUMME. (#721)
+
+    Gemessen am laufenden Stand: Ein Klick auf eine Entdecken-Karte brauchte 15,8 s bis
+    zur ersten Trefferkarte, und praktisch alles davon war `/api/search`. Bei Fristen von
+    15 s (Archive.org) und 25 s (Prowlarr) waere der schlechteste Fall 40 s.
+
+    Geprueft wird die ZUSAGE, nicht die Zahl: Drei Quellen, die je 0,3 s brauchen, duerfen
+    zusammen nicht 0,9 s dauern. Eine Zeitmessung ist hier zulaessig, weil der Unterschied
+    zwischen Summe und Maximum um den Faktor 3 auseinanderliegt — nicht um Millisekunden.
+    """
+    import time as _t
+    def langsam(_x=None, *a, **k):
+        _t.sleep(0.3)
+        return []
+    monkeypatch.setattr(appmod, "search_archive", langsam)
+    monkeypatch.setattr(appmod, "search_usenet", lambda q, cats: langsam())
+    monkeypatch.setattr(appmod, "search_filehoster", langsam)
+    monkeypatch.setattr(appmod, "catalog_urls", lambda: ["x"])
+
+    start = _t.perf_counter()
+    appmod.do_search("egal", [])
+    dauer = _t.perf_counter() - start
+    assert dauer < 0.7, \
+        (f"die Suche brauchte {dauer:.2f}s fuer drei Quellen zu je 0,3s — "
+         "das ist die Summe, nicht das Maximum")
+
+
+def test_one_dead_source_does_not_take_the_search_down(appmod, monkeypatch):
+    """Eine tote Quelle darf die anderen nicht mitnehmen. (#721)
+
+    Die drei fangen ihre Fehler selbst ab — aber ein UNERWARTETER Fehler waere in einem
+    Faden sonst das Ende der ganzen Suche, und der Nutzer saehe „keine Treffer" statt der
+    Treffer, die es sehr wohl gab.
+    """
+    def kaputt(*a, **k):
+        raise RuntimeError("Quelle antwortet nicht")
+    monkeypatch.setattr(appmod, "search_archive", kaputt)
+    monkeypatch.setattr(appmod, "search_usenet",
+                        lambda q, cats: [_tr("Aus Usenet", "snes", "usenet")])
+    monkeypatch.setattr(appmod, "catalog_urls", lambda: [])
+    monkeypatch.setattr(appmod, "in_library", lambda t, p: False)
+
+    res = appmod.do_search("egal", [])
+    assert [r["title"] for r in res] == ["Aus Usenet"], \
+        f"die lebende Quelle ging mit unter: {res}"
