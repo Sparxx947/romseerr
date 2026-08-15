@@ -451,5 +451,14 @@
  "quota_count_hint": "requests / X days — 0 = no limit",
  "quota_bytes_hint": "GB per period — 0 = no limit",
  "quota_own": "own quota",
- "quota_own_hint": "empty = global default"
+ "quota_own_hint": "empty = global default",
+ "ev_title": "Notify me about",
+ "ev_available": "title available",
+ "ev_wish_granted": "wishlist granted",
+ "ev_request_new": "new request",
+ "ev_issue_new": "new issue",
+ "ev_message": "message",
+ "ev_request_for": "requested for me",
+ "ev_hint_inst": "Applies to this instance's channels (Discord, Telegram, …).",
+ "ev_hint_user": "Applies to your own paths: push, personal webhook, e-mail."
 }

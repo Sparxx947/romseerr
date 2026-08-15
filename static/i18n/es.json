@@ -451,5 +451,14 @@
  "quota_count_hint": "solicitudes / X días — 0 = sin límite",
  "quota_bytes_hint": "GB por periodo — 0 = sin límite",
  "quota_own": "cuota propia",
- "quota_own_hint": "vacío = valor global"
+ "quota_own_hint": "vacío = valor global",
+ "ev_title": "Avisarme de",
+ "ev_available": "título disponible",
+ "ev_wish_granted": "deseo cumplido",
+ "ev_request_new": "nueva solicitud",
+ "ev_issue_new": "nuevo problema",
+ "ev_message": "mensaje",
+ "ev_request_for": "solicitado para mí",
+ "ev_hint_inst": "Se aplica a los canales de esta instancia.",
+ "ev_hint_user": "Se aplica a tus vías: push, webhook personal, correo."
 }

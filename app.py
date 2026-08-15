@@ -2231,9 +2231,44 @@ def safe_request(method, url, _redirects=2, **kw):
 def safe_post(url, **kw): return safe_request("POST", url, **kw)
 def safe_get(url, **kw):  return safe_request("GET", url, **kw)
 
-def notify_send(text):
+# DIE ANLAESSE, EINMAL AUFGEZAEHLT (#714). Vorher waren sie nur implizit — sieben
+# Aufrufstellen, die niemand nebeneinander sehen konnte, und deshalb auch niemand
+# auswaehlen. Der Schluessel steht in der Einstellung, die Beschriftung kommt aus der
+# Uebersetzung (`ev_<schluessel>`).
+#
+# ZWEI EBENEN, weil zwei verschiedene Empfaenger gemeint sind:
+#   `notify_send`        -> die Agenten der INSTANZ (Discord, Telegram, …). Kein
+#                           Nutzerbezug; wer die Instanz betreibt, bekommt alles.
+#   persoenliche Kanaele -> Web-Push, eigener Webhook, eigene Mail. Betrifft EINEN Nutzer.
+# Ein einziger Schalter fuer beides waere falsch: Der Betreiber will die Freigabeanfragen
+# sehen, der Nutzer nur seine eigenen Titel.
+EREIGNISSE = ("available", "wish_granted", "request_new", "issue_new",
+              "message", "request_for")
+
+def _ereignis_erlaubt(auswahl, ereignis):
+    """Fehlt die Auswahl oder der Schluessel, gilt EIN. So aendert sich fuer alle, die
+    nichts einstellen, genau nichts — die Voreinstellung ist das bisherige Verhalten."""
+    if not ereignis or not isinstance(auswahl, dict):
+        return True
+    return bool(auswahl.get(ereignis, True))
+
+def instanz_will(ereignis):
+    """Soll dieses Ereignis an die Agenten der Instanz? (#714)"""
+    return _ereignis_erlaubt(load_settings().get("notify_events"), ereignis)
+
+def nutzer_will(user, ereignis):
+    """Soll dieses Ereignis an die persoenlichen Kanaele dieses Nutzers? (#714)"""
+    return _ereignis_erlaubt((load_users().get(user) or {}).get("notify_events"), ereignis)
+
+def notify_send(text, ereignis=None):
     """Meldung an ALLE aktiven globalen Kanäle senden: Discord-Webhook (Einstellungen oder
-    Env-Fallback), Telegram, generischer Webhook. Gibt True zurück, wenn mind. einer sendete."""
+    Env-Fallback), Telegram, generischer Webhook. Gibt True zurück, wenn mind. einer sendete.
+
+    `ereignis` filtert (#714): Ist der Anlass in den Einstellungen abgewaehlt, geht nichts
+    raus. Ohne Anlass — etwa beim Test — wird nicht gefiltert; ein Test, der von einer
+    Auswahl abhaengt, prueft die Auswahl statt den Weg."""
+    if ereignis and not instanz_will(ereignis):
+        return False
     s = load_settings(); sent = False
     dc = s.get("discord", {})
     wh = dc.get("url") if dc.get("enabled") else os.environ.get("DISCORD_WEBHOOK", "")
@@ -2269,7 +2304,7 @@ def notify_send(text):
     return sent
 
 def notify_available(title, platform):
-    notify_send(f"🎮 **{title}** ist jetzt verfügbar / now available ({platform})")
+    notify_send(f"🎮 **{title}** ist jetzt verfügbar / now available ({platform})", "available")
 
 # ---------- Suche ----------
 def search_archive(q, limit=30):
@@ -3053,8 +3088,9 @@ def worker_wishlist():
                     wishlist_remove(user, title, plat)
                     try:
                         send_push_to_user(user, "Romseerr",
-                            f"Aus deiner Wunschliste verfügbar / from your wishlist: {title[:60]}")
-                        notify_send(f"⭐ Wunschliste erfüllt / wishlist granted: **{title}** ({user})")
+                            f"Aus deiner Wunschliste verfügbar / from your wishlist: {title[:60]}",
+                            "wish_granted")
+                        notify_send(f"⭐ Wunschliste erfüllt / wishlist granted: **{title}** ({user})", "wish_granted")
                     except Exception: pass
                     time.sleep(2)   # externe Quellen schonen
         except Exception as ex:
@@ -3952,9 +3988,9 @@ def import_folder(jid, folder):
     if moved:
         notify_available(job.get("title",""), where)
         send_push_to_user(job.get("user",""), "Romseerr",
-                          f"🎮 {job.get('title','')} verfügbar / available ({where})")
+                          f"🎮 {job.get('title','')} verfügbar / available ({where})", "available")
         wh = load_users().get(job.get("user",""), {}).get("webhook","")
-        if wh:
+        if wh and nutzer_will(job.get("user",""), "available"):
             try: safe_post(wh, json={"content": f"🎮 **{job.get('title','')}** ist jetzt verfügbar / now available ({where})"})
             except Exception as e: log(f"Personal-Notify-Fehler: {e}")
         if load_settings().get("agents", {}).get("email", {}).get("enabled"):
@@ -5130,7 +5166,7 @@ def load_push():
 def save_push(d):
     kv_put("push", d)
 
-def send_push_to_user(user, title, body):
+def send_push_to_user(user, title, body, ereignis=None):
     """Web-Push an alle Abos eines Nutzers senden (VAPID). Abgelaufene Abos (404/410) werden
     verworfen.
 
@@ -6107,9 +6143,9 @@ def api_download():
                                    "Archive.org account; add the keys in the settings."})
         raise
     if onbehalf:
-        send_push_to_user(user, "Romseerr", f"Für dich angefragt / requested for you: {it.get('title','')[:60]}")
+        send_push_to_user(user, "Romseerr", f"Für dich angefragt / requested for you: {it.get('title','')[:60]}", "request_for")
     if not auto:
-        notify_send(f"🔔 Neue Anfrage / new request: **{it.get('title','')}** von {user} — Freigabe nötig")
+        notify_send(f"🔔 Neue Anfrage / new request: **{it.get('title','')}** von {user} — Freigabe nötig", "request_new")
     return jsonify({"ok":True,"id":job["id"],"pending": not auto})
 
 @app.route("/api/jobs")
@@ -6541,6 +6577,7 @@ def api_profile_get():
                     "design":usr.get("design",""),
                     "display_name":usr.get("display_name",""), "avatar":usr.get("avatar",""),
                     "webhook":usr.get("webhook",""), "ra_user":usr.get("ra_user",""),
+                    "notify_events": usr.get("notify_events", {}), "ereignisse": list(EREIGNISSE),
                     "variant": variant_prefs(u), "variant_regions": list(REGIONS),
                     "quota": quota_info(u)})
 
@@ -6552,6 +6589,9 @@ def api_profile_set():
     if "email" in d: users[u]["email"] = (d.get("email") or "").strip()[:120]
     if "display_name" in d: users[u]["display_name"] = (d.get("display_name") or "").strip()[:60]
     if "webhook" in d: users[u]["webhook"] = (d.get("webhook") or "").strip()[:300]
+    if "notify_events" in d:
+        ne = d.get("notify_events") or {}
+        users[u]["notify_events"] = {k: bool(ne[k]) for k in EREIGNISSE if k in ne}
     if "lang" in d: users[u]["lang"] = d.get("lang") if d.get("lang") in LANGS else ""
     if "design" in d: users[u]["design"] = d.get("design") if d.get("design") in DESIGNS else ""
     # RetroAchievements-Konto: freiwillig, nur fuer den eigenen Fortschritt (#79)
@@ -6923,7 +6963,7 @@ def api_issues_add():
                   "message":(d.get("message") or "")[:1000], "status":"open",
                   "created":int(time.time()), "ts":datetime.now().strftime("%Y-%m-%d %H:%M")})
     save_issues(items)
-    notify_send(f"🐞 Neues Problem / new issue: {(d.get('title') or '')[:80]} ({session.get('user','')})")
+    notify_send(f"🐞 Neues Problem / new issue: {(d.get('title') or '')[:80]} ({session.get('user','')})", "issue_new")
     return jsonify({"ok":True, "id":iid})
 
 @app.route("/api/issues/<iid>/close", methods=["POST"])
@@ -6986,9 +7026,9 @@ def api_messages_send():
         c.execute("INSERT INTO messages(sender,recipient,body,ts,read) VALUES(?,?,?,?,0)",
                   (me, to, body, int(time.time())))
     # Empfänger benachrichtigen (best effort): Web-Push + persönlicher Discord-Webhook
-    send_push_to_user(to, "Romseerr", f"✉ {me}: {body[:60]}")
+    send_push_to_user(to, "Romseerr", f"✉ {me}: {body[:60]}", "message")
     wh = load_users().get(to, {}).get("webhook", "")
-    if wh:
+    if wh and nutzer_will(to, "message"):
         try: safe_post(wh, json={"content": f"✉ **{me}**: {body[:200]}"})
         except Exception: pass
     return jsonify({"ok": True})
@@ -7391,6 +7431,7 @@ def api_settings_get():
                                      "user": s.get("agents",{}).get("pushover",{}).get("user",""),
                                      "has_token": bool(s.get("agents",{}).get("pushover",{}).get("token"))}},
                     "quota": s.get("quota", {"enabled": False, "count": 10, "days": 7, "bytes": 0}),
+                    "notify_events": s.get("notify_events", {}), "ereignisse": list(EREIGNISSE),
                     "onboarded": bool(s.get("onboarded")),
                     "update_check": bool(s.get("update_check", True)),
                     "allow_private_webhooks": bool(s.get(_PRIVATE_OK_KEY)),
@@ -7439,6 +7480,13 @@ def api_settings_set():
             po = a["pushover"]
             s["agents"]["pushover"] = {"enabled": bool(po.get("enabled")), "user": (po.get("user") or "").strip(),
                 "token": po.get("token") if po.get("token") else cur.get("pushover",{}).get("token","")}
+    if "notify_events" in d:
+        # Nur bekannte Schluessel, nur Wahrheitswerte — und FEHLENDE bleiben weg statt auf
+        # True gesetzt zu werden: „nicht eingestellt" und „ausdruecklich an" muessen sich
+        # unterscheiden lassen, sonst waere ein spaeter hinzukommendes Ereignis fuer alle
+        # stumm, die die Seite einmal gespeichert haben. (#714)
+        ne = d.get("notify_events") or {}
+        s["notify_events"] = {k: bool(ne[k]) for k in EREIGNISSE if k in ne}
     if "quota" in d:
         qq = d["quota"]
         # `bytes` mit Standard 0 = aus: Wer die Einstellung nie angefasst hat, behaelt

@@ -451,5 +451,14 @@
  "quota_count_hint": "requêtes / X jours — 0 = sans limite",
  "quota_bytes_hint": "Go par période — 0 = sans limite",
  "quota_own": "quota propre",
- "quota_own_hint": "vide = valeur globale"
+ "quota_own_hint": "vide = valeur globale",
+ "ev_title": "Me notifier de",
+ "ev_available": "titre disponible",
+ "ev_wish_granted": "souhait exaucé",
+ "ev_request_new": "nouvelle demande",
+ "ev_issue_new": "nouveau problème",
+ "ev_message": "message",
+ "ev_request_for": "demandé pour moi",
+ "ev_hint_inst": "S'applique aux canaux de cette instance.",
+ "ev_hint_user": "S'applique à vos propres voies : push, webhook, e-mail."
 }

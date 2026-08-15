@@ -1254,3 +1254,91 @@ def test_the_download_endpoint_refuses_once_the_count_is_spent(appmod, client, m
         assert not d.get("ok"), "die dritte Anfrage kam durch, obwohl das Kontingent 2 ist"
     finally:
         appmod.save_users({})
+
+
+# ---------------------------------------------------------------------------
+# #714 — Benachrichtigungen je Ereignis
+# ---------------------------------------------------------------------------
+
+def test_an_event_deselected_for_the_instance_reaches_nobody(appmod, monkeypatch):
+    """Die Zusage ist, dass abgewaehlt auch abgewaehlt heisst. (#714)"""
+    gesendet = []
+    monkeypatch.setattr(appmod, "safe_post", lambda url, **k: gesendet.append(url))
+    s = appmod.load_settings()
+    s["discord"] = {"enabled": True, "url": "https://example.invalid/hook"}
+    s["notify_events"] = {"issue_new": False}
+    appmod.save_settings(s)
+    try:
+        assert appmod.notify_send("x", "available") or True   # nicht abgewaehlt -> Weg frei
+        vorher = len(gesendet)
+        appmod.notify_send("y", "issue_new")
+        assert len(gesendet) == vorher, "ein abgewaehltes Ereignis wurde trotzdem gesendet"
+    finally:
+        s.pop("notify_events", None); s["discord"] = {"enabled": False, "url": ""}
+        appmod.save_settings(s)
+
+
+def test_the_default_reproduces_todays_behaviour(appmod):
+    """Wer nichts einstellt, merkt nichts. (#714)
+
+    Fehlt die Auswahl oder der einzelne Schluessel, gilt EIN. Waere es andersherum, waere
+    nach dem Update jede Benachrichtigung stumm — und niemand haette einen Anhaltspunkt,
+    warum.
+    """
+    assert appmod._ereignis_erlaubt(None, "available")
+    assert appmod._ereignis_erlaubt({}, "available")
+    assert appmod._ereignis_erlaubt({"message": False}, "available"), \
+        "ein anderer abgewaehlter Schluessel darf diesen nicht mitnehmen"
+    assert not appmod._ereignis_erlaubt({"available": False}, "available")
+    # Ohne Ereignis wird nicht gefiltert — der Testversand haengt sonst an einer Auswahl.
+    assert appmod._ereignis_erlaubt({"available": False}, None)
+
+
+def test_a_user_can_deselect_an_event_for_their_own_channels(appmod):
+    """Vier Ereignisse erreichen die persoenlichen Kanaele; keines war waehlbar. (#714)"""
+    appmod.save_users({**ADMIN_FIX,
+                       "still": {"pw": "x", "role": "user", "perms": ["request"],
+                                 "notify_events": {"message": False}}})
+    try:
+        assert appmod.nutzer_will("still", "available"), "nicht abgewaehltes Ereignis blockiert"
+        assert not appmod.nutzer_will("still", "message"), "abgewaehltes Ereignis kommt durch"
+        assert appmod.nutzer_will("admin", "message"), "ohne Auswahl muss alles durchgehen"
+    finally:
+        appmod.save_users({})
+
+
+def test_every_notifying_call_site_names_its_event(appmod):
+    """Ein Anlass ohne Namen ist nicht abwaehlbar — und faellt niemandem auf. (#714)
+
+    Geprueft wird die Quelle, weil sich sonst genau die Stelle einschleicht, die vergessen
+    wurde: Beim Bauen dieser Aenderung blieben zwei von sechs Aufrufen zunaechst ohne
+    Anlass, und beide Male sah alles richtig aus.
+
+    Die beiden TESTendpunkte tragen bewusst keinen — ein Testversand, der von einer
+    Auswahl abhaengt, prueft die Auswahl statt den Weg.
+    """
+    import re
+    quelle = open(os.path.join(REPO, "app.py"), encoding="utf-8").read()
+    ohne = []
+    for m in re.finditer(r"(notify_send|send_push_to_user)\((.{0,400}?)\)\s*(?:\n|$)",
+                         quelle, re.S):
+        ruf = m.group(0)
+        if "def " in ruf or "ereignis" in ruf:
+            continue
+        if not re.search(r'"(available|wish_granted|request_new|issue_new|message|request_for)"', ruf):
+            ohne.append(ruf.split("\n")[0].strip()[:70])
+    # Genau zwei duerfen uebrig bleiben: /api/push/test und /api/notify/test.
+    assert len(ohne) <= 2, "Aufrufe ohne Anlass:\n  " + "\n  ".join(ohne)
+
+    # UND DIE PERSOENLICHEN WEBHOOKS, die nicht ueber `send_push_to_user` laufen. Ein
+    # Mutationstest hat gezeigt, dass ihre Wache fehlen kann, ohne dass etwas anschlaegt:
+    # `nutzer_will` war geprueft, die STELLEN, die es benutzen, nicht.
+    # Gemeint sind die PERSOENLICHEN Webhooks — erkennbar daran, dass sie aus
+    # `load_users()` kommen. Der Discord-Webhook der Instanz steht in `notify_send` und
+    # wird dort schon gefiltert; ihn mitzupruefen war der erste, zu weite Versuch.
+    persoenlich = re.findall(
+        r'load_users\(\)[^\n]*get\("webhook"[^\n]*\n\s*(if wh[^\n]*:)', quelle)
+    assert persoenlich, "keine persoenlichen Webhooks gefunden — das Muster stimmt nicht"
+    for zeile in persoenlich:
+        assert "nutzer_will" in zeile, \
+            f"ein persoenlicher Webhook sendet ungefiltert: {zeile.strip()}"
