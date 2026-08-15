@@ -1171,6 +1171,45 @@ Archive und ROMhack-Pakete —, und für die stehen jetzt `mod archive`, `rom ha
 `anthology` und `trilogy` in `SET_RE`. **`archive` allein bewusst nicht**: Das Wort steht in
 jedem zweiten Archive.org-Titel.
 
+**Kurzes Gedächtnis je Suchquelle (#726).** Seit #722 wartet die Suche auf die
+**langsamste** Quelle statt auf die Summe — und die langsamste ist Archive.org. Gemessen im
+Container mit genau der Abfrage, die die App stellt, fünf Begriffe im Abstand von 15 s, damit
+wir uns nicht selbst drosseln:
+
+```
+Super Mario World     2 854 ms  (200)
+Chrono Trigger       30 216 ms  ReadTimeout
+Metroid              30 034 ms  ConnectTimeout
+Zelda                10 904 ms  ConnectionError
+Sonic                 9 379 ms  (200)
+Median 10 904 ms     Prowlarr zur selben Zeit: 644 / 2 085 ms
+```
+
+Zwei Folgerungen, beide umgesetzt: **Dieselbe Suche wartet nicht zweimal** (10 Minuten
+Gedächtnis je Quelle und Suchzeile), und **eine ausgefallene Quelle liefert ihren letzten
+bekannten Stand** statt „keine Treffer" — es ist derselbe, den dieselbe Suche vor Minuten
+gegeben hätte.
+
+Dafür musste `search_archive` erst ehrlich werden: Es **verschluckte seine Transportfehler
+und gab eine leere Liste zurück**, und die war von „nichts gefunden" nicht zu unterscheiden.
+Ohne diesen Unterschied ist kein Rückfall möglich — die Zeitüberschreitung hätte den guten
+Stand überschrieben.
+
+Vier Fallen, jede mit einem Test, den ein absichtlicher Bruch rot macht: **Leere Ergebnisse
+werden nicht gemerkt** (sonst bliebe eine frisch importierte Datei minutenlang unsichtbar);
+es werden **Kopien** abgelegt und herausgegeben (die Aufrufer hängen den Treffern hinterher
+Flaggen an); der Speicher ist **nach oben begrenzt** (jede neue Suchzeile legt einen Eintrag
+an, und nichts räumt auf); und der Schlüssel ist die **Quelle**, nicht `fn.__name__` — bei
+einem Lambda heißen alle gleich.
+
+`SEARCH_CACHE_TTL=0` schaltet **wirklich** alles ab, auch den Rückfall. Ein Schalter, der nur
+die Hälfte abschaltet, ist schlimmer als keiner.
+
+**Nebenbefund, der in die Testordnung gehört:** Sieben bestehende `do_search`-Tests fielen
+um, sobald es den Speicher gab — nicht weil sie falsch sind, sondern weil der Treffer des
+vorigen Tests noch drinlag. Ein globaler Speicher, der zwischen Tests durchschlägt, schlägt
+auch zwischen Anfragen durch; geleert wird er deshalb in `conftest.py`, nicht im Test.
+
 **Eine RomM-Sitzung statt einer je Nachschlagen (#724).** Nachdem `play` und `stream` nicht
 mehr auf `/api/detail` warten, blieb `/api/play` selbst mit **2,5–2,8 s** der Rest. Die
 Aufteilung, im Container gegen das laufende RomM gemessen:
@@ -1637,6 +1676,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 *EN: search queries its three sources side by side (#722). A card click took 15.8 s to the first result, essentially all of it `/api/search`, because the sources ran in sequence and the wait was their SUM — up to 40 s with the configured timeouts, and Archive.org alone varied between 1.07 s and 8.07 s a second apart. Side by side the total is the MAXIMUM. Two conditions make that safe: none of the three touches the request context, and a dead source must not take the others down — an unexpected error in a worker would otherwise end the whole search and show "no results" instead of the ones that did arrive. On a detail card the dialog is up after 2 ms but was filled after ~1.94 s: `play`, `stream` and `titlemeta` waited for `/api/detail` although the first two only need the clicked hit. They now start immediately, ending at ~1.33 s. `loadTitleMeta` deliberately stays behind — it uses the game name from that response, and pulled forward would fall back to the release name that the ratings hang off.*
 
 *EN: one reused RomM session instead of one per lookup (#724). With play and stream no longer waiting for `/api/detail`, `/api/play` itself was the remaining 2.5–2.8 s. Measured inside the container: the login alone costs ~1 s and was paid on every single lookup, i.e. every card opened; the search itself (1.2–1.7 s) is RomM's own speed. The session is now reused, keyed on url+user+password so changed credentials invalidate it, with exactly one silent re-login and retry on 401/403, and built under a lock because callers have run concurrently since #722. Measured and deliberately left alone: the `await fetch('/api/users')` at the top of `openDetail` is 13–24 ms, not the second serialization it looked like.*
+
+*EN: short-lived per-source search cache (#726). Since #722 the search waits for the SLOWEST source, and that is Archive.org: measured with the app's own query, five terms 15 s apart, 2.9 / 30 / 30 / 10.9 / 9.4 seconds, median 10.9 s, against Prowlarr's 0.6–2.1 s at the same moment. So the same search no longer waits twice (10-minute memory per source and query), and a failed source returns its last known result instead of "no hits". That required `search_archive` to stop swallowing its transport errors and returning an empty list indistinguishable from "no hits" — without that difference no fallback is honest. Four traps, each with a test a deliberate break turns red: empty results are not remembered, copies are stored and handed out, the cache is bounded, and the key is the SOURCE rather than `fn.__name__`. `SEARCH_CACHE_TTL=0` really turns everything off, fallback included. Side finding: seven existing do_search tests broke the moment the cache existed, because the previous test's hit was still in it — global state that leaks between tests leaks between requests, so conftest clears it.*
 
 *EN: a card can no longer say "in library" and "platform unknown" at once (#685). `in_library()` falls back to a global check when the hit names no platform — correct, but it only answers whether. `library_slugs()` answers where, sorted by the platform's release year (oldest first), which for a title on several systems is almost always the one it appeared on first. Measured: 6.9% of titles sit on more than one platform. Deliberately the console's year, not the game's — IGDB gives one date per game and does not know the hacks and homebrew this concerns. The card marks the value as derived.*
 

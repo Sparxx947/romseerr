@@ -1501,3 +1501,143 @@ def test_the_romm_session_is_built_under_a_lock(appmod):
     quelle = inspect.getsource(appmod.romm_session)
     assert "_ROMM_LOCK" in quelle, \
         "romm_session legt die Sitzung ohne Schloss an — parallele Aufrufer melden sich doppelt an"
+
+
+# ---------------------------------------------------------------------------
+# #726 — kurzes Gedaechtnis je Suchquelle
+# ---------------------------------------------------------------------------
+
+def _suche_vorbereiten(appmod, monkeypatch):
+    appmod.SUCH_CACHE.clear()
+    monkeypatch.setattr(appmod, "catalog_urls", lambda: [])
+    monkeypatch.setattr(appmod, "in_library", lambda t, p: False)
+    monkeypatch.setattr(appmod, "search_usenet", lambda q, cats: [])
+
+
+def test_the_same_search_twice_does_not_ask_the_source_twice(appmod, monkeypatch):
+    """Archive.org braucht im Median 10,9 s — das zweimal ist einmal zu viel. (#726)
+
+    Gemessen, fuenf Begriffe im Abstand von 15 s: 2,9 / 30 / 30 / 10,9 / 9,4 Sekunden.
+    """
+    _suche_vorbereiten(appmod, monkeypatch)
+    rufe = []
+    monkeypatch.setattr(appmod, "search_archive",
+                        lambda q: rufe.append(q) or [_tr("Treffer", "snes", "archive")])
+    appmod.do_search("Mario", [])
+    appmod.do_search("Mario", [])
+    assert len(rufe) == 1, f"die Quelle wurde {len(rufe)}-mal gefragt statt einmal"
+
+
+def test_a_different_search_still_reaches_the_source(appmod, monkeypatch):
+    """Der Zwischenspeicher haengt an der Suchzeile, nicht an der Quelle. (#726)"""
+    _suche_vorbereiten(appmod, monkeypatch)
+    rufe = []
+    monkeypatch.setattr(appmod, "search_archive",
+                        lambda q: rufe.append(q) or [_tr("Treffer", "snes", "archive")])
+    appmod.do_search("Mario", [])
+    appmod.do_search("Zelda", [])
+    assert rufe == ["Mario", "Zelda"], f"die zweite Suche kam nicht durch: {rufe}"
+
+
+def test_a_failing_source_falls_back_to_its_last_known_result(appmod, monkeypatch):
+    """Der letzte bekannte Stand schlaegt „keine Treffer". (#726)
+
+    Er ist derselbe, den dieselbe Suche vor Minuten geliefert haette — und Archive.org
+    faellt gemessen oft genug aus, dass das der Unterschied zwischen Ergebnis und
+    leerer Seite ist.
+    """
+    _suche_vorbereiten(appmod, monkeypatch)
+    monkeypatch.setattr(appmod, "search_archive",
+                        lambda q: [_tr("Aus dem Archiv", "snes", "archive")])
+    appmod.do_search("Mario", [])
+    appmod.SUCH_CACHE_TTL_ALT = appmod.SUCH_CACHE_TTL
+    # Eintrag kuenstlich altern lassen, damit die Quelle wirklich gefragt wird
+    for k in list(appmod.SUCH_CACHE):
+        zeit, wert = appmod.SUCH_CACHE[k]
+        appmod.SUCH_CACHE[k] = (zeit - appmod.SUCH_CACHE_TTL - 1, wert)
+
+    def tot(q):
+        raise RuntimeError("Zeitueberschreitung")
+    monkeypatch.setattr(appmod, "search_archive", tot)
+    res = appmod.do_search("Mario", [])
+    assert [r["title"] for r in res] == ["Aus dem Archiv"], \
+        f"die ausgefallene Quelle lieferte nichts statt des letzten Standes: {res}"
+
+
+def test_an_empty_result_is_not_remembered(appmod, monkeypatch):
+    """„Nichts gefunden" ist gueltig — aber als Zwischenstand eine Falle. (#726)
+
+    Sonst taucht eine gerade importierte Datei minutenlang nicht auf.
+    """
+    _suche_vorbereiten(appmod, monkeypatch)
+    rufe = []
+    monkeypatch.setattr(appmod, "search_archive", lambda q: rufe.append(q) or [])
+    appmod.do_search("Mario", [])
+    appmod.do_search("Mario", [])
+    assert len(rufe) == 2, "ein leeres Ergebnis wurde gemerkt — neue Treffer blieben unsichtbar"
+
+
+def test_the_cached_results_are_copies_not_references(appmod, monkeypatch):
+    """Die Aufrufer haengen den Treffern Flaggen an. (#726)
+
+    Ohne Kopie waere der Zwischenstand nach dem ersten Aufruf verfaelscht — und zwei
+    parallele Anfragen schrieben in dieselben Objekte.
+    """
+    _suche_vorbereiten(appmod, monkeypatch)
+    monkeypatch.setattr(appmod, "search_archive",
+                        lambda q: [_tr("Treffer", "snes", "archive")])
+    erst = appmod.do_search("Mario", [])
+    erst[0]["title"] = "VERAENDERT"
+    erst[0]["in_library"] = True
+    zweit = appmod.do_search("Mario", [])
+    assert zweit[0]["title"] == "Treffer", \
+        f"der Zwischenstand wurde vom Aufrufer veraendert: {zweit[0]['title']}"
+
+
+def test_the_search_cache_is_bounded(appmod, monkeypatch):
+    """Jede neue Suchzeile legt einen Eintrag an, und nichts raeumt auf. (#726)"""
+    _suche_vorbereiten(appmod, monkeypatch)
+    monkeypatch.setattr(appmod, "search_archive",
+                        lambda q: [_tr("Treffer", "snes", "archive")])
+    for i in range(appmod.SUCH_CACHE_MAX + 25):
+        appmod.do_search(f"Suche {i}", [])
+    assert len(appmod.SUCH_CACHE) <= appmod.SUCH_CACHE_MAX, \
+        f"der Zwischenspeicher waechst unbegrenzt: {len(appmod.SUCH_CACHE)} Eintraege"
+
+
+def test_a_timed_out_archive_search_is_not_reported_as_no_hits(appmod, monkeypatch):
+    """Eine Zeitueberschreitung sah aus wie „nichts gefunden". (#726)
+
+    Damit konnte der Aufrufer beides nicht unterscheiden — und ein Rueckfall auf den
+    letzten bekannten Stand war unmoeglich.
+    """
+    class _Kaputt:
+        @staticmethod
+        def get(*a, **k):
+            raise RuntimeError("Read timed out")
+    monkeypatch.setattr(appmod, "requests", _Kaputt)
+    import pytest as _p
+    with _p.raises(Exception):
+        appmod.search_archive("egal")
+
+
+def test_search_cache_ttl_zero_really_turns_it_off(appmod, monkeypatch):
+    """Ein Schalter, der nur die Haelfte abschaltet, ist schlimmer als keiner. (#726)
+
+    Ohne diese Pruefung wuerde `SEARCH_CACHE_TTL=0` zwar keinen Treffer mehr aus dem
+    Speicher geben, aber weiter merken — und eine ausgefallene Quelle lieferte dann
+    trotzdem alte Daten.
+    """
+    _suche_vorbereiten(appmod, monkeypatch)
+    monkeypatch.setattr(appmod, "SUCH_CACHE_TTL", 0)
+    monkeypatch.setattr(appmod, "search_archive",
+                        lambda q: [_tr("Treffer", "snes", "archive")])
+    appmod.do_search("Mario", [])
+    assert not appmod.SUCH_CACHE, \
+        f"trotz TTL 0 wurde gemerkt: {list(appmod.SUCH_CACHE)}"
+
+    def tot(q):
+        raise RuntimeError("Zeitueberschreitung")
+    monkeypatch.setattr(appmod, "search_archive", tot)
+    assert appmod.do_search("Mario", []) == [], \
+        "trotz TTL 0 kam ein alter Stand zurueck"
