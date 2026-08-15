@@ -1153,6 +1153,24 @@ Fensterrands und ist unerreichbar; in der Spalte muss es nach oben öffnen. Der 
 misst beides je Design, weil eine Regel im Stylesheet nichts darüber beweist, wohin der
 Flex-Container sie tatsächlich legt.
 
+**Größe verrät eine Sammlung nur in der Modul-Ära (#689).** `is_set` steht im
+Sortierschlüssel der Suche, und alles, was dort landet, rutscht ans Listenende. Die Regel
+„über 4 GB ist vermutlich eine Sammlung" stammt aus der Retro-Sicht und traf ab der CD-Ära
+fast nur Einzelspiele: Gemessen über zwölf Suchen galten **156** Treffer als Sammlung, davon
+waren **136 Einzelspiele** — `Uncharted 2` mit 21,9 GB, `The Last of Us` mit 29,5 GB,
+`Silent Hill Homecoming` mit 6,7 GB.
+
+Der sichtbare Schaden: Bei „Silent Hill" standen die drei Homecoming-Fassungen auf Platz 33,
+34 und 53 von 59. In einer Liste dieser Länge ist das dasselbe wie nicht gefunden — genau so
+ist es aufgefallen.
+
+Die Schwelle gilt deshalb nur noch für Plattformen vor 1994 (`SET_GROESSE_BIS_JAHR`), wo ein
+Einzelspiel höchstens ein paar hundert MB hat. Was dabei durchgerutscht wäre, fängt das
+Namensmuster: Von 136 Verlusten waren nach Einzelprüfung **vier echte Sammlungen** — Mod-
+Archive und ROMhack-Pakete —, und für die stehen jetzt `mod archive`, `rom hacks`, `cias`,
+`anthology` und `trilogy` in `SET_RE`. **`archive` allein bewusst nicht**: Das Wort steht in
+jedem zweiten Archive.org-Titel.
+
 **„In Bibliothek" und „Plattform unbekannt" schließen einander aus (#685).** Sagt ein
 Treffer keine Plattform, prüft `in_library()` global gegen die ganze Bibliothek — richtig,
 aber es beantwortet nur das *Ob*. Die Karte hatte danach nichts anzuzeigen und schrieb die
@@ -1242,6 +1260,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
   `html` ein `overflow-x` trägt (jede Regel allein lässt 97 bzw. 101 px Bildlauf stehen);
   und dort gehört `clip` hin, nicht `hidden` — `hidden` macht `body` zum Rollbereich und
   die klebende Suchleiste hört auf zu kleben.
+
+*EN: size only indicates a collection on cartridge-era platforms (#689). `is_set` feeds the sort key, so anything marked lands at the bottom. Measured across twelve queries: 156 hits counted as collections, 136 of them single games — `Uncharted 2` at 21.9 GB, `The Last of Us` at 29.5 GB. The three Silent Hill Homecoming releases sat at positions 33, 34 and 53 of 59, which is how it surfaced. The threshold now applies only below 1994; the four genuine collections that would have slipped through are caught by name instead. `archive` alone is deliberately not a keyword — it appears in every other Archive.org title.*
 
 *EN: a card can no longer say "in library" and "platform unknown" at once (#685). `in_library()` falls back to a global check when the hit names no platform — correct, but it only answers whether. `library_slugs()` answers where, sorted by the platform's release year (oldest first), which for a title on several systems is almost always the one it appeared on first. Measured: 6.9% of titles sit on more than one platform. Deliberately the console's year, not the game's — IGDB gives one date per game and does not know the hacks and homebrew this concerns. The card marks the value as derived.*
 
