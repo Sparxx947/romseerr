@@ -446,5 +446,6 @@
  "org_dry_note": "Una simulación no mueve nada ni deja punto de reanudación.",
  "org_output": "Salida",
  "plat_hidden": "{n} ocultos por el filtro de plataformas",
- "plat_drop": "Quitar filtro"
+ "plat_drop": "Quitar filtro",
+ "versions_n": "{n} versiones"
 }

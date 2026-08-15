@@ -1171,6 +1171,28 @@ Archive und ROMhack-Pakete —, und für die stehen jetzt `mod archive`, `rom ha
 `anthology` und `trilogy` in `SET_RE`. **`archive` allein bewusst nicht**: Das Wort steht in
 jedem zweiten Archive.org-Titel.
 
+**Eine Karte je Spiel, nicht je Fassung (#691).** Über zehn Reihen-Suchen waren **6 bis
+36 %** der Karten Wiederholungen desselben Spiels — im schlimmsten Fall zehnmal
+`mario kart`, was neun andere Spiele von den ersten Seiten drückt. Die Oberfläche
+widersprach sich dabei selbst: Der Sammelknopf zählte `gkey` und bot „Alle anfragen (25)"
+an, während 47 Karten danebenlagen.
+
+Zusammengefasst wird im **Frontend** (`gruppiere()`), nicht in der Antwort: Die
+Fassungsliste der Detailansicht baut auf `window.LASTRES` (`x.gkey===it.gkey`), und die
+Regionswahl aus #77 ist genau der Grund, warum es sie gibt. Die Antwort bleibt deshalb
+vollständig; nur die Anzeige fasst zusammen.
+
+Sortiert wird dafür nach dem Zustand der **Gruppe** (`grp_in_library`), nicht des
+Einzeltreffers. Ein Spiel gilt als vorhanden, sobald irgendeine Fassung in der Bibliothek
+liegt — das ist die Frage vor dem Klick („habe ich das?"), und `varRow` löst sie danach je
+Fassung wieder auf. Ohne diese Stufe zerfiele die Karte: Bei einem Spiel, das auf einer
+Plattform daliegt und auf einer anderen nicht, stünde die nicht vorhandene Fassung vorn,
+und die Karte trüge einen Download-Knopf neben einem grünen Haken. `in_library` bleibt als
+**innerer** Rang darunter, damit die vertretende Fassung zum Zeichen passt.
+
+Die Zahl über der Liste zählt jetzt Karten statt Fassungen. Der Unterschied zum
+Sammelknopf sind genau die schon vorhandenen Spiele, denn der lässt die aus.
+
 **Der Plattformfilter sagt in der Liste, was er zurückhält (#688).** Ein Klick auf eine
 Entdecken-Karte setzt den Filter auf deren Plattform und schreibt ihn nach `localStorage` —
 sinnvoll für die Suche, die der Klick auslöst, und danach bleibt er dort stehen. Über
@@ -1287,6 +1309,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 *EN: size only indicates a collection on cartridge-era platforms (#689). `is_set` feeds the sort key, so anything marked lands at the bottom. Measured across twelve queries: 156 hits counted as collections, 136 of them single games — `Uncharted 2` at 21.9 GB, `The Last of Us` at 29.5 GB. The three Silent Hill Homecoming releases sat at positions 33, 34 and 53 of 59, which is how it surfaced. The threshold now applies only below 1994; the four genuine collections that would have slipped through are caught by name instead. `archive` alone is deliberately not a keyword — it appears in every other Archive.org title.*
 
 *EN: the platform filter states in the list what it is holding back (#688). Clicking a discover card sets the filter to that platform and persists it to `localStorage` — reasonable for the search the click triggers, and it then stays there across searches, reloads and days. With a stale `snes` filter, "Silent Hill Homecoming" returned 4 hits instead of 14. It does not look filtered because results without a recognised platform deliberately pass any filter, so something always remains. The button above reads "Plattformen: 1 gewählt", which says how many platforms are selected, not that ten hits are being withheld right now. `do_search()` therefore counts what the platform filter alone removed and `/api/search` returns it as an `X-Platform-Hidden` header — a header because the response is a bare list consumed in three places. Only the platform filter is counted: the notice offers "drop filter", and that click must actually bring the named hits back.*
+
+*EN: one card per game, not per release (#691). Across ten series searches, 6–36 % of the cards were repeats of the same game — ten `mario kart` entries at worst, pushing nine other games off the first screens. The interface contradicted itself: the bulk button counted `gkey` and offered "Alle anfragen (25)" while 47 cards sat next to it. Grouping happens in the frontend (`gruppiere()`), not in the response: the detail view builds its version list from `window.LASTRES`, and the region choice from #77 is the reason that view exists. Sorting therefore keys on the GROUP state (`grp_in_library`) rather than the individual hit — a game counts as owned once any release is in the library, which is the question asked before the click, and `varRow` resolves it per release afterwards. Without that step the card falls apart: for a game owned on one platform and missing on another, the missing release would rank first and the card would carry a download button beside a green tick. `in_library` remains as an inner rank so the representing release matches the badge.*
 
 *EN: a card can no longer say "in library" and "platform unknown" at once (#685). `in_library()` falls back to a global check when the hit names no platform — correct, but it only answers whether. `library_slugs()` answers where, sorted by the platform's release year (oldest first), which for a title on several systems is almost always the one it appeared on first. Measured: 6.9% of titles sit on more than one platform. Deliberately the console's year, not the game's — IGDB gives one date per game and does not know the hacks and homebrew this concerns. The card marks the value as derived.*
 

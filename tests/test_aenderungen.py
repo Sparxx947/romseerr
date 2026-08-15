@@ -821,3 +821,69 @@ def test_search_endpoint_reports_the_hidden_count_in_a_header(appmod, client, mo
     r = client.get("/api/search?q=egal")
     assert r.headers.get("X-Platform-Hidden") == "0", \
         f"ohne Filter erwartet '0', bekam {r.headers.get('X-Platform-Hidden')!r}"
+
+
+# ---------------------------------------------------------------------------
+# #691 — eine Karte je Spiel, nicht je Fassung
+# ---------------------------------------------------------------------------
+
+def test_a_game_owned_on_one_platform_counts_as_owned_everywhere(appmod, monkeypatch):
+    """Sonst zerfaellt die Karte in sich. (#691)
+
+    Die Oberflaeche zeigt eine Karte je Spiel. Gaebe der Sortierschluessel weiter den
+    Zustand des EINZELTREFFERS vor, staende bei einem Spiel, das auf einer Plattform
+    daliegt und auf einer anderen nicht, die nicht vorhandene Fassung vorn — die Karte
+    truege einen Download-Knopf fuer ein Spiel mit gruenem Haken.
+    """
+    # DIE VORHANDENE FASSUNG STEHT BEWUSST IN DER MITTE. Stuende sie vorn oder hinten,
+    # lieferte auch eine schlichte Zuweisung („die erste/letzte gewinnt") zufaellig das
+    # richtige Ergebnis, und der Test bewiese nichts — genau das deckte ein Mutationstest
+    # auf. Nur mit der Mitte muss ueber ALLE Fassungen zusammengefasst werden.
+    treffer = [
+        _tr("Silent Hill 2 PC", "pc"),          # dieselbe gkey, NICHT vorhanden
+        _tr("Silent Hill 2 PS2", "ps2"),        # dieselbe gkey, VORHANDEN
+        _tr("Silent Hill 2 Xbox", "xbox"),      # dieselbe gkey, NICHT vorhanden
+        _tr("Ein anderes Spiel", "pc"),
+    ]
+    monkeypatch.setattr(appmod, "search_archive", lambda q, **k: [dict(t) for t in treffer])
+    monkeypatch.setattr(appmod, "search_usenet", lambda q, cats: [])
+    monkeypatch.setattr(appmod, "catalog_urls", lambda: [])
+    monkeypatch.setattr(appmod, "norm", lambda s: "sh2" if "Silent Hill 2" in s else s.lower())
+    monkeypatch.setattr(appmod, "in_library", lambda t, p: "PS2" in t)
+
+    res = appmod.do_search("egal", [])
+    nach_titel = {r["title"]: r for r in res}
+    assert all(r["grp_in_library"] for r in res if r["gkey"] == "sh2"), \
+        "die PC-Fassung gilt nicht als vorhanden, obwohl das Spiel auf PS2 daliegt"
+    assert nach_titel["Ein anderes Spiel"]["grp_in_library"] is False
+
+    # Die Gruppe wandert ans Ende — wie ein einzelner vorhandener Treffer es taete.
+    assert res[0]["title"] == "Ein anderes Spiel", \
+        f"oben steht {res[0]['title']!r}; die vorhandene Gruppe gehoert ans Ende"
+    # ... und INNERHALB der Gruppe steht die vorhandene Fassung vorn, damit der Vertreter
+    # der Karte zum gruenen Haken passt.
+    gruppe = [r for r in res if r["gkey"] == "sh2"]
+    assert gruppe[0]["title"] == "Silent Hill 2 PS2", \
+        f"die Gruppe wird von {gruppe[0]['title']!r} vertreten — das traegt keinen Haken"
+
+
+def test_an_entirely_missing_game_stays_above_a_partly_owned_one(appmod, monkeypatch):
+    """Der Zweck der Suche ist das Anfragen. (#691)"""
+    treffer = [_tr("Habe ich auf PS2", "ps2"), _tr("Habe ich gar nicht", "pc")]
+    monkeypatch.setattr(appmod, "search_archive", lambda q, **k: [dict(t) for t in treffer])
+    monkeypatch.setattr(appmod, "search_usenet", lambda q, cats: [])
+    monkeypatch.setattr(appmod, "catalog_urls", lambda: [])
+    monkeypatch.setattr(appmod, "in_library", lambda t, p: "PS2" in t)
+    res = appmod.do_search("egal", [])
+    assert [r["title"] for r in res] == ["Habe ich gar nicht", "Habe ich auf PS2"]
+
+
+def test_every_result_carries_the_group_state(appmod, monkeypatch):
+    """Ohne das Feld faellt die Oberflaeche stumm auf `undefined` zurueck. (#691)"""
+    monkeypatch.setattr(appmod, "search_archive", lambda q, **k: [_tr("A", "pc"), _tr("B", "ps2")])
+    monkeypatch.setattr(appmod, "search_usenet", lambda q, cats: [])
+    monkeypatch.setattr(appmod, "catalog_urls", lambda: [])
+    monkeypatch.setattr(appmod, "in_library", lambda t, p: False)
+    res = appmod.do_search("egal", [])
+    assert res and all("grp_in_library" in r for r in res), \
+        "nicht jeder Treffer traegt `grp_in_library`"

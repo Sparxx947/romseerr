@@ -446,5 +446,6 @@
  "org_dry_note": "Una prova a vuoto non sposta nulla e non lascia punti di ripresa.",
  "org_output": "Output",
  "plat_hidden": "{n} nascosti dal filtro piattaforme",
- "plat_drop": "Rimuovi filtro"
+ "plat_drop": "Rimuovi filtro",
+ "versions_n": "{n} versioni"
 }

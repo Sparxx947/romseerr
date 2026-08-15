@@ -446,5 +446,6 @@
  "org_dry_note": "Ein Testlauf verschiebt nichts und hinterlässt keinen Wiederaufsetzpunkt.",
  "org_output": "Ausgabe",
  "plat_hidden": "{n} durch den Plattformfilter ausgeblendet",
- "plat_drop": "Filter aufheben"
+ "plat_drop": "Filter aufheben",
+ "versions_n": "{n} Fassungen"
 }

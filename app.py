@@ -2607,7 +2607,26 @@ def do_search(q, platforms=None, stats=None):
     # occupy the top of a filtered list.
     passt = (lambda x: 0 if (platforms and x["platform"] in platforms) else 1) if platforms \
         else (lambda x: 0)
-    res.sort(key=lambda x: (x["in_library"], passt(x), x["is_set"],
+    # SORTIERT WIRD NACH DEM ZUSTAND DER GRUPPE, NICHT DES EINZELTREFFERS (#691).
+    #
+    # Die Oberflaeche zeigt eine Karte je Spiel, nicht je Fassung. Ein Spiel gilt als
+    # vorhanden, sobald IRGENDEINE Fassung in der Bibliothek liegt — das ist die Frage,
+    # die vor dem Klick interessiert („habe ich das?"), und die Detailansicht loest sie
+    # danach je Fassung wieder auf (`varRow`: „✓ vorhanden" oder „⬇ Download").
+    #
+    # Ohne diese Gruppenstufe zerfiele die Karte: Bei einem Spiel, das auf einer Plattform
+    # daliegt und auf einer anderen nicht, staende die nicht vorhandene Fassung oben in
+    # der Liste — die Karte truege dann einen Download-Knopf fuer ein Spiel mit gruenem
+    # Haken. `in_library` bleibt als INNERER Rang darunter, damit die vertretende Fassung
+    # zum Zeichen auf der Karte passt: In einer vorhandenen Gruppe steht eine vorhandene
+    # Fassung vorn.
+    grp_lib = {}
+    for r in res:
+        grp_lib[r["gkey"]] = grp_lib.get(r["gkey"], False) or r["in_library"]
+    for r in res:
+        r["grp_in_library"] = grp_lib[r["gkey"]]
+    res.sort(key=lambda x: (x["grp_in_library"], passt(x), x["is_set"],
+                            not x["in_library"],
                             variant_rank(x["variant"], prefs), x["_rank"]))
     if stats is not None:
         stats["plat_hidden"] = verdeckt
