@@ -118,6 +118,59 @@ die URLs auf die Dienstnamen, **standalone** auf deine Hosts:
 | `ROMM_URL` | `http://romm:8080` | `http://192.168.1.10:8998` |
 | `JD_DL_BASE` | `/output/romseerr` (Sicht des JD-Containers) | dito |
 
+### Der kalte Erststart wartet jetzt auf die Datenbank (#746)
+
+`depends_on: [romm]` in der Kurzform wartet nur darauf, dass ein Container **läuft** —
+nicht darauf, dass er **bereit** ist. Gemessen am 2026-08-16, dreimal mit `mariadb:11.4`:
+
+```
+Lauf 1: Verbindungen werden angenommen nach 19 s
+Lauf 2:                                    15 s
+Lauf 3:                                    16 s
+```
+
+In diesem Fenster kommt Romseerr gegen ein RomM hoch, das selbst noch auf seine Datenbank
+wartet. Im Dauerbetrieb fällt das nie auf; **beim ersten Start eines neuen Nutzers immer**,
+und der Fehler sieht aus wie „Romseerr ist kaputt".
+
+Das Abbild `mariadb:11.4` bringt **keinen** eigenen Healthcheck mit, obwohl das Skript dafür
+darin liegt — `docker inspect` meldet „kein Healthcheck", `/usr/local/bin/healthcheck.sh`
+ist ausführbar vorhanden. Der Compose setzt ihn deshalb selbst, mit
+`--connect --innodb_initialized`: `--connect` allein ließe das Fenster offen, in dem der
+Server schon antwortet, InnoDB aber noch hochfährt.
+
+**Am echten Abbild geprüft, in beide Richtungen** — ein Healthcheck, der nur dasteht, beweist
+nichts:
+
+| Fall | Ergebnis |
+|---|---|
+| gesunder Start | `starting` … → `healthy` nach **18 s** |
+| kaputte Datenbank (`--datadir` zeigt ins Leere) | `unhealthy` nach **12 s**, Container weiter `running` |
+
+Der zweite Fall ist der wichtige: Der Container läuft, und trotzdem sagt der Check „nicht
+bereit". Genau diesen Unterschied kann die Kurzform von `depends_on` nicht sehen.
+
+**Nur RomM hängt an `service_healthy`.** SABnzbd und Prowlarr stehen bewusst auf
+`service_started`: Romseerr fragt sie erst, wenn jemand sucht oder herunterlädt, nicht beim
+Start. Auf ihre Bereitschaft zu warten verzögerte den Start, ohne einen Fehler zu verhindern.
+Einen Healthcheck haben sie trotzdem — für `docker compose ps`, nicht als Tor. Bei Prowlarr
+zeigt er auf `/ping` und nicht auf die Wurzel, weil die eine Anmeldung verlangt; alle drei
+Endpunkte wurden am laufenden Dienst gemessen (je 200).
+
+### Drei Variablen, die kein Wächter sehen konnte (#746)
+
+`HTTPS_PORT` (Haupt-Compose) sowie `FIRMWARE_MAX_BYTES` und `VGL_VERSION` (Streaming-Host)
+wurden von den Compose-Dateien eingesetzt, standen aber in keiner `.env.example`. Der
+vorhandene Wächter konnte sie nicht finden: Er liest, was **`app.py`** aus der Umgebung liest.
+`HTTPS_PORT` ist der Musterfall — der Kommentar im Compose sagt ausdrücklich „liest die App
+NICHT", die Variable war für diese Prüfung also **von Bauart her unsichtbar**.
+
+Der zweite Wächter liest deshalb beide Compose-Dateien und verlangt jeden `${NAME}` in der
+zugehörigen Beispieldatei. Seine Reichweite belegt er **je Datei** und nicht als Summe: In
+einem Mutationstest überlebte die Summenfassung die Verengung auf die Hauptdatei, weil die
+allein schon zwölf Variablen einsetzt — die 49 des Streaming-Hosts wären lautlos aus der
+Prüfung gefallen.
+
 ### JDownloader-Übergabe: drei Sichten, ein Ordner (#197)
 
 Es gibt keine API — die Übergabe läuft über zwei Verzeichnisse, und beide Container
@@ -198,6 +251,35 @@ hand-off, invisibly, and every later job queues up behind it.*
 
 *EN: three views of the same two directories. `JD_OUT` is derived from `JD_DL_BASE`
 unless set; the watch folder must be writable by both containers.*
+
+*EN: the cold first start now waits for the database (#746). The short form of
+`depends_on` waits for a container to RUN, not to be READY. Measured three times with
+`mariadb:11.4`: connections are accepted after 19 / 15 / 16 s. In that window Romseerr comes
+up against a RomM that is itself still waiting for its database — never visible in steady
+state, always visible on a new user's first start, and it looks like "Romseerr is broken".
+The image ships `/usr/local/bin/healthcheck.sh` but declares no HEALTHCHECK (`docker inspect`
+says so), hence the compose defines one, with `--connect --innodb_initialized` — `--connect`
+alone leaves open the window where the server answers while InnoDB is still coming up.
+Verified against the real image in both directions, because a healthcheck that merely exists
+proves nothing: healthy start goes `starting` → `healthy` after 18 s, and a broken database
+(`--datadir` pointing nowhere) goes `unhealthy` after 12 s while the container still reports
+`running`. That second case is the point — the container runs and the check still says "not
+ready", which is exactly the distinction the short form cannot make. Only RomM gates on
+`service_healthy`; SABnzbd and Prowlarr stay on `service_started` deliberately, because
+Romseerr first touches them on demand, not at boot. They carry a healthcheck anyway, for
+`docker compose ps` rather than as a gate — Prowlarr's points at `/ping`, not the root, which
+requires a login. All three endpoints were measured against the running services (200 each).*
+
+*EN: three variables no guard could see (#746). `HTTPS_PORT` in the main compose, plus
+`FIRMWARE_MAX_BYTES` and `VGL_VERSION` in the streaming host's, were interpolated by the
+compose files but absent from every `.env.example`. The existing guard reads what **`app.py`**
+reads from the environment, so it could not find them — `HTTPS_PORT` is the exemplary case,
+since the compose comment states outright that the app does not read it, making the variable
+invisible to that check by construction. The second guard reads both compose files instead
+and requires every `${NAME}` in the matching example file. It proves its reach **per file**
+rather than as a total: in a mutation test the summed version survived being narrowed to the
+main file, because that one alone interpolates twelve variables — the streaming host's 49
+would have dropped out of the check silently.*
 
 ### Der Usenet-Weg: vier Stufen, einzeln messbar (#196)
 

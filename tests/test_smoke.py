@@ -8197,6 +8197,59 @@ def test_every_environment_variable_is_mentioned_in_the_example():
         f"nur durch Quelltextlesen auffindbar: {fehlend}")
 
 
+def test_every_compose_variable_is_mentioned_in_its_example():
+    """Auch was der COMPOSE einsetzt, muss in der passenden `.env.example` stehen. (#746)
+
+    DIE LUECKE, DIE DAS SCHLIESST: Der Test darueber liest `app.py`. Genau deshalb sind
+    drei Variablen jahrelang undokumentiert geblieben — sie werden von den Compose-Dateien
+    eingesetzt, nicht von der App gelesen:
+
+        docker-compose.yml                          ${HTTPS_PORT}
+        contrib/streaming-host/docker-compose.yml   ${FIRMWARE_MAX_BYTES} ${VGL_VERSION}
+
+    `HTTPS_PORT` ist der Musterfall: Der Kommentar im Compose sagt ausdruecklich „liest die
+    App NICHT" — die Variable ist fuer den Test darueber also nicht bloss uebersehen worden,
+    sondern **von Bauart her unsichtbar**. Wer den TLS-Port verstellen wollte, musste die
+    Compose-Datei lesen.
+
+    Dieselbe Laschheit wie oben: Der Name muss irgendwo vorkommen, auch im Fliesstext.
+
+    EN: the guard above reads app.py, so variables only the compose files interpolate are
+    invisible to it by construction. This one reads both compose files instead.
+    """
+    # Je Datei eine Mindestzahl, keine Gesamtsumme: Ein Mutationstest hat gezeigt, dass
+    # eine Summe sich verengen laesst, ohne rot zu werden — die Hauptdatei allein setzt
+    # zwoelf Variablen ein, die Compose-Datei des Streaming-Hosts waere lautlos aus der
+    # Pruefung gefallen. Heute sind es 12 und 49; die Schranken liegen bewusst darunter,
+    # damit ein geloeschter Dienst nicht sofort rot wird, aber ein verengter Waechter schon.
+    paare = [("docker-compose.yml", ".env.example", 10),
+             ("contrib/streaming-host/docker-compose.yml",
+              "contrib/streaming-host/.env.example", 40)]
+    fehlend = []
+    gesehen = 0
+    for compose, beispiel, mindestens in paare:
+        pfad_c = os.path.join(REPO, compose)
+        pfad_b = os.path.join(REPO, beispiel)
+        assert os.path.isfile(pfad_c), f"{compose} gibt es nicht mehr — Waechter verengt"
+        assert os.path.isfile(pfad_b), f"{beispiel} gibt es nicht mehr — Waechter verengt"
+        text_c = open(pfad_c, encoding="utf-8").read()
+        text_b = open(pfad_b, encoding="utf-8").read()
+        # `${NAME}` und `${NAME:-vorgabe}` gleichermassen.
+        namen = set(re.findall(r"\$\{([A-Z][A-Z0-9_]*)", text_c))
+        # DIE REICHWEITE WIRD JE DATEI BELEGT, nicht als Summe.
+        assert len(namen) >= mindestens, (
+            f"{compose}: nur {len(namen)} Variablen erkannt, erwartet mindestens "
+            f"{mindestens} — das Muster stimmt nicht mehr oder die Datei fehlt in der Pruefung")
+        gesehen += len(namen)
+        fehlend += [f"{compose}: {v} fehlt in {beispiel}"
+                    for v in sorted(namen) if v not in text_b]
+
+    assert len(paare) == 2, \
+        f"nur {len(paare)} Compose-Datei(en) geprueft — der Waechter wurde verengt"
+    assert not fehlend, ("der Compose setzt diese Variablen ein, die Beispieldatei kennt "
+                         "sie nicht:\n  " + "\n  ".join(fehlend))
+
+
 def test_no_markdown_table_row_stands_outside_its_table():
     """Eine Tabellenzeile hinter einem Absatz ist keine Tabelle mehr. (#395)
 

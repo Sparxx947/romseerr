@@ -60,7 +60,22 @@ services:
       # speichert NICHTS. `docker compose exec romseerr id` zeigt die uid. (#216)
       # Must be owned by (or writable for) uid 1000 — otherwise nothing is ever stored.
       - ./config:/config                                  # Jobs, Nutzer, Log, SQLite
-    depends_on: [sabnzbd, prowlarr, romm]
+    # WARUM NUR ROMM MIT `service_healthy` (#746): Gemessen am 2026-08-16 braucht MariaDB
+    # nach `docker run` **15–19 s**, bis es Verbindungen annimmt (drei Läufe: 19/15/16 s).
+    # Die Kurzform `depends_on: [romm]` wartet nur darauf, dass der Container LÄUFT — beim
+    # ersten kalten Start kommt Romseerr also gegen ein RomM hoch, das selbst noch auf
+    # seine Datenbank wartet. Der Fehler sieht aus wie „Romseerr ist kaputt".
+    #
+    # sabnzbd und prowlarr stehen bewusst in der Kurzform: Romseerr fragt sie erst, wenn
+    # jemand sucht oder herunterlädt, nicht beim Start. Auf ihre Bereitschaft zu warten
+    # verzögerte den Start, ohne einen Fehler zu verhindern.
+    # EN: MariaDB needs 15–19 s to accept connections (measured), and the short form of
+    # depends_on only waits for the container to start. Only RomM gates on health —
+    # sabnzbd and prowlarr are first touched on demand, not at boot.
+    depends_on:
+      romm: {condition: service_healthy}
+      sabnzbd: {condition: service_started}
+      prowlarr: {condition: service_started}
     networks: [romseerr]
 
   # ---- Usenet-Downloader ----
@@ -77,6 +92,14 @@ services:
       - ${SAB_COMPLETE:-./data/usenet/complete}:/complete
       - ./data/usenet/incomplete:/incomplete
     ports: ["8080:8080"]
+    # Nur zur Sichtbarkeit in `docker compose ps` — Romseerr wartet bewusst NICHT darauf
+    # (siehe die Begründung bei `romseerr.depends_on`).
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks: [romseerr]
 
   # ---- Indexer-Suche (Usenet/Torrent) ----
@@ -91,6 +114,14 @@ services:
     volumes:
       - ./data/prowlarr:/config
     ports: ["9696:9696"]
+    # `/ping` antwortet ohne API-Schlüssel mit 200 (am laufenden Prowlarr nachgemessen) —
+    # die Wurzel täte das nicht, sie verlangt eine Anmeldung.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:9696/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks: [romseerr]
 
   # ---- Cloudflare-Löser für Prowlarr (optional, für manche Indexer) ----
@@ -141,7 +172,15 @@ services:
       - ./data/romm/resources:/romm/resources
       - ./data/romm/config:/romm/config
     ports: ["8998:8080"]
-    depends_on: [romm-db]
+    # `curl` liegt im Abbild (nachgesehen, nicht angenommen). Die Wurzel antwortet mit 200.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    depends_on:
+      romm-db: {condition: service_healthy}
     networks: [romseerr]
 
   romm-db:
@@ -155,6 +194,18 @@ services:
       - MARIADB_ROOT_PASSWORD=${ROMM_DB_ROOT_PASSWORD:?bitte in .env setzen}
     volumes:
       - ./data/romm-db:/var/lib/mysql
+    # DAS ABBILD BRINGT KEINEN HEALTHCHECK MIT, aber das Skript dafür liegt darin
+    # (nachgesehen: `/usr/local/bin/healthcheck.sh` ist ausführbar vorhanden, während
+    # `docker inspect mariadb:11.4` „kein Healthcheck" meldet). `--connect` prüft, dass
+    # Verbindungen angenommen werden; `--innodb_initialized` schließt das Fenster, in dem
+    # der Server schon antwortet, InnoDB aber noch hochfährt.
+    # EN: the image ships healthcheck.sh but declares no HEALTHCHECK — measured.
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     networks: [romseerr]
 
 networks:
