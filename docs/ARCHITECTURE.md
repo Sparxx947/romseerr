@@ -1641,6 +1641,27 @@ Die Untereinträge der Einstellungen (Discord, SMTP, Telegram …) bekommen **ke
 Dort stehen Produktnamen, ein erfundenes Zeichen sagt weniger als der Name, und ein
 Produktlogo gehört nicht in unsere Formensprache.
 
+**Der Umbau erwischte die Menüpunkte, nicht die Überschriften (#739).** Ein Jahr nach #658
+meldete Jens „falsches Logo" auf der Abdeckung — und er hatte recht: Der Menüpunkt links
+zeigte das Modul mit Säulen, die Überschrift derselben Seite ein `📊`. Bibliothek (`📚`) und
+Nachrichten (`✉`) genauso. Zwei Bilder für eine Seite, direkt nebeneinander.
+
+Warum das so lange stand, ist die eigentliche Lehre. Der Wächter aus #658 prüft die
+**Übersetzungstexte** auf Emoji, weil sie dort saßen (`logout` trug „🚪 Abmelden"). Diese
+drei saßen im **Markup** der Überschrift, die `index.js` zusammensetzt — eine Ebene daneben,
+und damit außerhalb der Reichweite der Prüfung. Der neue Wächter prüft deshalb nicht den
+Text, sondern die Stelle, an der das Zeichen entsteht: Er liest die Zuordnung
+`nav_coverage → rs-i-abdeckung` aus dem Menü in `index.html`, sucht in `index.js` jede
+Überschrift, die ein `${t('nav_…')}` trägt, und verlangt für sie **dasselbe** Zeichen. Ein
+falsches Zeichen fällt damit genauso auf wie ein Emoji oder gar keines.
+
+Ein Emoji ist hier nicht bloß hässlich, es bricht zwei Zusagen des Satzes. Es kommt aus der
+Schrift des Systems und sieht deshalb auf Linux und auf dem iPhone verschieden aus — dieselbe
+PWA, zwei Bilder. Und es folgt `currentColor` **nicht**: Die gezeichneten Zeichen färben sich
+mit `--navon`/`--navtxt` durch alle vier Designs um, das Emoji bleibt in jedem gleich bunt.
+Die Größe kommt aus der schon vorhandenen Klasse `.navsym.ueberschrift` (1,05 em statt der
+1,4 em der Navigation) — eine Überschrift braucht ein kleineres Zeichen als ein Menüpunkt.
+
 **„Vorhanden" trägt die Sprache der Marke (#660).** Das Grün stand an **fünf** Stellen, vier
 davon fest als `#1e5e3a` im Stylesheet — deshalb bekamen alle vier Designs dasselbe
 Signalgrün, egal wie sie sonst aussehen. Nur das Abzeichen auf dem Cover umzufärben hätte
@@ -1886,6 +1907,8 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 *EN: the neutral colours now come from variables too (#705). After the status colours, 153 hard-coded values remained in the JavaScript, most of them simply the default theme's palette — `#8b929e`, `#e6e8ec` and `#2c323b` are literally the Seerr values of `--mut`, `--txt` and `--border`, and therefore wrong in the other three themes; nobody noticed because all four themes are dark today. Mapping went by ROLE, not by tone, and two roles that previously existed only as a number got names: `--btn2` (the quiet button — cards and dialogs sit on `--card` themselves, so a button with the same ground would be invisible) and `--link`. The obvious reach for `--acc` was right in three themes and wrong in Seerr: `#7c5cff` on `#0f1114` is 4.35:1 against the required 4.5. The accent is chosen as a BUTTON colour, for white text on it. The accessibility suite caught that, not I; a browser test now pins the condition against both the footer and the card. 29 literals remain deliberately, each with a reason recorded — white on coloured grounds, the avatar palette (which must differ from itself, not follow the theme), the stream button, the "unverified" info blue and a translucent progress track.*
 
 *EN: menu and tabs carry drawn icons (#658). The navigation ran on emoji, which come from whatever font the system has — `.navsym` even carried `font-variant-emoji:emoji` plus U+FE0F, two coercions to force a presentation out of a font. Jens chose the outline style from two drafts. The vocabulary comes from the mark without copying it: where the subject is a GAME the icon carries the cartridge silhouette with its chamfered corner; where it is not, a conventional shape stands instead — sliders, padlock, bell. Discover is a magnifier whose lens carries the chamfer, because a cartridge with a separate magnifier would be two too-small things at 21 px. The #337 path was live and worse than assumed: `applyI18n` sets `textContent` and deletes children, and for `profile` and `nav_lists` the symbol lived only in the template, so 👤 and ⭐ were never visible at all — not after a language switch, but from load. Only 🚪 survived because it sat inside the translated string, which is why it had to come out of all five language files. Settings sub-entries deliberately get no icons: they are product names.*
+
+*EN: the rework caught the menu entries, not the page headings (#739). A year after #658 Jens reported the "wrong logo" on Coverage, and he was right: the menu entry showed the cartridge with bars, the heading of that same page showed `📊`. Library (`📚`) and Messages (`✉`) likewise — two pictures for one page, side by side. The reason it survived so long is the actual lesson: the #658 guard checks the TRANSLATION STRINGS for emoji, because that is where they sat; these three sat in the MARKUP that `index.js` assembles, one level away and therefore out of the guard's reach. The new guard checks not the text but the place the icon is created: it reads the `nav_coverage → rs-i-abdeckung` mapping out of the menu in `index.html`, finds every heading in `index.js` that carries a `${t('nav_…')}`, and requires the SAME icon for it — so a wrong icon fails exactly like an emoji or a missing one. An emoji here is not merely ugly, it breaks two promises of the set: it comes from the system's font and therefore looks different on Linux and on iOS (same PWA, two pictures), and it does not follow `currentColor`, so it stays equally colourful while everything around it recolours through all four themes. The size comes from the existing `.navsym.ueberschrift` class (1.05 em against the navigation's 1.4 em) — a heading needs a smaller icon than a menu entry.*
 
 *EN: only the cover badge is absolutely positioned (#698). Jens reported the play button sitting over the navigation bar. Measured with the detail card open: the button at (6, 6), its own slot `#mplay` at (892, 529) — 900 px away. The cause reached further than that one button: a second `.badge` rule further down restyles the detail badges with equal specificity and later position, winning for background, border, padding and font size — but it does not reset `position`. Only `position/top/left` survived from the first rule, and that applied everywhere: rating, year, developer, genres and the achievements row were all absolutely positioned. The rule is now scoped to `.cover` and contains nothing but the positioning; pulling the visual properties up with it would have silently restyled the cover badge, including its pill shape in Aurora.*
 

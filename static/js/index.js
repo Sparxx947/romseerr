@@ -321,7 +321,7 @@ async function loadCoverage(){let box=document.getElementById('coverage');
  if(rest.length)karten.push(covGruppe('—',rest));
  let adm=canDo('manage_settings')?`<button onclick="covRefresh()">${t('cov_refresh')}</button>
    <span id=covmsg class=meta></span>`:'';
- box.innerHTML=`<div class=rowh style="display:flex;align-items:center;gap:10px"><b>📊 ${t('nav_coverage')}</b>
+ box.innerHTML=`<div class=rowh style="display:flex;align-items:center;gap:10px"><b>${zeichen('abdeckung','navsym ueberschrift')}${t('nav_coverage')}</b>
    <span style="margin-left:auto">${adm}</span></div>
   <div class=meta style="margin:6px 0 10px;line-height:1.6">${t('cov_basis').replace('{src}',d.source).replace('{max}',d.max_per_platform)}</div>
   ${karten.join('')}`;
@@ -370,7 +370,7 @@ async function loadLibrary(){let box=document.getElementById('library');
  box.innerHTML='<div class=meta>…</div>';
  let d=await(await fetch('/api/library/platforms')).json();
  let karten=(d.vendors||[]).map(g=>libGruppe(g)).join('');
- box.innerHTML=`<div class=rowh style="display:flex;align-items:center;gap:10px"><b>📚 ${t('nav_library')}</b>
+ box.innerHTML=`<div class=rowh style="display:flex;align-items:center;gap:10px"><b>${zeichen('bibliothek','navsym ueberschrift')}${t('nav_library')}</b>
    <span class=meta style="margin-left:auto">${(d.total||0).toLocaleString()} ${t('lib_entries')}</span></div>
   <div class=meta style="margin:6px 0 10px;line-height:1.6">${t('lib_hint')}</div>
   ${karten||('<div class=meta>'+t('lib_empty')+'</div>')}`;}
@@ -467,7 +467,7 @@ async function loadMessages(){let box=document.getElementById('messages');let d=
  let opts=users.map(u=>`<option value="${u}" ${u==msgWith?'selected':''}>${u.replace(/</g,'&lt;')}${unreadBy[u]?' ('+unreadBy[u]+')':''}</option>`).join('');
  let thread=(d.messages||[]).filter(m=>(m.from==msgWith&&m.to==me)||(m.from==me&&m.to==msgWith))
    .map(m=>`<div class=cmt style="max-width:80%;margin-left:${m.from==me?'auto':'0'}"><span class="cu${m.from==me?' staff':''}">${m.from.replace(/</g,'&lt;')}</span> <span class=meta style="font-size:10px">${new Date(m.ts*1000).toLocaleString()}</span><div>${m.body.replace(/</g,'&lt;')}</div></div>`).join('');
- box.innerHTML=`<div style="padding:18px;max-width:680px"><h3 style="text-transform:uppercase;color:var(--mut);font-size:12px">✉ ${t('nav_messages')}</h3>`+
+ box.innerHTML=`<div style="padding:18px;max-width:680px"><h3 style="text-transform:uppercase;color:var(--mut);font-size:12px">${zeichen('nachrichten','navsym ueberschrift')}${t('nav_messages')}</h3>`+
   (users.length?`<div class=frow><label for=msgsel style="min-width:auto">${t('msg_to')}</label><select id=msgsel onchange="msgWith=this.value;loadMessages()">${opts}</select></div>
    <div class=cmts id=msgthread style="max-height:50vh;overflow:auto">${thread||('<div class=meta>'+t('msg_none')+'</div>')}</div>
    <div class=frow><textarea id=msgbody placeholder="${t('msg_ph')}" style="flex:1;min-height:60px;background:var(--input);border:1px solid var(--border);color:var(--txt);padding:8px;border-radius:6px" onkeydown="if(event.key=='Enter'&&event.ctrlKey)sendMsg()"></textarea></div>
