@@ -8523,6 +8523,91 @@ def test_a_security_policy_exists_and_says_where_to_report():
         "die englische Haelfte fehlt"
 
 
+# Die Fundorte, an denen GitHub und `ossf/scorecard` eine Sicherheitsrichtlinie suchen.
+# Wortgleich aus `scorecard/checks/raw/security_policy.go`, `isSecurityPolicyFilename()`
+# (v5.5.0) uebernommen, damit der Test dieselben Orte kennt wie das Werkzeug, das den
+# Alarm erzeugt.
+RICHTLINIEN_FUNDORTE = tuple(
+    f"{ordner}security.{endung}"
+    for endung in ("md", "markdown", "adoc", "rst")
+    for ordner in ("", ".github/", "docs/")
+)
+
+
+def _gefundene_sicherheitsrichtlinien():
+    """Die Richtlinien-Dateien, die im Repo tatsaechlich liegen — wie scorecard sucht.
+
+    OHNE RUECKSICHT AUF GROSS-/KLEINSCHREIBUNG, und das ist keine Kleinigkeit:
+    `isSecurityPolicyFilename()` vergleicht mit `strings.EqualFold`, die Dateien heissen
+    aber `SECURITY.md`. Ein `os.path.isfile("security.md")` findet auf einem
+    case-sensitiven Dateisystem GAR NICHTS — der Test waere rot, ohne je die Doppelung
+    zu pruefen, und auf einem Mac zufaellig gruen.
+    """
+    gefunden = []
+    for ordner in ("", ".github", "docs"):
+        verzeichnis = os.path.join(REPO, ordner) if ordner else REPO
+        if not os.path.isdir(verzeichnis):
+            continue
+        for eintrag in os.listdir(verzeichnis):
+            pfad = f"{ordner}/{eintrag}" if ordner else eintrag
+            if not os.path.isfile(os.path.join(REPO, pfad)):
+                continue
+            if any(pfad.lower() == ort for ort in RICHTLINIEN_FUNDORTE):
+                gefunden.append(pfad)
+    return sorted(gefunden)
+
+
+def test_es_gibt_nur_eine_sicherheitsrichtlinie_und_die_traegt_den_meldeweg():
+    """Nur EINE Datei darf als Sicherheitsrichtlinie gelten. (#755)
+
+    Am 2026-08-16 gab es zwei: die gepflegte `SECURITY.md` (177 Zeilen, Meldeweg als
+    Link, die Begruendung zu #718) — und eine 17-zeilige `.github/SECURITY.md` vom
+    9. August, die niemand mehr angefasst hatte. **Ausgeliefert wurde die zweite.**
+    GitHub bevorzugt `.github/`, und `scorecard` wertet ueberhaupt nur eine Datei aus:
+    `isSecurityPolicyFile` bricht beim ersten Treffer ab. Gemessen an
+    `/security/policy` stand dort die Kurzfassung; die gepflegte Richtlinie war fuer
+    Melder unsichtbar.
+
+    Warum der Test #434 das nicht fing: Er liest `SECURITY.md` im Wurzelverzeichnis —
+    also die Datei, die man beim Lesen vor sich hat, nicht die, die zaehlt. Eine
+    zweite Datei anzulegen bleibt fuer ihn folgenlos.
+
+    Gemessen mit scorecard v5.5.0 gegen `6b5ca5c`:
+
+        wie vorher                    4/10   Warn: no linked content found
+                                             ausgewertet: .github/SECURITY.md:1
+        ohne .github/SECURITY.md     10/10   Info: Found linked content: SECURITY.md:1
+
+    Geprueft werden deshalb zwei Dinge, und beide sind die Bruchstelle, nicht die
+    Entscheidung: dass es bei EINER Datei bleibt, und dass darin ein Link steht. Ohne
+    den faellt der Wert still auf 4 zurueck, ohne dass eine Datei fehlt.
+    """
+    gefunden = _gefundene_sicherheitsrichtlinien()
+
+    assert gefunden, (
+        "keine Sicherheitsrichtlinie an einem Ort, den GitHub kennt — gesucht in "
+        f"{list(RICHTLINIEN_FUNDORTE)}")
+    assert len(gefunden) == 1, (
+        f"{len(gefunden)} Sicherheitsrichtlinien: {gefunden}. GitHub und scorecard "
+        "werten nur EINE aus (`.github/` vor Wurzel vor `docs/`), die uebrigen liest "
+        "niemand. Genau so lag ab dem 2026-08-09 eine 17-zeilige Altfassung vor der "
+        "gepflegten Datei — siehe #755.")
+
+    text = open(os.path.join(REPO, gefunden[0]), encoding="utf-8").read()
+
+    # DIESELBE REGEX WIE SCORECARD, `collectPolicyHits()`: `(http|https)://[a-zA-Z0-9./?=_%:-]*`.
+    # Eine eigene, groszuegigere Suche wuerde hier gruen zeigen, wo das Werkzeug rot meldet.
+    links = re.findall(r"(?:http|https)://[a-zA-Z0-9./?=_%:-]*", text)
+    assert links, (
+        f"{gefunden[0]} enthaelt keinen Link — scorecard meldet dann "
+        "'no linked content found' und der Wert faellt von 10 auf 4 (#755). Ein Melder "
+        "muesste den Meldeweg aus dem Flieszttext zusammensuchen.")
+    assert any("security/advisories" in link for link in links), (
+        f"{gefunden[0]} verlinkt die private Sicherheitsmeldung nicht mehr "
+        f"(gefunden: {links}). Der einzige Weg, der einen Fund nicht sofort "
+        "oeffentlich macht, waere damit nur noch Prosa.")
+
+
 def test_the_release_documentation_names_the_step_that_is_easy_to_forget():
     """Der Handgriff, ohne den kein Release durchgeht, steht geschrieben. (#435)
 

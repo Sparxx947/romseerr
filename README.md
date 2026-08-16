@@ -1134,7 +1134,7 @@ neuesten Stand** braucht, nimmt `dev`. Einzelheiten samt Release-Ablauf:
 
 *Want a stable checkout? Use `main` or a tag. Want the newest state? Use `dev`.*
 - Beiträge willkommen — siehe [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md),
-  [`.github/CODE_OF_CONDUCT.md`](.github/CODE_OF_CONDUCT.md) und [`.github/SECURITY.md`](.github/SECURITY.md).
+  [`.github/CODE_OF_CONDUCT.md`](.github/CODE_OF_CONDUCT.md) und [`SECURITY.md`](SECURITY.md).
 - Ausführliche Doku im **[Wiki](../../wiki)**.
 
 ---
