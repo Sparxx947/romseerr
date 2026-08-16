@@ -19,7 +19,7 @@ wie du es betreibst (Docker, Compose, direkt), was du erwartet hast, was passier
 und der zugehörige Ausschnitt aus dem Log. Ein Screenshot ersetzt kein Log.
 
 **Kein Issue, sondern vertraulich:** Sicherheitslücken gehören nach
-[`SECURITY.md`](SECURITY.md) — nicht in ein öffentliches Issue.
+[`SECURITY.md`](../SECURITY.md) — nicht in ein öffentliches Issue.
 
 **Nicht hier:** Fragen danach, wo man Spiele, Abbilder, BIOS-Dateien oder Schlüssel
 bekommt. Das Projekt ist Werkzeug; die Quellen trägt jeder Betreiber selbst ein. Siehe
@@ -44,7 +44,7 @@ what you expected, what happened, and the relevant log excerpt. A screenshot is 
 log.
 
 **Not an issue — confidential:** security vulnerabilities go through
-[`SECURITY.md`](SECURITY.md), never a public issue.
+[`SECURITY.md`](../SECURITY.md), never a public issue.
 
 **Not here:** where to obtain games, disc images, BIOS files or keys. This project is
 tooling; sources are configured by each operator. See [`CONTRIBUTING.md`](CONTRIBUTING.md).

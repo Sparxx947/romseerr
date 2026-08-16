@@ -1057,7 +1057,7 @@ python scripts/build_openapi.py   # generate docs/openapi.yaml from the OPENAPI 
 - The **front-end** lives as a string in `app.py`; the tests check, among other things, that every
   inline `<script>` **parses** under Node and that the **OpenAPI spec covers all routes**.
 - Contributions welcome — see [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md),
-  [`.github/CODE_OF_CONDUCT.md`](.github/CODE_OF_CONDUCT.md) and [`.github/SECURITY.md`](.github/SECURITY.md).
+  [`.github/CODE_OF_CONDUCT.md`](.github/CODE_OF_CONDUCT.md) and [`SECURITY.md`](SECURITY.md).
 - Detailed docs in the **[wiki](../../wiki)**.
 
 ---

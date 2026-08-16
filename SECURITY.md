@@ -79,6 +79,9 @@ allerdings sofort für alle sichtbar, und das ist deine Entscheidung, nicht mein
 Fehlerbericht wandert schneller weiter, als einem lieb ist; die Einstellungen-Ausgabe ist
 genau deshalb maskiert.
 
+**Unterstützt wird jeweils die neueste Version auf `main`.** Ältere Releases bekommen keine
+Rückportierungen — es gibt genau einen Zweig, auf dem veröffentlicht wird.
+
 ## Wie damit umgegangen wird
 
 Ein bestätigter Fund bekommt ein Issue mit dem Label `security`, eine Prüfung, die ihn
@@ -165,6 +168,9 @@ but then it is public immediately — your call, not mine.
 **Please do not include credentials, tokens or addresses from your installation.** A bug
 report travels further than one expects; the settings export is masked for exactly that
 reason.
+
+**The latest version on `main` is supported.** Older releases get no backports — there is
+exactly one branch that publishes.
 
 ## How it is handled
 
