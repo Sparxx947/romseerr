@@ -1072,10 +1072,18 @@ welches Gerät gemeint ist.
 https://<host>:<HTTPS_PORT>/gamepad-check.html
 ```
 
+![Gamepad-Prüfseite / gamepad check page](../../docs/img/40-gamepad-pruefung.webp)
+
 Sie zeigt sicheren Kontext, Fokus, alle gemeldeten Pads und **live jede gedrückte
 Taste**. Damit trennt sich der Fehler sauber: Erscheint das Pad dort, sind Rechner und
 Browser in Ordnung und es liegt an der Stream-Seite oder der Übertragung. Erscheint es
 nicht, kann auf dem Streaming-Host nichts ankommen — dort zu suchen wäre vergeudet.
+
+Das Bild oben zeigt den Normalfall **ohne angeschlossenes Pad**: Die ersten drei Zeilen
+stehen auf „ja", die vierte auf **0**. Genau so sieht es auch aus, wenn ein Pad steckt,
+aber noch keine Taste gedrückt wurde — die Gamepad-API meldet aus Datenschutzgründen
+nichts, bevor das passiert ist. Wer das nicht weiß, sucht den Fehler an der falschen
+Stelle.
 
 Warum es diese Seite überhaupt gibt: **Die Stream-Seite fängt die Tastatur ab** und
 reicht sie an den entfernten Desktop weiter. `F12` kommt dort nie beim Browser an —
@@ -2651,10 +2659,17 @@ The launch service supplies it, otherwise SDL has no hint which device is meant.
 https://<host>:<HTTPS_PORT>/gamepad-check.html
 ```
 
+![Gamepad check page](../../docs/img/40-gamepad-pruefung.webp)
+
 It shows secure context, focus, every gamepad reported, and **live button activity**.
 That splits the fault cleanly: if the pad appears there, the machine and browser are
 fine and the problem is the streaming page or the transport. If it does not, nothing can
 reach the streaming host and looking there is wasted effort.
+
+The screenshot above is the normal state **with no pad connected**: the first three rows
+read "yes", the fourth reads **0**. It looks exactly the same when a pad *is* connected
+but no button has been pressed yet — the Gamepad API reports nothing until then, for
+privacy reasons. Not knowing that sends people looking in the wrong place.
 
 Why the page exists at all: **the stream page captures the keyboard** and forwards it to
 the remote session, so `F12` never reaches the browser. The page where you would want the

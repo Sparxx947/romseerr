@@ -18,6 +18,23 @@
 Die oberen drei laufen im CI-Auftrag **Tests**, die Browserebene in einem eigenen Auftrag
 **Browsertests**. Getrennt, damit der schnelle Teil schnell bleibt.
 
+**Es gibt eine fünfte Sache, die kein Test ist, aber hierher gehört:** die Bilder der
+Oberfläche. `scripts/screenshots.py` fährt dieselbe Wegwerf-Instanz hoch wie die
+Browsertests, setzt einen Vorführstand und fotografiert 33 Ansichten nach `docs/img/`.
+Sie laufen **nicht** in der CI — eine Browserinstallation je Lauf und ein Binärdiff je
+Zusammenführung wären teurer als der Nutzen. Stattdessen prüft
+`test_the_documentation_images_are_not_older_than_the_interface`, ob die Oberfläche
+seither davongelaufen ist. Bewusst kein Bildvergleich: Chromium liefert für denselben
+Inhalt keine bitgleichen Dateien, ein solcher Test wäre von Anfang an flatterhaft.
+
+*A fifth thing that is not a test but belongs here: the interface screenshots.
+`scripts/screenshots.py` starts the same throwaway instance the browser tests use, seeds a
+demo state and photographs 33 views into `docs/img/`. It deliberately does not run in CI —
+a browser install per run and a binary diff per merge would cost more than it returns.
+Instead a test checks whether the interface has moved on since the images. No image
+comparison: Chromium does not produce byte-identical files for identical content, so that
+test would be flaky by construction.*
+
 ### Loslegen
 
 ```bash

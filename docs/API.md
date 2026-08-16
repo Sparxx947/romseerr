@@ -11,6 +11,18 @@ App selbst:
 Bilingual quick guide. The **complete, machine-readable** spec is served by the app itself
 (`/api/docs`, `/api/openapi.json`); the repo copy is [`docs/openapi.yaml`](openapi.yaml).
 
+![Die Redoc-Ansicht unter /api/docs / the Redoc view at /api/docs](img/41-api-docs.webp)
+
+So sieht `/api/docs` aus: links die Bereiche, rechts je Endpunkt die Antworten samt
+Statuscodes. **Diese Seite ist der Maßstab, nicht diese Datei** — sie wird aus
+`app.OPENAPI` erzeugt und kann deshalb nicht veralten, während die Kurzanleitung hier von
+Hand gepflegt wird. Wer eine Abweichung findet, glaubt Redoc.
+
+*This is what `/api/docs` looks like — sections on the left, per-endpoint responses with
+status codes on the right. **That page is the reference, not this file**: it is generated
+from `app.OPENAPI` and cannot drift, while this quick guide is hand-kept. If the two
+disagree, believe Redoc.*
+
 ---
 
 ## Deutsch
