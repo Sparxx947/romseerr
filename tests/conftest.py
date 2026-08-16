@@ -163,7 +163,8 @@ def _suchspeicher_leeren(appmod):
 
     Jeder weitere Speicher gehoert in dieselbe Liste — er hat dasselbe Problem.
     """
-    für_alle = ("SUCH_CACHE", "ARCHIVE_META")   # #726 Suchquellen, #731 archive.org-Metadaten
+    # #726 Suchquellen, #731 archive.org-Metadaten, #730 RomM-Treffer
+    für_alle = ("SUCH_CACHE", "ARCHIVE_META", "ROMM_CACHE")
     for name in für_alle:
         try:
             getattr(appmod, name).clear()

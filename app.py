@@ -4191,6 +4191,10 @@ def import_folder(jid, folder):
     ok, grund = romm_scan(ordner or None)
     if not ok:
         log(f"RomM-Scan nicht ausgeloest: {grund}")
+    # Nach einem Import ist alles Gemerkte verdaechtig (#730). Das gilt AUCH, wenn der
+    # Scan nicht anlief: dann stimmt der gemerkte Stand erst recht nicht mehr mit dem
+    # ueberein, was gleich auf der Platte liegt.
+    romm_cache_vergessen()
     # Nichts importiert UND nichts war schon vorhanden, aber es lagen Nicht-ROM-Dateien vor
     # -> als Fehler melden (mislabeltes Item ohne echte ROM), statt „done" vorzutäuschen. (#61)
     if moved == 0 and not by_plat and skipped:
@@ -4411,9 +4415,93 @@ def romm_session(erneuern=False):
         _ROMM_SITZUNG.update(s=s, schluessel=schluessel, bis=time.time() + ROMM_SESSION_TTL)
         return s
 
+# Kurzes Gedaechtnis fuer RomM-TREFFER (#730). Wie bei den Suchquellen (#726) und den
+# archive.org-Metadaten (#731) ueber die Umgebung abschaltbar: ROMM_CACHE_TTL=0.
+#
+# GEMESSEN im Container gegen das laufende RomM, 36 zufaellig gezogene Bibliothekstitel
+# ueber sechs Plattformen, Sitzung vorher aufgebaut (die ~1 s Anmeldung aus #724 zaehlt
+# also nicht mit):
+#
+#     min 47 ms   Median 144 ms   p90 1573 ms   max 1616 ms
+#     ueber 1000 ms: 14 von 36        Mittelwert 669 ms
+#
+# DIE ZEITEN SIND ZWEIGIPFLIG: entweder ~50-170 ms oder ~1,3-1,8 s, dazwischen fast
+# nichts. Im Issue standen drei Ziehungen, die alle im oberen Gipfel gelandet waren
+# (1673/1681/1326 ms) — „jede Karte kostet 1,2-1,7 s" ist zu hoch gegriffen, die
+# typische Karte kostet 144 ms.
+#
+# WARUM ES SICH TROTZDEM LOHNT: Der langsame Fall ist JE BEGRIFF REPRODUZIERBAR, nicht
+# lastabhaengig. Dreimal hintereinander dieselben Begriffe: FF6 1681/1538/1498 ms,
+# Chrono Trigger 115/121/106 ms. Eine langsame Karte ist also IMMER langsam, und wer sie
+# zweimal oeffnet, wartet zweimal 1,5 s. Die Ursache liegt in RomM — derselbe Begriff
+# schrittweise gekuerzt springt bei GLEICHER Treffermenge zwischen 116 ms und 1522 ms —
+# und ist von hier aus weder feststellbar noch behebbar.
+#
+# NUR TREFFER WERDEN GEMERKT, und das ist hier wichtiger als bei einer Suchquelle: Ein
+# gemerktes „nicht in der Bibliothek" wuerde eine gerade importierte Datei minutenlang
+# verstecken, und der Knopf „Im Browser spielen" bliebe ohne sichtbaren Grund weg. So
+# herum faellt der Fehler auf die sichere Seite — ein neuer Titel ist sofort spielbar.
+#
+# KURZE FRIST: zwei Minuten, nicht zehn wie bei den Suchquellen. Eine Suchquelle darf
+# veralten, ein Blick in die eigene BIBLIOTHEK soll das nicht.
+#
+# DIE ZUGANGSDATEN GEHOEREN IN DEN SCHLUESSEL, genau wie beim Sitzungsschluessel aus #724.
+# Der gemerkte Wert traegt eine RomM-ROM-ID: zeigt die Konfiguration auf eine andere
+# Instanz, ist diese ID dort etwas anderes oder nichts. Und wer sich als jemand anderes
+# anmeldet, darf nicht die Antwort sehen, die der vorige Zugang bekommen hat.
+#
+# EN: short memory for RomM HITS only. Lookups are bimodal — ~144 ms median but ~40 % of
+# titles cost 1.3-1.6 s, reproducibly per term — so reopening the same card paid it again.
+# Misses are deliberately not remembered: a remembered "not in library" would hide a
+# freshly imported file. Keyed on the credentials too, because the value carries a ROM id.
+ROMM_CACHE_TTL = int(os.environ.get("ROMM_CACHE_TTL", "120"))    # 2 min
+ROMM_CACHE_MAX = int(os.environ.get("ROMM_CACHE_MAX", "200"))
+ROMM_CACHE = {}
+ROMM_CACHE_LOCK = threading.Lock()
+
+def romm_cache_vergessen():
+    """Alles Gemerkte verwerfen — nach einem Import, wenn RomM neu eingelesen hat.
+
+    Weil nur Treffer gemerkt werden, taucht ein NEUER Titel ohnehin sofort auf. Das hier
+    ist fuer den anderen Fall: ein Titel, den es schon gab und dessen Eintrag sich beim
+    erneuten Import geaendert hat (andere ROM-ID, andere Groesse). Ohne das zeigte der
+    Play-Knopf bis zu zwei Minuten lang auf die alte Datei.
+    """
+    with ROMM_CACHE_LOCK:
+        ROMM_CACHE.clear()
+
 def romm_find(title, slug=""):
     """Titel -> RomM-Eintrag. Exakter Abgleich des normalisierten Namens; bei mehreren
-    gleich guten Treffern wird der erste genommen, aber NUR wenn die Plattform passt."""
+    gleich guten Treffern wird der erste genommen, aber NUR wenn die Plattform passt.
+
+    Treffer werden kurz gemerkt (#730) — siehe der Block ueber `ROMM_CACHE_TTL`.
+    """
+    # KOPIEN, KEINE VERWEISE — in beide Richtungen. Der Aufrufer bekommt ein dict, und
+    # was er damit macht, geht uns nichts an; ohne Kopie waere der gemerkte Stand nach
+    # dem ersten Aufruf verfaelscht. Dasselbe Argument wie bei `_quelle_ruhig` (#726).
+    schluessel = (cfg("romm_url"), cfg("romm_user"), cfg("romm_pass"), title, slug)
+    if ROMM_CACHE_TTL > 0:
+        jetzt = time.time()
+        with ROMM_CACHE_LOCK:
+            eintrag = ROMM_CACHE.get(schluessel)
+        if eintrag and jetzt - eintrag[0] < ROMM_CACHE_TTL:
+            return copy.deepcopy(eintrag[1])
+    treffer = _romm_find_frisch(title, slug)
+    if treffer and ROMM_CACHE_TTL > 0:
+        with ROMM_CACHE_LOCK:
+            # Erst raus, dann rein: ein blosses Ueberschreiben behaelt in einem dict die
+            # ALTE Position, und der Deckel unten wuerde dann ausgerechnet den oft
+            # benutzten Eintrag verwerfen.
+            ROMM_CACHE.pop(schluessel, None)
+            ROMM_CACHE[schluessel] = (time.time(), copy.deepcopy(treffer))
+            # Nach oben begrenzt: jede geoeffnete Karte legt einen Eintrag an, und nichts
+            # raeumt hier je auf. Ohne Deckel waere das ein Speicherleck mit Ansage.
+            while len(ROMM_CACHE) > ROMM_CACHE_MAX:
+                ROMM_CACHE.pop(next(iter(ROMM_CACHE)))
+    return treffer
+
+def _romm_find_frisch(title, slug=""):
+    """`romm_find` ohne Gedaechtnis — fragt RomM wirklich. (#730)"""
     def frag(erneuern):
         s = romm_session(erneuern)
         if not s: return None

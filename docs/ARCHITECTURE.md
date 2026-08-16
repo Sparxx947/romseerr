@@ -1342,14 +1342,62 @@ login 993 ms  suche 1574 ms
 
 `romm_session()` legte bei **jedem** Aufruf eine neue Sitzung an und meldete sich neu an —
 rund **eine Sekunde**, bei jeder geöffneten Karte aufs Neue. Die Sitzung wird jetzt
-wiederverwendet. Die Suche selbst (1,2–1,7 s) ist RomMs eigene Geschwindigkeit und hier
-nicht zu beheben.
+wiederverwendet. Die Suche selbst ist RomMs eigene Geschwindigkeit und dort nicht zu
+beheben — wohl aber zu **vermeiden**, siehe #730 gleich darunter. Die hier notierten
+1,2–1,7 s sind übrigens nicht der Normalfall, sondern der obere von zwei Gipfeln; auch das
+steht bei #730.
 
 Drei Dinge machen das gefahrlos: Der Schlüssel enthält **URL, Benutzer und Passwort**, sonst
 redet eine geänderte Konfiguration weiter über das alte Plätzchen; auf **401/403** wird
 **genau einmal** neu angemeldet und wiederholt, sonst wäre die Wiederverwendung ein Feature
 mit Verfallsdatum; und das Anlegen steht unter einem **Schloss**, weil seit #722 Aufrufer
 nebeneinander laufen.
+
+**RomM-Treffer werden kurz gemerkt (#730).** Nachdem die Anmeldung weg war, blieb RomMs
+eigene Suche. Das Issue nannte sie mit „1,2–1,7 s für **jede** geöffnete Karte" — das ist
+**nachgemessen zu hoch gegriffen**. 36 zufällig gezogene Bibliothekstitel, geschichtet über
+sechs Plattformen, Sitzung vorher aufgebaut:
+
+```
+min 47 ms   Median 144 ms   p90 1573 ms   max 1616 ms
+über 1000 ms: 14 von 36        Mittelwert 669 ms
+```
+
+**Die Zeiten sind zweigipflig** — entweder ~50–170 ms oder ~1,3–1,8 s, dazwischen fast
+nichts. Im Issue standen drei Ziehungen, die alle im oberen Gipfel gelandet waren. Die
+typische Karte kostet 144 ms, aber rund **4 von 10** kosten 1,3–1,6 s.
+
+Gelohnt hat es sich trotzdem, und zwar aus einem anderen Grund als dem im Issue: Der
+langsame Fall ist **je Begriff reproduzierbar**, nicht lastabhängig.
+
+```
+Runde 1: FF6=1681  SF2=1769  Sonic2=1645  ChronoTrigger=115  (ms)
+Runde 2: FF6=1538  SF2=1756  Sonic2=1585  ChronoTrigger=121
+Runde 3: FF6=1498  SF2=1749  Sonic2=1585  ChronoTrigger=106
+```
+
+Eine langsame Karte ist also **immer** langsam. Wer sie zweimal öffnet, wartet zweimal 1,5 s.
+
+**Die Ursache liegt in RomM und ist von hier aus nicht zu finden.** Derselbe Begriff
+schrittweise gekürzt, bei **gleicher Treffermenge** (`total=26`): 123 / 114 / 118 / **1441** /
+116 / 135 / **1522** ms. Es hängt weder an der Trefferzahl (5 Treffer in 1,6 s gegen 6
+Treffer in 0,11 s) noch an der Wortzahl noch an der Länge. Für uns zählt nur, dass es je
+Begriff stabil ist — dann lohnt das Merken.
+
+**Gemerkt werden nur Treffer, und das ist hier wichtiger als bei einer Suchquelle.** Ein
+gemerktes „nicht in der Bibliothek" würde eine gerade importierte Datei minutenlang
+verstecken, und der Knopf „Im Browser spielen" bliebe ohne sichtbaren Grund weg. So herum
+fällt der Fehler auf die sichere Seite: ein neuer Titel ist sofort spielbar, ganz ohne auf
+eine Frist zu warten. Die Frist ist deshalb auch **zwei Minuten statt zehn** wie bei #726 —
+eine Suchquelle darf veralten, ein Blick in den *eigenen* Bestand soll das nicht.
+
+Der Schlüssel enthält **URL, Benutzer und Passwort** wie bei #724: Der gemerkte Wert trägt
+eine RomM-ROM-ID, und die ist auf einer anderen Instanz etwas anderes oder nichts. Nach
+einem Import wirft `romm_cache_vergessen()` alles weg — nicht wegen der neuen Titel (die
+fallen schon aus „nur Treffer" heraus), sondern wegen der **alten**: ein erneut importierter
+Titel kann eine andere ROM-ID bekommen, und der Play-Knopf zeigte sonst bis zu zwei Minuten
+auf die alte Datei. Dieselben Fallen wie bei #726 und #731, jede mit einem Test: Kopien
+hinein und heraus, nach oben **begrenzt**, und `ROMM_CACHE_TTL=0` schaltet **wirklich** ab.
 
 **Gemessen und bewusst NICHT geändert:** Das `await fetch('/api/users')` am Anfang von
 `openDetail` blockiert alles danach — es sah nach einer zweiten Reihenschaltung aus. Gemessen
@@ -1793,7 +1841,9 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 
 *EN: search queries its three sources side by side (#722). A card click took 15.8 s to the first result, essentially all of it `/api/search`, because the sources ran in sequence and the wait was their SUM — up to 40 s with the configured timeouts, and Archive.org alone varied between 1.07 s and 8.07 s a second apart. Side by side the total is the MAXIMUM. Two conditions make that safe: none of the three touches the request context, and a dead source must not take the others down — an unexpected error in a worker would otherwise end the whole search and show "no results" instead of the ones that did arrive. On a detail card the dialog is up after 2 ms but was filled after ~1.94 s: `play`, `stream` and `titlemeta` waited for `/api/detail` although the first two only need the clicked hit. They now start immediately, ending at ~1.33 s. `loadTitleMeta` deliberately stays behind — it uses the game name from that response, and pulled forward would fall back to the release name that the ratings hang off.*
 
-*EN: one reused RomM session instead of one per lookup (#724). With play and stream no longer waiting for `/api/detail`, `/api/play` itself was the remaining 2.5–2.8 s. Measured inside the container: the login alone costs ~1 s and was paid on every single lookup, i.e. every card opened; the search itself (1.2–1.7 s) is RomM's own speed. The session is now reused, keyed on url+user+password so changed credentials invalidate it, with exactly one silent re-login and retry on 401/403, and built under a lock because callers have run concurrently since #722. Measured and deliberately left alone: the `await fetch('/api/users')` at the top of `openDetail` is 13–24 ms, not the second serialization it looked like.*
+*EN: one reused RomM session instead of one per lookup (#724). With play and stream no longer waiting for `/api/detail`, `/api/play` itself was the remaining 2.5–2.8 s. Measured inside the container: the login alone costs ~1 s and was paid on every single lookup, i.e. every card opened; the search itself (1.2–1.7 s) is RomM's own speed. The session is now reused, keyed on url+user+password so changed credentials invalidate it, with exactly one silent re-login and retry on 401/403, and built under a lock because callers have run concurrently since #722. Measured and deliberately left alone: the `await fetch('/api/users')` at the top of `openDetail` is 13–24 ms, not the second serialization it looked like. The "1.2–1.7 s" recorded here is the upper of two peaks, not the normal case — corrected under #730 below.*
+
+*EN: RomM hits are remembered briefly (#730). With the login gone, RomM's own search was what remained, and the issue put it at "1.2–1.7 s for EVERY card opened". Measured, that is too high: 36 randomly drawn library titles stratified over six platforms, session established beforehand, gave min 47 ms, median 144 ms, p90 1573 ms, max 1616 ms — 14 of 36 above one second, mean 669 ms. The times are BIMODAL, either ~50–170 ms or ~1.3–1.8 s with almost nothing between; the issue's three samples had all landed in the upper peak. The typical card costs 144 ms, but roughly 4 in 10 cost 1.3–1.6 s. It was still worth doing, for a different reason than the issue gave: the slow case is REPRODUCIBLE PER TERM, not load-dependent — three consecutive rounds gave FF6 1681/1538/1498 ms against Chrono Trigger's 115/121/106 ms. A slow card is therefore always slow, and opening it twice waits twice. The cause sits inside RomM and cannot be located from here: shortening the same term step by step, at an IDENTICAL result set of 26, gives 123 / 114 / 118 / 1441 / 116 / 135 / 1522 ms — it depends on neither hit count (5 hits in 1.6 s versus 6 hits in 0.11 s) nor word count nor length. Only HITS are remembered, and that matters more here than for a search source: a remembered "not in library" would hide a just-imported file for minutes and the "play in browser" button would stay away for no visible reason, so the error falls on the safe side and a new title is playable at once without waiting out any TTL. The TTL is two minutes rather than #726's ten — a search source may go stale, a look at your OWN library may not. The key carries url+user+password as in #724, because the remembered value holds a RomM ROM id that means something else on another instance. After an import `romm_cache_vergessen()` drops everything, not for the new titles (those already fall out of "hits only") but for the OLD ones: a re-imported title can get a different ROM id, and the play button would otherwise point at the previous file for up to two minutes. Same traps as #726 and #731, each with a test: copies in and out, bounded, and `ROMM_CACHE_TTL=0` really turns it off.*
 
 *EN: one memory for archive.org item metadata (#731). The issue assumed three equally sized external calls in sequence inside `/api/detail` and proposed a thread pool; measured on 2026-08-16, neither holds. `ra_lookup` is not a network call at all but a `SELECT` on the local `ra_games` table, and of the remaining two one dwarfs the other: `/metadata/<id>` measured 8.44–10.59 s across ten different items, median ~9.4 s, and the time does NOT depend on payload size (3 KB costs the same as 30 KB) — server time at archive.org, with `connect` at 0.17 s throughout. **But measuring archive.org once measures its day, not the service:** the same ten items came back at 0.60–1.20 s ninety minutes later, and four Gunstar items went from 8.16–15.27 s to 0.62–1.05 s. So ~9.4 s is a bad phase, not the normal state — exactly what #728 had recorded a day earlier for archive.org's search (10.9 s median, 851 ms the next day), a lesson repeated here before it was applied. The narrower `/metadata/<id>/files` path does not help (8.65 / 8.48 / 7.63 s). For contrast, archive.org’s SEARCH measured 851 ms median the day before: search fast, metadata slow, two different services. The pool still stays out, but for a narrower reason than first written: on a card without an archive ref there is only ONE external call (IGDB, 348–575 ms cold) and concurrency wins exactly nothing, and with a warm IGDB cache (7–9 ms) there is nothing to overlap on ANY card. What remains is "archive ref and IGDB cold", worth ~0.5 s out of 10.3–12.3 s in the bad phase and ~0.5 s out of ~2 s in the good one — too little for #722's `session` trap, but "too little gain", not "no gain". Remembering, by contrast, is worth the same whatever archive.org's day looks like: the second lookup measures 7–9 ms live. The same call also sat in the code twice: `archive_file_urls()` fetches the same item’s metadata again when a download starts, so opening a card and then downloading paid the full lookup twice back to back — the same defect at 0.6 s as at 9 s. Both now go through `archive_metadata()`, and a source-reading test asserts no third direct `requests.get` on `/metadata/` appears — that is exactly how the duplication arose. The TTL is deliberately an hour rather than #726’s ten minutes: what is remembered is the file list of a PUBLISHED FOREIGN item, which changes only when the uploader adds something, so #730’s "it would hide freshly imported files" trap concerns our own library and does not apply. Same four traps as #726, each with a test: empty answers are not remembered (archive.org answers an unknown item with HTTP 200 and `{}`, which is exactly what a just-uploaded item looks like), copies are handed out, the cache is bounded, and `ARCHIVE_META_TTL=0` really turns everything off including the fallback. A fifth is new here: without a known answer a failure stays a failure. For search an empty list is a valid result; here it would look like an item with no content, and the download start would silently create a job with not a single URL.*
 

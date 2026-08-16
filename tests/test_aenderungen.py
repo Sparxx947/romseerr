@@ -1421,13 +1421,16 @@ class _RommSitzung:
     def get(self, url, **k):
         self._z["suche"] += 1
         code = self._codes.pop(0) if self._codes else 200
-        return _RommAntwort(code, {"items": [{"name": "Chrono Trigger", "id": 7,
+        # WELCHEN Titel dieses RomM kennt, steht im Zaehler-dict und ist zur Laufzeit
+        # aenderbar — so laesst sich „inzwischen importiert" nachstellen, ohne den
+        # Transport ein zweites Mal zu ersetzen. (#730)
+        return _RommAntwort(code, {"items": [{"name": self._z["titel"], "id": 7,
                                               "platform_slug": "snes",
                                               "fs_size_bytes": 1024}]})
 
 
 def _romm_stub(appmod, monkeypatch, suchcodes=None):
-    zaehler = {"login": 0, "suche": 0}
+    zaehler = {"login": 0, "suche": 0, "titel": "Chrono Trigger"}
     codes = list(suchcodes or [])
     class _Req:
         @staticmethod
@@ -1453,12 +1456,17 @@ def test_romm_does_not_log_in_again_for_every_lookup(appmod, monkeypatch):
         login 993 ms   suche 1574 ms
 
     Sie wurde bei JEDEM `romm_find` erneut bezahlt, also bei jeder geoeffneten Karte.
+
+    DREI VERSCHIEDENE TITEL, nicht dreimal derselbe: Seit #730 wird ein Treffer kurz
+    gemerkt, und dreimal derselbe Titel waere nur noch EINE Abfrage — der Test wuerde
+    dann das Gedaechtnis messen statt der Sitzung. Gemeint ist hier weiterhin: drei
+    echte Abfragen, trotzdem nur eine Anmeldung.
     """
     z = _romm_stub(appmod, monkeypatch)
     _romm_cfg(appmod, monkeypatch)
-    appmod.romm_find("Chrono Trigger", "snes")
-    appmod.romm_find("Chrono Trigger", "snes")
-    appmod.romm_find("Chrono Trigger", "snes")
+    for titel in ("Chrono Trigger", "Super Metroid", "Donkey Kong Country"):
+        z["titel"] = titel
+        appmod.romm_find(titel, "snes")
     assert z["suche"] == 3, f"es wurde nicht dreimal gesucht: {z}"
     assert z["login"] == 1, \
         f"es wurde {z['login']}-mal angemeldet statt einmal — die Sitzung wird nicht wiederverwendet"
@@ -2031,3 +2039,164 @@ def test_no_search_source_swallows_its_transport_errors_any_more(appmod):
         assert i is not None, f"{fn.__name__} faengt gar nichts ab — dann bitte diesen Test anpassen"
         assert any(z == "raise" for z in zeilen[i:]), \
             f"{fn.__name__} verschluckt seinen Transportfehler — `_quelle_ruhig` sieht ihn nie"
+
+
+# ---------------------------------------------------------------------------
+# #730 — kurzes Gedaechtnis fuer RomM-Treffer
+# ---------------------------------------------------------------------------
+#
+# GEMESSEN im Container gegen das laufende RomM, 36 zufaellig gezogene Bibliothekstitel
+# ueber sechs Plattformen (Sitzung vorher aufgebaut, die Anmeldung aus #724 zaehlt also
+# nicht mit):
+#
+#     min 47 ms   Median 144 ms   p90 1573 ms   max 1616 ms
+#     ueber 1000 ms: 14 von 36        Mittelwert 669 ms
+#
+# Im Issue standen 1673/1681/1326 ms — drei Ziehungen, die alle im oberen Gipfel gelandet
+# waren. „Jede Karte kostet 1,2-1,7 s" war zu hoch gegriffen; die typische Karte kostet
+# 144 ms, aber rund 4 von 10 kosten 1,3-1,6 s, und zwar JE BEGRIFF REPRODUZIERBAR:
+#
+#     Runde 1: FF6=1681  SF2=1769  Sonic2=1645  ChronoTrigger=115
+#     Runde 2: FF6=1538  SF2=1756  Sonic2=1585  ChronoTrigger=121
+#     Runde 3: FF6=1498  SF2=1749  Sonic2=1585  ChronoTrigger=106
+#
+# Eine langsame Karte ist also IMMER langsam — wer sie zweimal oeffnet, wartet zweimal.
+
+
+def test_opening_the_same_card_twice_queries_romm_once(appmod, monkeypatch):
+    """Dieselbe Karte zweimal geoeffnet hat zweimal bezahlt. (#730)
+
+    KAPUTT GEMACHT WIRD DER TRANSPORT (`appmod.requests`), nicht `romm_find` selbst —
+    ein Test, der die zu reparierende Funktion wegmockt, prueft den Aufrufer.
+    """
+    z = _romm_stub(appmod, monkeypatch)
+    _romm_cfg(appmod, monkeypatch)
+    a = appmod.romm_find("Chrono Trigger", "snes")
+    b = appmod.romm_find("Chrono Trigger", "snes")
+    assert a and b and a == b, f"das zweite Nachschlagen lieferte etwas anderes: {a} / {b}"
+    assert z["suche"] == 1, \
+        f"RomM wurde {z['suche']}-mal gefragt statt einmal — der Treffer wird nicht gemerkt"
+
+
+def test_a_stale_romm_entry_is_asked_again(appmod, monkeypatch):
+    """Zwei Minuten, nicht laenger — sonst waere es kein Gedaechtnis, sondern ein Zustand."""
+    z = _romm_stub(appmod, monkeypatch)
+    _romm_cfg(appmod, monkeypatch)
+    appmod.romm_find("Chrono Trigger", "snes")
+    for k in list(appmod.ROMM_CACHE):
+        zeit, wert = appmod.ROMM_CACHE[k]
+        appmod.ROMM_CACHE[k] = (zeit - appmod.ROMM_CACHE_TTL - 1, wert)
+    appmod.romm_find("Chrono Trigger", "snes")
+    assert z["suche"] == 2, \
+        f"der abgelaufene Eintrag wurde weiterbenutzt ({z['suche']} Abfragen)"
+
+
+def test_a_romm_miss_is_not_remembered(appmod, monkeypatch):
+    """„Nicht in der Bibliothek" zu merken ist die gefaehrliche Richtung. (#730)
+
+    Ein gemerktes Nein wuerde eine gerade importierte Datei bis zu zwei Minuten lang
+    verstecken, und der Knopf „Im Browser spielen" bliebe ohne sichtbaren Grund weg.
+    """
+    z = _romm_stub(appmod, monkeypatch)
+    _romm_cfg(appmod, monkeypatch)
+    # Der Stub kennt nur „Chrono Trigger" — hierauf gibt es keinen Treffer.
+    assert appmod.romm_find("Gibt Es Nicht", "snes") is None
+    assert appmod.romm_find("Gibt Es Nicht", "snes") is None
+    assert not appmod.ROMM_CACHE, \
+        f"ein Fehlschlag wurde gemerkt: {list(appmod.ROMM_CACHE)}"
+    assert z["suche"] == 2, \
+        f"nach dem Fehlschlag wurde RomM nicht erneut gefragt ({z['suche']} Abfragen)"
+
+
+def test_a_freshly_imported_title_needs_no_waiting(appmod, monkeypatch):
+    """Der Titel, den der Nutzer gerade heruntergeladen hat, muss SOFORT spielbar sein.
+
+    Faellt aus „Fehlschlaege werden nicht gemerkt" heraus: das erste Nein liegt nirgends,
+    also fragt der zweite Blick wieder RomM — und bekommt den frisch eingelesenen Titel.
+
+    DIESER TEST WAR SCHON VOR DER AENDERUNG GRUEN — vorher gab es gar kein Gedaechtnis,
+    also konnte auch nichts veralten. Er belegt die Reparatur nicht, er ist die Sicherung
+    daneben: Wer spaeter auch Fehlschlaege merkt, macht ihn rot. Von den neun Tests zu
+    #730 waren die anderen acht zuerst rot.
+    """
+    z = _romm_stub(appmod, monkeypatch)
+    _romm_cfg(appmod, monkeypatch)
+    assert appmod.romm_find("Neuer Titel", "snes") is None, "der Stub kennt ihn noch nicht"
+    z["titel"] = "Neuer Titel"          # RomM hat eingelesen
+    treffer = appmod.romm_find("Neuer Titel", "snes")
+    assert treffer, \
+        "der frisch importierte Titel wurde nicht gefunden — ein Nein wurde gemerkt"
+
+
+def test_an_import_forgets_what_was_remembered(appmod, monkeypatch):
+    """Ein Titel, den es schon gab, kann beim erneuten Import eine andere ROM-ID bekommen.
+
+    Ohne das zeigte der Play-Knopf bis zu zwei Minuten lang auf die alte Datei.
+    """
+    z = _romm_stub(appmod, monkeypatch)
+    _romm_cfg(appmod, monkeypatch)
+    appmod.romm_find("Chrono Trigger", "snes")
+    assert appmod.ROMM_CACHE, "nichts gemerkt — dann prueft dieser Test nichts"
+    appmod.romm_cache_vergessen()
+    assert not appmod.ROMM_CACHE, "nach dem Import lag noch etwas im Gedaechtnis"
+    appmod.romm_find("Chrono Trigger", "snes")
+    assert z["suche"] == 2, f"RomM wurde nach dem Import nicht neu gefragt: {z}"
+
+
+def test_the_import_actually_forgets(appmod):
+    """Die Entwertung nuetzt nichts, wenn der Import sie nicht aufruft. (#730)
+
+    Der Aufruf steht direkt hinter `romm_scan` in `process_import` — dort, wo bekannt
+    ist, dass sich die Bibliothek geaendert hat.
+    """
+    import inspect
+    quelle = inspect.getsource(appmod)
+    i = quelle.find("romm_scan(ordner or None)")
+    assert i > 0, "die Aufrufstelle des Scans wurde umbenannt — diesen Test anpassen"
+    assert "romm_cache_vergessen()" in quelle[i:i + 600], \
+        "der Import stoesst den Scan an, verwirft aber das Gemerkte nicht"
+
+
+def test_the_remembered_romm_hit_is_a_copy(appmod, monkeypatch):
+    """Die Aufrufer bekommen ein dict — was sie damit tun, darf den Stand nicht faelschen."""
+    z = _romm_stub(appmod, monkeypatch)
+    _romm_cfg(appmod, monkeypatch)
+    erst = appmod.romm_find("Chrono Trigger", "snes")
+    erst["name"] = "verbogen"
+    erst["id"] = 999
+    zweit = appmod.romm_find("Chrono Trigger", "snes")
+    assert z["suche"] == 1, "nicht gemerkt — dann prueft dieser Test die Kopie nicht"
+    assert zweit["name"] == "Chrono Trigger" and zweit["id"] == 7, \
+        f"der gemerkte Stand wurde vom Aufrufer verbogen: {zweit}"
+
+
+def test_the_romm_cache_is_bounded(appmod, monkeypatch):
+    """Jede geoeffnete Karte legt einen Eintrag an, und nichts raeumt hier je auf.
+
+    ES MUESSEN LAUTER VERSCHIEDENE TREFFER SEIN. Der erste Anlauf dieses Tests legte
+    Eintraege von Hand daneben und suchte immer denselben Titel — der zweite Aufruf war
+    dann ein Treffer im Gedaechtnis und erreichte die Begrenzung nie. Gemessen wird sie
+    nur auf dem SCHREIBWEG, also muss jeder Durchlauf wirklich etwas merken.
+    """
+    z = _romm_stub(appmod, monkeypatch)
+    _romm_cfg(appmod, monkeypatch)
+    monkeypatch.setattr(appmod, "ROMM_CACHE_MAX", 20)
+    for i in range(45):
+        z["titel"] = f"Titel {i}"       # dieses RomM kennt jetzt genau diesen
+        appmod.romm_find(f"Titel {i}", "snes")
+    assert len(appmod.ROMM_CACHE) <= appmod.ROMM_CACHE_MAX, \
+        f"der Zwischenspeicher waechst unbegrenzt: {len(appmod.ROMM_CACHE)} Eintraege"
+    assert len(appmod.ROMM_CACHE) == appmod.ROMM_CACHE_MAX, \
+        "es wurde gar nichts gemerkt — dann prueft dieser Test die Begrenzung nicht"
+
+
+def test_romm_cache_ttl_zero_really_turns_it_off(appmod, monkeypatch):
+    """Ein Schalter, der nur die Haelfte abschaltet, ist schlimmer als keiner. (#726, #730)"""
+    z = _romm_stub(appmod, monkeypatch)
+    _romm_cfg(appmod, monkeypatch)
+    monkeypatch.setattr(appmod, "ROMM_CACHE_TTL", 0)
+    appmod.romm_find("Chrono Trigger", "snes")
+    appmod.romm_find("Chrono Trigger", "snes")
+    assert z["suche"] == 2, f"trotz TTL 0 wurde gemerkt ({z['suche']} Abfragen)"
+    assert not appmod.ROMM_CACHE, \
+        f"trotz TTL 0 wurde gemerkt: {list(appmod.ROMM_CACHE)}"
