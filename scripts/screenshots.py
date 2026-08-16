@@ -172,6 +172,33 @@ ANSICHTEN = [
     ("17", "17-nachrichten",      "#/messages",     BREIT, None),
 ]
 
+# Die Unterbereiche der Einstellungen (#745). Sie werden als AUSSCHNITT aufgenommen, nicht
+# als ganze Seite: In eine Wiki-Seite eingebettet ist ein 1440er Vollbild unlesbar, und die
+# Seitenleiste daneben sagt nichts, was die übrigen Bilder nicht schon zeigen.
+EINSTELLUNGEN = [
+    ("20", "20-set-allgemein",   "general"),
+    ("21", "21-set-benachrichtigungen", "notif"),
+    ("22", "22-set-verbindungen", "conn"),
+    ("23", "23-set-benutzer",    "users"),
+    ("24", "24-set-sperrliste",  "blocklist"),
+    ("25", "25-set-dienste",     "services"),
+    ("26", "26-set-einwurf",     "drop"),
+    ("27", "27-set-organisieren", "organize"),
+    ("28", "28-set-wartung",     "maint"),
+    ("29", "29-set-https",       "tls"),
+    ("30", "30-set-ueber",       "about"),
+]
+ANSICHTEN += [(nr, name, "#/settings", BREIT, "set:" + sec)
+              for nr, name, sec in EINSTELLUNGEN]
+
+# Die API hat sehr wohl eine Oberfläche — Redoc unter /api/docs. Sie gehört in docs/API.md.
+ANSICHTEN.append(("41", "41-api-docs", "api/docs", BREIT, "roh"))
+
+# Seiten, die nicht zur App gehören, aber dokumentiert sind. Sie MUESSEN hier stehen und
+# nicht daneben von Hand entstehen — genau daran ist die erste Bilderserie gealtert.
+ANSICHTEN.append(("40", "40-gamepad-pruefung",
+                  "contrib/streaming-host/web/gamepad-check.html", (1000, 720), "datei"))
+
 
 def app_laden(config_dir, roms_dir, jd_watch, jd_out):
     """`app.py` als eigenes Modulobjekt — dasselbe Vorgehen wie in tests/conftest.py.
@@ -407,6 +434,20 @@ def standbild(seite):
 
 def eine_ansicht(seite, basis, weg, sonder):
     """Eine Seite ansteuern, vorbereiten, aufnehmen. Gibt PNG-Bytes zurück."""
+    if sonder == "datei":
+        # Eine Seite aus dem Repository, ohne Server. Der Streaming-Host liefert sie im
+        # Betrieb aus; fuer das Bild genuegt die Datei.
+        seite.goto("file://" + os.path.join(WURZEL, weg), wait_until="networkidle")
+        seite.wait_for_timeout(1200)
+        return seite.screenshot()
+
+    if sonder == "roh":
+        # Eine Seite ausserhalb der Anwendung (Redoc). Kein Anmelden, kein Assistent,
+        # kein Routing — nur hingehen und warten, bis sie steht.
+        seite.goto(basis + "/" + weg, wait_until="networkidle")
+        seite.wait_for_timeout(2500)
+        return seite.screenshot()
+
     if sonder != "abgemeldet":
         seite.goto(basis, wait_until="domcontentloaded")
         seite.evaluate("""async () => {
@@ -461,6 +502,14 @@ def eine_ansicht(seite, basis, weg, sonder):
         seite.wait_for_timeout(900)
         if seite.evaluate("(document.getElementById('modal')||{}).style?.display") != "block":
             return None
+    elif sonder and sonder.startswith("set:"):
+        seite.evaluate(f"setSection('{sonder.split(':', 1)[1]}')")
+        seite.wait_for_timeout(1200)
+        seite.evaluate("document.activeElement && document.activeElement.blur()")
+        bereich = seite.locator(".setwrap").first
+        if not bereich.count():
+            return None
+        return bereich.screenshot()
 
     # Fokus weg vom Suchfeld: Der blinkende Cursor ist sonst mal da und mal nicht, und
     # der Fokusrahmen liegt auf jedem Bild, auf dem er nichts zu suchen hat.

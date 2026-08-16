@@ -1787,6 +1787,26 @@ jetzt ausdrücklich fest, gemessen gegen Fußzeile *und* Karte.
 sich *voneinander* unterscheiden und darf gerade nicht mitwandern), der Streamen-Knopf, das
 Hinweisblau `unverified` und eine durchscheinende Fortschrittsspur.
 
+### Die vier Designs nebeneinander
+
+Wovon in diesem Kapitel die Rede ist, wenn „alle vier Designs" dasteht:
+
+| | |
+|---|---|
+| **Seerr** — die Vorlage, dunkel mit violettem Akzent | **Glas** — dieselbe Anordnung, durchscheinende Flächen |
+| ![Seerr](img/09-design-seerr.webp) | ![Glas](img/09-design-glas.webp) |
+| **Klar** — ohne Verläufe, ruhigere Kontraste | **Aurora** — waagerechte Navigation, warmer Akzent |
+| ![Klar](img/09-design-klar.webp) | ![Aurora](img/09-design-aurora.webp) |
+
+**Aurora ist der Grund, warum Farben Variablen sein müssen und keine Literale.** Es ist das
+einzige Design, das die Navigation von links nach oben legt, und das einzige mit einem
+warmen Akzent — ein fest eingetragenes Violett steht dort falsch, ohne dass es irgendwo
+knallt. Alle vier sind heute dunkel; das ist Zufall der Entstehung und keine Zusage, weshalb
+die Prüfungen unten von „hell und dunkel" ausgehen und nicht von „immer dunkel".
+
+Die Bilder erzeugt `scripts/screenshots.py` mit. Wer ein fünftes Design ergänzt, trägt es
+dort in `ANSICHTEN` nach — sonst zeigt diese Tabelle für immer vier.
+
 **Warnung und Fehler haben jetzt ebenfalls Variablen — und der Wächter zählt nicht mehr
 Sünder auf, sondern hält den Bestand fest (#703).** 33 feste Farbangaben trugen Warn- und
 Fehlerbedeutung, und die Gefahr-Variablen aus #647 (`--gefahr*`, `--bad`) standen
@@ -1987,6 +2007,17 @@ Zwei Dinge, an denen das regelmäßig scheitert:
 *EN: warning and error now have variables too, and the guard records an inventory instead of listing offenders (#703). 33 hard-coded places carried warning or error meaning, and the danger variables from #647 lived only in the Aurora block — so every `var(--bad,#f85149)` fell back to its literal in three of four themes, which reads as if the problem were already solved. Two findings exposed the #699 guard as too narrow: a fourth success green `#2a6f4b` passed because the guard listed values, and four more status colours were invisible to it because they are assigned through lookup tables rather than a `color:` property. The guard now scans every hex literal in the JavaScript (comments stripped — issue numbers look like hex) against a recorded inventory. That inventory is not an allow-list: most of the 153 remaining occurrences are the default theme's palette written literally into JS, wrong in the other three themes, filed separately. Aurora needed different tones because its accent is an orange-red and both amber and red sat 89/102 away from the download button; it uses a yellow at 144 and a pink-red at 139 instead.*
 
 *EN: the neutral colours now come from variables too (#705). After the status colours, 153 hard-coded values remained in the JavaScript, most of them simply the default theme's palette — `#8b929e`, `#e6e8ec` and `#2c323b` are literally the Seerr values of `--mut`, `--txt` and `--border`, and therefore wrong in the other three themes; nobody noticed because all four themes are dark today. Mapping went by ROLE, not by tone, and two roles that previously existed only as a number got names: `--btn2` (the quiet button — cards and dialogs sit on `--card` themselves, so a button with the same ground would be invisible) and `--link`. The obvious reach for `--acc` was right in three themes and wrong in Seerr: `#7c5cff` on `#0f1114` is 4.35:1 against the required 4.5. The accent is chosen as a BUTTON colour, for white text on it. The accessibility suite caught that, not I; a browser test now pins the condition against both the footer and the card. 29 literals remain deliberately, each with a reason recorded — white on coloured grounds, the avatar palette (which must differ from itself, not follow the theme), the stream button, the "unverified" info blue and a translucent progress track.*
+
+*EN: the four themes side by side. What "all four themes" means throughout this chapter is
+shown in the table above — Seerr (the model, dark with a violet accent), Glass (same layout,
+translucent surfaces), Clean (no gradients, quieter contrast) and Aurora (navigation across
+the top, warm accent). **Aurora is the reason colours have to be variables rather than
+literals**: it is the only theme that moves the navigation from left to top and the only one
+with a warm accent, so a hard-coded violet sits wrong there without anything visibly
+breaking. All four happen to be dark today; that is an accident of how they grew, not a
+promise, which is why the checks below assume light and dark rather than always-dark. The
+images are produced by `scripts/screenshots.py` — a fifth theme has to be added to its
+`ANSICHTEN` list, or the table stays at four forever.*
 
 *EN: menu and tabs carry drawn icons (#658). The navigation ran on emoji, which come from whatever font the system has — `.navsym` even carried `font-variant-emoji:emoji` plus U+FE0F, two coercions to force a presentation out of a font. Jens chose the outline style from two drafts. The vocabulary comes from the mark without copying it: where the subject is a GAME the icon carries the cartridge silhouette with its chamfered corner; where it is not, a conventional shape stands instead — sliders, padlock, bell. Discover is a magnifier whose lens carries the chamfer, because a cartridge with a separate magnifier would be two too-small things at 21 px. The #337 path was live and worse than assumed: `applyI18n` sets `textContent` and deletes children, and for `profile` and `nav_lists` the symbol lived only in the template, so 👤 and ⭐ were never visible at all — not after a language switch, but from load. Only 🚪 survived because it sat inside the translated string, which is why it had to come out of all five language files. Settings sub-entries deliberately get no icons: they are product names.*
 
