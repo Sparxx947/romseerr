@@ -4,6 +4,13 @@ Alle nennenswerten Änderungen an diesem Projekt. Format nach
 [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung nach [SemVer](https://semver.org/lang/de/).
 
+## [1.6.1](https://github.com/Sparxx947/romseerr/compare/v1.6.0...v1.6.1) (2026-08-16)
+
+
+### Dokumentation / Documentation
+
+* deliver the English that the bilingual headings promise ([#753](https://github.com/Sparxx947/romseerr/issues/753)) ([f5186cb](https://github.com/Sparxx947/romseerr/commit/f5186cb4136d4e2ba6ab7de4dba8fefc0b215b58)), closes [#752](https://github.com/Sparxx947/romseerr/issues/752)
+
 ## [1.6.0](https://github.com/Sparxx947/romseerr/compare/v1.5.0...v1.6.0) (2026-08-16)
 
 
