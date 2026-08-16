@@ -975,6 +975,65 @@ def test_no_emoji_left_in_the_navigation_translations(appmod):
                 f"inline-Tabelle: {k} traegt noch ein Emoji: {m.group(1)!r}"
 
 
+def _seitenkoepfe():
+    """(Navigationszuordnung, gefundene Seitenkoepfe) — beides aus dem Quelltext.
+
+    Navigation: `nav_coverage -> abdeckung`, gelesen aus dem Menue in index.html.
+    Kopf: der Text zwischen einem oeffnenden <b>/<h1..3> und dem `${t('nav_…')}` darin.
+    """
+    import re
+    html = open(os.path.join(REPO, "templates", "index.html"), encoding="utf-8").read()
+    js = open(os.path.join(REPO, "static", "js", "index.js"), encoding="utf-8").read()
+    nav = {m.group(2): m.group(1) for m in re.finditer(
+        r'<use href="#rs-i-([a-z]+)"/></svg><span data-i18n=(nav_\w+)', html)}
+    kopf = re.compile(r"<(?:b|h[1-3])\b[^>]*>"
+                      r"((?:(?!</?(?:b|h[1-3])\b).){0,300}?)\$\{t\('(nav_\w+)'\)\}")
+    return nav, [(m.group(2), m.group(1)) for m in kopf.finditer(js)]
+
+
+def test_page_headings_use_the_same_drawn_icon_as_their_navigation_entry(appmod):
+    """Ueberschrift und Menuepunkt fuehren zur selben Seite — sie muessen dasselbe
+    Zeichen tragen. (#739)
+
+    Gemeldet wurde „falsches Logo" auf der Abdeckung: Der Kopf trug `📊`, der Menuepunkt
+    daneben das gezeichnete Modul mit Saeulen. Bibliothek (`📚`) und Nachrichten (`✉`)
+    genauso.
+
+    WARUM DER WAECHTER VON #658 DAS NICHT FAND: Er prueft die UEBERSETZUNGSTEXTE auf
+    Emoji — dort standen sie beim Umbau des Menues. Diese drei standen im MARKUP der
+    Ueberschrift, also eine Ebene daneben, und blieben ein Jahr lang stehen. Deshalb
+    prueft dieser Test nicht den Text, sondern die Stelle, an der das Zeichen entsteht.
+
+    Warum ein Emoji hier nicht bloss haesslich ist, steht als Regel ueber dem
+    <defs>-Block in index.html: Es kommt aus der Schrift des Systems, sieht also auf
+    jedem Geraet anders aus, und es folgt `currentColor` NICHT — es bleibt in allen vier
+    Designs gleich bunt, waehrend sich alles um es herum umfaerbt.
+    """
+    import re
+    emoji = re.compile("[\U0001F300-\U0001FAFF✀-➿☀-⛿←-⇿"
+                       "⬀-⯿✉✒]")
+    nav, koepfe = _seitenkoepfe()
+
+    # Der Waechter muss seine eigene Reichweite belegen: Findet das Muster die Koepfe
+    # nicht mehr, waere er lautlos leer und gruen — derselbe Fehler wie der gesuchte.
+    assert len(nav) >= 8, f"nur {len(nav)} Menuepunkte erkannt — Muster stimmt nicht"
+    assert len(koepfe) >= 3, \
+        f"nur {len(koepfe)} Seitenkoepfe gefunden, erwartet mindestens 3 " \
+        f"(Abdeckung, Bibliothek, Nachrichten)"
+    for pflicht in ("nav_coverage", "nav_library", "nav_messages"):
+        assert any(k == pflicht for k, _ in koepfe), \
+            f"der Kopf zu {pflicht} wird nicht mehr erkannt — der Waechter wurde verengt"
+
+    for schluessel, davor in koepfe:
+        assert not emoji.search(davor), \
+            f"Kopf zu {schluessel} traegt ein Emoji statt eines Zeichens: {davor!r}"
+        m = re.search(r"zeichen\('([a-z]+)'", davor)
+        assert m, f"Kopf zu {schluessel} traegt gar kein Zeichen: {davor!r}"
+        assert m.group(1) == nav[schluessel], \
+            (f"Kopf zu {schluessel} zeigt rs-i-{m.group(1)}, das Menue daneben "
+             f"rs-i-{nav[schluessel]} — zwei Bilder fuer eine Seite")
+
+
 def test_every_css_variable_used_actually_exists(appmod):
     """Ein Tippfehler in einer Variablen ist LAUTLOS. (#699)
 
