@@ -105,6 +105,20 @@ Drei Wege zu HTTPS:
 > Name lässt sich dann im LAN nicht auflösen, obwohl der Eintrag stimmt. In der
 > Router-Oberfläche eine Ausnahme für die Domain eintragen.
 
+*EN: HTTPS is mandatory, not optional — the most important line in this file. Over **HTTP**
+on a LAN address Selkies refuses to serve at all ("This application requires a secure
+connection"), and even where the picture works, **audio and gamepad need the WebCodecs API**,
+which browsers block over HTTP. The result is treacherous: video runs, sound is missing, the
+controller is never detected, and none of it produces an error message. Three routes to
+HTTPS: your own domain with DNS-01 (the certbot sidecar here — a DNS record pointing at the
+private address is enough, **no port needs to be open** to the outside, and no client has to
+import anything); your own certificate from an existing PKI, placed in `data/config/ssl/`;
+or, for trying it out only, `http://localhost:<port>` through an SSH tunnel, since browsers
+treat `localhost` as a secure context. Watch out for **DNS rebind protection**: when a public
+name points at a private address, many routers (FRITZ!Box, OpenWrt, pi-hole) refuse to
+resolve it, so the name fails inside the LAN although the record is correct — add an
+exception for the domain in the router.*
+
 ---
 
 ## GPU: läuft, aber auf der CPU
@@ -131,6 +145,18 @@ der Karte und schiebt die Bilder in den X-Server. Kein DRI3, keine Zusatzrechte.
 > ihn selbst und legt ihn nach `/config/.vgl-device`.
 
 Deshalb müssen in `.env` **beide** Knoten derselben Karte stehen.
+
+*EN: the GPU runs — on the CPU. The X server in the container is an `Xvfb` **without DRI3**,
+and without DRI3 Mesa falls back to `llvmpipe`, software rasterisation on the CPU. Everything
+looks like it works; PS2 and GameCube are unusably slow. Check with
+`glxinfo -B | grep "OpenGL renderer"` — `llvmpipe` is wrong, `Mesa Intel/AMD/…` is right. The
+fix was **VirtualGL** (`init/10-virtualgl`), which renders through EGL straight on the card
+and pushes the frames into the X server: no DRI3, no extra privileges. Note that VirtualGL
+wants the **card node, not the render node** — `vglrun -d /dev/dri/renderD128` fails with
+`Invalid EGL device` while `card0` works; `/opt/VirtualGL/bin/eglinfo -e` says which is which,
+and the init script works it out itself and stores it in `/config/.vgl-device`. That is why
+`.env` must name **both** nodes of the same card. See the note below — this is no longer the
+recommended path.*
 
 ### Nachtrag: der DRI3-Schalter funktioniert inzwischen — und macht VirtualGL überflüssig
 
@@ -163,6 +189,19 @@ echten Xorg, der dafür einmal geplant war (#169): **das Ziel ist ohne ihn errei
 `init/10-virtualgl` und `/opt/VirtualGL` liegen weiterhin im Abbild, werden aber von
 keinem Emulator mehr benutzt. Sie bleiben vorerst als Rückfallebene — wer sie loswerden
 will, prüft vorher mit `ps aux | grep vglrun`, ob wirklich nichts mehr darüber startet.
+
+*EN: addendum — the DRI3 switch works now, and it makes VirtualGL unnecessary. This section
+long claimed the built-in switch (`DRINODE` + `DISABLE_DRI3=false`) was **not** an
+alternative, because Xvfb crashed with a segmentation fault on Intel Arc cards. That is no
+longer true, measured on the running host on 2026-08-10: Xvfb is stable, **DRI3 is present**,
+and `vulkaninfo --summary` reports the Arc A310 on the Mesa driver. Emulators have started
+**without `vglrun`** ever since — Dolphin says `Vulkan` in its window title and the card
+demonstrably works. Measured per thread from `/proc` (100 % = one full core), Dolphin's video
+thread went from **a constant ~100 % to 5.7 %**: it was costing per frame and per draw call
+rather than per pixel, the signature of the VirtualGL detour. That also settles the planned
+rebuild onto a real Xorg (#169) — **the goal is reached without it**. `init/10-virtualgl` and
+`/opt/VirtualGL` stay in the image as a fallback but are used by no emulator; before removing
+them, check with `ps aux | grep vglrun` that nothing still starts through them.*
 
 ---
 
@@ -233,6 +272,37 @@ liegen bei 1995 MHz gegen eine Obergrenze von 2500 MHz, weil mehrere andere Last
 — und die Arc langweilt sich bei 28 bis 44 %. Das ist eine Grenze der Einzelkernleistung,
 kein Grafikproblem.
 
+*EN: xemu (Xbox) needs two extra things, both handled by `init/22-xemu-vorbereiten`. First
+**`libusb-1.0.so.0`**: every other emulator AppImage carries its libraries, xemu's does not
+for libusb, and the container has none — without it the start ends immediately in `error
+while loading shared libraries`, the stream opens and stays blank. The script borrows it from
+an emulator that ships it and places a **copy** in `/config/lib`; writing into `/usr` is the
+trap that once made an apt-installed Dolphin disappear silently. Second, **`xbox_hdd.qcow2`**
+— the Xbox will not boot without a disk; the image is empty, formatted and comes from the
+xemu project itself. Then there is **audio**: ALSA loads its Pulse module through
+`libpulse.so.0`, which needs `libpulsecommon-<version>.so`, and that one sits in a
+**subdirectory outside the search path** — which is why xemu stayed mute although PulseAudio
+was running. The agent therefore sets `LD_LIBRARY_PATH` to both paths for Xbox. **Do not mount
+another emulator's whole lib directory**: its `libpulse.so.0` then displaces the system one
+and mismatches the system `libpulsecommon` (`undefined symbol: pa_in_valgrind`), and the sound
+is gone again. Exactly one file is borrowed, never a directory. And a third thing: xemu is the
+only emulator running **without VirtualGL**, with Vulkan instead. VirtualGL's readback layer
+does not follow a window resize — it keeps reading at the old size, so only the old corner
+gets painted and the rest keeps whatever was on screen before; in fullscreen that looks like
+an emulator failing to scale. Reported as VirtualGL/virtualgl#287, and the maintainer
+confirmed the cause: the `ConfigureNotify` events VirtualGL waits for never arrive. Measured
+**one factor at a time** with a 1920×1080 window, painted area compared against a capture of
+the empty desktop: OpenGL with `vglrun` ~62 %, Vulkan with `vglrun` 62.9 %, **Vulkan without
+`vglrun` 100 %**. The middle row is the important one — **Vulkan alone is not enough**; while
+VirtualGL sits in between, output still goes through the intercepted GL path. Only both
+together work, which is why `launch-profile.py` also writes `renderer = 'VULKAN'` into
+`xemu.toml` (xemu has no command-line switch for it). Why only xemu? Because only xemu is
+verified end to end — picture, sound and controller confirmed by a human. **What this does not
+fix:** xemu still stutters, for a different reason — the bottleneck is a **single thread**
+(21,351 ticks against 3,757 for the next), cores sit at 1995 MHz against a 2500 MHz ceiling
+because other loads are running, and the Arc idles at 28–44 %. That is a single-core
+performance limit, not a graphics problem.*
+
 ### Und vor allem: das richtige BIOS
 
 **Alle Retail-BIOS-Dumps führen zu einem schwarzen Bild** oder zum Hinweis „Ihre Xbox
@@ -257,6 +327,19 @@ dieselbe Größe.
 > ob wirklich etwas läuft, misst die **Helligkeit im Fensterausschnitt** (schwarz ≈ 0)
 > oder vergleicht zwei Aufnahmen: **bitgleiche Bilder bei hoher CPU-Last bedeuten
 > eingefrorenen Framebuffer, nicht laufendes Spiel.**
+
+*EN: and above all, the right BIOS. **Every retail BIOS dump ends in a black screen** or in
+"your Xbox requires service" — they demand a **locked** hard disk, and the supplied image is
+unlocked. All 14 combinations were measured on the running host (7 BIOS × 2 MCPX), scored by
+mean brightness inside the window: only **COMPLEX 4627 with MCPX 1.0** produced a picture
+(232 against ~0 for everything else). A **patched** BIOS is therefore required, and the
+firmware check cannot catch this: it checks sizes, and a retail dump has the same size. Note
+that **the window title is useless as a success criterion** — it always reads
+`xemu | v0.8.136`, whether that is the welcome dialog, an error or a running game, because
+xemu draws its dialogs into the window rather than as separate X windows. To tell whether
+something is really running, measure **brightness inside the window area** (black ≈ 0) or
+compare two captures: **identical frames under high CPU load mean a frozen framebuffer, not a
+running game.***
 
 Eine eigene `xemu.toml` braucht es darüber hinaus **nicht** — mit Festplattenabbild
 startet xemu auch ohne Konfigurationsdatei und ohne `eeprom.bin`, das es sich selbst
@@ -289,6 +372,17 @@ Spielverzeichnis belegt. Gemessen, mit genau dem Titel, an dem es aufgefallen wa
 
 Danach lief der Titel über eine Minute weiter bei 99,9 % Bildfläche, und der Ordner blieb
 **leer** — die Prüfdatei wird angelegt und gleich wieder entfernt.
+
+*EN: a PS3 title died after 21 seconds — over a probe file. It looked like a broken image: a
+title started, ran briefly and quit, while others from the same library ran fine. The cause is
+in the error line if you read it to the end — the game creates a **probe file in its own
+directory** to see whether it may write there. On a real PS3 that sits on the hard disk; here
+it sits on the ROM share, which is mounted `ro`. It stays that way: a game asking for write
+access is no reason to open the library. Instead **`/app_home`** is redirected, which RPCS3
+otherwise points at the game directory. Measured with exactly the title that exposed it:
+before, 1 fatal error and abort after 21 s; after, 0 errors, the title kept running for over a
+minute at 99.9 % painted area, and the folder stayed **empty** — the probe file is created and
+removed again immediately.*
 
 > **Hier stand einmal, `/app_home` sei nicht umlenkbar.** Das stützte sich auf den
 > Konfigurationsabzug im Protokoll, in dem der Schlüssel fehlt. Im Programm steht er sehr
@@ -750,6 +844,15 @@ Zwei Einstellungen sind dafür nötig und im Compose gesetzt:
 `PULSE_SERVER=unix:/defaults/native` (die Aufnahmebibliothek beachtet
 `PULSE_RUNTIME_PATH` nicht und scheitert sonst an `pa_context_connect()`).
 
+*EN: checking audio when it is missing. The browser's own indicators mislead here — the
+statistics show "bandwidth 0" even while video plays. The only reliable measuring point is
+inside the container, recording five seconds from `output.monitor` and counting non-zero
+bytes. A large number means audio is present and the problem is the browser (almost always: no
+HTTPS). A `0` means the source is silent, so it is the emulator or the game, not the transport.
+Two settings are required and set in the compose file: `SELKIES_AUDIO_ENABLED=true` (the
+default is **off**) and `PULSE_SERVER=unix:/defaults/native` — the capture library ignores
+`PULSE_RUNTIME_PATH` and would otherwise fail in `pa_context_connect()`.*
+
 ### Zwei Fallen, bei denen nichts fehlschlägt und trotzdem nichts zu hören ist
 
 **Der Client fragt nach dem Ton, nicht der Server.** Wird die Streaming-Pipeline
@@ -811,6 +914,26 @@ Eine feste Schwelle wie „leiser als 30" taugt dafür **nicht**: Ein leises Sig
 darunter, ohne dass etwas fehlt — das hat hier einmal eine Stunde in die falsche Richtung
 gekostet.
 
+*EN: two traps where nothing fails and there is still no sound. **The client asks for audio,
+not the server.** When the streaming pipeline is reset — after a resolution change, say — the
+browser rebuilds it and sends only `START_VIDEO`. The picture comes back, the sound does not,
+and **no error appears in the log**: capture and the Opus encoder keep running server-side,
+nobody is asking for them any more. Reloading the page does not help because the state sits on
+the client; toggling the audio switch in the Selkies side menu sends a fresh `START_AUDIO`.
+Diagnose it by comparing timestamps — if the last `START_AUDIO` lies **before** the last
+"stopped all streams", it is the client. **Cemu picks a backend that does not exist here.** The
+stored value was `<api>0</api>`, DirectSound, which Cemu itself lists as `not supported`; only
+Cubeb is available. Cemu then asks for a device on a backend that is not there, finds none, and
+carries on regardless. `launch-profile.py` therefore sets `<api>3</api>` (Cubeb) — the number
+comes from the order in which Cemu lists its backends, not from a guess. **The buffer is
+deliberately left alone**: one title sounded chopped and `<delay>` was the obvious knob, but
+measured it did not help (raising it from 2 to 9 did not even change the buffer latency, nor
+did `PULSE_LATENCY_MSEC=120`), while a second title was flawless at the default — **0 ms** of
+silence in 8 seconds against 4040 ms for the first. It was that game's title screen, not the
+emulator. Measure it by counting real digital zeros rather than "quiet": a fixed threshold like
+"below 30" does **not** work, because a quiet signal falls under it without anything missing —
+that cost an hour in the wrong direction once.*
+
 ---
 
 ## Emulatoren installieren
@@ -829,6 +952,16 @@ Zwei Emulatoren brauchen eine Adresse von dir, weil sich ihre Quelle nicht autom
 ermitteln lässt: **RPCS3** (keine Release-Dateien auf GitHub, offizieller Direktlink
 weist automatisierte Abrufe ab) und der **Switch-Emulator** (bewusst ohne eingebaute
 Adresse). Romseerr zeigt sie als „URL nötig".
+
+*EN: installing emulators. **A fresh installation ships no emulator at all** and downloads
+none. You pick in Romseerr under Settings → Connections what lands on the machine, one click
+per entry. That is deliberate: which emulators end up on your machine carries weight depending
+on jurisdiction, and the project does not make that decision for you silently. For unattended
+rollouts the `INSTALL_*` switches in `.env` fetch automatically at container start; all
+default to `false`. Two emulators need an address from you because their source cannot be
+determined automatically — **RPCS3** (no release files on GitHub, and the official direct link
+rejects automated fetches) and the **Switch emulator** (deliberately without a built-in
+address). Romseerr shows those as "URL needed".*
 
 ### Aktualisieren — einzeln, und mit einem Weg zurück
 
@@ -854,6 +987,22 @@ oft erst beim übernächsten Start auf.
 Die `.url`-Marke wandert mit ihrer Fassung. Das ist kein Detail: Sie ist es, wogegen die
 automatische Aktualisierung vergleicht — eine zurückgeholte Fassung ohne ihre Marke würde
 beim nächsten Lauf sofort wieder auf die kaputte gehoben.
+
+*EN: updating — one at a time, and with a way back. **Every emulator can be updated on its
+own** (`⟳` in the list) in addition to the bulk button: a bulk run pulls hundreds of megabytes
+for emulators nobody uses, and anyone hunting a regression wants to take exactly one step. The
+bulk run now covers everything **installed**, not only what an `INSTALL_*` switch enabled —
+previously it skipped every emulator that arrived through the interface and still reported
+success: the answer was "started", the version stayed unchanged. **The way back reaches three
+versions.** On update the replaced version moves to slot 1, the others shift down, the oldest
+falls off; `↩` goes back **one step** and is repeatable, and the number beside it says how far
+is left. The rolled-back version is discarded — you are going back *because* it is broken.
+Before, there was exactly one saved version and the rollback *swapped* current and old, so
+pressing twice put you back where you started; worse was the likely case, where an update onto
+an already broken version overwrote the last good one, and a broken emulator often only shows
+up two starts later. The `.url` marker travels with its version, and that is not a detail: it
+is what the automatic update compares against — a restored version without its marker would be
+lifted straight back onto the broken one on the next run.*
 
 Die Zahl der aufgehobenen Fassungen steht in `EMU_GENERATIONEN` (Vorgabe `3`, `0` schaltet
 das Aufheben ab). Jede kostet den vollen Platz des Emulators — hier 80 bis 400 MB.
@@ -905,7 +1054,24 @@ Fällen einwandfrei, nur das Spiel nicht:
   **vor dem Start** und weist verschlüsselte Titel mit einer Begründung ab, statt einen
   leeren Stream zu öffnen (#299).
 - **Wii: NKit-komprimierte ISOs.** Dolphin öffnet einen `NKit Warning`-Dialog statt des
-  Spiels. Dieselbe Bibliothek in `.wbfs` startet ohne Zutun.
+  Spiels. Dieselbe Bibliothek in 
+
+*EN: two traps that look like a broken host. Both are **title problems, not emulator
+problems** — the emulator runs perfectly in both cases, only the game does not. **3DS:
+encrypted ROMs** (solved since #354/#356 — the host now decrypts at start). Before that,
+Azahar started but every title failed, differently per format: a cartridge dump shows an `App
+Encrypted` dialog, an eShop title writes `Failed to determine system mode (Error 8)` into the
+log and opens no window at all, and a `.cia` reports `CIA must be installed before usage` —
+CIAs must be installed first, they do not start directly. **Azahar does not decrypt by
+itself**, not even with a complete `aes_keys.txt` and `boot9.bin`; the request was rejected
+upstream as *closed as not planned* (azahar-emu/azahar#2207), so **pre-decrypted dumps** are
+required. Whether a file is usable is written in its header and can be checked without an
+emulator: a `.3ds`/`.cci` carries `NCSD` at `0x100`, the first partition starts at `0x4000`
+with `NCCH` at `0x4100`, and eight flag bytes sit from `0x188` — **bit 2 of flag 7 (`0x04`,
+`NoCrypto`)** means unencrypted. The streaming host checks this **before starting** and
+refuses encrypted titles with a reason instead of opening an empty stream (#299). **Wii:
+NKit-compressed ISOs** — Dolphin opens an `NKit Warning` dialog instead of the game.*
+`.wbfs` startet ohne Zutun.
 
 ### 3DS: entschlüsseln, sonst geht nichts
 
@@ -1038,6 +1204,19 @@ das ein zweites Ärgernis — vorher wurde der Fehlerdialog **selbst** aufs Voll
 gezogen (er ist mit 293×101 groß genug, um als Fenster durchzugehen), und genau das kam
 als „leerer Stream" an.
 
+*EN: where the host says no game is running. The start itself **succeeds** in these cases —
+the emulator does run — so `/launch` still answers `ok`; what fails is the title, and that is
+what `/status` reports. `window` is `""` (nothing started yet), `pending` (start under way,
+window still expected), `ok` (a game window stands), `dialog` (an error dialog, with its title
+in `window_detail`), `kein-fenster` (nothing visible appeared) or `unbekannt` (the window step
+itself did not get through). For an encrypted 3DS ROM that reads `window: "dialog"` and
+`window_detail: "App Encrypted"` — the information that previously only existed on the
+emulator's screen and reached nobody. Dialogs are recognised by the window type
+`_NET_WM_WINDOW_TYPE_DIALOG`, not by known error strings: a list of texts would be wrong with
+every new emulator version. That also fixes a second annoyance — the error dialog used to be
+pulled to fullscreen **itself** (at 293×101 it is large enough to pass as a window), and that
+is exactly what arrived as an "empty stream".*
+
 ## Die Bibliothek muss auf beiden Seiten dieselbe sein
 
 Romseerr und der Streaming-Host hängen beide die ROM-Bibliothek ein. **Beide müssen
@@ -1056,6 +1235,15 @@ Romseerr schickt den Pfad inzwischen **relativ zur Wurzel**, damit nicht auch no
 Einhängepunkt übereinstimmen muss. Die Wurzel selbst muss es aber weiterhin — und wenn
 sie es nicht tut, sagt der Start-Dienst das im Klartext, statt nur „nicht gefunden".
 
+*EN: the library must be the same on both sides. Romseerr and the streaming host both mount
+the ROM library, and **both must mean the same root** — otherwise the emulator does not start,
+and not in a way that looks like it: Romseerr dutifully opens the desktop and the title stays
+closed. Mounting `…/library/roms` on Romseerr and `…/library` on the streaming host would be
+wrong: both are called `/roms` inside their container but mean different folders. Romseerr now
+sends the path **relative to the root** so the mount point need not match as well — the root
+itself still must, and when it does not, the agent says so in plain words rather than just
+"not found".*
+
 ## Controller
 
 Ein Container darf keine Eingabegeräte anlegen. Selkies löst das mit einem
@@ -1065,6 +1253,12 @@ Ein Container darf keine Eingabegeräte anlegen. Selkies löst das mit einem
 Die Selkies-Dokumentation nennt drei Variablen; das Abbild setzt zwei davon und lässt
 `SDL_JOYSTICK_DEVICE` weg. Der Start-Dienst ergänzt sie, sonst hat SDL keinen Hinweis,
 welches Gerät gemeint ist.
+
+*EN: controllers. A container may not create input devices. Selkies solves that with a
+**preloaded interposer** that intercepts opening `/dev/input/js*` and pulls the data from the
+browser over a Unix socket — no `uinput`, no elevated privileges. The Selkies documentation
+names three variables; the image sets two of them and omits `SDL_JOYSTICK_DEVICE`. The launch
+agent adds it, because otherwise SDL has no hint which device is meant.*
 
 ### Prüfseite: was sieht der Browser?
 
@@ -1103,6 +1297,14 @@ irgendetwas defekt wäre. In dem Fall genügt es, den Titel neu zu starten.
 
 Zum Nachsehen im Browser: `navigator.getGamepads()` in der Entwicklerkonsole. Kommt
 dort nichts, liegt es nicht am Container.
+
+*EN: the order decides, and it is not intuitive: connect the controller to your own machine,
+**press a button on it** while the stream page has focus, and **only then** start the title.
+The browser's Gamepad API only reports a pad after a button press, for privacy reasons, and
+most emulators read the device list only at startup — so starting first and touching the
+controller afterwards gives you a silent pad with nothing actually broken. Restarting the
+title is enough in that case. To check in the browser, run `navigator.getGamepads()` in the
+developer console; if nothing comes back, the container is not the problem.*
 
 ## BIOS und Firmware
 
@@ -1153,6 +1355,28 @@ eingespielt — einzeln, erst die eine, dann die andere.
 
 Der Status prüft deshalb **beide** Ablagen (`vs0` und `sa0`). Mit nur einer meldete er
 „eingespielt", während der Emulator selbst widersprach (#484).
+
+*EN: BIOS and firmware. Several emulators do not start **at all** without firmware, and it
+shows as a black screen rather than an error, so Romseerr lists what is missing per platform
+under Settings → Connections. **This project does not obtain BIOS images.** For PS2, Xbox,
+Dreamcast, 3DS, Switch and Wii U there is no legitimate source; a script could only fetch them
+from sites distributing them without permission. Every emulator project declines that, and so
+does this one. What is automated here is the actual work: **which** file, whether it looks
+intact, and **where** it belongs. Two routes: **vendor** — only **PS3**, since Sony publishes
+its system software itself, one click and the rest runs; and **upload** for everything else,
+where you choose the file and Romseerr passes it through without storing it. Files land in
+`/config/firmware/<platform>/` and are copied from there to wherever the emulator looks — that
+separation is deliberate, so reinstalling an emulator keeps the firmware. **PS Vita needs two
+parts, and only one is manual**: Vita3K wants the firmware PUP **and** a **font package**, and
+says `Firmware is not fully installed.` when one is missing. **Vita3K downloads neither by
+itself** — the *Download Firmware Font Package* button looks like it does and does not: it
+opens a browser on a short link. Measured on the running host, the log says `Opening in
+existing browser session`, Chromium starts, and nothing else happens. The short link points at
+an unencrypted direct download (56,768,512 bytes, header `SCEUF`); with `curl` it is a
+one-liner, while in the container's browser the download never started. Both PUPs go into
+`firmware/psvita/` and are applied through *File ▸ Install Firmware*, one after the other. The
+status therefore checks **both** locations (`vs0` and `sa0`) — with only one it reported
+"installed" while the emulator itself disagreed (#484).*
 
 #### PS3: Einspielen ohne Klick — der Schalter heißt `--headless`, nicht `--no-gui`
 
@@ -1709,6 +1933,16 @@ Für dauerhaftes Bleiben auf einer bestimmten Fassung: die vollständige URL des
 gewünschten Release-Assets in `<NAME>_URL` eintragen (z. B. `PCSX2_URL`). Sie
 schlägt die Release-Abfrage, auch bei eingeschaltetem Auto-Update.
 
+*EN: updating and rolling back emulators. Runs at every container start: the current release
+URL is fetched and compared against the installed one. It can also be triggered from Romseerr
+under Settings → Connections → "Update emulators". Two safety nets, because an update can also
+do harm: a failed **download** or a failed **unpack** leaves the running version untouched —
+unpacking happens beside it and the swap only follows success — and the **previous version is
+kept**, so a regression costs one click to undo, with no network and no hunting for the old
+build. To stay on a particular version permanently, put the full URL of the wanted release
+asset into `<NAME>_URL` (e.g. `PCSX2_URL`); it beats the release lookup even with auto-update
+enabled.*
+
 ## DRI3: eine Zeile, kein X-Server-Umbau
 
 Der X-Dienst des Abbilds kann DRI3, sucht dafür aber **fest nach `/dev/dri/renderD128`**.
@@ -1728,6 +1962,16 @@ Die Abhilfe ist `DRINODE` in der Compose-Datei. Gemessen mit und ohne:
 Ein echter Xorg auf der GPU wurde probiert und funktioniert auch (headless, `modesetting`
 + glamor, als unprivilegierter Nutzer) — er wird schlicht nicht gebraucht.
 
+*EN: DRI3 — one line, not an X server rebuild. The image's X service can do DRI3 but looks
+for **`/dev/dri/renderD128` specifically**. If the card sits on a different node the detection
+never fires: Xvfb runs without a GPU node, DRI3 is missing, and Vulkan cannot present at all.
+That is precisely why VirtualGL was needed. The remedy is `DRINODE` in the compose file.
+Measured with and without: `xdpyinfo` gains DRI3, `vulkaninfo` goes from *No DRI3 support
+detected* to a presentable surface on the GPU, Dolphin's video thread drops from saturating a
+core to **14 %**, and VirtualGL disappears from the process. A real Xorg on the GPU was tried
+and works too (headless, `modesetting` + glamor, as an unprivileged user) — it is simply not
+needed.*
+
 ## Gamepads: die uinput-Brücke
 
 Selkies reicht Gamepads über einen **`LD_PRELOAD`-Interposer** weiter. Die Emulatoren hier
@@ -1744,6 +1988,17 @@ statt des AppImage (öffnet kein Fenster), die mitgelieferte `libudev` beiseitel
 Der Weg, der funktioniert, ist `selkies-uinput-bridge.py`. Sie spricht dasselbe
 Socket-Protokoll wie der Interposer und legt daraus **echte Kernel-Geräte** an, die kein
 Preloading brauchen. Gestartet wird sie von `init/35-gamepad-bridge`.
+
+*EN: gamepads — the uinput bridge. Selkies forwards gamepads through an **`LD_PRELOAD`
+interposer**. The emulators here are AppImages whose runtime is **statically linked** (`AppRun`
+is `static-pie`), and `LD_PRELOAD` has no effect on static binaries. Measured: inside the
+running emulator no interposer is loaded, it opens no input device at all, and its SDL finds
+zero pads. Selkies itself works correctly — with the interposer a system SDL finds **four**
+pads, without it **zero**. Tried and discarded: rebuilding the interposer (works, changes
+nothing), the apt package instead of the AppImage (opens no window), moving the bundled
+`libudev` aside (no effect). The route that works is `selkies-uinput-bridge.py`: it speaks the
+same socket protocol as the interposer and turns it into **real kernel devices**, which need
+no preloading. It is started by `init/35-gamepad-bridge`.*
 
 ### Was dafür nötig ist
 
@@ -1764,6 +2019,17 @@ feste Nummer, sondern nur der ganze Major 13.
 Server ohne Tastatur und Maus ist das gegenstandslos — vorher `cat /proc/bus/input/devices`
 ansehen.
 
+*EN: what it takes. Three things: the `uinput` module **on the host** (`modprobe uinput`,
+persistently via `/etc/modules-load.d/`), `/dev/uinput` in the container (listed under
+`devices:`), and `device_cgroup_rules: c 13:* rmw` — **without which it does not work**. That
+permission cost the most time: the container may **create** devices but not **open** them. The
+bridged pad appeared as `/dev/input/event3` with `crw-rw-rw-` inside the container, and
+`open()` still failed with `EPERM`, even as `root`. It is not the file permissions but
+Docker's device cgroup: only what is listed under `devices:` is allowed. Because the device
+number changes on every connect, no fixed number helps — only the whole major 13. **Trade-off:**
+the container may then also read the host's input devices. On a server without keyboard and
+mouse that is moot; check `cat /proc/bus/input/devices` first.*
+
 ### Zwei Eigenheiten, die von außen wie Defekte aussehen
 
 **Die Geräte entstehen im `/dev` des Hosts, nicht im Container.** uinput legt sie im Kernel
@@ -1776,6 +2042,16 @@ Beim Verbindungsabbruch räumt sie nur das weg, was sie selbst angelegt hat.
 also stets vier Geräte. Das ist beabsichtigt: Im Container läuft kein `udev`, ein bereits
 laufender Emulator würde ein später erscheinendes Gerät nie bemerken. Reihenfolge deshalb:
 **erst Pad im Browser verbinden, dann das Spiel starten.**
+
+*EN: two quirks that look like defects from outside. **The devices appear in the host's `/dev`,
+not the container's.** uinput creates them in the kernel, so they show up in the host's
+devtmpfs while the container has its own `/dev`. The bridge therefore reads the device number
+from `/sys/devices/virtual/input/<sysname>/…/dev` and creates the node itself (`mknod` is
+allowed, the container is **not** privileged), and on disconnect it removes only what it
+created. **Selkies always offers four pads**, even with no controller attached, so four devices
+always appear. That is intended: no `udev` runs in the container, and an already running
+emulator would never notice a device appearing later. Hence the order: **connect the pad in the
+browser first, then start the game.***
 
 ### Wenn nichts ankommt
 
@@ -1804,6 +2080,16 @@ docker exec -u 1000 stream-host head -c1 /dev/input/event3    # EPERM = Cgroup-R
 `event1000`–`event1003` und `js0`–`js3` legt **Selkies** an. Die `event100x` sind Attrappen
 und melden „No such device" — das ist normal, sie funktionieren nur über den Interposer.
 Die `js0`–`js3` zeigen dagegen auf die echten Geräte der Brücke.
+
+*EN: when nothing arrives. Start with the probe — it tests the **whole** chain without a
+controller attached and says which of the three links is missing
+(`docker exec -u 0 stream-host python3 /opt/gamepad-bridge-probe.py`). It creates its **own**
+socket and leaves the real ones alone, so a running session is undisturbed. By hand: check the
+bridge log for created devices, list `/dev/input/`, and try reading `event3` as uid 1000 —
+`EPERM` there means the cgroup rule is missing. Note that `event1000`–`event1003` and
+`js0`–`js3` are created by **Selkies**: the `event100x` are dummies and report "No such
+device", which is normal since they only work through the interposer, while `js0`–`js3` point
+at the bridge's real devices.*
 
 ### Der Gerätename ändert sich mit der Brücke
 
@@ -1856,6 +2142,12 @@ startet Prozesse — entsprechend ist er gebaut:
 
 Er gehört **nicht ins offene Netz**.
 
+*EN: the launch agent. `stream-agent.py` receives from Romseerr which file to start. It starts
+processes, and is built accordingly: **without a token it does not start at all**, and requests
+without one get `401`; **no shell** is involved, the argument list goes to `execve` unchanged;
+and the path is resolved through `realpath` and must lie **inside** the library — otherwise it
+would be a remote launcher for arbitrary files. It does **not** belong on the open internet.*
+
 ### Wo er herkommt — und warum es dafür keinen Rückfall gibt
 
 Gestartet wird **immer** `/opt/stream-agent.py`, die Einhängung von
@@ -1882,6 +2174,19 @@ Bind-Mounts des Containers.
 
 Liegt auf einer älteren Installation noch ein `/config/stream-agent.py` herum, kann es
 weg — es wird von nichts mehr gelesen.
+
+*EN: where it comes from, and why there is no fallback. `/opt/stream-agent.py` is **always**
+what starts — the mount of `stack/stream-agent.py` — so what runs is what the repository says.
+If that file is missing, **the start aborts**, deliberately. `init/30-agent` used to fall back
+silently to `/config/stream-agent.py`, which on grown installations is an old build: measured
+here, 75,621 bytes and 1510 lines against 6,703 bytes and 158 lines. The old one knows neither
+`psx` nor `psvita`, `ps3` or `xbox` and points at emulator paths that no longer exist — it
+would have answered requests and **looked healthy**: the stream comes up, the emulator table is
+wrong, and nothing in the log says why. **A fallback is only a safety net when falling into it
+is visible.** A container that does not come up is fixed in ten minutes; one that comes up
+wrongly costs a day. Seeing `[agent] FEHLT: /opt/stream-agent.py` means checking the
+container's bind mounts. An old `/config/stream-agent.py` can simply be deleted — nothing reads
+it any more.*
 
 ### Warum Vita3K an seinem Wrapper vorbei gestartet wird
 
@@ -1959,6 +2264,18 @@ wie möglich bleibt:
 Umgekehrt geht es auch, dauert aber länger: der Neustart des Dienstes ist der langsamere
 Schritt, und in dieser Reihenfolge liegt er im Fenster.
 
+*EN: changing the token. The token is the only thing between a request and a started process on
+the host. It exists in **two** places, and changing only one makes the agent reject Romseerr —
+the stream button then reports that the token does not match. Generate a new one rather than
+inventing it (`openssl rand -hex 32`; inventing it is the most common mistake), then work in
+**this order** so the window without a working stream stays as short as possible: **Romseerr
+first** (Settings → Connections → Streaming host, set `token=…` in the launch-agent URL and
+save — from here the start fails, because the host does not know the new value yet), then the
+**host** (replace `STREAM_AGENT_TOKEN` in `.env` and run `docker compose up -d stream-agent`,
+only that service, the rest keeps running), then **verify** by starting a title. The reverse
+order also works but takes longer: restarting the service is the slower step, and in this order
+it falls inside the window.*
+
 **Beide Werte sind Geheimnisse.** Ein Token, das durch ein Terminalprotokoll, einen
 Bildschirmabzug oder eine eingefügte Logzeile gelaufen ist, gilt als bekannt — dann ist
 dieses Verfahren der Anlass, nicht die Ausnahme.
@@ -1976,6 +2293,13 @@ root auf dem Host. Für einen nginx-Reload ist das kein ausreichender Grund.
 
 DNS-01 funktioniert mit jedem Anbieter, für den certbot ein Plugin hat — `DNS_PLUGIN`
 in der `.env` umstellen (`cloudflare`, `route53`, `digitalocean`, `rfc2136`, …).
+
+*EN: the certificate renews itself. The `stream-certbot` sidecar renews every 12 hours and
+writes the result into the same folder the streaming host reads from; `init/40-cert-watch`
+notices the changed fingerprint and reloads the web server. Deliberately **without a Docker
+socket**: a container that can see the socket is effectively root on the host, and an nginx
+reload is not sufficient reason for that. DNS-01 works with any provider certbot has a plugin
+for — switch `DNS_PLUGIN` in `.env` (`cloudflare`, `route53`, `digitalocean`, `rfc2136`, …).*
 
 ### Warum certbot ein eigener Container bleibt
 

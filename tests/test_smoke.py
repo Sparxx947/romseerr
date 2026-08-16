@@ -9742,3 +9742,87 @@ def test_the_theme_list_matches_the_frontend(appmod):
         f"  nur im JavaScript: {sorted(vorne - hinten) or '—'}\n"
         f"  nur in app.py    : {sorted(hinten - vorne) or '—'}\n"
         "Ein Design, das nur die Oberflaeche kennt, laesst sich waehlen und nicht behalten.")
+
+
+# Wortlisten fuer die Sprachbestimmung. UEBERSCHNEIDUNGSFREI, und das ist keine Kosmetik:
+# `in` stand zuerst in der deutschen Liste und ist im Englischen genauso haeufig — dadurch
+# galten englische Absaetze als deutsch, und der erste Messlauf meldete Luecken, die es
+# nicht gab. Der Test prueft die Ueberschneidungsfreiheit selbst mit. (#752)
+_DE_WORTE = frozenset(
+    "der die das und nicht ist eine den dem des auch für mit von wird werden sich "
+    "sie im zu dass oder aber nur noch schon wenn kann eines einer beim dabei".split())
+_EN_WORTE = frozenset(
+    "the and are of to for with from this that its there which have has been will "
+    "would could should when where they their than then into about only".split())
+
+
+def _sprache(text):
+    """'de', 'en' oder None — None heisst „zu kurz oder unentschieden"."""
+    import re
+    w = re.findall(r"[a-zäöüßA-ZÄÖÜ]+", text.lower())
+    if len(w) < 6:
+        return None
+    d = sum(1 for x in w if x in _DE_WORTE)
+    e = sum(1 for x in w if x in _EN_WORTE)
+    return None if d == e else ("de" if d > e else "en")
+
+
+def test_no_long_section_with_a_bilingual_heading_is_german_only():
+    """Eine Ueberschrift `Deutsch / English` verspricht etwas, das der Text halten muss. (#752)
+
+    GEMELDET UND NACHGEMESSEN: Das Wiki trug zweisprachige Ueberschriften ueber rein
+    deutschem Text, und dasselbe galt fuer die contrib-READMEs — im Streaming-Host-README
+    **26 von 64** laengeren Abschnitten ohne ein Wort Englisch, im library-tools-README
+    **7 von 15**.
+
+    WARUM DER BESTEHENDE WAECHTER DAS NICHT SAH: `romseerr-check` zaehlt eine Seite als
+    zweisprachig, wenn sie IRGENDWO einen englischen Absatz oder EINE Ueberschrift mit ` / `
+    hat. Eine einzige qualifizierende Zeile stellte die ganze Datei zufrieden. Der Kommentar
+    dort warnt genau vor dieser Fehlerart — fuer die H1. Dieselbe Luecke lag eine Ebene
+    tiefer.
+
+    Der Schraegstrich ist dabei das Tueckische: `Reverse Proxy / HTTPS` SIEHT zweisprachig
+    aus. Das ist schlimmer als eine offen deutsche Ueberschrift, weil es den Leser davon
+    abhaelt, ueberhaupt nachzufragen.
+
+    GEPRUEFT WERDEN DIE BEIDEN CONTRIB-READMES, je Abschnitt ab 400 Zeichen. Kurze
+    Abschnitte bleiben ungeschoren: Bei drei Saetzen ist eine getrennte Uebersetzung mehr
+    Rauschen als Nutzen.
+    """
+    import re
+    assert not (_DE_WORTE & _EN_WORTE), \
+        f"die Wortlisten ueberschneiden sich: {sorted(_DE_WORTE & _EN_WORTE)}"
+
+    # NUR DIE BEIDEN CONTRIB-READMES, und das ist eine bewusste Grenze. Sie tragen die
+    # Struktur „deutscher Abschnitt, danach sein englischer" — genau die, die hier
+    # hergestellt wurde, und nur bei ihr ist „je Abschnitt" die richtige Frage.
+    # `docs/ARCHITECTURE.md` sammelt seine englischen Absaetze stattdessen am Ende eines
+    # Kapitels; dort schlaege dieselbe Pruefung falsch an. Das Wiki wiederum liegt in einem
+    # EIGENEN Repository, das die CI nie sieht — dafuer ist `romseerr-check` zustaendig.
+    DATEIEN = ("contrib/streaming-host/README.md", "contrib/library-tools/README.md")
+    fehlend = []
+    geprueft = 0
+    for rel in DATEIEN:
+        pfad = os.path.join(REPO, rel)
+        assert os.path.isfile(pfad), f"{rel} gibt es nicht mehr — der Waechter wurde verengt"
+        roh = re.sub(r"```.*?```", "", open(pfad, encoding="utf-8").read(), flags=re.S)
+        teile = re.split(r"(?m)^(#{2,3}\s+.*)$", roh)
+        i = 1
+        while i < len(teile):
+            titel = teile[i].strip()
+            inhalt = teile[i + 1] if i + 1 < len(teile) else ""
+            i += 2
+            if len(re.sub(r"\s+", " ", re.sub(r"(?m)^\s*\|.*$", "", inhalt)).strip()) < 400:
+                continue
+            geprueft += 1
+            if not any(_sprache(a) == "en"
+                       for a in re.split(r"\n\s*\n", inhalt) if a.strip()):
+                fehlend.append(f"{rel}: {titel.strip('# ')}")
+
+    # DIE REICHWEITE WIRD BELEGT. Findet das Muster keine Abschnitte mehr, waere der Test
+    # lautlos leer und gruen — derselbe Fehler, den er verhindert. Heute sind es 79.
+    assert geprueft >= 60, \
+        f"nur {geprueft} laengere Abschnitte gefunden — das Muster stimmt nicht mehr"
+    assert not fehlend, (
+        "diese Abschnitte versprechen in der Ueberschrift Englisch und liefern keines:\n  "
+        + "\n  ".join(fehlend))
