@@ -2326,12 +2326,62 @@ def test_release_runs_on_dev_and_only_fast_forwards_main():
         "main darf niemals erzwungen ueberschrieben werden"
 
 
+#: Die Pruefungen, die auf `main` einen eigenen gruenen Lauf hinterlassen sollen. (#111)
+PRUEFWORKFLOWS_MAIN = ("ci.yml", "security.yml", "content-policy.yml")
+
+
 def test_ci_also_guards_main():
     """Der Release-Commit wird auf dev geprueft — aber main soll eigene gruene Laeufe
     haben, sonst steht der ausgelieferte Zweig ohne Nachweis da. (#111)"""
-    for name in ("ci.yml", "security.yml", "content-policy.yml"):
+    for name in PRUEFWORKFLOWS_MAIN:
         branches = _workflow(name)[True]["push"]["branches"]
         assert "dev" in branches and "main" in branches, f"{name}: {branches}"
+
+
+def test_die_pruefungen_auf_main_werden_angestossen_nicht_nur_erhofft():
+    """Der `push`-Ausloeser auf `main` allein leistet die Zusicherung von #111 NICHT. (#758)
+
+    `main` wird ausschliesslich vom `promote`-Job bewegt, und der pusht mit dem
+    `GITHUB_TOKEN`. Ein solcher Push loest keine Workflows aus — dasselbe Muster, an dem
+    schon #185 haengengeblieben ist. Der Ausloeser steht also da und feuert nie.
+
+    GEMESSEN am 2026-08-17: Fuer die Tag-Commits v1.4.0 bis v1.6.1 gab es **0 von 7**
+    `push`-Laeufen auf `main`; CodeQL hatte seit dem 13. August (`e782534`) keine Analyse
+    mehr unter `refs/heads/main` abgelegt. Die Code-Scanning-Ansicht des Standardzweigs
+    stand damit auf einem Stand von fuenf Releases her.
+
+    Deshalb prueft dieser Test die WIRKUNG statt der Schreibweise: Der `promote`-Job muss
+    jede Pruefung nach dem Vorspulen ausdruecklich auf `main` anstossen. Ein Test, der nur
+    `main in push.branches` liest, war grun, waehrend die Zusicherung tot war.
+
+    EN: the push trigger on `main` cannot keep the promise of #111, because `main` only
+    ever moves via a GITHUB_TOKEN push, which triggers nothing. So this checks the effect —
+    `promote` must dispatch each check on `main` — rather than the spelling of the trigger.
+    """
+    wf = _workflow("release-please.yml")
+    promote = wf["jobs"]["promote"]
+
+    # Anstossen ist ein Schreibrecht auf Actions. Fehlt es, scheitert der Schritt zur
+    # Laufzeit — also erst beim naechsten Release und damit viel zu spaet.
+    assert promote["permissions"].get("actions") == "write", \
+        "promote braucht actions: write, sonst schlaegt das Anstossen erst im Release fehl"
+
+    text = "\n".join(
+        str(schritt.get("run", "")) for schritt in promote["steps"]
+    )
+    for name in PRUEFWORKFLOWS_MAIN:
+        assert name in text, \
+            f"promote stoesst {name} auf main nicht an — der push-Ausloeser allein feuert nie"
+
+    # Auf `main`, nicht auf dem laufenden Zweig: ein Dispatch ohne --ref liefe auf dem
+    # Standardzweig-Kopf des Aufrufs und bewiese nicht den vorgespulten Release-Commit.
+    assert "--ref main" in text, "die Pruefungen muessen ausdruecklich auf main laufen"
+
+    # Und jede angestossene Datei muss den Ausloeser auch annehmen, sonst antwortet die
+    # API mit „Workflow does not have workflow_dispatch trigger" — wieder erst im Release.
+    for name in PRUEFWORKFLOWS_MAIN:
+        assert "workflow_dispatch" in (_workflow(name)[True] or {}), \
+            f"{name} hat keinen workflow_dispatch — promote koennte es nicht anstossen"
 
 
 def test_dependabot_opens_its_pull_requests_where_work_happens():
