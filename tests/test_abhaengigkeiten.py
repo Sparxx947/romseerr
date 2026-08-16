@@ -315,3 +315,61 @@ def test_dockerfile_loest_nicht_selbst_auf():
     ohne = [z for z in installationen if "--no-deps" not in z]
     assert not ohne, "installiert mit Auflösung statt aus der Liste: " + " | ".join(ohne)
     assert "pip check" in text, "kein `pip check` im Dockerfile — unvollständige Liste bliebe still"
+
+
+def test_hashes_ohne_pip_compile_eingabe_wuerden_dependabot_brechen():
+    """Hashes in `requirements.txt` gehen NUR zusammen mit einer `.in`-Datei. (#718)
+
+    Am 2026-08-16 wurde Hash-Pinning bewusst abgelehnt — die Begründung steht in
+    SECURITY.md. Dieser Test hält nicht die Ablehnung fest, sondern die **Bruchstelle**,
+    die sie begründet: Wer die Entscheidung später umdreht, soll nicht auf halbem Weg
+    stehenbleiben.
+
+    Belegt am Quelltext von `dependabot-core`, `python/lib/.../file_updater.rb`:
+
+        return :pip_compile if changed_req_files.any? { |f| f.end_with?(".in") }
+        :requirements
+
+    Der Pfad hängt an einer `.in`-Datei. Nur `PipCompileFileUpdater` kennt
+    `update_hashes_if_required`; der `RequirementFileUpdater`, der eine handgepflegte
+    Datei bearbeitet, erzeugt KEINE Hashes neu. Ein Bump hübe also die Version an und
+    ließe die alten Hashes stehen — jeder Dependabot-PR rot mit „THESE PACKAGES DO NOT
+    MATCH THE HASHES", bis jemand von Hand nachzieht.
+
+    Und `--require-hashes` ohne Hashes in der Datei bricht den Bau sofort, nicht erst
+    beim nächsten Bump. Deshalb prüft der Test beide Richtungen.
+    """
+    req = REQ.read_text(encoding="utf-8")
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    hat_hashes = "--hash=sha256:" in req
+    hat_eingabe = (WURZEL / "requirements.in").exists()
+    verlangt_hashes = "--require-hashes" in dockerfile
+
+    if hat_hashes:
+        assert hat_eingabe, (
+            "requirements.txt trägt Hashes, aber es gibt keine requirements.in — "
+            "Dependabot nimmt dann den RequirementFileUpdater und zieht die Hashes NICHT "
+            "nach. Jeder Bump-PR bräche beim Bau. Siehe SECURITY.md, Abschnitt #718.")
+    if verlangt_hashes:
+        assert hat_hashes, (
+            "Dockerfile verlangt --require-hashes, requirements.txt trägt aber keine "
+            "Hashes — der Bau bricht sofort ab.")
+
+    # DIE BEGRÜNDUNG MUSS STEHEN BLEIBEN. SECURITY.md verlangt für jede abgewiesene
+    # Meldung eine Begründung, die die Schutzmaßnahme benennt; eine still gelöschte
+    # Ablehnung sähe aus wie eine nie gestellte Frage, und #718 käme in drei Monaten
+    # wieder. Zweisprachig, wie die ganze Datei.
+    if not hat_hashes:
+        sicherheit = (WURZEL / "SECURITY.md").read_text(encoding="utf-8")
+        for marke in ("#718", "--require-hashes", "requirements.in"):
+            assert marke in sicherheit, \
+                f"SECURITY.md nennt {marke!r} nicht mehr — die Ablehnung von #718 ist unbegründet"
+
+        # ZWEISPRACHIG, und zwar JE HÄLFTE geprüft. Eine Mutation hat gezeigt, dass ein
+        # bloßes `count(...) >= 2` nichts fängt: `#718` steht mehrfach in derselben
+        # Hälfte, die Zahl bleibt also stehen, während die englische Fassung verschwindet.
+        trenner = "## What this project is"
+        assert trenner in sicherheit, "SECURITY.md hat keine englische Hälfte mehr"
+        deutsch, englisch = sicherheit.split(trenner, 1)
+        assert "#718" in deutsch, "die Begründung zu #718 fehlt in der deutschen Hälfte"
+        assert "#718" in englisch, "die Begründung zu #718 fehlt in der englischen Hälfte"
