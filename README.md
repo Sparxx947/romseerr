@@ -120,6 +120,11 @@ oben, das Raster wird schmaler.
 - **Suche** über zwei Quellen gleichzeitig: **Archive.org** (Retro, direkter Download) und
   **Usenet** (Prowlarr-Indexer → SABnzbd, v. a. moderne Konsolen). **Plattform-Vorauswahl**
   grenzt die Suche ein; eine reine Retro-Auswahl schaltet Usenet aus.
+- **Eine ausgefallene Quelle sagt es.** Fällt eine der Quellen aus, liefert sie ihren
+  letzten bekannten Stand statt „keine Treffer" — und über der Liste steht, dass das ein
+  alter Stand ist und wie alt. War nichts gemerkt, wird die Quelle trotzdem genannt: eine
+  kurze Liste ist sonst nicht von „es gibt nichts" zu unterscheiden. Ist alles frisch,
+  steht dort **nichts** — kein Dauerbanner.
 - **Dedup** gegen die bestehende Bibliothek: vorhandene Titel werden markiert und ans Ende
   sortiert; ein erneuter Download wird server- und clientseitig verhindert.
   Verglichen wird ein **normalisierter Schlüssel**, nicht der Dateiname — Endung, Klammern,

@@ -2200,3 +2200,197 @@ def test_romm_cache_ttl_zero_really_turns_it_off(appmod, monkeypatch):
     assert z["suche"] == 2, f"trotz TTL 0 wurde gemerkt ({z['suche']} Abfragen)"
     assert not appmod.ROMM_CACHE, \
         f"trotz TTL 0 wurde gemerkt: {list(appmod.ROMM_CACHE)}"
+
+
+# ---------------------------------------------------------------------------
+# #732 — sagen, wenn ein Ergebnis ein Rueckfall ist und keine frische Antwort
+# ---------------------------------------------------------------------------
+#
+# GEMESSEN AM LAUFENDEN CONTAINER (2026-08-16), bevor irgendetwas geaendert wurde.
+# `/config/romseerr.log` reicht vom 2026-08-07 07:10 bis 2026-08-16 01:13, also gut
+# neun Tage. Darin:
+#
+#     Usenet-Suche-Fehler      10   alle am 2026-08-15
+#     Archive-Suche-Fehler      8   alle am 2026-08-15
+#     „letzter bekannter Stand"  0   ← NIE
+#
+# Das dreht die Reihenfolge im Issue um. Der dort zuerst genannte Fall — eine Liste
+# ist alt und sagt es nicht — ist im Betrieb noch NIE eingetreten. Eingetreten ist
+# ausschliesslich der zweite: Quelle weg, nichts gemerkt, Liste wird stillschweigend
+# kuerzer. Das ist auch die Bauart: `SUCH_CACHE` liegt im Arbeitsspeicher und ist nach
+# jedem Containerstart leer, und ein Rueckfall setzt voraus, dass GENAU DIESE Suchzeile
+# vorher schon einmal erfolgreich lief. Ein Ausfall ohne Gedaechtnis ist der Normalfall.
+#
+# Beide Faelle kosten dieselbe Mechanik, deshalb bekommen beide sie.
+
+
+def _quellstand(appmod, monkeypatch):
+    """Nur Archive.org antwortet, die anderen zwei sind aus dem Weg."""
+    appmod.SUCH_CACHE.clear()
+    monkeypatch.setattr(appmod, "catalog_urls", lambda: [])
+    monkeypatch.setattr(appmod, "in_library", lambda t, p: False)
+    monkeypatch.setattr(appmod, "search_usenet", lambda q, cats: [])
+
+
+def _altern(appmod, sekunden):
+    """Alle gemerkten Eintraege kuenstlich altern lassen."""
+    for k in list(appmod.SUCH_CACHE):
+        zeit, wert = appmod.SUCH_CACHE[k]
+        appmod.SUCH_CACHE[k] = (zeit - sekunden, wert)
+
+
+def test_a_fresh_search_reports_no_source_trouble(appmod, monkeypatch):
+    """Wenn alles frisch ist, darf nichts gemeldet werden. (#732)
+
+    Sonst stuende ueber jedem Ergebnis ein Dauerbanner, und ein Dauerbanner wird nicht
+    gelesen — genau dann nicht, wenn er einmal etwas zu sagen hat.
+    """
+    _quellstand(appmod, monkeypatch)
+    monkeypatch.setattr(appmod, "search_archive",
+                        lambda q: [_tr("Treffer", "snes", "archive")])
+    st = {}
+    appmod.do_search("Mario", [], st)
+    assert st.get("sources") == {}, \
+        f"eine heile Suche meldet Quellenprobleme: {st.get('sources')!r}"
+
+
+def test_a_stale_result_is_reported_with_its_age(appmod, monkeypatch):
+    """Ein Rueckfall sieht bisher aus wie eine frische Antwort. (#732)
+
+    Seit #726 liefert eine ausgefallene Quelle ihren letzten bekannten Stand. Das ist
+    richtig — aber unsichtbar: Die Liste ist von einer frischen nicht zu unterscheiden.
+    """
+    _quellstand(appmod, monkeypatch)
+    monkeypatch.setattr(appmod, "search_archive",
+                        lambda q: [_tr("Aus dem Archiv", "snes", "archive")])
+    appmod.do_search("Mario", [])
+    _altern(appmod, appmod.SUCH_CACHE_TTL + 240)      # 4 Minuten ueber der Frist
+
+    def tot(q):
+        raise RuntimeError("Zeitueberschreitung")
+    monkeypatch.setattr(appmod, "search_archive", tot)
+    st = {}
+    res = appmod.do_search("Mario", [], st)
+    assert [r["title"] for r in res] == ["Aus dem Archiv"], "der Rueckfall selbst ist kaputt"
+    stand = (st.get("sources") or {}).get("archive")
+    assert stand and stand.get("state") == "stale", \
+        f"der Rueckfall wird nicht als solcher gemeldet: {st.get('sources')!r}"
+    assert stand.get("age", 0) >= appmod.SUCH_CACHE_TTL + 240, \
+        f"das Alter fehlt oder ist zu klein: {stand!r}"
+
+
+def test_a_failed_source_with_nothing_cached_is_named(appmod, monkeypatch):
+    """Der Fall, der im Betrieb wirklich vorkommt. (#732)
+
+    Neun Tage Protokoll: 18 Quellenausfaelle, 0 Rueckfaelle. Ohne gemerkten Stand
+    steuert die Quelle nichts bei und sagt nichts — der Nutzer kann „es gibt nichts"
+    nicht von „eine von drei Quellen ist weg" unterscheiden.
+    """
+    _quellstand(appmod, monkeypatch)
+
+    def tot(q):
+        raise RuntimeError("Zeitueberschreitung")
+    monkeypatch.setattr(appmod, "search_archive", tot)
+    st = {}
+    appmod.do_search("Mario", [], st)
+    assert (st.get("sources") or {}).get("archive", {}).get("state") == "down", \
+        f"die ausgefallene Quelle wird nicht genannt: {st.get('sources')!r}"
+
+
+def test_every_source_reports_for_itself(appmod, monkeypatch):
+    """Zwei tote Quellen sind zwei Meldungen, nicht eine. (#732)
+
+    Die drei laufen seit #723 nebeneinander in eigenen Faeden — sie schreiben also
+    gleichzeitig in dasselbe Woerterbuch.
+    """
+    _quellstand(appmod, monkeypatch)
+
+    def tot(*a, **k):
+        raise RuntimeError("Zeitueberschreitung")
+    monkeypatch.setattr(appmod, "search_archive", tot)
+    monkeypatch.setattr(appmod, "search_usenet", tot)
+    st = {}
+    appmod.do_search("Mario", [], st)
+    assert sorted(st.get("sources") or {}) == ["archive", "usenet"], \
+        f"nicht beide Quellen gemeldet: {st.get('sources')!r}"
+
+
+def test_source_status_is_reported_even_with_the_cache_switched_off(appmod, monkeypatch):
+    """`SEARCH_CACHE_TTL=0` schaltet das Gedaechtnis ab, nicht die Wahrheit. (#732)
+
+    Ohne Gedaechtnis gibt es keinen Rueckfall — aber „diese Quelle ist ausgefallen"
+    bleibt richtig und bleibt das, was der Nutzer wissen muss.
+    """
+    _quellstand(appmod, monkeypatch)
+    monkeypatch.setattr(appmod, "SUCH_CACHE_TTL", 0)
+
+    def tot(q):
+        raise RuntimeError("Zeitueberschreitung")
+    monkeypatch.setattr(appmod, "search_archive", tot)
+    st = {}
+    appmod.do_search("Mario", [], st)
+    assert (st.get("sources") or {}).get("archive", {}).get("state") == "down", \
+        f"mit abgeschaltetem Gedaechtnis faellt die Meldung weg: {st.get('sources')!r}"
+
+
+def test_search_endpoint_sends_the_source_status_as_a_header(appmod, client, monkeypatch):
+    """Derselbe Weg wie `X-Platform-Hidden`. (#732)
+
+    Der Rumpf von `/api/search` ist eine nackte Liste und steckt in `window.LASTRES`, in
+    `d.forEach` und in der Sammelanfrage — daraus ein Objekt zu machen, haette jeden
+    dieser Aufrufer angefasst. Zweites Feld, gleiche Mechanik.
+    """
+    import json as _json
+    _quellstand(appmod, monkeypatch)
+
+    def tot(q):
+        raise RuntimeError("Zeitueberschreitung")
+    monkeypatch.setattr(appmod, "search_archive", tot)
+    _als(client, appmod, "admin")
+    r = client.get("/api/search?q=Mario")
+    assert r.status_code == 200
+    kopf = r.headers.get("X-Source-Status")
+    assert kopf, "die Kopfzeile fehlt"
+    assert _json.loads(kopf)["archive"]["state"] == "down", f"unerwarteter Inhalt: {kopf!r}"
+
+
+def test_a_healthy_search_sends_no_source_header_at_all(appmod, client, monkeypatch):
+    """Kein Dauerbanner: ist alles frisch, kommt die Kopfzeile gar nicht erst. (#732)
+
+    DIESER TEST WAR VORHER SCHON GRUEN — es gab die Kopfzeile ja noch gar nicht. Er
+    haelt die Rueckseite der anderen fest: Sobald `X-Source-Status` existiert, darf sie
+    nicht bei jeder Suche mitkommen. Die anderen acht dieses Blocks waren rot.
+    """
+    _quellstand(appmod, monkeypatch)
+    monkeypatch.setattr(appmod, "search_archive",
+                        lambda q: [_tr("Treffer", "snes", "archive")])
+    _als(client, appmod, "admin")
+    r = client.get("/api/search?q=Mario")
+    assert r.headers.get("X-Source-Status") is None, \
+        f"heile Suche schickt trotzdem einen Quellenstand: {r.headers.get('X-Source-Status')!r}"
+
+
+def test_the_source_hint_survives_applyi18n(appmod):
+    """`applyI18n` setzt `textContent` und loescht damit alle Kinder. (#337, #732)
+
+    `#hint` traegt `data-i18n=hint_type` — was dort angehaengt wird, ist beim naechsten
+    Sprachwechsel weg (so ergeht es dem Plattform-Hinweis heute). Der Quellen-Hinweis
+    bekommt deshalb ein EIGENES Element ohne `data-i18n`, und `applyI18n` zeichnet ihn
+    danach neu, damit er die Sprache mitmacht statt sie zu ueberleben und falsch zu sein.
+    """
+    html = open(os.path.join(REPO, "templates", "index.html"), encoding="utf-8").read()
+    js = open(os.path.join(REPO, "static", "js", "index.js"), encoding="utf-8").read()
+    m = re.search(r"<div[^>]*id=srchint[^>]*>", html)
+    assert m, "es gibt kein eigenes Element #srchint"
+    assert "data-i18n" not in m.group(0), \
+        f"#srchint haengt an applyI18n und wird geleert: {m.group(0)}"
+    block = js[js.index("function applyI18n("):]
+    block = block[:block.index("\n}")]
+    assert "quellHinweis()" in block, \
+        "applyI18n zeichnet den Quellen-Hinweis nicht neu — nach einem Sprachwechsel steht er falsch da"
+
+
+def test_the_source_hint_texts_exist_in_every_language(appmod):
+    """Fehlt ein Schluessel, sieht der Nutzer den Bezeichner. (#364, #732)"""
+    for s in ("src_stale", "src_down", "src_age_sec", "src_age_min", "src_age_hour"):
+        assert i18n_hat(s) == 5, f"{s} fehlt in einer Sprache"

@@ -310,7 +310,12 @@
   <h1><span data-i18n=hero_titel>Finde ein Spiel.</span><br><span data-i18n=hero_titel2>Spiel es sofort.</span></h1>
   <p data-i18n=hero_text>Suche über Archive.org und Usenet, sieh was schon da ist, und starte es im Browser oder auf dem Stream-Host — ohne Umweg.</p>
  </div>
- <div id=discview><div id=grid></div><div class=hint id=hint data-i18n=hint_type>Tippe einen Titel und drücke Enter.</div></div>
+ <!-- Der Quellen-Hinweis steht ÜBER dem Raster, nicht unten bei `#hint` (#732): Er sagt,
+      dass eine Quelle fehlt oder alt ist — wer eine kurze Liste überfliegt und dann geht,
+      hat ihn unten nie gesehen. Und er trägt bewusst KEIN `data-i18n`: `applyI18n` setzt
+      `textContent` und löscht damit alles, was JavaScript hier hineingeschrieben hat
+      (#337). Übersetzt wird er stattdessen, indem `applyI18n` ihn neu zeichnen lässt. -->
+ <div id=discview><div class=hint id=srchint style="display:none"></div><div id=grid></div><div class=hint id=hint data-i18n=hint_type>Tippe einen Titel und drücke Enter.</div></div>
  <div id=jobs></div>
  <div id=settings></div>
  <div id=issues></div>

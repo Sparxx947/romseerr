@@ -1257,6 +1257,66 @@ Ein quelltextlesender Test verlangt von **allen drei** Quellfunktionen ein `rais
 ihrem `except Exception`. Eine vierte Quelle, die später dazukommt und ihren Fehler still in
 eine leere Liste übersetzt, fällt damit auf — genau so ist dieser Rückstand entstanden.
 
+**Der Rückfall sagt jetzt, dass er einer ist (#732).** #726 hat richtig entschieden und es
+nicht gesagt: Eine Liste aus dem Gedächtnis sah aus wie eine frische Antwort, und eine
+ausgefallene Quelle ohne gemerkten Stand steuerte gar nichts bei — stillschweigend. Der
+Nutzer konnte „es gibt nichts" nicht von „eine von drei Quellen ist weg" unterscheiden.
+
+**Gemessen, bevor etwas geändert wurde**, im Protokoll des laufenden Containers
+(`/config/romseerr.log`, 2026-08-07 07:10 bis 2026-08-16 01:13, also gut neun Tage):
+
+| Zeile im Protokoll | Zahl |
+|---|---|
+| `Usenet-Suche-Fehler` | 10 (alle am 2026-08-15) |
+| `Archive-Suche-Fehler` | 8 (alle am 2026-08-15) |
+| `letzter bekannter Stand … wird benutzt` | **0** |
+
+Das **dreht die Reihenfolge im Issue um**. Der dort zuerst genannte Fall — eine alte Liste,
+die es nicht sagt — ist im Betrieb noch nie eingetreten. Eingetreten ist ausschließlich der
+zweite. Das ist auch die Bauart und kein Zufall: `SUCH_CACHE` liegt im Arbeitsspeicher und
+ist nach jedem Containerstart leer, und ein Rückfall setzt voraus, dass **genau diese
+Suchzeile** vorher schon einmal erfolgreich lief. Ein Ausfall ohne Gedächtnis ist der
+Normalfall, der Rückfall die Ausnahme. Beide kosten dieselbe Mechanik, deshalb bekommen
+beide sie.
+
+`do_search` füllt `stats["sources"]` — `{quelle: {"state": "stale", "age": s}}` beim
+Rückfall, `{"state": "down"}` ohne gemerkten Stand. Geschrieben wird **unter einem Schloss**,
+obwohl jeder der drei Fäden aus #721 einen anderen Schlüssel setzt: Unter dem GIL wäre das
+heute zufällig sicher, aber „zufällig sicher" ist keine Zusage, und mit freilaufenden Fäden
+(PEP 703) fällt sie weg. Das Schloss wird höchstens dreimal je Suche angefasst.
+
+`/api/search` reicht das als Kopfzeile `X-Source-Status` weiter — **derselbe Weg wie
+`X-Platform-Hidden` (#688)** und aus demselben Grund: Der Rumpf ist eine nackte Liste und
+steckt in `window.LASTRES`, in `d.forEach` und in der Sammelanfrage; daraus ein Objekt zu
+machen, hätte jeden dieser Aufrufer angefasst. **Ist alles frisch, fehlt die Kopfzeile
+ganz.** Ein Dauerbanner wird nicht gelesen — gerade dann nicht, wenn es einmal etwas zu
+sagen hat.
+
+Im Frontend steht der Hinweis in einem **eigenen Element `#srchint`, über dem Raster**. Zwei
+Gründe, beide gemessen an vorhandenen Fehlern:
+
+* **Über dem Raster, nicht unten bei `#hint`:** Er sagt, dass eine Quelle fehlt. Wer eine
+  kurze Liste überfliegt und dann geht, hat ihn unten nie gesehen.
+* **Ohne `data-i18n`:** `applyI18n` setzt `textContent` und löscht damit jedes Kind — genau
+  die Falle aus #337. `#hint` trägt `data-i18n=hint_type`, der Plattform-Hinweis darin ist
+  nach einem Sprachwechsel weg. „Stehen bleiben" allein genügt aber nicht: `applyI18n` ruft
+  deshalb `quellHinweis()` und **zeichnet ihn neu**. Ein Warnhinweis, der die Sprache nicht
+  mitmacht, ist schlimmer als keiner — man liest ihn nicht und traut ihm nicht.
+
+Das Alter steht als Kurzform da (`4 Min.`, nicht `4 Minuten`): Die Kurzform hat keinen
+Plural, und `1 Minuten` wäre in jeder der fünf Sprachen falsch. Genau gemeint ist die Zahl
+ohnehin nicht.
+
+EN: since #726 a dead source serves its last known result — correctly, and invisibly. Nine
+days of the running container's log say the issue had it backwards: 18 source failures, and
+the fallback fired **zero** times. `SUCH_CACHE` lives in memory and is empty after every
+restart, so a failure with nothing cached is the normal case and the stale list is the rare
+one. `do_search` now records both in `stats["sources"]`, `/api/search` passes it on as
+`X-Source-Status` — absent entirely when everything was fresh, because a permanent banner is
+never read. The hint renders into its own `#srchint` element above the grid, carries no
+`data-i18n` (applyI18n sets `textContent` and would delete it, #337), and is redrawn by
+`applyI18n` so it follows the language instead of merely surviving it.
+
 **Ein Gedächtnis für archive.org-Metadaten (#731).** Das Issue vermutete drei gleich große
 externe Aufrufe in Reihe in `/api/detail` und einen Faden-Pool als Antwort. **Nachgemessen
 am 2026-08-16 stimmt beides nicht.**
