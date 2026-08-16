@@ -18,7 +18,7 @@ import re
 
 import pytest
 
-from hilfen import REPO
+from hilfen import REPO, sprachtabellen
 from . import bildmessung
 from .conftest import menuepunkt
 
@@ -2412,6 +2412,26 @@ _732_TREFFER = ('[{"title":"Alter Treffer","platform":"snes","platform_slug":"sn
                 '"variant":{},"variant_label":""}]')
 
 
+def _732_zeile(sprache, schluessel, quelle, alter=None):
+    """Die erwartete Zeile aus der SPRACHTABELLE bauen, nicht abschreiben.
+
+    Zwei Gruende, und der zweite kam von CodeQL:
+
+    * Abgeschriebener Text laeuft von der Tabelle weg. So gebaut faellt es auf, wenn die
+      eingebettete deutsche Tabelle in `index.js` und `de.json` auseinanderlaufen — die
+      Seite nimmt die eingebettete, dieser Vergleich die Datei.
+    * Verglichen wird auf GLEICHHEIT, nicht mit `in`. `assert "Archive.org" in text` liest
+      sich fuer `py/incomplete-url-substring-sanitization` wie eine Herkunftspruefung auf
+      einer URL und war zwei „high"-Meldungen wert. Gleichheit ist hier ohnehin die
+      schaerfere Zusage: Sie haelt die ganze Zeile fest, samt Zeichen und Altersformat.
+    """
+    tab = sprachtabellen()[sprache]
+    text = tab[schluessel].replace("{s}", quelle)
+    if alter is not None:
+        text = text.replace("{age}", alter)
+    return "⚠ " + text
+
+
 def _suche_mit_quellstand(seite, stand, koerper=_732_TREFFER):
     """Suchen, wobei `/api/search` den angegebenen Quellenstand mitschickt."""
     kopf = {"X-Platform-Hidden": "0"}
@@ -2428,9 +2448,13 @@ def _suche_mit_quellstand(seite, stand, koerper=_732_TREFFER):
 def test_ein_rueckfall_sagt_dass_er_einer_ist(seite):
     """Seit #726 liefert eine tote Quelle ihren letzten Stand — bisher unsichtbar. (#732)"""
     _suche_mit_quellstand(seite, '{"archive":{"state":"stale","age":247}}')
-    text = seite.locator("#srchint").inner_text()
-    assert "Archive.org" in text, f"die Quelle wird nicht genannt: {text!r}"
-    assert "4 Min." in text, f"das Alter fehlt oder ist falsch gerundet: {text!r}"
+    # 247 s -> 4 Min.: unter 90 s bleibt es bei Sekunden, darueber wird auf Minuten
+    # gerundet. Die Kurzform hat keinen Plural — „1 Minuten" waere in allen fuenf
+    # Sprachen falsch, und genau gemeint ist die Zahl ohnehin nicht.
+    alter = sprachtabellen()["de"]["src_age_min"].replace("{n}", "4")
+    erwartet = _732_zeile("de", "src_stale", "Archive.org", alter)
+    assert seite.locator("#srchint").inner_text().strip() == erwartet, \
+        f"erwartet {erwartet!r}, dasteht {seite.locator('#srchint').inner_text()!r}"
 
 
 def test_eine_ausgefallene_quelle_ohne_stand_wird_genannt(seite):
@@ -2441,10 +2465,11 @@ def test_eine_ausgefallene_quelle_ohne_stand_wird_genannt(seite):
     von „es gibt nichts" zu unterscheiden.
     """
     _suche_mit_quellstand(seite, '{"usenet":{"state":"down"}}')
-    text = seite.locator("#srchint").inner_text()
-    assert "Usenet" in text, f"die ausgefallene Quelle wird nicht genannt: {text!r}"
-    assert "247" not in text and "Stand von vor" not in text, \
-        f"ohne gemerkten Stand darf kein Alter behauptet werden: {text!r}"
+    # Gleichheit statt `in`: Damit steht hier zugleich, dass KEIN Alter behauptet wird —
+    # ohne gemerkten Stand gibt es keines, und ein erfundenes waere schlimmer als keins.
+    erwartet = _732_zeile("de", "src_down", "Usenet")
+    assert seite.locator("#srchint").inner_text().strip() == erwartet, \
+        f"erwartet {erwartet!r}, dasteht {seite.locator('#srchint').inner_text()!r}"
 
 
 def test_ohne_kopfzeile_steht_da_nichts(seite):
@@ -2476,9 +2501,12 @@ def test_der_hinweis_ueberlebt_einen_sprachwechsel_und_wechselt_mit(seite):
     ein Warnhinweis in der falschen Sprache ist schlimmer als keiner.
     """
     _suche_mit_quellstand(seite, '{"archive":{"state":"down"}}')
-    assert "antwortete nicht" in seite.locator("#srchint").inner_text()
+    assert seite.locator("#srchint").inner_text().strip() == \
+        _732_zeile("de", "src_down", "Archive.org"), "der Hinweis kam gar nicht erst"
     seite.evaluate("() => setLang('en')")
     seite.wait_for_timeout(900)
-    text = seite.locator("#srchint").inner_text()
-    assert "Archive.org" in text, f"der Hinweis ist beim Sprachwechsel verschwunden: {text!r}"
-    assert "did not answer" in text, f"der Hinweis blieb auf Deutsch stehen: {text!r}"
+    # Gleichheit prueft beides auf einmal: Der Hinweis steht noch da (haette `applyI18n`
+    # ihn geleert, waere die Zeile leer) UND er steht auf Englisch.
+    erwartet = _732_zeile("en", "src_down", "Archive.org")
+    assert seite.locator("#srchint").inner_text().strip() == erwartet, \
+        f"erwartet {erwartet!r}, dasteht {seite.locator('#srchint').inner_text()!r}"
