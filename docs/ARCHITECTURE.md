@@ -1807,6 +1807,24 @@ die Prüfungen unten von „hell und dunkel" ausgehen und nicht von „immer dun
 Die Bilder erzeugt `scripts/screenshots.py` mit. Wer ein fünftes Design ergänzt, trägt es
 dort in `ANSICHTEN` nach — sonst zeigt diese Tabelle für immer vier.
 
+**Die Designliste steht an zwei Stellen, und sie ist einmal auseinandergelaufen (#750).**
+`app.py` führte drei Designs, `index.js` vier: Aurora kam mit #705 dazu und fehlte in der
+Python-Liste. Die Folge war fein und deshalb lange unsichtbar — ein Nutzer konnte Aurora
+**wählen**, aber nicht **behalten**: `api_profile` verwarf den unbekannten Wert still zu
+`""` und antwortete trotzdem mit **200**. Über echtes HTTP gemessen:
+
+```
+Profil design=glass    gespeichert -> 'glass'   OK
+Profil design=aurora   gespeichert -> ''        VERLOREN
+```
+
+Dass es niemandem auffiel, liegt an `applyDesign()`: Es schreibt zusätzlich `localStorage`,
+also blieb Aurora **in genau dem Browser stehen, der es gewählt hatte** — und war überall
+sonst weg. Ein Fehler, den man an der Stelle, an der man hinsieht, nicht sehen kann.
+`test_the_theme_list_matches_the_frontend` vergleicht beide Listen jetzt **in beide
+Richtungen**: Ein Design, das nur Python kennt, wäre genauso falsch wie eines, das nur die
+Oberfläche kennt.
+
 **Warnung und Fehler haben jetzt ebenfalls Variablen — und der Wächter zählt nicht mehr
 Sünder auf, sondern hält den Bestand fest (#703).** 33 feste Farbangaben trugen Warn- und
 Fehlerbedeutung, und die Gefahr-Variablen aus #647 (`--gefahr*`, `--bad`) standen
@@ -2018,6 +2036,17 @@ breaking. All four happen to be dark today; that is an accident of how they grew
 promise, which is why the checks below assume light and dark rather than always-dark. The
 images are produced by `scripts/screenshots.py` — a fifth theme has to be added to its
 `ANSICHTEN` list, or the table stays at four forever.*
+
+*EN: the theme list lives in two places and did drift apart (#750). `app.py` carried three
+themes, `index.js` four — Aurora arrived with #705 and was never added to the Python list.
+The consequence was subtle enough to survive: a user could **pick** Aurora but not **keep**
+it, because `api_profile` silently discarded the unknown value to `""` and still answered
+**200**. Measured over real HTTP: `glass` stored as `glass`, `aurora` stored as `''`. Nobody
+noticed because `applyDesign()` also writes `localStorage`, so Aurora stayed put in exactly
+the browser that had chosen it and was gone everywhere else — a defect invisible from the
+place you would look. `test_the_theme_list_matches_the_frontend` now compares both lists in
+**both directions**: a theme only Python knows would be as wrong as one only the interface
+knows.*
 
 *EN: menu and tabs carry drawn icons (#658). The navigation ran on emoji, which come from whatever font the system has — `.navsym` even carried `font-variant-emoji:emoji` plus U+FE0F, two coercions to force a presentation out of a font. Jens chose the outline style from two drafts. The vocabulary comes from the mark without copying it: where the subject is a GAME the icon carries the cartridge silhouette with its chamfered corner; where it is not, a conventional shape stands instead — sliders, padlock, bell. Discover is a magnifier whose lens carries the chamfer, because a cartridge with a separate magnifier would be two too-small things at 21 px. The #337 path was live and worse than assumed: `applyI18n` sets `textContent` and deletes children, and for `profile` and `nav_lists` the symbol lived only in the template, so 👤 and ⭐ were never visible at all — not after a language switch, but from load. Only 🚪 survived because it sat inside the translated string, which is why it had to come out of all five language files. Settings sub-entries deliberately get no icons: they are product names.*
 

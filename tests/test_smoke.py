@@ -9709,3 +9709,36 @@ def test_the_documentation_images_are_not_older_than_the_interface():
         f"die Oberflaeche wurde zuletzt vor {tage:.1f} Tagen NACH den Bildern geaendert.\n"
         f"Die Bilder in docs/img/ zeigen damit einen Stand, den es nicht mehr gibt.\n"
         f"Nachziehen: python3 scripts/screenshots.py")
+
+
+def test_the_theme_list_matches_the_frontend(appmod):
+    """Zwei Listen mit denselben Werten driften auseinander, sobald eine gepflegt wird. (#750)
+
+    GEMESSEN BEIM FUND: `app.py` fuehrte drei Designs, `index.js` vier. Aurora kam mit #705
+    dazu und fehlte in der Python-Liste — `api_profile` verwarf den unbekannten Wert still
+    zu "" und antwortete mit **200**. Ueber echtes HTTP gegen eine Wegwerf-Instanz:
+
+        Profil design=glass    gespeichert -> 'glass'   OK
+        Profil design=aurora   gespeichert -> ''        VERLOREN
+
+    Unsichtbar blieb das, weil `applyDesign()` zusaetzlich `localStorage` schreibt: Im
+    waehlenden Browser stand Aurora weiter da, in jedem anderen war es weg. Genau die
+    Fehlerart, die man an der Stelle, an der man hinsieht, nicht sehen kann.
+
+    GEPRUEFT WIRD IN BEIDE RICHTUNGEN. Ein Test, der nur „jedes JS-Design ist in Python
+    bekannt" prueft, laesst die Gegenrichtung offen — ein in Python eingetragenes Design,
+    das die Oberflaeche gar nicht anbietet, waere genauso falsch.
+    """
+    import re
+    js = open(os.path.join(REPO, "static", "js", "index.js"), encoding="utf-8").read()
+    m = re.search(r"const\s+DESIGNS\s*=\s*\[([^\]]*)\]", js)
+    assert m, "DESIGNS steht nicht mehr in index.js — Muster stimmt nicht"
+    vorne = set(re.findall(r"'([a-z0-9_-]+)'", m.group(1)))
+    hinten = set(appmod.DESIGNS)
+
+    assert len(vorne) >= 4, f"nur {len(vorne)} Designs im JavaScript erkannt — Muster kaputt?"
+    assert vorne == hinten, (
+        "die Designlisten laufen auseinander:\n"
+        f"  nur im JavaScript: {sorted(vorne - hinten) or '—'}\n"
+        f"  nur in app.py    : {sorted(hinten - vorne) or '—'}\n"
+        "Ein Design, das nur die Oberflaeche kennt, laesst sich waehlen und nicht behalten.")

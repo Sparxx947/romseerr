@@ -5691,8 +5691,15 @@ PRIV_PERMS = {"manage_users", "manage_settings"}
 def caller_is_admin():
     return bool(g.get("api_auth")) or session.get("role") == "admin"
 # Gültige Oberflächensprachen und -Designs (Design = Look, per Nutzer/global wählbar).
+#
+# DIESE LISTE MUSS MIT `DESIGNS` IN static/js/index.js ÜBEREINSTIMMEN. Aurora kam mit #705
+# dazu und fehlte hier — mit der Folge, dass ein Nutzer es zwar WÄHLEN, aber nicht BEHALTEN
+# konnte: `api_profile` verwarf den unbekannten Wert still zu "" und antwortete trotzdem
+# mit 200. Sichtbar wurde es nicht, weil `applyDesign()` zusätzlich `localStorage` schreibt
+# — im wählenden Browser blieb Aurora also stehen, überall sonst war es weg. (#750)
+# `test_the_theme_list_matches_the_frontend` vergleicht beide Listen in beide Richtungen.
 LANGS = ("de", "en", "fr", "es", "it")
-DESIGNS = ("seerr", "glass", "clean")
+DESIGNS = ("seerr", "glass", "clean", "aurora")
 def has_perm(perm, user=None):
     """Hat der Nutzer (Default: der aktuelle) das Recht? API-Key und Admin -> immer True."""
     if g.get("api_auth"): return True
