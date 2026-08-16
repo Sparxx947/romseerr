@@ -62,6 +62,18 @@ eigenem Zielordner, damit Radarr/Sonarr davon nichts sehen.
    Filesystem-Watcher erkennt die neue Datei; optional meldet Romseerr die
    Verfügbarkeit per Discord.
 
+*EN: the data flow in four steps. **Search** — Romseerr queries Archive.org (title search,
+retro) and Prowlarr (Usenet, modern consoles) in parallel, enriches with IGDB covers, checks
+every hit against the library (**dedup**) and ranks by the platform preselection.
+**Request/download** — per source: Archive.org goes through `aria2` straight into
+`/config/staging`; Usenet is an `addurl` to SABnzbd under category `roms`, landing in
+`/sab-complete`; a filehoster gets a `.crawljob` in JDownloader's `folderwatch/`, landing in
+`/jd-output`. **Import** — a background worker spots finished downloads, unpacks with `unar`,
+determines the platform from the **file extension** (`.sfc`→snes …), skips what is already
+present (dedup) and moves the result into `/roms/<platform>/`. **Library** — RomM and RetroNAS
+share the same `/roms` tree; RomM's filesystem watcher picks up the new file, and Romseerr
+optionally announces availability over Discord.*
+
 ### Zweiter Weg hinein: der Einwurfordner
 
 Nicht alles kommt über eine Anfrage. Wer eine ganze Sammlung hat, legt sie in
@@ -668,6 +680,15 @@ static/icon.svg   App-Icon (PWA)
    **benachrichtigt** (Job → `done`).
    Erkennt der Import **nichts**, gibt er `False` zurück, der Job geht auf `error` und der
    Download **bleibt liegen** (#240).
+
+*EN: the lifecycle of a request. `do_search` queries the sources and marks `in_library`.
+`POST /api/download` checks the blocklist, dedup and quota, then creates a job through
+`new_job` — `queued` with auto-approval, `pending` otherwise. `worker_download` starts the
+download (SAB/aria2/JDownloader). `worker_collect` spots the finished folder, and
+`import_folder` unpacks, deduplicates and files it under `ROMS/<slug>/`, re-reads **the
+affected platforms** only (#655) and notifies, moving the job to `done`. If the import
+recognises **nothing**, it returns `False`, the job goes to `error`, and the download **is
+left in place** (#240) rather than deleted — so the cause stays inspectable.*
 
 ### Ein Ordnername, zwei Namensgeber (#454)
 

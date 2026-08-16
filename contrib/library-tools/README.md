@@ -23,6 +23,15 @@ gezählt als **ein** Spiel. Romseerr sah in denselben Daten **23.802 Titel**.
 
 Keins der beiden ist falsch konfiguriert. Sie erwarten schlicht verschiedene Formen.
 
+*EN: the problem — three programs, three ways of counting. RomM, Romseerr and RetroNAS read
+**the same folder** and disagree: RetroNAS counts nothing (it only serves, the structure below
+is none of its business), RomM counts **every entry on the first level** as exactly one game,
+and Romseerr goes two levels deep and counts **every file** as a title. Measured on a real
+library: RomM saw exactly **75 games** under `c64` — including `C64.GIF`, `BASIC.ROM` and a
+folder `OneLoad64-Games-Collection-v5` holding 27,451 files, counted as **one** game. Romseerr
+saw **23,802 titles** in the same data. Neither is misconfigured; they simply expect different
+shapes.*
+
 ### Die Zielform erfüllt alle drei zugleich
 
 ```
@@ -52,6 +61,16 @@ Vier Wege führen zur Antwort, in dieser Reihenfolge:
    Datenträger-Markers — `(Disk 1)`, `(Side A)`, `[Disc 2]`, `(Tape 1 of 3)` — bleibt
    derselbe Name übrig. Das ist ein Multi-Disk-Spiel.
 4. **Sonst: Sammlung.**
+
+*EN: the one decision that matters — is a folder **a game** or **a collection**? Both wrong
+answers cost: a collection mistaken for a game hides hundreds of titles, a multi-disk game
+mistaken for a collection falls apart into individual files. Four routes to the answer, in this
+order. First, **the platform only has game folders** — for DOS, PS3, ScummVM, Wii and similar a
+title always consists of many files, so the file count is useless there. Second, **the folder is
+an image set**: a `.gdi`, `.cue` or `.m3u` **names its files** and they sit beside it — that is
+structure, not a name comparison. Third, **few files that reduce to the same title**: after
+removing the disc marker — `(Disk 1)`, `(Side A)`, `[Disc 2]`, `(Tape 1 of 3)` — the same name
+remains, which makes it a multi-disk game. Otherwise: **a collection**.*
 
 #### „Kein Archiv" ist kein Fehlschlag (#447)
 
@@ -310,6 +329,16 @@ wäre für Romseerr unsichtbar, aber RomM zählt ihn trotzdem — dann stünde d
 **Arcade ist ausgenommen.** Dort ist das Archiv das Spiel, und MAME-Romsets erwarten ihre
 Begleitdateien an Ort und Stelle.
 
+*EN: extras end up in `_beiwerk/`. Level 1 is the **game level** — RomM counts every entry
+there as exactly one game, so images, text files and `.nfo` sat there as "games": under `c64`
+that was **10,726 of 57,615 entries**, almost every fifth, including 10,018 `.nfo` files alone.
+They are now collected into a `_beiwerk/` subfolder per platform. Nothing is deleted: whoever
+looks for the text file belonging to a game still finds it, it just no longer counts as a
+title. The name starts with an **underscore, not a dot** — a hidden folder would be invisible
+to Romseerr but RomM would still count it, putting a "game" back there, just a different one.
+**Arcade is exempt**: there the archive is the game, and MAME romsets expect their companion
+files in place.*
+
 #### Musik und Symbole zählen mit (#318)
 
 Die Liste kannte anfangs nur Bilder, Text und `.dat`. Am Bestand nachgemessen
@@ -446,6 +475,14 @@ tragen 233 eine dokumentierte Adresse; die übrigen 70 haben Werte wie `$10f1`, 
 Maschine entsprechen. Eine `readme` in `readme.prg` zu verwandeln machte aus einer
 harmlosen Datei ein kaputtes Spiel.
 
+*EN: naming extensionless programs. The game level holds **4,843 files without an extension**
+(c64 4,173, amiga 366, vic-20 303). RomM counts each as a game and none of them is startable —
+no emulator recognises a file without an extension. They are not leftovers but **Commodore PRG
+files**, whose first two bytes are the load address. **Anything without a known load address is
+left alone**: of 303 files under `vic-20`, 233 carry a documented address while the other 70
+hold values like `$10f1` that match no machine. Turning a `readme` into `readme.prg` would
+convert a harmless file into a broken game.*
+
 Zusätzlich muss **Ladeadresse plus Größe in 64 KB passen** — sonst ist es kein
 Commodore-Programm, sondern eine große Datei mit zufällig passenden ersten Bytes.
 
@@ -461,6 +498,12 @@ rom-abbilder-pruefen /roms                    # nur berichten, nichts anfassen
 rom-abbilder-pruefen /roms psx --reparieren   # eindeutige Verweise umschreiben
 rom-abbilder-pruefen /roms --aussortieren     # Unbrauchbares nach _defekt/ VERSCHIEBEN
 ```
+
+*EN: checking image playlists with `rom-abbilder-pruefen`. A disc image consists of a small
+text list (`.gdi`, `.cue`, `.m3u`) and several data files. If one of them is missing the title
+is unplayable — and **silently so**: it still sits in the library, RomM counts it, and only the
+emulator says `Sector Read miss`. The tool reports by default, rewrites unambiguous references
+with `--reparieren`, and only **moves** unusable sets to `_defekt/` with `--aussortieren`.*
 
 #### Zwei Fragen, nicht eine
 
@@ -542,6 +585,11 @@ Am 2026-08-12 waren 256 Disc-Abbilder kaputt, darunter **alle 138 Dreamcast-Tite
 Wiederhergestellt wurden davon 230 — **ohne einen Byte zu laden**. Das ging nur, weil das
 Protokoll mehr festhält, als man beim Lesen des Quelltextes vermutet.
 
+*EN: the log is the way back — even for deleted files. On 2026-08-12, 256 disc images were
+broken, including **all 138 Dreamcast titles**. 230 of them were restored **without downloading
+a single byte**, which only worked because the log records more than reading the source would
+suggest.*
+
 #### Verschieben: Quelle und **echtes** Ziel
 
 ```json
@@ -592,6 +640,13 @@ war und womit es identisch war — es speichert keine Daten.
   `--zurueck`.
 - **Der Ordner `.umbau` beginnt mit einem Punkt** — Romseerr überspringt versteckte
   Ordner, sonst erschienen die Protokolldateien als Plattform mit eigenen „Titeln".
+
+*EN: before the run. **It takes time** — over 19 hours on a 5 TB library. Throughput depends on
+the number of files, not the amount of data: a platform with individually packed ROMs needs
+hours for a few gigabytes because every archive is unpacked. **One log per platform** lands
+under `<roms>/.umbau/` and is what `--zurueck` builds on. **The `.umbau` folder starts with a
+dot** — Romseerr skips hidden folders, otherwise the log files would appear as a platform with
+"titles" of their own.*
 
 ---
 
