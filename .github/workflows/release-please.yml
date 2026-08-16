@@ -73,6 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write   # die Pruefungen auf `main` anstossen / dispatch the checks on main
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -99,6 +100,41 @@ jobs:
 
           echo "main $(git rev-parse --short origin/main) -> $SHA ($TAG)"
           git push origin "$SHA:refs/heads/main"
+
+      # DER PUSH OBEN LOEST NICHTS AUS. Er laeuft mit dem `GITHUB_TOKEN`, und Pushes mit
+      # diesem Token starten keine Workflows — dieselbe Falle wie bei #185, wo der
+      # Publish-Workflow deshalb nie lief.
+      #
+      # `ci.yml`, `security.yml` und `content-policy.yml` lauschen zwar auf `push` nach
+      # `main`, aber dieser Ausloeser kann seit dem promote-Modell gar nicht mehr feuern:
+      # `main` bewegt nur noch dieser Job. Der Ausloeser stand da und leistete nichts.
+      #
+      # GEMESSEN am 2026-08-17: fuer die Tag-Commits v1.4.0 bis v1.6.1 gab es 0 von 7
+      # Laeufen auf `main`, und CodeQL hatte seit dem 13. August keine Analyse mehr unter
+      # `refs/heads/main` abgelegt — die Sicherheitsansicht des Standardzweigs stand auf
+      # einem Stand von fuenf Releases her.
+      #
+      # KEIN PAT, aus demselben Grund wie bei #185: ein Aufruf von Hand kostet nichts, ein
+      # dauerhaftes Geheimnis schon. Und bewusst NACH dem Push — schlaegt das Anstossen
+      # fehl, ist der Release trotzdem heil; deshalb bricht es den Lauf nicht ab.
+      #
+      # EN: the push above triggers nothing, because pushes made with the GITHUB_TOKEN do
+      # not start workflows (#185). So the checks are dispatched explicitly on `main`.
+      # A PAT would also work but costs a standing secret. Failure here must not fail the
+      # release, so this step never aborts the run.
+      - name: Prüfungen auf main anstoßen / dispatch the checks on main
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          for wf in ci.yml security.yml content-policy.yml; do
+            if gh workflow run "$wf" --ref main; then
+              echo "angestoßen / dispatched: $wf"
+            else
+              echo "::warning title=Prüfung nicht angestoßen::$wf liess sich auf main nicht starten / could not be dispatched"
+            fi
+          done
 
   # Das Abbild bauen. HIER und nicht ueber `on: release` im Publish-Workflow: ein Release,
   # das dieser Bot mit dem Standard-`GITHUB_TOKEN` anlegt, loest KEINE weiteren Workflows

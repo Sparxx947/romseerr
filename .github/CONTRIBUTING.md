@@ -38,6 +38,13 @@ etwas an `dev` vorbei auf `main` gelangt, und der Release-Lauf bricht laut ab.
    die Pflichtprüfungen nie und der Merge bleibt blockiert.
 3. Diesen PR mergen = Release: Tag und GitHub-Release entstehen.
 4. Der Lauf spult danach **`main` auf genau diesen Commit** vor.
+5. Und er **stößt CI, Security und Content policy auf `main` an**. Das ist kein Beiwerk:
+   Der Push aus Schritt 4 läuft mit dem `GITHUB_TOKEN` und löst deshalb **nichts** aus
+   (derselbe Grund wie eine Zeile weiter unten). Der `push`-Auslöser auf `main` steht in
+   allen drei Dateien — feuern kann er seit diesem Modell nie. Gemessen am 2026-08-17:
+   für die Tag-Commits v1.4.0 bis v1.6.1 **0 von 7** Läufen, und CodeQL hatte seit dem
+   13. August keine Analyse mehr unter `main` abgelegt. Die Sicherheitsansicht des
+   Standardzweigs stand damit auf einem Stand von fünf Releases her. (#758)
 
 #### Warum der Release-PR geschlossen und wieder geöffnet werden muss
 
@@ -156,6 +163,12 @@ run fails loudly instead of rewriting history.
    `version.txt`, a section in `CHANGELOG.md`).
 2. Merging that PR is the release: tag and GitHub release are created.
 3. The run then fast-forwards **`main` to exactly that commit**.
+4. It also **dispatches CI, Security and Content policy on `main`**. That push is made
+   with the `GITHUB_TOKEN` and therefore triggers nothing, so the `push` trigger on
+   `main` — present in all three files — can never fire under this model. Measured on
+   2026-08-17: **0 of 7** runs for the tags v1.4.0 through v1.6.1, and no CodeQL analysis
+   under `main` since 13 August, leaving the default branch's security view five releases
+   behind. (#758)
 
 Versions are **never set by hand**. `version.txt` on `dev` carries a development marker
 (`…-dev`); the real value is written by the bot in the release PR. The source of truth is
