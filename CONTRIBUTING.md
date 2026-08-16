@@ -86,6 +86,29 @@ gesetzt — ein stiller Selbstheiler bleibt nicht unbemerkt.
   Prüfungen haben sich deshalb selbst übersprungen und trotzdem Grün gemeldet. Ein `skip`
   im Testkörper ist fast immer der falsche Zweig — besser ein `assert`.
 
+### Bilder der Oberfläche
+
+Wer die Oberfläche sichtbar ändert, zieht die Bilder nach:
+
+```bash
+python3 scripts/screenshots.py            # alle Bilder in docs/img/ neu
+python3 scripts/screenshots.py --nur 04   # nur eins
+```
+
+Das Skript startet eine Wegwerf-Instanz mit einem **Vorführstand** und fotografiert sie —
+es fasst deine eigene Installation nicht an. Braucht `playwright` samt Chromium
+(`pip install -r requirements-dev.txt && playwright install chromium`).
+
+Warum das ein Skript ist und keine Handarbeit: Die erste Bilderserie kam mit **1.4.3** in
+der Fußzeile herein, während 1.5.0 lief, und zeigte einen Tag später Überschriften, die es
+nicht mehr gab. Ein Bild liest beim Zusammenführen niemand gegen — deshalb prüft
+`test_the_documentation_images_are_not_older_than_the_interface`, ob die Oberfläche seit
+mehr als zwei Wochen **nach** den Bildern geändert wurde.
+
+**Nie die eigene Bibliothek fotografieren.** Das Repository ist öffentlich, und ein Bild
+lässt sich nicht durchsuchen: Was einmal darauf ist, findet niemand wieder heraus. Der
+Vorführstand steht oben in `scripts/screenshots.py`; was dort fehlt, gehört dort ergänzt.
+
 ### Weiteres
 
 - Commits nach [Conventional Commits](https://www.conventionalcommits.org), auf Englisch.
@@ -163,6 +186,29 @@ strict marker to remove it. `xfail_strict` is set globally.
 - **`get_by_role` only finds what has a role.** An `<a>` without `href` has none. Five
   checks skipped themselves and still reported green. A `skip` inside a test body is
   almost always the wrong branch; prefer an `assert`.
+
+### Interface screenshots
+
+If you change the interface visibly, refresh the images:
+
+```bash
+python3 scripts/screenshots.py            # rebuild everything in docs/img/
+python3 scripts/screenshots.py --nur 04   # just one
+```
+
+The script starts a throwaway instance holding a **demo state** and photographs that — it
+never touches your own installation. Needs `playwright` and Chromium
+(`pip install -r requirements-dev.txt && playwright install chromium`).
+
+Why a script rather than by hand: the first set of images shipped with **1.4.3** in the
+footer while 1.5.0 was current, and a day later showed headings that no longer existed.
+Nobody reviews an image at merge time — hence
+`test_the_documentation_images_are_not_older_than_the_interface`, which fails when the
+interface has been changed more than two weeks **after** the images.
+
+**Never photograph your own library.** This repository is public, and an image cannot be
+searched: whatever ends up in one, nobody gets back out. The demo state sits at the top of
+`scripts/screenshots.py`; if something is missing from a picture, add it there.
 
 ### Also
 

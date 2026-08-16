@@ -93,6 +93,10 @@ The full rule is in
 | ![Library](docs/img/04-bibliothek.webp) | ![Coverage](docs/img/05-abdeckung.webp) |
 | **Settings** — connections, services, maintenance | **Profile** — theme, language, notifications |
 | ![Settings](docs/img/06-einstellungen.webp) | ![Profile](docs/img/07-profil.webp) |
+| **Issues** — reports against individual titles, with their thread | **My Lists** — wishlist and favourites, with import |
+| ![Issues](docs/img/15-probleme.webp) | ![My Lists](docs/img/16-listen.webp) |
+| **Messages** — between the users of this instance | |
+| ![Messages](docs/img/17-nachrichten.webp) | |
 
 ### On a phone
 

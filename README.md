@@ -94,6 +94,10 @@ Die vollständige Regel steht in
 | ![Bibliothek](docs/img/04-bibliothek.webp) | ![Abdeckung](docs/img/05-abdeckung.webp) |
 | **Einstellungen** — Verbindungen, Dienste, Wartung | **Profil** — Design, Sprache, Benachrichtigungen |
 | ![Einstellungen](docs/img/06-einstellungen.webp) | ![Profil](docs/img/07-profil.webp) |
+| **Probleme** — Meldungen zu einzelnen Titeln, mit Verlauf | **Meine Listen** — Wunschliste und Favoriten, mit Import |
+| ![Probleme](docs/img/15-probleme.webp) | ![Meine Listen](docs/img/16-listen.webp) |
+| **Nachrichten** — zwischen den Nutzern der Instanz | |
+| ![Nachrichten](docs/img/17-nachrichten.webp) | |
 
 ### Auf dem Telefon
 

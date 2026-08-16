@@ -9663,3 +9663,49 @@ def test_ein_teillauf_liest_auch_den_alias_ordner_der_plattform(appmod):
         if unserer and os.path.isdir(dc) and not os.listdir(dc):
             os.rmdir(dc)
         appmod.build_index()
+
+
+def test_the_documentation_images_are_not_older_than_the_interface():
+    """Bilder altern lautlos — dieser Test macht es laut. (#743)
+
+    GENAU DER FALL, DER PASSIERT IST: Die vierzehn Bilder kamen am 2026-08-15 mit #707
+    herein und zeigten in der Fusszeile **1.4.3**, waehrend 1.5.0 lief. Einen Tag spaeter
+    ersetzte #739 die Emoji-Ueberschriften durch gezeichnete Zeichen — die Bilder zeigten
+    ab da eine Oberflaeche, die es nicht mehr gab, und niemandem fiel es auf. Ein Bild
+    liest beim Zusammenfuehren keiner gegen.
+
+    GEPRUEFT WIRD DER ZEITSTEMPEL AUS GIT, nicht die Dateizeit: Ein frischer Checkout
+    setzt alle mtimes auf denselben Wert, die Dateizeit sagt also gar nichts.
+
+    Nachziehen mit `python3 scripts/screenshots.py`.
+    """
+    import subprocess
+
+    def letzte_aenderung(*pfade):
+        r = subprocess.run(["git", "log", "-1", "--format=%ct", "--"] + list(pfade),
+                           cwd=REPO, capture_output=True, text=True)
+        return int(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip() else None
+
+    # DIE LISTE STEHT HIER UND WIRD BELEGT. Ein Mutationstest hat gezeigt, dass sich der
+    # Waechter lautlos verengen laesst: `index.js` aus der Liste genommen, und alles blieb
+    # gruen — die beiden uebrigen Dateien wurden im selben Zeitraum geaendert und lieferten
+    # denselben Zeitstempel. Genau der Fall, den der Test verhindern soll, eine Ebene hoeher.
+    OBERFLAECHE = ("static/js/index.js", "static/css/index.css", "templates/index.html")
+    for pfad in OBERFLAECHE:
+        assert os.path.isfile(os.path.join(REPO, pfad)), \
+            f"{pfad} gibt es nicht mehr — der Waechter wurde verengt"
+    assert len(OBERFLAECHE) == 3, "die Oberflaeche besteht aus drei Dateien"
+
+    oberflaeche = letzte_aenderung(*OBERFLAECHE)
+    bilder = letzte_aenderung("docs/img")
+    if oberflaeche is None or bilder is None:
+        pytest.skip("kein Git-Verlauf verfuegbar (flacher Checkout?)")
+
+    tage = (oberflaeche - bilder) / 86400.0
+    # DIE FRIST IST ABSICHT, keine Bequemlichkeit: Eine Aenderung an einer Farbe oder
+    # einem Randabstand muss nicht sofort 20 Bilder neu erzeugen. Zwei Wochen fangen den
+    # Fall, um den es geht — eine sichtbare Umgestaltung, die stehen bleibt.
+    assert tage <= 14, (
+        f"die Oberflaeche wurde zuletzt vor {tage:.1f} Tagen NACH den Bildern geaendert.\n"
+        f"Die Bilder in docs/img/ zeigen damit einen Stand, den es nicht mehr gibt.\n"
+        f"Nachziehen: python3 scripts/screenshots.py")
