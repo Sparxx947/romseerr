@@ -4,6 +4,39 @@ Alle nennenswerten Änderungen an diesem Projekt. Format nach
 [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung nach [SemVer](https://semver.org/lang/de/).
 
+## [1.6.0](https://github.com/Sparxx947/romseerr/compare/v1.5.0...v1.6.0) (2026-08-16)
+
+
+### Neu / Features
+
+* **docs:** build the interface screenshots from a reproducible demo state ([#748](https://github.com/Sparxx947/romseerr/issues/748)) ([ed304b3](https://github.com/Sparxx947/romseerr/commit/ed304b310ef189a380adc3bfd2fc48ad1703c791)), closes [#743](https://github.com/Sparxx947/romseerr/issues/743) [#744](https://github.com/Sparxx947/romseerr/issues/744)
+* **search:** say when a result is a fallback rather than a fresh answer ([#738](https://github.com/Sparxx947/romseerr/issues/738)) ([2b5982f](https://github.com/Sparxx947/romseerr/commit/2b5982fa1229a272d892bb484039f52ed4bd50bc))
+
+
+### Behoben / Fixes
+
+* **compose:** document three hidden variables and wait for the database ([#747](https://github.com/Sparxx947/romseerr/issues/747)) ([d55a6cc](https://github.com/Sparxx947/romseerr/commit/d55a6ccd3873720a03f027757c2f06a1d2ee3146)), closes [#746](https://github.com/Sparxx947/romseerr/issues/746)
+* **search:** let usenet and filehoster report their transport errors ([#736](https://github.com/Sparxx947/romseerr/issues/736)) ([9792ac0](https://github.com/Sparxx947/romseerr/commit/9792ac03190e0e0ec58ebacedfb9eab31310456a)), closes [#729](https://github.com/Sparxx947/romseerr/issues/729)
+* **ui:** add Aurora to the theme list so choosing it is not discarded ([#751](https://github.com/Sparxx947/romseerr/issues/751)) ([d4370d8](https://github.com/Sparxx947/romseerr/commit/d4370d82155463b8f1b791f7e4ad49bd109c7683)), closes [#750](https://github.com/Sparxx947/romseerr/issues/750)
+* **ui:** show the drawn icon in page headings, not an emoji ([#740](https://github.com/Sparxx947/romseerr/issues/740)) ([ef2d67e](https://github.com/Sparxx947/romseerr/commit/ef2d67e9c48e4db8624b452c3cf653919557b529)), closes [#739](https://github.com/Sparxx947/romseerr/issues/739)
+
+
+### Leistung / Performance
+
+* **archive:** remember archive.org item metadata instead of fetching it twice ([#734](https://github.com/Sparxx947/romseerr/issues/734)) ([231f7e1](https://github.com/Sparxx947/romseerr/commit/231f7e1ef3f6c7493a20c22cf7509bcaa85400a6)), closes [#731](https://github.com/Sparxx947/romseerr/issues/731)
+* **play:** remember RomM hits so reopening a card does not query twice ([#737](https://github.com/Sparxx947/romseerr/issues/737)) ([1536e11](https://github.com/Sparxx947/romseerr/commit/1536e11524324d401e854deff982f564069fd74f)), closes [#730](https://github.com/Sparxx947/romseerr/issues/730)
+* **romm:** reuse one authenticated session instead of logging in per lookup ([#725](https://github.com/Sparxx947/romseerr/issues/725)) ([51a7eb2](https://github.com/Sparxx947/romseerr/commit/51a7eb21ced4423f5b35941c7ac922c5c938067c))
+* **search:** query the three sources side by side, and stop the detail card waiting ([#723](https://github.com/Sparxx947/romseerr/issues/723)) ([d1fe378](https://github.com/Sparxx947/romseerr/commit/d1fe378ebd369824c32ff4cc0e96139091e6943b))
+* **search:** remember each source for ten minutes, and fall back when one fails ([#727](https://github.com/Sparxx947/romseerr/issues/727)) ([2700add](https://github.com/Sparxx947/romseerr/commit/2700add11e8373bd2feef13493182fdd4331b7ee))
+* **ui:** load covers only when they come into view ([#720](https://github.com/Sparxx947/romseerr/issues/720)) ([445e71b](https://github.com/Sparxx947/romseerr/commit/445e71b90c0081ac616da71886fa08f08c6505c4))
+
+
+### Dokumentation / Documentation
+
+* **archive:** correct the archive.org figure -- ~9.4 s was a bad phase, not the norm ([#735](https://github.com/Sparxx947/romseerr/issues/735)) ([25c857e](https://github.com/Sparxx947/romseerr/commit/25c857eebc5a4913bcc8e6ce88a6d2559d5e186d)), closes [#731](https://github.com/Sparxx947/romseerr/issues/731)
+* illustrate the settings areas, the API view and the gamepad check ([#749](https://github.com/Sparxx947/romseerr/issues/749)) ([47bc24f](https://github.com/Sparxx947/romseerr/commit/47bc24f5a5981e5100551b8e26fd5a788b9b785f))
+* **security:** record why pip hash pinning is declined, and guard the reason ([#741](https://github.com/Sparxx947/romseerr/issues/741)) ([ad392ea](https://github.com/Sparxx947/romseerr/commit/ad392ea0c0727a3c255b277b38042009bb6f009f)), closes [#718](https://github.com/Sparxx947/romseerr/issues/718)
+
 ## [1.5.0](https://github.com/Sparxx947/romseerr/compare/v1.4.3...v1.5.0) (2026-08-15)
 
 
