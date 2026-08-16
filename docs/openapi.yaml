@@ -300,6 +300,13 @@ paths:
                 (#688)
               schema:
                 type: integer
+            X-Source-Status:
+              description: 'JSON-Objekt {quelle: {state, age}} fuer JEDE Quelle, die keine frische Antwort
+                geliefert hat. `stale` = ausgefallen, es kam der letzte bekannte Stand (`age` in Sekunden),
+                `down` = ausgefallen und nichts gemerkt, die Quelle fehlt also ganz in der Liste. FEHLT
+                die Kopfzeile, war alles frisch — sie kommt nicht bei jeder Suche mit. (#732)'
+              schema:
+                type: string
         '401': *id002
       security: *id003
       parameters:

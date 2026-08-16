@@ -2644,6 +2644,15 @@ def do_search(q, platforms=None, stats=None):
     usenet_cats = cfg("prow_cats")
     res = []
     bl = [str(p).strip().lower() for p in load_settings().get("blocklist", []) if str(p).strip()]
+    # Was den Quellen zugestossen ist — `{name: {"state": "stale"|"down", "age": s}}`.
+    # Nur die AUFFAELLIGEN stehen drin; eine heile Suche laesst das Woerterbuch leer, und
+    # die Oberflaeche zeigt dann nichts. Ein Dauerbanner wird nicht gelesen. (#732)
+    #
+    # MIT SCHLOSS, obwohl jeder Faden einen anderen Schluessel schreibt: Unter dem GIL
+    # waere das heute zufaellig sicher, aber „zufaellig sicher" ist keine Zusage — mit
+    # freilaufenden Faden (PEP 703) faellt sie weg. Das Schloss kostet hier nichts, es
+    # wird hoechstens dreimal je Suche angefasst.
+    quellstand, quellstand_lock = {}, threading.Lock()
     # DIE DREI QUELLEN NEBENEINANDER, NICHT NACHEINANDER (#721).
     #
     # GEMESSEN, nicht vermutet: Ein Klick auf eine Entdecken-Karte brauchte 15,8 s bis zur
@@ -2676,6 +2685,11 @@ def do_search(q, platforms=None, stats=None):
           * Faellt eine Quelle aus, ist der letzte bekannte Stand besser als „keine
             Treffer" — er ist derselbe, den dieselbe Suche vor Minuten geliefert haette.
 
+        WAS DABEI SCHIEFGING, WIRD VERMERKT (#732): `quellstand` bekommt `stale` samt
+        Alter, wenn ein alter Stand einspringt, und `down`, wenn nicht einmal der da ist.
+        Ohne das ist beides unsichtbar — ein Rueckfall sieht aus wie eine frische
+        Antwort, und eine tote Quelle laesst die Liste nur stillschweigend kuerzer werden.
+
         LEERE ERGEBNISSE WERDEN NICHT GEMERKT: „nichts gefunden" ist eine gueltige
         Antwort, aber als Zwischenstand waere sie eine Falle — eine neu importierte
         Datei taeuchte dann minutenlang nicht auf.
@@ -2697,6 +2711,11 @@ def do_search(q, platforms=None, stats=None):
                 return fn(*a)
             except Exception as e:
                 log(f"Suchquelle {name} fehlgeschlagen: {e}")
+                # Auch ohne Gedaechtnis bleibt „diese Quelle ist ausgefallen" wahr — und
+                # genau das muss der Nutzer wissen. Ein abgeschaltetes Gedaechtnis darf
+                # die Meldung nicht mit abschalten. (#732)
+                with quellstand_lock:
+                    quellstand[name] = {"state": "down"}
                 return []
         schluessel = (name, repr(a))
         jetzt = time.time()
@@ -2709,9 +2728,13 @@ def do_search(q, platforms=None, stats=None):
         except Exception as e:
             log(f"Suchquelle {name} fehlgeschlagen: {e}")
             if eintrag:
-                log(f"Suchquelle {name}: letzter bekannter Stand "
-                    f"({int(jetzt - eintrag[0])}s alt) wird benutzt")
+                alter = int(jetzt - eintrag[0])
+                log(f"Suchquelle {name}: letzter bekannter Stand ({alter}s alt) wird benutzt")
+                with quellstand_lock:
+                    quellstand[name] = {"state": "stale", "age": alter}
                 return copy.deepcopy(eintrag[1])
+            with quellstand_lock:
+                quellstand[name] = {"state": "down"}
             return []
         if res:
             with SUCH_CACHE_LOCK:
@@ -2799,6 +2822,7 @@ def do_search(q, platforms=None, stats=None):
                             variant_rank(x["variant"], prefs), x["_rank"]))
     if stats is not None:
         stats["plat_hidden"] = verdeckt
+        stats["sources"] = quellstand
     return res
 
 # ---------- Jobs ----------
@@ -5882,6 +5906,14 @@ def api_search():
     # unterzubringen, haette jeden dieser Aufrufer angefasst. (#688)
     antwort = jsonify(res)
     antwort.headers["X-Platform-Hidden"] = str(st.get("plat_hidden", 0))
+    # Zweites Feld auf demselben Weg (#732): welche Quelle einen alten Stand geliefert hat
+    # und welche ganz ausgefallen ist. NUR WENN ES ETWAS ZU SAGEN GIBT — eine Kopfzeile,
+    # die immer mitkommt, waere ein Dauerbanner, und ein Dauerbanner wird nicht gelesen.
+    # `json.dumps` ist hier bewusst ASCII-rein: Kopfzeilen sind latin-1, und die Namen
+    # kommen ohnehin aus einer festen Liste.
+    quellstand = st.get("sources") or {}
+    if quellstand:
+        antwort.headers["X-Source-Status"] = json.dumps(quellstand, separators=(",", ":"))
     return antwort
 
 @app.route("/api/platforms")
@@ -8657,7 +8689,16 @@ OPENAPI = {
                                    "Sperrliste und Achievements-Filter bleiben aussen vor, "
                                    "sonst boete die Oberflaeche an, Treffer zurueckzuholen, "
                                    "die davon gar nicht betroffen sind. (#688)",
-                    "schema": {"type": "integer"}}}}})},
+                    "schema": {"type": "integer"}},
+                "X-Source-Status": {
+                    "description": "JSON-Objekt {quelle: {state, age}} fuer JEDE Quelle, "
+                                   "die keine frische Antwort geliefert hat. `stale` = "
+                                   "ausgefallen, es kam der letzte bekannte Stand (`age` "
+                                   "in Sekunden), `down` = ausgefallen und nichts gemerkt, "
+                                   "die Quelle fehlt also ganz in der Liste. FEHLT die "
+                                   "Kopfzeile, war alles frisch — sie kommt nicht bei "
+                                   "jeder Suche mit. (#732)",
+                    "schema": {"type": "string"}}}}})},
         "/api/coverage": {"get": _op("Abdeckung je Plattform (besessen/bekannt/Prozent, mit Quelle und Stand)", "Search")},
         "/api/coverage/status": {"get": _op("Fortschritt eines laufenden Katalogabrufs", "Search")},
         "/api/catalog/status": {"get": _op("Filehoster-Katalogquellen: Stand, Anzahl, Fehler", "Search")},

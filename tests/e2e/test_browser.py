@@ -2398,3 +2398,87 @@ def test_spielen_und_streamen_warten_nicht_auf_die_detailabfrage(seite):
          "Antwort, aus der es nichts braucht")
     assert reihenfolge.index("stream") < reihenfolge.index("detail"), \
         f"stream startete erst nach detail: {reihenfolge}"
+
+
+# --- #732: sagen, wenn ein Ergebnis ein Rueckfall ist ---
+#
+# WARUM IM BROWSER: Der Hinweis entsteht aus einer HTTP-KOPFZEILE, die nur ein echter
+# Abruf traegt, und aus JavaScript, das ihn in ein eigenes Element schreibt. Der
+# Flask-Testclient kennt beides nicht — er sieht die Kopfzeile und sonst nichts.
+
+_732_TREFFER = ('[{"title":"Alter Treffer","platform":"snes","platform_slug":"snes",'
+                '"source":"archive","size":524288,"ref":"a1","cover":"","gkey":"a",'
+                '"in_library":false,"grp_in_library":false,"is_set":false,'
+                '"variant":{},"variant_label":""}]')
+
+
+def _suche_mit_quellstand(seite, stand, koerper=_732_TREFFER):
+    """Suchen, wobei `/api/search` den angegebenen Quellenstand mitschickt."""
+    kopf = {"X-Platform-Hidden": "0"}
+    if stand is not None:
+        kopf["X-Source-Status"] = stand
+    seite.evaluate("() => { SELP = new Set(); localStorage.setItem('romp','[]'); }")
+    seite.route("**/api/search*", lambda route: route.fulfill(
+        status=200, content_type="application/json", headers=kopf, body=koerper))
+    seite.locator("#q").fill("Super Mario World")
+    seite.keyboard.press("Enter")
+    seite.wait_for_timeout(900)
+
+
+def test_ein_rueckfall_sagt_dass_er_einer_ist(seite):
+    """Seit #726 liefert eine tote Quelle ihren letzten Stand — bisher unsichtbar. (#732)"""
+    _suche_mit_quellstand(seite, '{"archive":{"state":"stale","age":247}}')
+    text = seite.locator("#srchint").inner_text()
+    assert "Archive.org" in text, f"die Quelle wird nicht genannt: {text!r}"
+    assert "4 Min." in text, f"das Alter fehlt oder ist falsch gerundet: {text!r}"
+
+
+def test_eine_ausgefallene_quelle_ohne_stand_wird_genannt(seite):
+    """Der Fall, der im Betrieb wirklich vorkommt. (#732)
+
+    Neun Tage Protokoll auf dem laufenden Server: 18 Quellenausfaelle, 0 Rueckfaelle.
+    Ohne gemerkten Stand steuert die Quelle nichts bei — eine kurze Liste ist dann nicht
+    von „es gibt nichts" zu unterscheiden.
+    """
+    _suche_mit_quellstand(seite, '{"usenet":{"state":"down"}}')
+    text = seite.locator("#srchint").inner_text()
+    assert "Usenet" in text, f"die ausgefallene Quelle wird nicht genannt: {text!r}"
+    assert "247" not in text and "Stand von vor" not in text, \
+        f"ohne gemerkten Stand darf kein Alter behauptet werden: {text!r}"
+
+
+def test_ohne_kopfzeile_steht_da_nichts(seite):
+    """Kein Dauerbanner — wer immer warnt, wird nicht gelesen. (#732)
+
+    DIESER TEST WAR VORHER SCHON GRUEN: Ohne `#srchint` ist auch nichts sichtbar. Er
+    haelt die Rueckseite der anderen vier fest, die alle rot waren.
+    """
+    _suche_mit_quellstand(seite, None)
+    assert not seite.locator("#srchint").is_visible(), \
+        f"heile Suche zeigt trotzdem einen Hinweis: {seite.locator('#srchint').inner_text()!r}"
+
+
+def test_der_hinweis_verschwindet_bei_der_naechsten_heilen_suche(seite):
+    """Er beschreibt die LETZTE Suche, nicht den Tag. (#732)"""
+    _suche_mit_quellstand(seite, '{"archive":{"state":"down"}}')
+    assert seite.locator("#srchint").is_visible(), "der Hinweis kam gar nicht erst"
+    _suche_mit_quellstand(seite, None)
+    assert not seite.locator("#srchint").is_visible(), \
+        "der Hinweis der vorigen Suche steht noch da"
+
+
+def test_der_hinweis_ueberlebt_einen_sprachwechsel_und_wechselt_mit(seite):
+    """`applyI18n` setzt `textContent` und loescht damit alle Kinder. (#337, #732)
+
+    Der Plattform-Hinweis haengt in `#hint` (`data-i18n=hint_type`) und ist nach einem
+    Sprachwechsel weg. Der Quellen-Hinweis steht deshalb in einem eigenen Element — und
+    weil „stehen bleiben" allein zu wenig ist, muss er dabei auch die Sprache mitmachen:
+    ein Warnhinweis in der falschen Sprache ist schlimmer als keiner.
+    """
+    _suche_mit_quellstand(seite, '{"archive":{"state":"down"}}')
+    assert "antwortete nicht" in seite.locator("#srchint").inner_text()
+    seite.evaluate("() => setLang('en')")
+    seite.wait_for_timeout(900)
+    text = seite.locator("#srchint").inner_text()
+    assert "Archive.org" in text, f"der Hinweis ist beim Sprachwechsel verschwunden: {text!r}"
+    assert "did not answer" in text, f"der Hinweis blieb auf Deutsch stehen: {text!r}"

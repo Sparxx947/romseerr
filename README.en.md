@@ -119,6 +119,11 @@ the grid narrows.
 - **Search** across two sources at once: **Archive.org** (retro, direct download) and **Usenet**
   (Prowlarr indexers → SABnzbd, mostly modern consoles). A **platform pre-selection** narrows the
   search; a retro-only selection disables Usenet.
+- **A source that fails says so.** When one of the sources fails it serves its last known
+  result instead of "no hits" — and a line above the list says that the result is stale and
+  how old it is. If nothing was cached the source is still named: otherwise a short list is
+  indistinguishable from "there is nothing". When everything is fresh, **nothing** appears
+  there — no permanent banner.
 - **Dedup** against the existing library: owned titles are flagged and sorted last; re-downloading
   is blocked both server- and client-side.
   The comparison uses a **normalised key**, not the filename — extension, brackets, region and
