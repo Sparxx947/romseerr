@@ -496,6 +496,12 @@ class _Protokoll:
 def _index_mit_protokoll(appmod, monkeypatch):
     p = _Protokoll()
     monkeypatch.setattr(appmod, "log", p)
+    # Frisch wie nach einem Start (#766): Seit der volle Lauf einen unveraenderten Bestand
+    # verschweigt, haengt die Schlussmeldung davon ab, was ein FRUEHERER Test gebaut hat.
+    # Zwei Tests mit gleichem Bestand hintereinander — und der zweite bekaeme nichts zu
+    # sehen. Der Merker gehoert dem Prozess, also wird er hier zurueckgelegt, statt jeden
+    # Aufrufer daran denken zu lassen.
+    appmod.INDEX_LOG_LETZTE.update(sig=None, ts=0.0, still=0)
     appmod.build_index()
     return p
 

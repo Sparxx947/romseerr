@@ -1328,6 +1328,60 @@ def bibliothek_ordner(slug):
 
 INDEX_FEHLER_ZEIGEN = 10   # so viele Plattformnamen stehen in der Schlussmeldung
 
+# --- Der volle Indexlauf meldet nur, was neu ist (#766) -----------------------------
+#
+# GEMESSEN, BEVOR HIER ETWAS STAND: `/config/romseerr.log` der laufenden Anlage hatte am
+# 2026-08-17 nach zehn Tagen 2317 Zeilen — 1255 davon (54,2 %) waren die Schlussmeldung
+# unten. In den 200 Zeilen, die `/api/logs` der Admin-Ansicht liefert, waren es 163
+# (81,5 %). `periodic_index` laeuft alle 600 s, also 144-mal am Tag, und schrieb jedes
+# Mal dieselbe Zahl: 293068. Das Fenster deckte damit 1,2 Tage ab, und wer hineinsah,
+# las 37 Ereignisse und 163-mal denselben Satz.
+#
+# WARUM DAS SCHWEIGEN VERANTWORTBAR IST: Die Frage „laeuft der Indexfaden noch" steht
+# schon woanders und genauer — `beat("index")` fuehrt `WORKER_SEEN`, und die
+# Betriebsmetriken sind laut ihrem eigenen Kommentar fuer genau diesen Fall da. Das
+# Protokoll muss sie nicht ein zweites Mal beantworten, schlechter.
+#
+# DER HERZSCHLAG BLEIBT TROTZDEM: Fuer den, der nur das Protokoll hat, saehe ein
+# stiller Faden aus wie ein toter. Nach dieser Stille meldet der Lauf auch unveraendert,
+# und jede Meldung nennt, wie viele Laeufe still blieben.
+#
+# EN: measured first — 1255 of 2317 log lines (54.2 %), and 163 of the 200 the admin
+# view shows (81.5 %), were this one summary repeating 293068. Liveness already lives in
+# WORKER_SEEN/metrics; the heartbeat below keeps a quiet log distinguishable from a dead
+# one, and every line says how many runs stayed silent.
+INDEX_LOG_STILLE = int(os.environ.get("ROMSEERR_INDEX_LOG_STILLE", "21600"))   # 6 h; 0 = jeder Lauf
+INDEX_LOG_LETZTE = {"sig": None, "ts": 0.0, "still": 0}
+
+
+def _index_log_faellig(sig):
+    """Soll dieser Lauf melden? Fuehrt den Merker gleich mit. -> (ja, stille Laeufe davor)
+
+    Die Signatur ist bewusst MEHR als die Zahlen: Die Menge der nicht lesbaren Plattformen
+    gehoert dazu. Ein leerer Plattformordner, der unlesbar wird, aendert weder Titel- noch
+    Ordnerzahl — genau die Meldung, um derentwillen #381 gebaut wurde, waere sonst bis zum
+    naechsten Herzschlag verschwunden.
+    """
+    jetzt = time.time()
+    if (INDEX_LOG_STILLE > 0 and sig == INDEX_LOG_LETZTE["sig"]
+            and jetzt - INDEX_LOG_LETZTE["ts"] < INDEX_LOG_STILLE):
+        INDEX_LOG_LETZTE["still"] += 1
+        return False, INDEX_LOG_LETZTE["still"]
+    still = INDEX_LOG_LETZTE["still"]
+    INDEX_LOG_LETZTE.update(sig=sig, ts=jetzt, still=0)
+    return True, still
+
+
+def _index_stilletext(still):
+    """„ — davor N Laeufe unveraendert". Ohne stille Laeufe: leer.
+
+    Ohne diese Zahl ist das Schweigen nicht von einem ausgefallenen Lauf zu unterscheiden.
+    """
+    if still <= 0: return ""
+    wort = "Lauf" if still == 1 else "Laeufe"
+    return f" — davor {still} {wort} unveraendert"
+
+
 def _index_fehlertext(fehler):
     """Zusatz fuer die Schlussmeldung des Indexlaufs. Ohne Fehler: leer. (#381)
 
@@ -1520,9 +1574,15 @@ def _index_lauf(nur):
         # hatten. Beides „Plattformen" zu nennen liess die Startseite (64) und diese Zeile
         # (599) einander widersprechen, obwohl beide Zahlen stimmten.
         mit_inhalt = sum(1 for v in per.values() if v)
-        log(f"Bibliotheks-Index: {mit_inhalt} Plattformen mit Inhalt "
-            f"({len(slugs)} Ordner), {len(allset)} Titel "
-            f"(in DB gesichert){_index_fehlertext(fehler)}")
+        # NUR MELDEN, WAS NEU IST (#766) — der Lauf kommt 144-mal am Tag, und die Zeile
+        # war 81,5 % dessen, was die Admin-Ansicht zeigte. Gespeichert wird trotzdem
+        # jedes Mal: geschwiegen wird ueber das Ergebnis, nicht daran gearbeitet.
+        faellig, still = _index_log_faellig(
+            (mit_inhalt, len(slugs), len(allset), tuple(sorted(fehler))))
+        if faellig:
+            log(f"Bibliotheks-Index: {mit_inhalt} Plattformen mit Inhalt "
+                f"({len(slugs)} Ordner), {len(allset)} Titel "
+                f"(in DB gesichert){_index_fehlertext(fehler)}{_index_stilletext(still)}")
     else:
         # ERST RAUS, DANN REIN — und zwar fuer JEDEN genannten Slug, nicht nur fuer die
         # mit Treffern: Ist der Ordner der letzten Plattform leer geraeumt worden, kommt

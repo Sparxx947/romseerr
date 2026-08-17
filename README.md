@@ -633,6 +633,27 @@ Der Container läuft **non-root** und bringt einen **Healthcheck** auf `/health`
 > Umbenennungen darin also genauso erfasst wie beim vollen Lauf. Der volle Lauf bleibt
 > und läuft weiter alle 600 s im Hintergrund.
 
+> **Der volle Lauf schweigt, wenn sich nichts geändert hat** (#766). Er kommt alle 600 s,
+> also 144-mal am Tag. Gemessen am laufenden System: Von 2317 Protokollzeilen aus zehn
+> Tagen waren **1255 (54,2 %)** diese eine Meldung, und in den 200 Zeilen, die die
+> Admin-Ansicht zeigt, **163 von 200 (81,5 %)** — jedes Mal mit derselben Zahl. Das
+> Fenster reichte damit 1,2 Tage weit.
+>
+> Gemeldet wird jetzt, wenn sich Plattformen mit Inhalt, Ordner, Titel oder die Menge der
+> **nicht lesbaren** Plattformen ändern. Die Zeile sagt dann, wie lange es still war:
+>
+> ```
+> Bibliotheks-Index: 64 Plattformen mit Inhalt (599 Ordner), 293552 Titel (in DB gesichert) — davor 37 Laeufe unveraendert
+> ```
+>
+> Dass der Indexlauf überhaupt noch läuft, steht **genauer woanders**: in den
+> Betriebsmetriken unter `/metrics` (`beat("index")`). Für den, der nur das Protokoll hat,
+> bleibt ein **Herzschlag** — nach `ROMSEERR_INDEX_LOG_STILLE` Sekunden Stille meldet der
+> Lauf auch unverändert, standardmäßig alle 6 h (4 Zeilen am Tag statt 144).
+>
+> **Rückweg ohne Codeänderung:** `ROMSEERR_INDEX_LOG_STILLE=0` — dann meldet wieder jeder
+> Lauf, genau wie vor #766.
+
 ---
 
 ## Ersteinrichtung

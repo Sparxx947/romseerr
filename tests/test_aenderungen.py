@@ -2453,3 +2453,173 @@ def test_the_source_hint_texts_exist_in_every_language(appmod):
     """Fehlt ein Schluessel, sieht der Nutzer den Bezeichner. (#364, #732)"""
     for s in ("src_stale", "src_down", "src_age_sec", "src_age_min", "src_age_hour"):
         assert i18n_hat(s) == 5, f"{s} fehlt in einer Sprache"
+
+
+# --- #766: das Protokoll wiederholt keine Zeile, die nichts Neues sagt ----------------
+#
+# GEMESSEN am laufenden System, bevor hier etwas stand: `/config/romseerr.log` hatte am
+# 2026-08-17 nach zehn Tagen 2317 Zeilen, davon 1255 (54,2 %) die Schlussmeldung des
+# periodischen Indexlaufs. Im Fenster, das die Admin-Ansicht zeigt — `/api/logs` liefert
+# 200 Zeilen — waren es 163 von 200 (81,5 %). `periodic_index` laeuft alle 600 s, also
+# 144-mal am Tag, und meldete jedes Mal dieselbe Zahl: 293068.
+#
+# EN: measured before writing this — 1255 of 2317 log lines (54.2 %) were the periodic
+# index summary, and 163 of the 200 lines the admin view shows (81.5 %). The run happens
+# 144 times a day and said 293068 every single time.
+
+def _neuer_bestand(appmod, tmp_path, monkeypatch, *dateien):
+    """Eine eigene ROMS-Wurzel mit genau diesen Dateien, Merker frisch wie nach dem Start."""
+    wurzel = tmp_path / "roms"
+    for rel in dateien:
+        ziel = wurzel / rel
+        ziel.parent.mkdir(parents=True, exist_ok=True)
+        ziel.write_bytes(b"x")
+    wurzel.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(appmod, "ROMS", str(wurzel))
+    appmod.INDEX_LOG_LETZTE.update(sig=None, ts=0.0, still=0)
+    return wurzel
+
+
+def _lauf(appmod, monkeypatch):
+    """Ein voller Indexlauf; zurueck kommt, was er protokolliert haette."""
+    p = _Protokoll()
+    monkeypatch.setattr(appmod, "log", p)
+    appmod.build_index()
+    return p
+
+
+def test_an_unchanged_index_run_does_not_repeat_itself(appmod, tmp_path, monkeypatch):
+    """Zweiter Lauf ueber denselben Bestand: keine zweite Schlussmeldung. (#766)"""
+    _neuer_bestand(appmod, tmp_path, monkeypatch, "snes/Super Mario World.sfc")
+    erst = _lauf(appmod, monkeypatch)
+    assert erst.mit("Bibliotheks-Index:"), \
+        f"schon der erste Lauf meldet nichts: {erst.zeilen}"
+
+    zweit = _lauf(appmod, monkeypatch)
+    assert not zweit.mit("Bibliotheks-Index:"), \
+        ("der unveraenderte Lauf wiederholt sich — genau die 163 von 200 Zeilen:\n  "
+         + "\n  ".join(zweit.zeilen))
+
+
+def test_a_changed_index_run_reports_at_once_and_names_the_silence(appmod, tmp_path, monkeypatch):
+    """Kommt ein Titel dazu, steht es sofort da — samt der Zahl der stillen Laeufe. (#766)
+
+    Ohne diese Zahl waere das Schweigen nicht von einem ausgefallenen Lauf zu
+    unterscheiden: Das Protokoll saehe genauso aus, wenn der Indexfaden gestorben waere.
+    """
+    wurzel = _neuer_bestand(appmod, tmp_path, monkeypatch, "snes/Super Mario World.sfc")
+    _lauf(appmod, monkeypatch)
+    for _ in range(3):
+        _lauf(appmod, monkeypatch)          # unveraendert, also still
+
+    (wurzel / "snes" / "Zelda.sfc").write_bytes(b"x")
+    nach = _lauf(appmod, monkeypatch)
+    zeile = nach.schluss
+    assert zeile, f"die Aenderung wird nicht gemeldet: {nach.zeilen}"
+    assert "2 Titel" in zeile, f"die neue Zahl fehlt: {zeile}"
+    assert "3" in zeile and "unveraendert" in zeile.lower(), \
+        f"die Zeile verschweigt, dass drei Laeufe still blieben: {zeile}"
+
+
+def test_a_long_silence_still_gets_a_heartbeat(appmod, tmp_path, monkeypatch):
+    """Nach langer Stille meldet der Lauf auch unveraendert. (#766)
+
+    Sonst ist ein ruhiges Protokoll von einem toten Prozess nicht zu unterscheiden —
+    fuer den, der nur das Protokoll hat.
+    """
+    _neuer_bestand(appmod, tmp_path, monkeypatch, "gb/Tetris.gb")
+    _lauf(appmod, monkeypatch)
+    assert not _lauf(appmod, monkeypatch).mit("Bibliotheks-Index:"), "schweigt nicht"
+
+    appmod.INDEX_LOG_LETZTE["ts"] -= appmod.INDEX_LOG_STILLE + 1     # die Uhr vorstellen
+    schlag = _lauf(appmod, monkeypatch)
+    assert schlag.mit("Bibliotheks-Index:"), \
+        f"nach {appmod.INDEX_LOG_STILLE} s Stille kommt kein Herzschlag: {schlag.zeilen}"
+
+
+def test_the_documented_way_back_really_brings_the_old_behaviour_back(appmod, tmp_path, monkeypatch):
+    """`ROMSEERR_INDEX_LOG_STILLE=0` -> jeder Lauf meldet wieder. (#766)
+
+    Der Rueckweg steht in der Doku; ungeprueft waere er eine Behauptung.
+    """
+    _neuer_bestand(appmod, tmp_path, monkeypatch, "nes/Metroid.nes")
+    monkeypatch.setattr(appmod, "INDEX_LOG_STILLE", 0)
+    for i in range(3):
+        assert _lauf(appmod, monkeypatch).mit("Bibliotheks-Index:"), \
+            f"Lauf {i + 1} schweigt trotz abgeschalteter Stille"
+
+
+def test_the_way_back_really_arrives_from_the_environment(tmp_path):
+    """Der Wert aus `ROMSEERR_INDEX_LOG_STILLE` kommt UNVERAENDERT an. (#766)
+
+    WARUM ZUSAETZLICH ZUM TEST DARUEBER: Jener setzt das Attribut von Hand. Er sieht
+    deshalb nicht, was zwischen Umgebung und Attribut passiert — eine untere Schranke
+    (`max(wert, 600)`), ein anderer Vorgabewert, oder dass die Variable gar nicht mehr
+    gelesen wird. Der dokumentierte Rueckweg waere kaputt und alle Tests blieben gruen.
+    Deshalb faehrt dieser hier den echten Weg: Umgebung setzen, `app` frisch importieren,
+    nachsehen, was angekommen ist.
+
+    EN: the test above patches the attribute, so it cannot see a clamp, a changed default
+    or the variable no longer being read at all. This one imports `app` in a subprocess
+    with the environment actually set.
+    """
+    def wert(setzen):
+        umgebung = {**os.environ,
+                    "ROMSEERR_CONFIG": str(tmp_path),
+                    "ROMSEERR_ROMS": str(tmp_path / "roms")}
+        umgebung.pop("ROMSEERR_INDEX_LOG_STILLE", None)
+        if setzen is not None:
+            umgebung["ROMSEERR_INDEX_LOG_STILLE"] = setzen
+        r = subprocess.run(
+            [sys.executable, "-c", "import app; print('WERT', app.INDEX_LOG_STILLE)"],
+            cwd=REPO, env=umgebung, capture_output=True, text=True, timeout=120)
+        assert r.returncode == 0, f"Import misslungen: {r.stderr[-800:]}"
+        treffer = [z for z in r.stdout.splitlines() if z.startswith("WERT ")]
+        assert treffer, f"keine Ausgabe: {r.stdout[-400:]} / {r.stderr[-400:]}"
+        return int(treffer[-1].split()[1])
+
+    (tmp_path / "roms").mkdir(exist_ok=True)
+    assert wert("0") == 0, "der abgeschaltete Zustand kommt nicht an — der Rueckweg wirkt nicht"
+    assert wert("60") == 60, "ein kleiner Wert wird unterwegs angehoben (Schranke?)"
+    assert wert(None) == 21600, "der Vorgabewert ist nicht mehr die dokumentierte 6 h"
+
+
+def test_a_platform_that_turns_unreadable_breaks_the_silence(appmod, tmp_path, monkeypatch):
+    """Neu unlesbar, aber gleiche Titelzahl — das muss trotzdem sofort ins Protokoll. (#766)
+
+    Der harte Fall: Ein LEERER Plattformordner traegt vorher wie nachher null Titel bei,
+    die Ordnerzahl bleibt auch gleich. Zaehlte die Signatur nur Zahlen, verschwaende
+    genau die Meldung, um derentwillen #381 gebaut wurde — und zwar bis zum Herzschlag
+    Stunden spaeter.
+    """
+    wurzel = _neuer_bestand(appmod, tmp_path, monkeypatch, "gba/Fire Emblem.gba")
+    leer = wurzel / "pico8"
+    leer.mkdir()
+    _lauf(appmod, monkeypatch)
+    assert not _lauf(appmod, monkeypatch).mit("Bibliotheks-Index:"), "schweigt nicht"
+
+    if not _unlesbar_machen(str(leer)):
+        pytest.skip("laeuft als root — 0o000 sperrt hier nichts, der Test bewiese nichts")
+    try:
+        p = _lauf(appmod, monkeypatch)
+        zeile = p.schluss
+        assert zeile, f"der neue Lesefehler bleibt unbemerkt: {p.zeilen}"
+        assert "pico8" in zeile, f"die Plattform wird nicht genannt: {zeile}"
+    finally:
+        os.chmod(str(leer), 0o755)
+
+
+def test_the_shared_index_helper_stays_independent_of_test_order(appmod, monkeypatch):
+    """`_index_mit_protokoll` liefert eine Schlussmeldung, egal was davor lief. (#766)
+
+    Seit der volle Lauf einen unveraenderten Bestand verschweigt, haengt die Meldung am
+    Zustand, den ein FRUEHERER Test hinterlassen hat. Ein Dutzend Tests aus #381 und #654
+    lesen genau diese Zeile — ohne die Zusicherung hier faellt eines Tages eines davon um,
+    und zwar reihenfolgeabhaengig, also nicht reproduzierbar.
+    """
+    erst = _index_mit_protokoll(appmod, monkeypatch)
+    assert erst.schluss, f"schon der erste Aufruf liefert nichts: {erst.zeilen}"
+    zweit = _index_mit_protokoll(appmod, monkeypatch)
+    assert zweit.schluss, \
+        ("der zweite Aufruf ueber denselben Bestand schweigt — die Hilfe legt den Merker "
+         f"nicht zurueck: {zweit.zeilen}")
