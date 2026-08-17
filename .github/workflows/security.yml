@@ -30,7 +30,15 @@ env:
   #
   # Scheduled runs always start on the default branch, which here is the release branch and
   # not what is deployed. A scan reporting on a tree nobody runs is worse than none.
-  SCAN_REF: ${{ github.event_name == 'schedule' && 'dev' || github.ref }}
+  #
+  # VOLLER REF, NICHT NUR DER ZWEIGNAME (#760): CodeQL muss denselben Wert als
+  # Upload-Ziel bekommen, und dort ist `refs/heads/<zweig>` verlangt. `checkout` nimmt
+  # beide Schreibweisen — die Nicht-Zeitplan-Faelle reichen mit `github.ref` ohnehin
+  # schon immer einen vollen Ref durch.
+  # Full ref, not the bare branch name: CodeQL needs the same value as its upload target
+  # and expects refs/heads/<branch> there. checkout accepts both, and the non-schedule
+  # cases have always passed a full ref via github.ref anyway.
+  SCAN_REF: ${{ github.event_name == 'schedule' && 'refs/heads/dev' || github.ref }}
 
 jobs:
   codeql:
@@ -47,10 +55,33 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ env.SCAN_REF }}
+      # WELCHEN COMMIT DER UPLOAD MELDET (#760): Die Action bindet ihr Ergebnis nicht an
+      # den ausgecheckten Baum, sondern an den LAUF. `getCommitOid()` liest zwar
+      # `git rev-parse HEAD` aus dem Arbeitsverzeichnis — also `dev` —, `getRef()` gibt
+      # aber `GITHUB_REF` unveraendert zurueck, und das ist im geplanten Lauf
+      # `refs/heads/main`. Ohne Gegenmassnahme landet die Analyse von `dev` als juengste
+      # Analyse fuer `main`, unter einem Commit, der auf `main` gar nicht liegt.
+      # `continue-on-error` am Job verschluckt zusaetzlich den Fall, dass GitHub das
+      # unstimmige Paar zurueckweist.
+      #
+      # NUR IM ZEITPLAN gesetzt: Bei `push` und `workflow_dispatch` stimmen `GITHUB_REF`
+      # und `GITHUB_SHA` von selbst, und auf PRs wuerde ein ausdruecklicher `ref` die
+      # merge-gegen-head-Erkennung der Action ueberspringen. Leere Eingaben sind
+      # gefahrlos: `getOptionalInput` macht daraus `undefined`, die Regel „beide oder
+      # keins" greift also nicht.
+      #
+      # The action ties its upload to the run, not to the checked-out tree: the sha comes
+      # from the workspace but the ref comes from GITHUB_REF, which on a scheduled run is
+      # the default branch. Set both explicitly there, and only there.
+      - id: geprueft
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3  # v3
         with:
           languages: python
       - uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3  # v3
+        with:
+          ref: ${{ github.event_name == 'schedule' && env.SCAN_REF || '' }}
+          sha: ${{ github.event_name == 'schedule' && steps.geprueft.outputs.sha || '' }}
 
   bandit:
     permissions:
