@@ -612,6 +612,27 @@ workflows. That is why v1.1.0-beta.1 shipped without an image.
 > up exactly as by a full rebuild. The full run stays and keeps running every 600 s in the
 > background.
 
+> **The full run stays quiet when nothing changed** (#766). It happens every 600 s, i.e.
+> 144 times a day. Measured on the live instance: of 2317 log lines over ten days,
+> **1255 (54.2 %)** were this single message, and of the 200 lines the admin view shows,
+> **163 of 200 (81.5 %)** — carrying the same number every time. That window reached back
+> all of 1.2 days.
+>
+> It now reports when platforms with content, folders, titles, or the set of **unreadable**
+> platforms change. The line then says how long it had been quiet:
+>
+> ```
+> Bibliotheks-Index: 64 Plattformen mit Inhalt (599 Ordner), 293552 Titel (in DB gesichert) — davor 37 Laeufe unveraendert
+> ```
+>
+> Whether the index thread is still alive is answered **better elsewhere**: by the
+> operational metrics at `/metrics` (`beat("index")`). For anyone who only has the log,
+> a **heartbeat** remains — after `ROMSEERR_INDEX_LOG_STILLE` seconds of silence the run
+> reports even when unchanged, by default every 6 h (4 lines a day instead of 144).
+>
+> **Way back without a code change:** `ROMSEERR_INDEX_LOG_STILLE=0` makes every run report
+> again, exactly as before #766.
+
 ---
 
 ## First run
