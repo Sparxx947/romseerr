@@ -1044,6 +1044,17 @@ time. The result appears in the startup warnings; the addresses themselves are *
   handed every action in those steps write access to code scanning for nothing. A test now
   checks this across **all** workflows: a job asking for `security-events: write` must show
   an upload step. (#762)
+- **The version comment behind a pin names an exact release.** Every action is pinned to a
+  40-character commit SHA (#117) — what that SHA *is* lives only in the comment behind it,
+  and that comment is the sole readable place. An alias like `# v3` looks like an eternal
+  truth yet moves: resolving all 19 pins against the GitHub API found **five wrong, every
+  one of them an alias**. `codeql-action` said `# v3` three times while the pin was
+  `v4.37.6` — a whole major version off. For `dependency-review-action` and `trivy-action`
+  the comment named a tag that does not (any longer) exist. The rule is now
+  `v?MAJOR.MINOR.PATCH`: leaving `# v4.37.6` in place while the SHA moves creates a visible
+  contradiction; leaving `# v3` in place creates none. A test enforces it **without network
+  access** — so it does not verify that the named tag really points at this very commit.
+  (#764)
 
 ---
 

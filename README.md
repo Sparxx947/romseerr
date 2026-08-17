@@ -1091,6 +1091,17 @@ protokolliert.
   Berechtigung jeder Action in diesen Schritten umsonst Schreibzugriff aufs Code-Scanning.
   Ein Test prüft das jetzt für **alle** Workflows nach: Wer `security-events: write`
   verlangt, muss einen Upload-Schritt vorweisen. (#762)
+- **Der Versionskommentar hinter einem Pin nennt eine exakte Version.** Jede Action ist auf
+  einen 40-stelligen Commit-SHA gepinnt (#117) — was der SHA *ist*, steht nur im Kommentar
+  dahinter, und das ist die einzige lesbare Stelle. Ein Alias wie `# v3` sieht aus wie eine
+  ewige Wahrheit und wandert doch: Beim Auflösen aller 19 Pins gegen die GitHub-API waren
+  **fünf falsch, alle fünf mit Alias-Kommentar**. `codeql-action` stand dreimal auf `# v3`,
+  gepinnt war `v4.37.6` — eine ganze Hauptversion daneben. Bei `dependency-review-action`
+  und `trivy-action` zeigte der Kommentar auf einen Tag, den es gar nicht (mehr) gibt.
+  Deshalb gilt jetzt `v?MAJOR.MINOR.PATCH`: Wer `# v4.37.6` stehen lässt, während der SHA
+  springt, erzeugt einen sichtbaren Widerspruch; wer `# v3` stehen lässt, erzeugt keinen.
+  Ein Test hält die Regel, **ohne Netz** — dass der genannte Tag wirklich auf genau diesen
+  Commit zeigt, prüft er deshalb nicht. (#764)
 
 ---
 

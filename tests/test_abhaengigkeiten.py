@@ -373,3 +373,70 @@ def test_hashes_ohne_pip_compile_eingabe_wuerden_dependabot_brechen():
         deutsch, englisch = sicherheit.split(trenner, 1)
         assert "#718" in deutsch, "die Begründung zu #718 fehlt in der deutschen Hälfte"
         assert "#718" in englisch, "die Begründung zu #718 fehlt in der englischen Hälfte"
+
+
+# ------------------------------------------------- Versionskommentare an Action-Pins (#764)
+
+# Exakte Version: `v4.37.6`, `12.6.2`, notfalls mit Vorabmarke. NICHT `v3`, NICHT `v5.0`.
+EXAKTE_VERSION = re.compile(r"v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?")
+
+# `uses: owner/repo/pfad@<40 hex>  # kommentar` — lokale Actions (`./…`) haben kein `@`.
+PIN = re.compile(r"uses:\s*([\w.-]+/[\w./-]+)@([0-9a-f]{40})\s*(?:#\s*(\S+))?")
+
+
+def test_der_versionskommentar_hinter_einem_pin_nennt_eine_exakte_version():
+    """Der SHA sagt WAS läuft, der Kommentar sagt WELCHE VERSION das ist — und nur der
+    Kommentar ist lesbar. Steht dort ein Alias (`# v3`), altert er lautlos. (#764)
+
+    WARUM DAS ZÄHLT: `test_all_actions_are_pinned_to_a_commit` (#117) verlangt laut
+    Docstring „nur 40-stellige Commit-SHAs, Version als Kommentar dahinter" — und prüft
+    davon nur den SHA. Der Kommentar ist die einzige Stelle, an der ein Mensch nachschlägt,
+    welchen Code diese CI ausführt. Ein Alias sieht aus wie eine ewige Wahrheit und wandert
+    doch: er zeigt später auf einen anderen Commit als den gepinnten, oder gar nicht mehr.
+
+    GEMESSEN am Fund, der diesen Test ausgelöst hat — alle 19 Pins gegen die GitHub-API
+    aufgelöst, fünf Zeilen falsch, alle fünf mit Alias-Kommentar:
+
+      * `codeql-action/{init,analyze,upload-sarif}  # v3` (3 Zeilen): der Tag `v3` zeigt auf
+        `d6317709`, gepinnt ist `5595ccaf` = **v4.37.6**. Eine ganze Hauptversion daneben —
+        #760 musste das Verhalten dieser Action aus ihrer Quelle belegen und hätte sich am
+        Kommentar die falsche gezogen.
+      * `dependency-review-action  # v4`: den Tag `v4` gibt es nicht mehr (404), er wurde
+        beim Sprung auf v5 abgeräumt. Gepinnt ist **v5.0.0**.
+      * `trivy-action  # 0.36.0`: 404 — dieses Repo taggt `v0.36.0`.
+
+    Exakte Versionen hätten jeden dieser Fälle beim Bump sichtbar gemacht: wer `# v4.37.6`
+    stehen lässt, während der SHA springt, sieht den Widerspruch. Wer `# v3` stehen lässt,
+    sieht nichts. Deshalb ist die Regel hier `v?MAJOR.MINOR.PATCH` statt „irgendein Text".
+
+    WAS ER NICHT PRÜFT: ob der genannte Tag wirklich auf DIESEN Commit zeigt. Das braucht
+    die GitHub-API, und Netz gehört nicht in diese Testreihe — ein exakt hingeschriebener,
+    aber falscher Tag bleibt also unentdeckt. Der schweigende Alterungsfall dagegen, der
+    alle fünf gemessenen Zeilen erzeugt hat, nicht mehr.
+
+    EN: the SHA says what runs, the comment says which version that is — and only the
+    comment is readable. An alias comment (`# v3`) ages silently: it later points at a
+    different commit than the pin, or at nothing at all. Measured: five of 19 pins were
+    wrong, every one of them an alias. Exact versions make a stale comment visible at the
+    next bump. Not checked here: whether the named tag really points at this commit — that
+    would need the network.
+    """
+    ohne_kommentar, unscharf = [], []
+    for datei in sorted((WURZEL / ".github" / "workflows").glob("*.yml")):
+        for n, zeile in enumerate(datei.read_text(encoding="utf-8").splitlines(), 1):
+            m = PIN.search(zeile)
+            if not m:
+                continue
+            stelle = f"{datei.name}:{n}: {m.group(1)}"
+            if not m.group(3):
+                ohne_kommentar.append(stelle)
+            elif not EXAKTE_VERSION.fullmatch(m.group(3)):
+                unscharf.append(f"{stelle}  # {m.group(3)}")
+
+    assert not ohne_kommentar, (
+        "diese Pins sagen nirgends, welche Version sie festhalten — der SHA allein ist für "
+        "einen Menschen nicht nachschlagbar:\n  " + "\n  ".join(ohne_kommentar))
+    assert not unscharf, (
+        "diese Versionskommentare sind ein Alias statt einer exakten Version. Ein Alias "
+        "wandert, und der Kommentar altert dabei lautlos — genau so kam `# v3` an einen "
+        "v4-Commit. Exakte Version hinschreiben (`v4.37.6`):\n  " + "\n  ".join(unscharf))
