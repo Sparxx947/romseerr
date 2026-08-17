@@ -4,6 +4,18 @@ Alle nennenswerten Änderungen an diesem Projekt. Format nach
 [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung nach [SemVer](https://semver.org/lang/de/).
 
+## [1.6.2](https://github.com/Sparxx947/romseerr/compare/v1.6.1...v1.6.2) (2026-08-17)
+
+
+### Behoben / Fixes
+
+* **ci:** der geplante CodeQL-Lauf meldet den Stand, den er geprueft hat ([#761](https://github.com/Sparxx947/romseerr/issues/761)) ([3774c1e](https://github.com/Sparxx947/romseerr/commit/3774c1eeee4a296b679715ac82cc0708d3348524)), closes [#760](https://github.com/Sparxx947/romseerr/issues/760)
+* **ci:** der trivy-Job verliert das Schreibrecht, das er nie benutzt hat ([#763](https://github.com/Sparxx947/romseerr/issues/763)) ([0e69f53](https://github.com/Sparxx947/romseerr/commit/0e69f53bbf4812fd824184901c3eaebddb1a73ca)), closes [#762](https://github.com/Sparxx947/romseerr/issues/762)
+* **ci:** der Versionskommentar hinter einem Pin nennt die exakte Version ([#765](https://github.com/Sparxx947/romseerr/issues/765)) ([7c443d3](https://github.com/Sparxx947/romseerr/commit/7c443d3f1c1770eb875cf1a408c6f70d5910f022)), closes [#764](https://github.com/Sparxx947/romseerr/issues/764)
+* **ci:** dispatch the checks on main, because the promote push triggers none ([#759](https://github.com/Sparxx947/romseerr/issues/759)) ([0db0312](https://github.com/Sparxx947/romseerr/commit/0db031261df3c77ca011648c9927755c90898fb0)), closes [#758](https://github.com/Sparxx947/romseerr/issues/758)
+* **log:** the full index run reports only what changed ([#767](https://github.com/Sparxx947/romseerr/issues/767)) ([72ec984](https://github.com/Sparxx947/romseerr/commit/72ec9843c76fc128d983472aa7ac32255bbca863)), closes [#766](https://github.com/Sparxx947/romseerr/issues/766)
+* **security:** serve the maintained security policy, not the stub from 9 August ([#756](https://github.com/Sparxx947/romseerr/issues/756)) ([ca7c075](https://github.com/Sparxx947/romseerr/commit/ca7c075c9a25b435bb02bc39c2a9ac732576ec75)), closes [#755](https://github.com/Sparxx947/romseerr/issues/755)
+
 ## [1.6.1](https://github.com/Sparxx947/romseerr/compare/v1.6.0...v1.6.1) (2026-08-16)
 
 
