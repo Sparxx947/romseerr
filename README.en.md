@@ -1030,6 +1030,11 @@ time. The result appears in the startup warnings; the addresses themselves are *
   so it would report on a tree nobody runs. The schedule therefore checks out `dev`
   explicitly (`SCAN_REF` in `security.yml`). Without it the weekly run stayed permanently
   red over false positives that had long been fixed.
+  For **CodeQL** the checkout alone is not enough: the action ties its results to the
+  *run*, not to the workspace — the commit comes from the checked-out tree but the target
+  ref comes from `GITHUB_REF`, which on a schedule is `main`. So dev's analysis was filed
+  under `refs/heads/main`, against a commit that is not on that branch. The scheduled run
+  therefore passes `ref` **and** `sha` to `analyze` explicitly. (#760)
 
 ---
 

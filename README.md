@@ -1077,6 +1077,11 @@ protokolliert.
   Release-Zweig `main`; er würde also einen Stand prüfen, den niemand fährt. Deshalb
   checkt der Zeitplan ausdrücklich `dev` aus (`SCAN_REF` in `security.yml`). Ohne das war
   der Wochenlauf dauerhaft rot wegen Fehlalarmen, die längst behoben waren.
+  Für **CodeQL** reicht das Auschecken allein aber nicht: Die Action bindet ihr Ergebnis
+  an den *Lauf*, nicht an das Arbeitsverzeichnis — der Commit kommt aus dem ausgecheckten
+  Baum, das Ziel dagegen aus `GITHUB_REF`, im Zeitplan also `main`. Die Analyse von `dev`
+  landete damit unter `refs/heads/main`, unter einem Commit, der dort gar nicht liegt.
+  Deshalb bekommt `analyze` im geplanten Lauf `ref` **und** `sha` ausdrücklich mit. (#760)
 
 ---
 

@@ -2384,6 +2384,64 @@ def test_die_pruefungen_auf_main_werden_angestossen_nicht_nur_erhofft():
             f"{name} hat keinen workflow_dispatch — promote koennte es nicht anstossen"
 
 
+def test_der_geplante_codeql_lauf_meldet_den_stand_den_er_geprueft_hat():
+    """`SCAN_REF` allein lenkt CodeQLs Upload NICHT mit. (#760)
+
+    #358 laesst geplante Laeufe `dev` auschecken statt des Standardzweigs, weil ein Scan
+    ueber einen Baum, den niemand faehrt, schlechter ist als keiner. Fuer `bandit`,
+    `trivy` und `gitleaks` genuegt das — die melden nur bestanden/durchgefallen.
+
+    CodeQL nicht. Die Action bindet ihr Ergebnis an den LAUF, nicht an das
+    Arbeitsverzeichnis: `getCommitOid()` liest zwar `git rev-parse HEAD` (also `dev`),
+    `getRef()` gibt aber `GITHUB_REF` unveraendert zurueck, und das ist im geplanten Lauf
+    `refs/heads/main`. Belegt an der gepinnten Fassung `5595ccaf` (v4.37.6),
+    `src/upload-lib.ts:766` und `src/git-utils.ts`.
+
+    GEMESSEN am 2026-08-17: Der Pfad ist noch NIE gelaufen. Es gab genau einen geplanten
+    Lauf (2026-08-10), und der lag vor `SCAN_REF` (`69eccf3`, 2026-08-11). Alle **1008**
+    Eintraege in `code-scanning/analyses` sind stimmig — jeder gemeldete Commit ist
+    Vorfahr des Zweigs, unter dem er steht. Es fehlt also nicht der Fehler, sondern der
+    Anlass: Der naechste Wochenlauf waere der erste auf diesem Pfad und wuerde die Sicht
+    auf `main` ueberschreiben, die #759 tags zuvor gerade erst wiederhergestellt hat.
+
+    Geprueft wird die WIRKUNG, nicht die Schreibweise: Wenn der Lauf einen anderen Stand
+    auscheckt als seinen eigenen, muss er dem Upload Ziel UND Commit ausdruecklich
+    mitgeben — sonst waere die Analyse falsch beschriftet.
+
+    EN: SCAN_REF only steers the checkout. CodeQL derives its upload ref from GITHUB_REF,
+    so on a scheduled run dev's analysis would be filed under refs/heads/main. This checks
+    that the job passes ref and sha explicitly whenever it scans a foreign tree.
+    """
+    wf = _workflow("security.yml")
+    scan_ref = wf["env"]["SCAN_REF"]
+
+    # Das Upload-Ziel verlangt `refs/heads/<zweig>`; ein blosser Zweigname wird von der
+    # Action nicht ergaenzt. `checkout` nimmt beide, also faellt es nur hier auf.
+    assert "refs/heads/dev" in scan_ref, \
+        "SCAN_REF muss im Zeitplan einen VOLLEN Ref liefern, sonst taugt er nicht als Upload-Ziel"
+
+    schritte = wf["jobs"]["codeql"]["steps"]
+    analyze = [s for s in schritte if "codeql-action/analyze" in str(s.get("uses", ""))]
+    assert analyze, "der codeql-Job analysiert gar nicht mehr"
+    mit = analyze[0].get("with") or {}
+
+    # Ohne `ref` nimmt die Action GITHUB_REF — im Zeitplan der Standardzweig.
+    assert "schedule" in str(mit.get("ref", "")) and "SCAN_REF" in str(mit.get("ref", "")), \
+        "analyze braucht im geplanten Lauf ein ausdrueckliches ref, sonst laedt dev unter main hoch"
+
+    # `ref` ohne `sha` ist ein Konfigurationsfehler: die Action verlangt beide oder keins.
+    sha = str(mit.get("sha", ""))
+    assert "schedule" in sha, \
+        "analyze braucht neben ref auch sha — die Action nimmt beide oder keins"
+
+    # Und der Commit muss aus dem AUSGECHECKTEN Baum kommen, nicht aus GITHUB_SHA:
+    # letzteres waere wieder der Standardzweig und damit genau der Fehler von vorn.
+    quelle = [s for s in schritte if s.get("id") and s["id"] in sha]
+    assert quelle, f"sha verweist auf keinen Schritt dieses Jobs: {sha!r}"
+    assert "rev-parse HEAD" in str(quelle[0].get("run", "")), \
+        "der gemeldete Commit muss aus dem ausgecheckten Baum stammen, nicht aus GITHUB_SHA"
+
+
 def test_dependabot_opens_its_pull_requests_where_work_happens():
     """Ohne `target-branch` zielt Dependabot auf den Standard-Branch. (#554)
 
