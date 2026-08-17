@@ -1082,6 +1082,15 @@ protokolliert.
   Baum, das Ziel dagegen aus `GITHUB_REF`, im Zeitplan also `main`. Die Analyse von `dev`
   landete damit unter `refs/heads/main`, unter einem Commit, der dort gar nicht liegt.
   Deshalb bekommt `analyze` im geplanten Lauf `ref` **und** `sha` ausdrücklich mit. (#760)
+- **Schreibrechte nur, wo geschrieben wird.** `security-events: write` erlaubt das Anlegen
+  *und Abräumen* von Code-Scanning-Alarmen. Die Berechtigung steht deshalb am einzelnen Job,
+  nicht über der Datei (#434) — und nur an den Jobs, die tatsächlich SARIF hochladen:
+  **CodeQL** und **Scorecard**. **Trivy** hielt sie, ohne je hochzuladen; die gepinnte
+  `trivy-action` hat gar keinen Upload-Schritt und liefert mit dem Standardformat `table`
+  nicht einmal ein SARIF — sie meldet allein über den Exit-Code. Ungenutzt gab die
+  Berechtigung jeder Action in diesen Schritten umsonst Schreibzugriff aufs Code-Scanning.
+  Ein Test prüft das jetzt für **alle** Workflows nach: Wer `security-events: write`
+  verlangt, muss einen Upload-Schritt vorweisen. (#762)
 
 ---
 

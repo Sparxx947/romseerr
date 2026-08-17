@@ -1035,6 +1035,15 @@ time. The result appears in the startup warnings; the addresses themselves are *
   ref comes from `GITHUB_REF`, which on a schedule is `main`. So dev's analysis was filed
   under `refs/heads/main`, against a commit that is not on that branch. The scheduled run
   therefore passes `ref` **and** `sha` to `analyze` explicitly. (#760)
+- **Write permissions only where something is written.** `security-events: write` allows
+  creating *and dismissing* code scanning alerts. The permission therefore sits on the
+  individual job rather than above the file (#434) — and only on the jobs that really upload
+  SARIF: **CodeQL** and **Scorecard**. **Trivy** held it without ever uploading; the pinned
+  `trivy-action` has no upload step at all and, with its default format `table`, does not
+  even produce a SARIF — it reports through the exit code alone. Unused, the permission
+  handed every action in those steps write access to code scanning for nothing. A test now
+  checks this across **all** workflows: a job asking for `security-events: write` must show
+  an upload step. (#762)
 
 ---
 
