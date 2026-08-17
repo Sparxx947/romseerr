@@ -2549,6 +2549,41 @@ def test_the_documented_way_back_really_brings_the_old_behaviour_back(appmod, tm
             f"Lauf {i + 1} schweigt trotz abgeschalteter Stille"
 
 
+def test_the_way_back_really_arrives_from_the_environment(tmp_path):
+    """Der Wert aus `ROMSEERR_INDEX_LOG_STILLE` kommt UNVERAENDERT an. (#766)
+
+    WARUM ZUSAETZLICH ZUM TEST DARUEBER: Jener setzt das Attribut von Hand. Er sieht
+    deshalb nicht, was zwischen Umgebung und Attribut passiert — eine untere Schranke
+    (`max(wert, 600)`), ein anderer Vorgabewert, oder dass die Variable gar nicht mehr
+    gelesen wird. Der dokumentierte Rueckweg waere kaputt und alle Tests blieben gruen.
+    Deshalb faehrt dieser hier den echten Weg: Umgebung setzen, `app` frisch importieren,
+    nachsehen, was angekommen ist.
+
+    EN: the test above patches the attribute, so it cannot see a clamp, a changed default
+    or the variable no longer being read at all. This one imports `app` in a subprocess
+    with the environment actually set.
+    """
+    def wert(setzen):
+        umgebung = {**os.environ,
+                    "ROMSEERR_CONFIG": str(tmp_path),
+                    "ROMSEERR_ROMS": str(tmp_path / "roms")}
+        umgebung.pop("ROMSEERR_INDEX_LOG_STILLE", None)
+        if setzen is not None:
+            umgebung["ROMSEERR_INDEX_LOG_STILLE"] = setzen
+        r = subprocess.run(
+            [sys.executable, "-c", "import app; print('WERT', app.INDEX_LOG_STILLE)"],
+            cwd=REPO, env=umgebung, capture_output=True, text=True, timeout=120)
+        assert r.returncode == 0, f"Import misslungen: {r.stderr[-800:]}"
+        treffer = [z for z in r.stdout.splitlines() if z.startswith("WERT ")]
+        assert treffer, f"keine Ausgabe: {r.stdout[-400:]} / {r.stderr[-400:]}"
+        return int(treffer[-1].split()[1])
+
+    (tmp_path / "roms").mkdir(exist_ok=True)
+    assert wert("0") == 0, "der abgeschaltete Zustand kommt nicht an — der Rueckweg wirkt nicht"
+    assert wert("60") == 60, "ein kleiner Wert wird unterwegs angehoben (Schranke?)"
+    assert wert(None) == 21600, "der Vorgabewert ist nicht mehr die dokumentierte 6 h"
+
+
 def test_a_platform_that_turns_unreadable_breaks_the_silence(appmod, tmp_path, monkeypatch):
     """Neu unlesbar, aber gleiche Titelzahl — das muss trotzdem sofort ins Protokoll. (#766)
 
