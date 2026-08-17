@@ -75,10 +75,10 @@ jobs:
       # the default branch. Set both explicitly there, and only there.
       - id: geprueft
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3  # v3
+      - uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3  # v4.37.6
         with:
           languages: python
-      - uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3  # v3
+      - uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3  # v4.37.6
         with:
           ref: ${{ github.event_name == 'schedule' && env.SCAN_REF || '' }}
           sha: ${{ github.event_name == 'schedule' && steps.geprueft.outputs.sha || '' }}
@@ -119,7 +119,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ env.SCAN_REF }}
-      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # 0.36.0
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: fs
           scanners: vuln,secret,misconfig
@@ -168,6 +168,6 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v4
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
         with:
           fail-on-severity: high
