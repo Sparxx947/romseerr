@@ -99,9 +99,20 @@ jobs:
       - run: bandit -r app.py -ll
 
   trivy:
+    # KEIN `security-events: write` (#762): Dieser Job laedt nichts ins Code-Scanning.
+    # `aquasecurity/trivy-action@ed142fd0` hat keinen Upload-Schritt — sie installiert
+    # Trivy, waermt den DB-Cache, setzt Umgebungsvariablen und ruft `trivy` auf. Und
+    # `format` bleibt hier ungesetzt, steht also auf `table`: Es entsteht nicht einmal ein
+    # SARIF. Gemeldet wird ausschliesslich ueber `exit-code: 1`.
+    #
+    # Die Berechtigung erlaubt das SCHREIBEN von Alarmen — einschleusen wie abraeumen.
+    # Ungenutzt gibt sie diese Macht jeder Action in diesen Schritten umsonst. Der Kopf
+    # dieser Datei schreibt die Regel seit #434 selbst hin; hier war sie verletzt.
+    #
+    # No security-events: write — the pinned trivy-action has no upload step and format
+    # defaults to `table`, so no SARIF is even produced. The job reports via exit-code only.
     permissions:
       contents: read
-      security-events: write
     name: Trivy (deps, secrets, misconfig)
     runs-on: ubuntu-latest
     steps:

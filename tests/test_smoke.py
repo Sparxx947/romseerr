@@ -8609,6 +8609,94 @@ def test_every_workflow_keeps_write_permissions_on_the_job(appmod):
         f"gelten: {json.dumps(schreibend)}")
 
 
+# Die beiden Schritte, mit denen ein Job SARIF ins Code-Scanning schreibt. Andere Wege gibt
+# es nicht: `POST /code-scanning/sarifs` von Hand waere einer, kommt hier aber nicht vor —
+# faende jemand ihn noetig, gehoert er in diese Liste und nicht an dem Test vorbei.
+SARIF_UPLOAD_SCHRITTE = (
+    "github/codeql-action/analyze",
+    "github/codeql-action/upload-sarif",
+)
+
+
+def _job_schritte(datei, job, alle):
+    """Die Schritte eines Jobs — auch wenn er an einen anderen Workflow delegiert.
+
+    Gibt `None` zurueck, wenn sich das aus dem Quelltext nicht beantworten laesst (ein
+    FREMDER wiederverwendbarer Workflow). Das ist kein Fehler dieser Funktion, sondern
+    genau der Fall, den der Aufrufer melden muss.
+    """
+    if "steps" in job:
+        return job["steps"] or []
+    ruft = job.get("uses") or ""
+    if not ruft.startswith("./"):
+        return None                      # fremder Workflow — von hier aus nicht einsehbar
+    ziel = alle.get(os.path.basename(ruft.split("@")[0]))
+    if ziel is None:
+        return None
+    schritte = []
+    for unterjob in (ziel.get("jobs") or {}).values():
+        weiter = _job_schritte(datei, unterjob, alle)
+        if weiter is None:
+            return None
+        schritte.extend(weiter)
+    return schritte
+
+
+def test_a_job_asking_for_security_events_write_actually_uploads_sarif():
+    """`security-events: write` nur da, wo auch hochgeladen wird. (#762)
+
+    WARUM DAS ZAEHLT: Die Berechtigung erlaubt das SCHREIBEN von Code-Scanning-Alarmen —
+    einschleusen wie abraeumen. Ein Job, der sie haelt und nie benutzt, gibt jeder Action
+    in seinen Schritten diese Macht umsonst. Genau die Klasse, die Scorecards
+    Token-Permissions-Pruefung meldet, und die Regel, die der Kopf von `security.yml`
+    seit #434 ueber sich selbst behauptet.
+
+    GEMESSEN am Fund, der diesen Test ausgeloest hat: Der `trivy`-Job hielt sie, obwohl
+    `aquasecurity/trivy-action@ed142fd0` gar keinen Upload-Schritt hat (`Install Trivy`,
+    `Get current date`, `Restore DB from cache`, `Set GitHub Path`, `Clear Trivy Envs file`,
+    `Set Trivy environment variables`, `Run Trivy`, `Remove Trivy Envs file`) und `format`
+    ungesetzt auf `table` steht — es entstand nicht einmal ein SARIF.
+
+    HIER FAELLT DIE ENTSCHEIDUNG SEHR WOHL AUS DEM QUELLTEXT, anders als bei
+    `test_every_workflow_keeps_write_permissions_on_the_job`: Ob ein Job hochlaedt, steht
+    in seinen Schritten. Deshalb prueft dieser Test, was jener bewusst offenlaesst.
+
+    EN: security-events: write lets a job write code scanning alerts. A job holding it
+    without an upload step hands that power to every action in its steps for nothing.
+    Unlike the per-job-permissions guard, this one IS decidable from source: whether a job
+    uploads is written in its steps.
+    """
+    verz = os.path.join(REPO, ".github", "workflows")
+    alle = {}
+    for datei in sorted(os.listdir(verz)):
+        if datei.endswith((".yml", ".yaml")):
+            alle[datei] = yaml.safe_load(open(os.path.join(verz, datei), encoding="utf-8")) or {}
+
+    ohne_upload, unpruefbar = {}, {}
+    for datei, d in alle.items():
+        for name, job in (d.get("jobs") or {}).items():
+            rechte = job.get("permissions")
+            if not isinstance(rechte, dict) or rechte.get("security-events") != "write":
+                continue
+            schritte = _job_schritte(datei, job, alle)
+            if schritte is None:
+                unpruefbar[f"{datei}:{name}"] = job.get("uses")
+                continue
+            benutzt = [s.get("uses", "") for s in schritte if isinstance(s, dict)]
+            if not any(u.split("@")[0] in SARIF_UPLOAD_SCHRITTE for u in benutzt):
+                ohne_upload[f"{datei}:{name}"] = sorted(
+                    u.split("@")[0] for u in benutzt if u)
+
+    assert not ohne_upload, (
+        "diese Jobs halten `security-events: write`, laden aber kein SARIF hoch — die "
+        "Berechtigung ist tot und muss weg (oder der fehlende Upload-Schritt dazu): "
+        f"{json.dumps(ohne_upload)}")
+    assert not unpruefbar, (
+        "diese Jobs verlangen `security-events: write` und delegieren an einen fremden "
+        "Workflow — ob dort hochgeladen wird, ist von hier aus nicht zu sehen: "
+        f"{json.dumps(unpruefbar)}")
+
+
 def test_a_security_policy_exists_and_says_where_to_report():
     """`SECURITY.md` sagt, wo ein Fund hingehoert. (#434)
 
