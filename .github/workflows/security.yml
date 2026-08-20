@@ -75,10 +75,10 @@ jobs:
       # the default branch. Set both explicitly there, and only there.
       - id: geprueft
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3  # v4.37.6
+      - uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd  # v4.37.7
         with:
           languages: python
-      - uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3  # v4.37.6
+      - uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd  # v4.37.7
         with:
           ref: ${{ github.event_name == 'schedule' && env.SCAN_REF || '' }}
           sha: ${{ github.event_name == 'schedule' && steps.geprueft.outputs.sha || '' }}
