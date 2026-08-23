@@ -668,6 +668,7 @@ static/icon.svg   App-Icon (PWA)
 | Web-UI | `load_assets`/`asset_url`/`render_page` — Vorlagen lesen, `__ASSET:…__` durch inhaltsgehashte URLs ersetzen; die Oberfläche selbst liegt in `static/js/index.js` (i18n via `I18N`+`t()`) |
 | Routen | REST-Endpunkte (vollständig dokumentiert unter `/api/docs`) |
 | OpenAPI | `OPENAPI`-Dict → `/api/openapi.json` + `/api/docs` (Redoc) |
+| Konfigurationswarnungen | `check_config` (einmal beim Start: Speicherbarkeit, Zugangsdaten, Proxy) · `erreichbarkeit_pruefen`/`periodic_erreichbarkeit` (SABnzbd/Prowlarr in festem Takt, `REACH_CHECK_SEC`, Vorgabe 300 s) · `warn_setzen` schreibt einzelne Einträge in `START_WARN`, nie die ganze Liste |
 | Start | Index laden, Worker-Threads starten, Flask starten |
 
 ### Lebenszyklus einer Anfrage / request lifecycle
