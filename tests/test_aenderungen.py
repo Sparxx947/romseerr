@@ -2623,3 +2623,111 @@ def test_the_shared_index_helper_stays_independent_of_test_order(appmod, monkeyp
     assert zweit.schluss, \
         ("der zweite Aufruf ueber denselben Bestand schweigt — die Hilfe legt den Merker "
          f"nicht zurueck: {zweit.zeilen}")
+
+
+# --- #770: Erreichbarkeitswarnungen muessen sich selbst zurueckziehen ----------------
+#
+# Der Anlass ist gemessen, nicht ausgedacht. Auf der Hausinstanz startete SABnzbd nach dem
+# woechentlichen Backup 53 Minuten spaeter als Romseerr. Die Warnung war in dieser Zeit
+# richtig — und stand danach 27 Stunden lang falsch in der Oberflaeche, waehrend der Dienst
+# in 40 ms antwortete. Ein Startbefund, den nichts je wieder anfasst, ist keine Warnung
+# mehr, sondern Rauschen: wer ihn zweimal ignoriert hat, sieht auch den dritten nicht.
+
+def _dienste_stellen(appmod, monkeypatch, erreichbar):
+    """Beide Dienste eingerichtet; `erreichbar` sagt, welche URLs antworten."""
+    werte = {"sab_url": "http://sab:8080", "sab_apikey": "k",
+             "prow_url": "http://prow:9696", "prow_apikey": "k"}
+    monkeypatch.setattr(appmod, "cfg", lambda k: werte.get(k, ""))
+    monkeypatch.setattr(appmod, "dienst_erreichbar", lambda url: url in erreichbar)
+
+
+def _warnungen(appmod):
+    return {w["key"] for w in appmod.START_WARN}
+
+
+def test_a_service_that_comes_back_clears_its_own_warning(appmod, monkeypatch):
+    """Kommt der Dienst zurueck, muss die Warnung von allein verschwinden. (#770)"""
+    appmod.START_WARN.clear()
+    monkeypatch.setattr(appmod, "log", _Protokoll())
+
+    _dienste_stellen(appmod, monkeypatch, erreichbar={"http://prow:9696"})
+    appmod.erreichbarkeit_pruefen()
+    assert "sab" in _warnungen(appmod), \
+        f"der tote Dienst wird gar nicht erst gemeldet: {appmod.START_WARN}"
+
+    # ... und jetzt laeuft er wieder, ohne dass an Romseerr irgendetwas passiert ist.
+    _dienste_stellen(appmod, monkeypatch,
+                     erreichbar={"http://sab:8080", "http://prow:9696"})
+    appmod.erreichbarkeit_pruefen()
+    assert "sab" not in _warnungen(appmod), \
+        ("die Warnung steht noch, obwohl der Dienst wieder antwortet — genau der Zustand, "
+         f"der 27 Stunden lang in der Oberflaeche stand: {appmod.START_WARN}")
+
+
+def test_the_repeat_run_keeps_findings_it_did_not_measure(appmod, monkeypatch):
+    """Der periodische Lauf darf nur wegraeumen, was er selbst geprueft hat. (#770)
+
+    Die Proxy-Messung kostet zwei Anfragen nach draussen und laeuft deshalb nur beim Start.
+    Ein `START_WARN.clear()` im Wiederholungslauf loeschte sie mit — der Befund verschwaende
+    nach fuenf Minuten von selbst, ohne dass sich irgendetwas gebessert haette.
+    """
+    appmod.START_WARN.clear()
+    monkeypatch.setattr(appmod, "log", _Protokoll())
+    appmod.START_WARN.append({"key": "dlproxy", "text": "Proxy aendert die Adresse nicht."})
+
+    _dienste_stellen(appmod, monkeypatch,
+                     erreichbar={"http://sab:8080", "http://prow:9696"})
+    appmod.erreichbarkeit_pruefen()
+
+    assert "dlproxy" in _warnungen(appmod), \
+        f"der Proxy-Befund wurde vom Erreichbarkeitslauf mitgeloescht: {appmod.START_WARN}"
+
+
+def test_a_standing_warning_is_logged_once_and_not_every_round(appmod, monkeypatch):
+    """Alle fuenf Minuten dieselbe Zeile draengt alles andere aus dem Log. (#770)
+
+    Das Protokollfenster ist eine begrenzte Ressource: Was hier zu oft schreibt, verdraengt
+    genau die Zeilen, die man spaeter sucht.
+    """
+    appmod.START_WARN.clear()
+    p = _Protokoll()
+    monkeypatch.setattr(appmod, "log", p)
+    _dienste_stellen(appmod, monkeypatch, erreichbar={"http://prow:9696"})
+
+    for _ in range(4):
+        appmod.erreichbarkeit_pruefen()
+
+    treffer = p.mit("SABnzbd")
+    assert len(treffer) == 1, \
+        f"derselbe unveraenderte Zustand wurde {len(treffer)}-mal protokolliert: {treffer}"
+
+    # Der Wechsel dagegen MUSS zu sehen sein — sonst waere die Ruhe nur Blindheit.
+    _dienste_stellen(appmod, monkeypatch,
+                     erreichbar={"http://sab:8080", "http://prow:9696"})
+    appmod.erreichbarkeit_pruefen()
+    assert any("wieder erreichbar" in z for z in p.mit("SABnzbd")), \
+        f"die Rueckkehr des Dienstes steht in keiner Zeile: {p.zeilen}"
+
+
+def test_warn_setzen_reports_whether_anything_actually_changed(appmod):
+    """An diesem Rueckgabewert haengt das Protokoll — er muss stimmen. (#770)"""
+    appmod.START_WARN.clear()
+    assert appmod.warn_setzen("t", "erster Text") is True, "das Anlegen gilt nicht als Aenderung"
+    assert appmod.warn_setzen("t", "erster Text") is False, "derselbe Text gilt als Aenderung"
+    assert appmod.warn_setzen("t", "anderer Text") is True, "der neue Text faellt nicht auf"
+    assert [w["text"] for w in appmod.START_WARN if w["key"] == "t"] == ["anderer Text"], \
+        f"der Eintrag wurde angehaengt statt ersetzt: {appmod.START_WARN}"
+    assert appmod.warn_setzen("t", None) is True, "das Entfernen gilt nicht als Aenderung"
+    assert appmod.warn_setzen("t", None) is False, "das zweite Entfernen meldet eine Aenderung"
+    assert "t" not in _warnungen(appmod), f"der Eintrag ist noch da: {appmod.START_WARN}"
+
+
+def test_a_service_that_is_not_configured_is_not_a_fault(appmod, monkeypatch):
+    """Nicht eingerichtet heisst nicht kaputt — das gehoert nicht ins Banner. (#770)"""
+    appmod.START_WARN.clear()
+    monkeypatch.setattr(appmod, "log", _Protokoll())
+    monkeypatch.setattr(appmod, "cfg", lambda k: "")
+    monkeypatch.setattr(appmod, "dienst_erreichbar",
+                        lambda url: pytest.fail(f"ohne Zugangsdaten wurde {url} angefragt"))
+    appmod.erreichbarkeit_pruefen()
+    assert not _warnungen(appmod), f"ein nicht eingerichteter Dienst warnt: {appmod.START_WARN}"

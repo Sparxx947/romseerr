@@ -8257,9 +8257,15 @@ def api_tls_remove():
     save_settings(s)
     return jsonify({"ok": True})
 
-# Beim Start gesammelte Erreichbarkeitswarnungen (siehe check_config). Bewusst NICHT
-# live geprüft: dafür müsste jeder Aufruf der Oberfläche fremde Dienste anfragen.
+# Erreichbarkeitswarnungen. Bewusst NICHT bei jedem Aufruf der Oberfläche geprüft —
+# dafür müsste jeder Seitenaufruf fremde Dienste anfragen. Stattdessen erhebt sie ein
+# eigener Hintergrundlauf in festem Takt (`periodic_erreichbarkeit`, #770); die
+# Oberfläche liest nur, was dort zuletzt gemessen wurde.
 START_WARN = []
+# Der Hintergrundlauf schreibt, Flask-Threads lesen. Ein Eintrag zu ERSETZEN ist
+# mehrschrittig (suchen, ändern oder anhängen) — deshalb ein Lock und nicht die
+# Hoffnung, dass der GIL schon passt.
+START_WARN_LOCK = threading.Lock()
 
 def storage_state():
     """Kann Romseerr schreiben, wo es schreiben MUSS? Prüft mit einem echten Schreibversuch.
@@ -9453,20 +9459,117 @@ def periodic_einwurf():
             log(f"Einwurf-Lauf-Fehler: {e}")
 
 
+# --- Erreichbarkeit: der einzige Befund, der sich von allein wieder erledigt (#770) ---
+#
+# Speicherplatz, Ordnerrechte, fehlende Zugangsdaten — all das bleibt kaputt, bis jemand
+# es repariert. Ein nicht erreichbarer Dienst dagegen kommt zurück, ohne dass an Romseerr
+# irgendetwas passiert: der Container startet neu, das Netz kommt wieder, der Server ist
+# fertig hochgefahren. Genau deshalb darf dieser Befund kein Startbefund bleiben.
+#
+# Vorgeschichte: Nach dem wöchentlichen Backup des Hausservers startete SABnzbd 53 Minuten
+# später als Romseerr. Die Warnung war in dieser Zeit richtig — und stand danach 27 Stunden
+# lang falsch in der Oberfläche, während der Dienst in 40 ms antwortete.
+ERREICHBAR_TAKT = int(os.environ.get("REACH_CHECK_SEC", "300"))
+
+# (Schlüssel, Anzeigename, URL-Einstellung, Geheimnis-Einstellung, Text wenn gar nicht gesetzt)
+ERREICHBAR_DIENSTE = (
+    ("sab",  "SABnzbd",  "sab_url",  "sab_apikey",
+     "Konfig: SABnzbd nicht gesetzt — Usenet-Download aus."),
+    ("prow", "Prowlarr", "prow_url", "prow_apikey",
+     "Konfig: Prowlarr nicht gesetzt — Usenet-Suche aus."),
+)
+
+
+def dienst_erreichbar(url):
+    """Antwortet da überhaupt jemand? Der Statuscode ist ausdrücklich egal —
+    ein 401 oder 403 beweist genauso gut, dass der Dienst läuft, wie ein 200."""
+    try:
+        requests.get(url, timeout=4)
+        return True
+    except Exception:
+        return False
+
+
+def warn_setzen(key, text):
+    """Genau den Eintrag mit diesem Schlüssel setzen (`text`) oder entfernen (`text=None`).
+
+    Bewusst kein `START_WARN.clear()`: Der periodische Lauf misst nur Erreichbarkeit.
+    Der Proxy-Befund des Startlaufs — der zwei Anfragen nach draußen kostet und deshalb
+    nicht wiederholt wird — muss stehen bleiben, sonst verschwände er nach fünf Minuten
+    von selbst, ohne dass sich etwas gebessert hätte.
+
+    Gibt zurück, ob sich tatsächlich etwas geändert hat. Daran hängt das Protokoll:
+    Sonst stünde dieselbe Warnzeile alle fünf Minuten im Log und würde alles andere
+    aus dem sichtbaren Fenster drängen."""
+    with START_WARN_LOCK:
+        alt = next((w for w in START_WARN if w.get("key") == key), None)
+        if text is None:
+            if alt is None:
+                return False
+            START_WARN.remove(alt)
+            return True
+        if alt is not None:
+            if alt.get("text") == text:
+                return False
+            alt["text"] = text
+            return True
+        START_WARN.append({"key": key, "text": text})
+        return True
+
+
+def erreichbarkeit_pruefen(erstlauf=False):
+    """Die beiden Dienste anfragen, deren Ausfall je einen ganzen Weg lahmlegt.
+
+    Nur diese zwei, und nur mit 4 Sekunden Frist: Sie liegen im selben Netz, der Lauf
+    kostet damit nichts. Alles, was nach draußen geht, gehört in den Startlauf.
+
+    `erstlauf=True` protokolliert zusätzlich die „gar nicht eingerichtet"-Fälle — die
+    sind beim Start eine Auskunft und alle fünf Minuten nur Lärm."""
+    for key, name, url_cfg, secret_cfg, aus_text in ERREICHBAR_DIENSTE:
+        url = cfg(url_cfg)
+        if not (url and cfg(secret_cfg)):
+            if erstlauf:
+                log(aus_text)
+            warn_setzen(key, None)          # nicht eingerichtet ist keine Störung
+            continue
+        if dienst_erreichbar(url):
+            if warn_setzen(key, None) and not erstlauf:
+                log(f"Konfig: {name} ({url}) ist wieder erreichbar / reachable again.")
+        else:
+            text = f"{name} ({url}) nicht erreichbar / not reachable."
+            if warn_setzen(key, text):
+                log(f"Konfig-WARNUNG: {text}")
+
+
+def periodic_erreichbarkeit():
+    """Hintergrundlauf. Eigene Schleife, wie beim Einwurf — er soll nicht hinter einem
+    Indexlauf über 127.000 Titel warten müssen, nur um zwei GETs abzusetzen."""
+    while True:
+        time.sleep(ERREICHBAR_TAKT)
+        try:
+            beat("erreichbarkeit")
+            erreichbarkeit_pruefen()
+        except Exception as e:
+            log(f"Erreichbarkeits-Lauf-Fehler: {e}")
+
+
 def check_config():
-    """Beim Start einmal prüfen und WARNEN (nicht fatal), wenn optionale Dienste fehlen oder
+    """Beim Start prüfen und WARNEN (nicht fatal), wenn optionale Dienste fehlen oder
     nicht erreichbar sind — spart Rätselraten, warum z. B. keine Cover oder kein Usenet da sind.
     Läuft im Hintergrund, damit die Erreichbarkeitsprüfung den Start nicht verzögert.
 
+    Was hier steht, wird genau einmal erhoben: Speicherbarkeit, fehlende Zugangsdaten, die
+    Proxy-Messung. Die Erreichbarkeit ist die Ausnahme — sie wiederholt
+    `periodic_erreichbarkeit()` in festem Takt, weil sie sich als einzige von allein
+    wieder erledigen kann. (#770)
+
     Die Erreichbarkeitsbefunde landen zusätzlich in `START_WARN`, weil sie sonst nur im
     Logfile stehen — und dorthin sieht niemand, dem gerade ein Download nicht ankommt. (#197)"""
-    def reach(url):
-        try: requests.get(url, timeout=4); return True
-        except Exception: return False
-    START_WARN.clear()
+    with START_WARN_LOCK:
+        START_WARN.clear()
     def warn(key, text):
         log(f"Konfig-WARNUNG: {text}")
-        START_WARN.append({"key": key, "text": text})
+        warn_setzen(key, text)
     # Die erste Frage beim Start, weil sie alle anderen entwertet: kann ich schreiben?
     # Nicht als Abbruch — ein sichtbarer Fehler nützt mehr als ein Dienst, der gar nicht
     # erst hochkommt und dessen Grund niemand sieht. (#216)
@@ -9476,10 +9579,10 @@ def check_config():
             f"{CONFIG_DIR} muss für uid {os.getuid()} beschreibbar sein.")
     if not (cfg("igdb_id") and cfg("igdb_secret")):
         log("Konfig: IGDB nicht gesetzt — keine Cover/Discover.")
-    if not (cfg("sab_url") and cfg("sab_apikey")):
-        log("Konfig: SABnzbd nicht gesetzt — Usenet-Download aus.")
-    elif not reach(cfg("sab_url")):
-        warn("sab", f"SABnzbd ({cfg("sab_url")}) nicht erreichbar / not reachable.")
+    # Erreichbarkeit misst `erreichbarkeit_pruefen()` — dieselbe Funktion, die danach
+    # alle ERREICHBAR_TAKT Sekunden weiterläuft. Zwei Kopien derselben Prüfung würden
+    # sonst auseinanderlaufen, sobald jemand eine davon anfasst. (#770)
+    erreichbarkeit_pruefen(erstlauf=True)
     # Erst heilen, dann melden: ein fehlender Ausgabeordner ist behebbar, ohne jemanden zu fragen.
     jd = jd_check(anlegen=True)
     if not jd["ok"]:
@@ -9515,11 +9618,6 @@ def check_config():
             warn("dlproxy", f"Download-Proxy nicht nutzbar ({err_kind(e)}) — "
                             "Downloads ueber diesen Weg werden scheitern.")
 
-    if not (cfg("prow_url") and cfg("prow_apikey")):
-        log("Konfig: Prowlarr nicht gesetzt — Usenet-Suche aus.")
-    elif not reach(cfg("prow_url")):
-        warn("prow", f"Prowlarr ({cfg("prow_url")}) nicht erreichbar / not reachable.")
-
 if __name__ == "__main__":
     os.makedirs(STAGING, exist_ok=True)
     geheimnisse_absichern()      # vor allem anderen: Rechte am Schluesselmaterial (#256)
@@ -9536,6 +9634,7 @@ if __name__ == "__main__":
     threading.Thread(target=worker_collect, daemon=True).start()
     threading.Thread(target=periodic_index, daemon=True).start()
     threading.Thread(target=periodic_einwurf, daemon=True).start()
+    threading.Thread(target=periodic_erreichbarkeit, daemon=True).start()
     threading.Thread(target=check_config, daemon=True).start()
     threading.Thread(target=worker_wishlist, daemon=True).start()
     threading.Thread(target=worker_catalog, daemon=True).start()

@@ -663,6 +663,9 @@ Der Container läuft **non-root** und bringt einen **Healthcheck** auf `/health`
 2. **Assistent** — führt durch die Dienste (SABnzbd, Prowlarr, IGDB, RomM); jeder Schritt lässt
    sich testen oder überspringen. Später jederzeit erneut über *Einstellungen → Über* aufrufbar.
 3. **Verbindungen prüfen** — unter *Einstellungen → Verbindungen*; *Dienste* zeigt die Erreichbarkeit.
+   Ein gelbes Banner am Kopf der Seite (*⚠ Konfiguration*) meldet Wege, die gerade nicht
+   benutzbar sind. Die Erreichbarkeit dahinter wird alle `REACH_CHECK_SEC` Sekunden neu
+   gemessen — kommt der Dienst zurück, verschwindet das Banner von allein, ohne Neustart.
 4. **Usenet-Weg prüfen** — *Einstellungen → Verbindungen → SABnzbd* misst Suche, Kategorie,
    Warteschlange und Einsammelordner einzeln durch, ohne etwas herunterzuladen. Die letzte
    Zeile zeigt Romseerrs und SABnzbds Sicht auf denselben Ordner: laufen sie auseinander,
@@ -691,6 +694,7 @@ Zwei Wege, die sich ergänzen — **die Weboberfläche hat Vorrang, `.env` ist d
 | `STREAM_URL` / `STREAM_LAUNCH` | Streaming-Host: Browser-URL und optionaler Start-Dienst. Das Token in `STREAM_LAUNCH` muss dem `STREAM_AGENT_TOKEN` des Hosts entsprechen — **Wechsel siehe `contrib/streaming-host/README.md`**, die Reihenfolge entscheidet |
 | `ROMSEERR_STREAM_TTL` | Ablauf einer Streaming-Sitzung in Sekunden (Default 7200) |
 | `SAB_URL` / `SAB_APIKEY` / `SAB_CAT` | SABnzbd-Anbindung |
+| `REACH_CHECK_SEC` | Takt, in dem SABnzbd und Prowlarr nachgefasst werden (Default 300 s). Kommt ein Dienst später hoch als Romseerr, verschwindet seine Warnung damit von allein — sie ist sonst ein Startbefund und bliebe bis zum nächsten Neustart stehen |
 | `PROW_URL` / `PROW_APIKEY` / `PROW_CATS` | Prowlarr-Anbindung |
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | IGDB (Cover, Metadaten, Empfehlungen) |
 | `ROMM_URL` / `ROMM_USER` / `ROMM_PASS` | RomM-Scan nach dem Import |

@@ -642,6 +642,9 @@ workflows. That is why v1.1.0-beta.1 shipped without an image.
 2. **Wizard** — walks through the services (SABnzbd, Prowlarr, IGDB, RomM); each step can be tested
    or skipped. Reopen it any time under *Settings → About*.
 3. **Check connections** under *Settings → Connections*; *Services* shows reachability.
+   A yellow banner at the top of the page (*⚠ Configuration*) reports paths that are
+   currently unusable. The reachability behind it is re-measured every `REACH_CHECK_SEC`
+   seconds — once the service is back, the banner clears itself, no restart needed.
 4. **Check the usenet path** — *Settings → Connections → SABnzbd* measures search, category,
    queue and collect folder one by one without downloading anything. The last line shows
    Romseerr's and SABnzbd's view of the same folder: if they diverge, downloads finish and
@@ -670,6 +673,7 @@ Two complementary ways — **the web UI takes precedence, `.env` is the fallback
 | `STREAM_URL` / `STREAM_LAUNCH` | streaming host: browser URL and optional launch service. The token in `STREAM_LAUNCH` must match the host's `STREAM_AGENT_TOKEN` — **rotation is documented in `contrib/streaming-host/README.md`**, and the order matters |
 | `ROMSEERR_STREAM_TTL` | streaming session expiry in seconds (default 7200) |
 | `SAB_URL` / `SAB_APIKEY` / `SAB_CAT` | SABnzbd |
+| `REACH_CHECK_SEC` | How often SABnzbd and Prowlarr are re-probed (default 300 s). If a service comes up later than Romseerr, its warning clears itself — otherwise it is a startup finding and would stay until the next restart |
 | `PROW_URL` / `PROW_APIKEY` / `PROW_CATS` | Prowlarr |
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | IGDB (covers, metadata, recommendations) |
 | `ROMM_URL` / `ROMM_USER` / `ROMM_PASS` | RomM scan after import |
