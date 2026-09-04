@@ -4,6 +4,13 @@ Alle nennenswerten Änderungen an diesem Projekt. Format nach
 [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung nach [SemVer](https://semver.org/lang/de/).
 
+## [1.6.3](https://github.com/Sparxx947/romseerr/compare/v1.6.2...v1.6.3) (2026-09-04)
+
+
+### Behoben / Fixes
+
+* **config:** re-probe reachability instead of freezing the startup finding ([#770](https://github.com/Sparxx947/romseerr/issues/770)) ([6876d83](https://github.com/Sparxx947/romseerr/commit/6876d83739a4276e410e48434c8914c28ed5c872))
+
 ## [1.6.2](https://github.com/Sparxx947/romseerr/compare/v1.6.1...v1.6.2) (2026-08-17)
 
 
