@@ -9290,9 +9290,23 @@ def worker_leftovers():
             log(f"{weg} liegengebliebene Downloads entfernt "
                 f"({bytes_weg/1073741824:.1f} GB, aelter als {tage} Tage)")
 
+# Abstand der vollen Index-Laeufe. Seit #655 aktualisiert jeder Import seine Plattform
+# selbst; der volle Lauf faengt nur noch Aenderungen von aussen ab. Er liest aber jedes
+# Mal die ganze Bibliothek (gemessen 660.671 Dateien, 15.366 Ordner) und haelt damit auf
+# einem Unraid-Array die Platten dauerhaft wach. 0 = kein periodischer Lauf, nur beim Start
+# und je Import.
+# EN: Interval between full index runs. Since #655 each import refreshes its own platform;
+# the full run only catches changes made outside Romseerr. It walks the whole library and
+# keeps array disks spinning. 0 = no periodic run, only at startup and per import.
+INDEX_INTERVAL = int(os.environ.get("ROMSEERR_INDEX_INTERVAL", "600"))
+
+
 def periodic_index():
+    if INDEX_INTERVAL <= 0:
+        log("Periodischer Index-Lauf aus (ROMSEERR_INDEX_INTERVAL=0)")
+        return
     while True:
-        time.sleep(600); beat("index"); build_index()
+        time.sleep(INDEX_INTERVAL); beat("index"); build_index()
 
 # --- Massenimport aus dem Einwurfordner (#396) --------------------------------------
 #
