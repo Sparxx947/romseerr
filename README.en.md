@@ -669,6 +669,7 @@ Two complementary ways — **the web UI takes precedence, `.env` is the fallback
 | `ROMSEERR_WISH_INTERVAL` | wishlist worker interval in seconds (default 1800) |
 | `CATALOG_URLS` | catalogue JSON sources for the filehoster path (empty = inactive, see below) |
 | `ROMSEERR_CATALOG_TTL` | catalogue refresh interval in seconds (default 21600) |
+| `ROMSEERR_INDEX_INTERVAL` | seconds between full index runs (default 600). Every import refreshes its own platform anyway; the full run only finds changes made outside Romseerr. On an Unraid array it keeps the disks spinning — use e.g. `21600` (6 h) there. `0` = only at startup |
 | `ROMSEERR_PLAY_MAX_MB` | size limit for "play in browser" in MB (default 2048) |
 | `STREAM_URL` / `STREAM_LAUNCH` | streaming host: browser URL and optional launch service. The token in `STREAM_LAUNCH` must match the host's `STREAM_AGENT_TOKEN` — **rotation is documented in `contrib/streaming-host/README.md`**, and the order matters |
 | `ROMSEERR_STREAM_TTL` | streaming session expiry in seconds (default 7200) |

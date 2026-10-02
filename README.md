@@ -690,6 +690,7 @@ Zwei Wege, die sich ergänzen — **die Weboberfläche hat Vorrang, `.env` ist d
 | `ROMSEERR_WISH_INTERVAL` | Intervall des Wunschlisten-Workers in Sekunden (Default 1800) |
 | `CATALOG_URLS` | Katalog-JSON-Quellen für den Filehoster-Weg (leer = inaktiv, s. u.) |
 | `ROMSEERR_CATALOG_TTL` | Auffrischintervall der Kataloge in Sekunden (Default 21600) |
+| `ROMSEERR_INDEX_INTERVAL` | Abstand der vollen Index-Läufe in Sekunden (Default 600). Jeder Import aktualisiert seine Plattform ohnehin selbst; der volle Lauf findet nur Änderungen von außen. Auf einem Unraid-Array hält er die Platten wach — dort z. B. `21600` (6 h). `0` = nur beim Start |
 | `ROMSEERR_PLAY_MAX_MB` | Größengrenze für „Im Browser spielen" in MB (Default 2048) |
 | `STREAM_URL` / `STREAM_LAUNCH` | Streaming-Host: Browser-URL und optionaler Start-Dienst. Das Token in `STREAM_LAUNCH` muss dem `STREAM_AGENT_TOKEN` des Hosts entsprechen — **Wechsel siehe `contrib/streaming-host/README.md`**, die Reihenfolge entscheidet |
 | `ROMSEERR_STREAM_TTL` | Ablauf einer Streaming-Sitzung in Sekunden (Default 7200) |
