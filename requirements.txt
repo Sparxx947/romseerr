@@ -31,7 +31,7 @@
 # Was app.py selbst importiert. Hier von Hand pflegen; alles darunter ist erzeugt.
 # `werkzeug`, `cryptography` und `py-vapid` standen bis #380 nicht hier, obwohl app.py
 # sie importiert — sie kamen als Beifang von Flask bzw. pywebpush mit.
-cryptography==50.0.1
+cryptography==50.0.2
 flask==3.1.3
 py-vapid==1.9.4
 pywebpush==2.5.0
@@ -47,14 +47,14 @@ attrs==26.1.0
 blinker==1.9.0
 certifi==2026.7.22
 cffi==2.1.1
-charset-normalizer==3.5.1
+charset-normalizer==3.5.2
 click==8.5.0
 frozenlist==1.8.0
 http-ece==1.2.1
 idna==3.20
 itsdangerous==2.2.0
 jinja2==3.1.6
-markupsafe==3.0.3
+markupsafe==3.0.4
 multidict==6.7.1
 propcache==0.5.4
 pycparser==3.0
