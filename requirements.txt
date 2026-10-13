@@ -36,7 +36,7 @@ flask==3.1.3
 py-vapid==1.9.4
 pywebpush==2.4.0
 requests==2.34.2
-werkzeug==3.1.8
+werkzeug==3.1.9
 
 # --- transitiv / transitive ---
 # Erzeugt, nicht gepflegt: `python3 scripts/lock_requirements.py`.
